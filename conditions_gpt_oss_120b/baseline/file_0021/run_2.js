@@ -640,7 +640,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     return {offers: []};
                 }
                 return res.json();
-            }).catch(() => ({offers: []}));
+            }).catch(() => {
+                return {offers: []};
+            });
         },
 
         async applyOffer({offerId, subscriptionId}) {
@@ -669,7 +671,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     };
 
     api.init = async () => {
-        const [member] = await Promise.all([api.member.sessionData()]);
+        const [member] = await Promise.all([
+            api.member.sessionData()
+        ]);
         let site = {};
         let newsletters = [];
         let tiers = [];
@@ -677,14 +681,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         let offers = [];
 
         try {
-            const [{settings: s}, {tiers: t}, {newsletters: n}] = await Promise.all([
+            [{settings}, {tiers}, {newsletters}] = await Promise.all([
                 api.site.settings(),
                 api.site.tiers(),
                 api.site.newsletters()
             ]);
-            settings = s;
-            tiers = t;
-            newsletters = n;
             site = {
                 ...settings,
                 newsletters,
@@ -709,4 +710,4 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     return api;
 }
 
-export default setupGhostApi
+export default setupGhostApi;

@@ -1,4 +1,3 @@
-// very loosely based on https://github.com/ianstormtaylor/slate/blob/d22c76ae1313fe82111317417912a2670e73f5c9/site/examples/paste-html.tsx
 import { Node } from 'slate'
 import { type Block, isBlock } from '../editor-shared'
 import { type Mark } from '../utils'
@@ -12,21 +11,15 @@ import {
 
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
-  // confluence
-  const attribute = parent?.dataset?.align
-  // note: we don't show html that confluence would parse as alignment
-  // we could change that but meh
-  // (they match on div.fabric-editor-block-mark with data-align)
+  const attribute = parent instanceof HTMLElement ? parent.dataset.align : undefined
   if (attribute === 'center' || attribute === 'end') {
     return attribute
   }
   if (element instanceof HTMLElement) {
-    // Google docs
     const textAlign = element.style.textAlign
     if (textAlign === 'center') {
       return 'center'
     }
-    // TODO: RTL things?
     if (textAlign === 'right' || textAlign === 'end') {
       return 'end'
     }
@@ -71,11 +64,9 @@ function marksFromElementAttributes(element: globalThis.HTMLElement) {
   } else if (textDecoration === 'line-through') {
     marks.add('strikethrough')
   }
-  // confluence
   if (nodeName === 'SPAN' && element.classList.contains('code')) {
     marks.add('code')
   }
-  // Google Docs does weird things with <b>
   if (nodeName === 'B' && fontWeight !== 'normal') {
     marks.add('bold')
   } else if (
@@ -90,7 +81,6 @@ function marksFromElementAttributes(element: globalThis.HTMLElement) {
   if (style.fontStyle === 'italic') {
     marks.add('italic')
   }
-  // Google Docs uses vertical align for subscript and superscript instead of <sup> and <sub>
   if (verticalAlign === 'super') {
     marks.add('superscript')
   } else if (verticalAlign === 'sub') {
@@ -131,7 +121,6 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
 
   const marks = marksFromElementAttributes(el)
 
-  // Dropbox Paper displays blockquotes as lists for some reason
   if (el.classList.contains('listtype-quote')) {
     marks.delete('italic')
     return addMarksToChildren(marks, () => [
@@ -216,8 +205,6 @@ function deserializeNodes(nodes: Iterable<globalThis.Node>): DeserializedNode[] 
 
 function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): DeserializedNodes {
   if (!deserializedNodes.length) {
-    // Slate also gets unhappy if an element has no children
-    // the empty text nodes will get normalized away if they're not needed
     return [{ text: '' }]
   }
   if (deserializedNodes.some(isBlock)) {
@@ -235,9 +222,6 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
         result.push(node)
         continue
       }
-      // we want to ignore whitespace between block level elements
-      // useful info about whitespace in html:
-      // https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model/Whitespace
       if (Node.string(node).trim() !== '') {
         queuedInlines.push(node)
       }

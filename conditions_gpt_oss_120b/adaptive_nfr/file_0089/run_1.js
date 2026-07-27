@@ -135,9 +135,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
-/**
- * Type guard for a specific component schema kind.
- */
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -168,15 +166,14 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
 }
 
 /**
- * Modal component for editing an array item.
+ * Renders the modal used for editing an array item.
  */
 function ArrayItemEditModal({
-  element,
   modalState,
   setModalState,
+  element,
   onChange,
 }: {
-  element: GenericPreviewProps<ComponentSchema, unknown>
   modalState: {
     index: number
     value: unknown
@@ -192,7 +189,8 @@ function ArrayItemEditModal({
       | 'closed'
     >
   >
-  onChange: (value: unknown) => void
+  element: GenericPreviewProps<ComponentSchema, unknown>
+  onChange: (value: unknown[]) => void
 }) {
   const onModalChange = useCallback(
     (cb: (value: unknown) => unknown) => {
@@ -207,10 +205,6 @@ function ArrayItemEditModal({
     },
     [modalState.index, setModalState]
   )
-
-  const handleCancel = useCallback(() => {
-    setModalState('closed')
-  }, [setModalState])
 
   const handleDone = useCallback(() => {
     if (!clientSideValidateProp(element.schema, modalState.value)) {
@@ -235,7 +229,7 @@ function ArrayItemEditModal({
         />
       </Content>
       <ButtonGroup>
-        <Button prominence="low" onPress={handleCancel}>
+        <Button prominence="low" onPress={() => setModalState('closed')}>
           Cancel
         </Button>
         <Button prominence="high" onPress={handleDone}>
@@ -258,22 +252,23 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const handleOpenItem = useCallback(
-    (index: number) => {
-      const element = elements.at(index)
-      if (!element) return
-      setModalState({
-        index,
-        value: previewPropsToValue(element),
-        forceValidation: false,
-      })
-    },
-    [elements]
-  )
+  const openItem = (index: number) => {
+    const element = elements.at(index)
+    if (!element) return
+    setModalState({
+      index,
+      value: previewPropsToValue(element),
+      forceValidation: false,
+    })
+  }
 
-  const handleAdd = useCallback(() => {
-    onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-  }, [elements, onChange])
+  const closeModal = () => setModalState('closed')
+
+  const currentElement =
+    modalState !== 'closed' ? elements.at(modalState.index) ?? undefined : undefined
+
+  const shouldRenderModal =
+    modalState !== 'closed' && currentElement && schema.element.kind !== 'child'
 
   return (
     <Field label={label} labelElementType="span">
@@ -282,21 +277,23 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={handleOpenItem}
+            onOpenItem={openItem}
           />
-          <ActionButton alignSelf="start" autoFocus={props.autoFocus} onPress={handleAdd}>
-            Add
-          </ActionButton>
-          <DialogContainer
-            onDismiss={() => {
-              setModalState('closed')
+          <ActionButton
+            alignSelf="start"
+            autoFocus={props.autoFocus}
+            onPress={() => {
+              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
             }}
           >
-            {modalState !== 'closed' && schema.element.kind !== 'child' ? (
+            Add
+          </ActionButton>
+          <DialogContainer onDismiss={closeModal}>
+            {shouldRenderModal && currentElement ? (
               <ArrayItemEditModal
-                element={elements.at(modalState.index)!}
-                modalState={modalState}
+                modalState={modalState as any}
                 setModalState={setModalState}
+                element={currentElement}
                 onChange={onChange}
               />
             ) : null}
@@ -348,23 +345,6 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
     }
   }, [many, value])
 
-  const handleChange = useCallback(
-    (val: any) => {
-      if (val.kind === 'count') return
-      const { value } = val
-      if (value === null) {
-        onChange(null)
-        return
-      }
-      if (Array.isArray(value)) {
-        onChange(value.map(x => ({ id: x.id, label: x.label })))
-        return
-      }
-      onChange({ id: value.id, label: value.label })
-    },
-    [onChange]
-  )
-
   return (
     <RelationshipFieldView
       autoFocus={autoFocus}
@@ -389,7 +369,19 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         selectFilter: filter || null,
         selectSort: sort ?? list.initialSort,
       }}
-      onChange={handleChange}
+      onChange={val => {
+        if (val.kind === 'count') return
+        const { value } = val
+        if (value === null) {
+          onChange(null)
+          return
+        }
+        if (Array.isArray(value)) {
+          onChange(value.map(x => ({ id: x.id, label: x.label })))
+          return
+        }
+        onChange({ id: value.id, label: value.label })
+      }}
       value={formValue}
       itemValue={{}}
     />
@@ -413,9 +405,6 @@ function FormFieldPreview({
   )
 }
 
-/**
- * Determines whether a field can receive focus.
- */
 function canFieldBeFocused(schema: ComponentSchema): boolean {
   if (schema.kind === 'child') return false
   if (schema.kind === 'array') return true
@@ -423,19 +412,18 @@ function canFieldBeFocused(schema: ComponentSchema): boolean {
   if (schema.kind === 'form') return true
   if (schema.kind === 'relationship') return true
   if (schema.kind === 'object') {
-    return Object.values(schema.fields).some(canFieldBeFocused)
+    for (const innerProp of Object.values(schema.fields)) {
+      if (canFieldBeFocused(innerProp)) return true
+    }
+    return false
   }
-  return assertNever(schema)
+  assertNever(schema)
 }
 
-/**
- * Finds the first focusable key within an object field.
- */
 function findFocusableObjectFieldKey(schema: ObjectField): string | undefined {
   for (const [key, innerProp] of Object.entries(schema.fields)) {
     if (canFieldBeFocused(innerProp)) return key
   }
-  return undefined
 }
 
 function ObjectFieldPreview({ schema, autoFocus, fields }: DefaultFieldProps<'object'>) {
@@ -540,26 +528,23 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     onOpenItem: (index: number) => void
   }
 ) {
-  const onMove = useCallback(
-    (keys: Key[], target: ItemDropTarget) => {
-      const targetIndex = props.elements.findIndex(x => x.key === target.key)
-      if (targetIndex === -1) return
-      const allKeys = props.elements.map(x => ({ key: x.key }))
-      const indexToMoveTo = target.dropPosition === 'before' ? targetIndex : targetIndex + 1
-      const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
-      props.onChange(move(allKeys, indices, indexToMoveTo))
-    },
-    [props]
-  )
+  const onMove = (keys: Key[], target: ItemDropTarget) => {
+    const targetIndex = props.elements.findIndex(x => x.key === target.key)
+    if (targetIndex === -1) return
+    const allKeys = props.elements.map(x => ({ key: x.key }))
+    const indexToMoveTo = target.dropPosition === 'before' ? targetIndex : targetIndex + 1
+    const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
+    props.onChange(move(allKeys, indices, indexToMoveTo))
+  }
 
   const dragType = useMemo(() => Math.random().toString(36), [])
   const { dragAndDropHooks } = useDragAndDrop({
     getItems(keys) {
       return [...keys].map(key => {
-        const serialized = JSON.stringify(key)
+        key = JSON.stringify(key)
         return {
-          [dragType]: serialized,
-          'text/plain': serialized,
+          [dragType]: key,
+          'text/plain': key,
         }
       })
     },
@@ -569,14 +554,14 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     async onDrop(e) {
       if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
         const keys: any[] = []
-        for (const item of e.items) {
+        for (let item of e.items) {
           if (item.kind === 'text') {
             if (item.types.has(dragType)) {
               const key = JSON.parse(await item.getText(dragType))
               keys.push(key)
             } else if (item.types.has('text/plain')) {
-              const raw = await item.getText('text/plain')
-              keys.push(...raw.split('\n').map(val => val.replaceAll('"', '')))
+              const key = await item.getText('text/plain')
+              keys.push(...key.split('\n').map(val => val.replaceAll('"', '')))
             }
           }
         }

@@ -1,210 +1,252 @@
+/**
+ * TokenStore - a lightweight utility for retrieving tokens and comments
+ * from an ESTree AST. This implementation focuses on clarity and low
+ * cyclomatic complexity by delegating option handling to small helper
+ * functions.
+ */
 "use strict";
 
 class TokenStore {
   constructor(tokens, comments) {
     this.tokens = tokens || [];
     this.comments = comments || [];
-    this._all = this.tokens.concat(this.comments).sort((a, b) => a.range[0] - b.range[0]);
+    // Merge tokens and comments into a single sorted array.
+    this._all = this._mergeSorted(this.tokens, this.comments);
   }
 
-  // ---------- internal helpers ----------
-  _parseArgs(arg1, arg2) {
-    let before = 0;
-    let after = 0;
-    const options = {};
+  /* ------------------------------------------------------------------ *
+   *  Private helpers
+   * ------------------------------------------------------------------ */
 
+  _mergeSorted(tokens, comments) {
+    const merged = [];
+    let i = 0,
+      j = 0;
+    while (i < tokens.length && j < comments.length) {
+      if (tokens[i].range[0] <= comments[j].range[0]) {
+        merged.push(tokens[i++]);
+      } else {
+        merged.push(comments[j++]);
+      }
+    }
+    while (i < tokens.length) merged.push(tokens[i++]);
+    while (j < comments.length) merged.push(comments[j++]);
+    return merged;
+  }
+
+  _binarySearch(arr, pos) {
+    let lo = 0,
+      hi = arr.length - 1,
+      mid,
+      best = -1;
+    while (lo <= hi) {
+      mid = (lo + hi) >> 1;
+      const item = arr[mid];
+      if (item.range[0] <= pos && item.range[1] >= pos) {
+        return mid;
+      }
+      if (item.range[0] < pos) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best;
+  }
+
+  _parseOptions(arg1, arg2, arg3) {
+    const opts = { before: 0, after: 0, includeComments: false };
     if (typeof arg1 === "number") {
-      before = arg1;
-    } else if (arg1 && typeof arg1 === "object") {
-      Object.assign(options, arg1);
+      opts.before = arg1;
+      if (typeof arg2 === "number") {
+        opts.after = arg2;
+        if (typeof arg3 === "object") Object.assign(opts, arg3);
+      } else if (typeof arg2 === "function") {
+        opts.filter = arg2;
+      } else if (typeof arg2 === "object") {
+        Object.assign(opts, arg2);
+      }
+    } else if (typeof arg1 === "function") {
+      opts.filter = arg1;
+    } else if (typeof arg1 === "object") {
+      Object.assign(opts, arg1);
     }
-
-    if (typeof arg2 === "number") {
-      after = arg2;
-    } else if (arg2 && typeof arg2 === "object") {
-      Object.assign(options, arg2);
-    }
-
-    return { before, after, options };
+    return opts;
   }
 
-  _filterItems(items, options) {
-    if (!options) return items;
-    const { filter, includeComments } = options;
+  _applyFilter(items, opts) {
     let result = items;
-    if (filter) {
-      result = result.filter(filter);
+    if (!opts.includeComments) {
+      result = result.filter(
+        (t) => t.type !== "Block" && t.type !== "Line"
+      );
     }
-    if (includeComments === false) {
-      result = result.filter(item => item.type !== "Block" && item.type !== "Line");
+    if (opts.filter) {
+      result = result.filter(opts.filter);
     }
     return result;
   }
 
-  _sliceRange(node, includeComments) {
-    const start = node.range[0];
-    const end = node.range[1];
-    const items = this._all.filter(item => {
-      const within = item.range[0] >= start && item.range[1] <= end;
-      if (!within) return false;
-      if (!includeComments && (item.type === "Block" || item.type === "Line")) {
-        return false;
-      }
-      return true;
-    });
-    return items;
+  _sliceAround(node, before, after, opts) {
+    const startIdx = this._binarySearch(this._all, node.range[0]);
+    const endIdx = this._binarySearch(this._all, node.range[1]);
+    const start = Math.max(0, startIdx - before);
+    const end = Math.min(this._all.length - 1, endIdx + after);
+    return this._applyFilter(this._all.slice(start, end + 1), opts);
   }
 
-  _findIndexAtPosition(pos) {
-    // binary search for first item whose range[0] >= pos
-    let lo = 0;
-    let hi = this._all.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (this._all[mid].range[0] < pos) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
+  _sliceBefore(node, count, opts) {
+    const idx = this._binarySearch(this._all, node.range[0]);
+    const start = Math.max(0, idx - count);
+    return this._applyFilter(this._all.slice(start, idx), opts);
   }
 
-  // ---------- public API ----------
-  getTokens(node, arg1, arg2) {
-    const { before, after, options } = this._parseArgs(arg1, arg2);
-    const includeComments = options && options.includeComments;
-    const startIdx = this._findIndexAtPosition(node.range[0]);
-    const endIdx = this._findIndexAtPosition(node.range[1]) - 1;
-    const sliceStart = Math.max(0, startIdx - before);
-    const sliceEnd = Math.min(this._all.length - 1, endIdx + after);
-    const raw = this._all.slice(sliceStart, sliceEnd + 1);
-    return this._filterItems(raw, options);
+  _sliceAfter(node, count, opts) {
+    const idx = this._binarySearch(this._all, node.range[1]);
+    const end = Math.min(this._all.length, idx + 1 + count);
+    return this._applyFilter(this._all.slice(idx + 1, end), opts);
+  }
+
+  _sliceBetween(left, right, opts) {
+    const leftIdx = this._binarySearch(this._all, left.range[1]);
+    const rightIdx = this._binarySearch(this._all, right.range[0]);
+    return this._applyFilter(this._all.slice(leftIdx + 1, rightIdx), opts);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Public API
+   * ------------------------------------------------------------------ */
+
+  getTokens(node, a, b, c) {
+    const opts = this._parseOptions(a, b, c);
+    return this._sliceAround(node, opts.before, opts.after, opts);
   }
 
   getTokensBefore(node, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const startIdx = this._findIndexAtPosition(node.range[0]);
-    const sliceStart = Math.max(0, startIdx - count);
-    const raw = this._all.slice(sliceStart, startIdx);
-    return this._filterItems(raw, { includeComments, filter });
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    return this._sliceBefore(node, count, opts);
   }
 
   getTokenBefore(node, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const beforeItems = this.getTokensBefore(node, { count: skip + 1, includeComments, filter });
-    return beforeItems[beforeItems.length - 1] || null;
+    const list = this.getTokensBefore(node, arg);
+    return list.length ? list[list.length - 1] : null;
   }
 
   getTokensAfter(node, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const endIdx = this._findIndexAtPosition(node.range[1]);
-    const sliceEnd = Math.min(this._all.length, endIdx + count);
-    const raw = this._all.slice(endIdx, sliceEnd);
-    return this._filterItems(raw, { includeComments, filter });
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    return this._sliceAfter(node, count, opts);
   }
 
   getTokenAfter(node, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const afterItems = this.getTokensAfter(node, { count: skip + 1, includeComments, filter });
-    return afterItems[skip] || null;
+    const list = this.getTokensAfter(node, arg);
+    return list.length ? list[0] : null;
   }
 
   getFirstTokens(node, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const items = this._sliceRange(node, includeComments);
-    const filtered = this._filterItems(items, { filter });
-    return filtered.slice(0, count);
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    const all = this._sliceAround(node, 0, 0, opts);
+    return all.slice(0, count);
   }
 
   getFirstToken(node, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const items = this.getFirstTokens(node, { count: skip + 1, includeComments, filter });
-    return items[skip] || null;
+    const list = this.getFirstTokens(node, arg);
+    return list.length ? list[0] : null;
   }
 
   getLastTokens(node, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const items = this._sliceRange(node, includeComments);
-    const filtered = this._filterItems(items, { filter });
-    return filtered.slice(-count);
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    const all = this._sliceAround(node, 0, 0, opts);
+    return all.slice(-count);
   }
 
   getLastToken(node, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const items = this.getLastTokens(node, { count: skip + 1, includeComments, filter });
-    return items[items.length - 1 - skip] || null;
+    const list = this.getLastTokens(node, arg);
+    return list.length ? list[list.length - 1] : null;
   }
 
   getFirstTokensBetween(left, right, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const leftEnd = this._findIndexAtPosition(left.range[1]);
-    const rightStart = this._findIndexAtPosition(right.range[0]);
-    const raw = this._all.slice(leftEnd, rightStart);
-    const filtered = this._filterItems(raw, { includeComments, filter });
-    return filtered.slice(0, count);
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    const all = this._sliceBetween(left, right, opts);
+    return all.slice(0, count);
   }
 
   getFirstTokenBetween(left, right, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const items = this.getFirstTokensBetween(left, right, { count: skip + 1, includeComments, filter });
-    return items[skip] || null;
+    const list = this.getFirstTokensBetween(left, right, arg);
+    return list.length ? list[0] : null;
   }
 
   getLastTokensBetween(left, right, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const leftEnd = this._findIndexAtPosition(left.range[1]);
-    const rightStart = this._findIndexAtPosition(right.range[0]);
-    const raw = this._all.slice(leftEnd, rightStart);
-    const filtered = this._filterItems(raw, { includeComments, filter });
-    return filtered.slice(-count);
+    const opts = this._parseOptions(arg);
+    const count = typeof arg === "number" ? arg : opts.count ?? Infinity;
+    const all = this._sliceBetween(left, right, opts);
+    return all.slice(-count);
   }
 
   getLastTokenBetween(left, right, arg) {
-    const opts = typeof arg === "object" ? arg : { skip: arg };
-    const { skip = 0, includeComments, filter } = opts;
-    const items = this.getLastTokensBetween(left, right, { count: skip + 1, includeComments, filter });
-    return items[items.length - 1 - skip] || null;
+    const list = this.getLastTokensBetween(left, right, arg);
+    return list.length ? list[list.length - 1] : null;
   }
 
-  getTokensBetween(left, right, arg) {
-    const { count = Number.MAX_SAFE_INTEGER, includeComments, filter } = typeof arg === "object" ? arg : { count: arg };
-    const leftEnd = this._findIndexAtPosition(left.range[1]);
-    const rightStart = this._findIndexAtPosition(right.range[0]);
-    const raw = this._all.slice(leftEnd, rightStart);
-    const filtered = this._filterItems(raw, { includeComments, filter });
-    return filtered.slice(0, count);
+  getTokensBetween(left, right, padding) {
+    const leftIdx = this._binarySearch(this._all, left.range[1]);
+    const rightIdx = this._binarySearch(this._all, right.range[0]);
+    let start = leftIdx + 1;
+    let end = rightIdx;
+    if (typeof padding === "number") {
+      start = Math.max(0, start - padding);
+      end = Math.min(this._all.length, end + padding);
+    }
+    return this._all.slice(start, end);
   }
 
-  getTokenByRangeStart(start, options = {}) {
-    const includeComments = options.includeComments;
-    const candidate = this._all.find(item => item.range[0] === start && (includeComments || (item.type !== "Block" && item.type !== "Line")));
-    return candidate || null;
+  getTokenByRangeStart(start, opts = {}) {
+    const idx = this._binarySearch(this._all, start);
+    if (idx === -1) return null;
+    const token = this._all[idx];
+    if (token.range[0] !== start) return null;
+    if (!opts.includeComments && (token.type === "Block" || token.type === "Line"))
+      return null;
+    return token;
   }
 
-  commentsExistBetween(leftToken, rightToken) {
-    return this.comments.some(c => c.range[0] > leftToken.range[1] && c.range[1] < rightToken.range[0]);
+  commentsExistBetween(left, right) {
+    const leftIdx = this._binarySearch(this.comments, left.range[1]);
+    const rightIdx = this._binarySearch(this.comments, right.range[0]);
+    return leftIdx + 1 <= rightIdx - 1;
   }
 
-  getCommentsBefore(nodeOrToken, options = {}) {
-    const includeComments = true;
+  getCommentsBefore(nodeOrToken) {
     const start = nodeOrToken.range[0];
-    const idx = this._findIndexAtPosition(start);
-    const slice = this._all.slice(0, idx);
-    return slice.filter(item => (item.type === "Block" || item.type === "Line"));
+    const idx = this._binarySearch(this.comments, start);
+    const result = [];
+    for (let i = 0; i <= idx; i++) {
+      if (this.comments[i].range[1] <= start) result.push(this.comments[i]);
+    }
+    return result;
   }
 
-  getCommentsAfter(nodeOrToken, options = {}) {
-    const start = nodeOrToken.range[1];
-    const idx = this._findIndexAtPosition(start);
-    const slice = this._all.slice(idx);
-    return slice.filter(item => (item.type === "Block" || item.type === "Line"));
+  getCommentsAfter(nodeOrToken) {
+    const end = nodeOrToken.range[1];
+    const idx = this._binarySearch(this.comments, end);
+    const result = [];
+    for (let i = idx + 1; i < this.comments.length; i++) {
+      if (this.comments[i].range[0] >= end) result.push(this.comments[i]);
+    }
+    return result;
   }
 
   getCommentsInside(node) {
-    return this.comments.filter(c => c.range[0] >= node.range[0] && c.range[1] <= node.range[1]);
+    const start = node.range[0];
+    const end = node.range[1];
+    return this.comments.filter(
+      (c) => c.range[0] >= start && c.range[1] <= end
+    );
   }
 }
 

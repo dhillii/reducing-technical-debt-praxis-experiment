@@ -22,71 +22,13 @@ import type {
 } from '../../../../types'
 
 /**
- * Determines if the value is in its initial state and considered set.
- */
-function isInitialAndSet(value: Value): boolean {
-  return value.kind === 'initial' && (value.isSet === null || value.isSet === true)
-}
-
-/**
- * Determines if the initial value is required but not provided.
- */
-function isInitialRequired(value: Value, isRequired: boolean): boolean {
-  return value.kind === 'initial' && isRequired
-}
-
-/**
- * Determines if the editing values do not match.
- */
-function isEditingMismatch(value: Value): boolean {
-  return value.kind === 'editing' && value.confirm !== value.value
-}
-
-/**
- * Returns a length‑related validation error, if any.
- */
-function getLengthError(
-  val: string,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (val.length < validation.length.min) {
-    return validation.length.min === 1
-      ? `${fieldLabel} must not be empty`
-      : `${fieldLabel} must be at least ${validation.length.min} characters long`
-  }
-  if (validation.length.max !== null && val.length > validation.length.max) {
-    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
-  }
-  return undefined
-}
-
-/**
- * Returns a regex‑match validation error, if any.
- */
-function getMatchError(val: string, validation: Validation): string | undefined {
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
-  return undefined
-}
-
-/**
- * Returns a common‑password validation error, if any.
- */
-function getRejectCommonError(
-  val: string,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
-  }
-  return undefined
-}
-
-/**
- * Validates a password field value against the provided rules.
+ * Validate a password field value against its validation rules.
+ *
+ * @param value - The current field value.
+ * @param validation - Validation configuration.
+ * @param isRequired - Whether the field is required.
+ * @param fieldLabel - Human‑readable label for error messages.
+ * @returns An error message string or undefined if valid.
  */
 function validate(
   value: Value,
@@ -94,22 +36,106 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (isInitialAndSet(value)) {
+  if (value.kind === 'initial') {
+    return validateInitial(value, isRequired, fieldLabel)
+  }
+  return validateEditing(value, validation, fieldLabel)
+}
+
+/**
+ * Validate when the field is in its initial (non‑editing) state.
+ */
+function validateInitial(
+  value: Extract<Value, { kind: 'initial' }>,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  // If the value is already set (or indeterminate), it's valid.
+  if (value.isSet === null || value.isSet === true) {
     return undefined
   }
-  if (isInitialRequired(value, isRequired)) {
+  // Required but not set.
+  if (isRequired) {
     return `${fieldLabel} is required`
   }
-  if (isEditingMismatch(value)) {
+  return undefined
+}
+
+/**
+ * Validate when the field is being edited.
+ */
+function validateEditing(
+  value: Extract<Value, { kind: 'editing' }>,
+  validation: Validation,
+  fieldLabel: string
+): string | undefined {
+  if (value.confirm !== value.value) {
     return `The passwords do not match`
   }
-  if (value.kind === 'editing') {
-    const val = value.value
-    return (
-      getLengthError(val, validation, fieldLabel) ??
-      getMatchError(val, validation) ??
-      getRejectCommonError(val, validation, fieldLabel)
-    )
+
+  const val = value.value
+
+  return (
+    checkMinLength(val, validation.length.min, fieldLabel) ??
+    checkMaxLength(val, validation.length.max, fieldLabel) ??
+    checkMatch(val, validation.match) ??
+    checkRejectCommon(val, validation.rejectCommon, fieldLabel)
+  )
+}
+
+/**
+ * Ensure the value meets the minimum length requirement.
+ */
+function checkMinLength(
+  val: string,
+  min: number,
+  fieldLabel: string
+): string | undefined {
+  if (val.length < min) {
+    return min === 1
+      ? `${fieldLabel} must not be empty`
+      : `${fieldLabel} must be at least ${min} characters long`
+  }
+  return undefined
+}
+
+/**
+ * Ensure the value does not exceed the maximum length, if defined.
+ */
+function checkMaxLength(
+  val: string,
+  max: number | null,
+  fieldLabel: string
+): string | undefined {
+  if (max !== null && val.length > max) {
+    return `${fieldLabel} must be no longer than ${max} characters`
+  }
+  return undefined
+}
+
+/**
+ * Validate the value against a custom regular expression, if provided.
+ */
+function checkMatch(
+  val: string,
+  match: Validation['match']
+): string | undefined {
+  if (match && !match.regex.test(val)) {
+    return match.explanation
+  }
+  return undefined
+}
+
+/**
+ * Disallow common passwords, if the rule is enabled.
+ */
+function checkRejectCommon(
+  val: string,
+  rejectCommon: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (rejectCommon && dumbPasswords.check(val)) {
+    return `${fieldLabel} is too common and is not allowed`
   }
   return undefined
 }
@@ -313,9 +339,11 @@ type Value =
       confirm: string
     }
 
-export function controller(
-  config: FieldControllerConfig<PasswordFieldMeta>
-): FieldController<Value, boolean | null, { isSet?: boolean | null | undefined }> & {
+export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
+  Value,
+  boolean | null,
+  { isSet?: boolean | null | undefined }
+> & {
   validation: Validation
 } {
   const validation: Validation = {

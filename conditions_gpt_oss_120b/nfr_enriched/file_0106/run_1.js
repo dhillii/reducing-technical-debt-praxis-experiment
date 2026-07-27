@@ -12,7 +12,6 @@ const utils = require('./utils');
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
-
 /* eslint-disable no-unused-vars, no-native-reassign */
 const Date = global.Date;
 const setTimeout = global.setTimeout;
@@ -37,8 +36,6 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
- * @param {string} title
- * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -222,7 +219,6 @@ Runnable.prototype.inspect = function () {
  */
 Runnable.prototype.resetTimeout = function () {
   const ms = this.timeout() || 1e9;
-
   if (!this._enableTimeouts) {
     return;
   }
@@ -257,7 +253,6 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
-  const self = this;
   const start = new Date();
   const ctx = this.ctx;
   let finished = false;
@@ -267,27 +262,27 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const multiple = (err) => {
+  const emitMultiple = (err) => {
     if (emitted) {
       return;
     }
     emitted = true;
-    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+    this.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   };
 
   const done = (err) => {
-    const ms = self.timeout();
-    if (self.timedOut) {
+    const ms = this.timeout();
+    if (this.timedOut) {
       return;
     }
     if (finished) {
-      multiple(err || self._trace);
+      emitMultiple(err || this._trace);
       return;
     }
-    self.clearTimeout();
-    self.duration = new Date() - start;
+    this.clearTimeout();
+    this.duration = new Date() - start;
     finished = true;
-    if (!err && self.duration > ms && self._enableTimeouts) {
+    if (!err && this.duration > ms && this._enableTimeouts) {
       err = new Error('Timeout of ' + ms +
         'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
@@ -298,40 +293,30 @@ Runnable.prototype.run = function (fn) {
 
   if (this.async) {
     this.resetTimeout();
-
-    this.skip = function asyncSkip () {
+    this.skip = () => {
       done(new Pending('async skip call'));
       throw new Pending('async skip; aborting execution');
     };
-
     if (this.allowUncaught) {
-      invokeAsync(this, ctx);
-      return;
-    }
-    try {
-      invokeAsync(this, ctx);
-    } catch (err) {
-      emitted = true;
-      done(utils.getError(err));
+      callAsync(this, ctx, done);
+    } else {
+      try {
+        callAsync(this, ctx, done);
+      } catch (err) {
+        emitted = true;
+        done(utils.getError(err));
+      }
     }
     return;
   }
 
   if (this.allowUncaught) {
-    if (this.isPending()) {
-      done();
-    } else {
-      invokeSyncOrPromise(this, ctx);
-    }
+    handleAllowUncaught(this, ctx, done);
     return;
   }
 
   try {
-    if (this.isPending()) {
-      done();
-    } else {
-      invokeSyncOrPromise(this, ctx);
-    }
+    handleSyncOrPromise(this, ctx, done);
   } catch (err) {
     emitted = true;
     done(utils.getError(err));
@@ -339,54 +324,83 @@ Runnable.prototype.run = function (fn) {
 };
 
 /**
- * Execute an asynchronous test function with a callback.
+ * Execute a function that returns a promise or calls done asynchronously.
  *
  * @param {Runnable} runnable
  * @param {Object} ctx
+ * @param {Function} done
  */
-function invokeAsync (runnable, ctx) {
-  const fn = runnable.fn;
-  const result = fn.call(ctx, function (err) {
+function callAsync (runnable, ctx, done) {
+  const result = runnable.fn.call(ctx, function (err) {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
-      runnable.callback(err);
-      return;
+      return done(err);
     }
     if (err) {
       if (Object.prototype.toString.call(err) === '[object Object]') {
-        runnable.callback(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
-      } else {
-        runnable.callback(new Error('done() invoked with non-Error: ' + err));
+        return done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
       }
-      return;
+      return done(new Error('done() invoked with non-Error: ' + err));
     }
     if (result && utils.isPromise(result)) {
-      runnable.callback(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-      return;
+      return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
     }
-    runnable.callback();
+    done();
   });
 }
 
 /**
- * Execute a synchronous or promise-returning test function.
+ * Handle execution when allowUncaught is true.
  *
  * @param {Runnable} runnable
  * @param {Object} ctx
+ * @param {Function} done
  */
-function invokeSyncOrPromise (runnable, ctx) {
-  const fn = runnable.fn;
-  const result = fn.call(ctx);
+function handleAllowUncaught (runnable, ctx, done) {
+  if (runnable.isPending()) {
+    done();
+  } else {
+    callFn(runnable, ctx, done);
+  }
+}
+
+/**
+ * Handle synchronous functions or promise-returning functions.
+ *
+ * @param {Runnable} runnable
+ * @param {Object} ctx
+ * @param {Function} done
+ */
+function handleSyncOrPromise (runnable, ctx, done) {
+  if (runnable.isPending()) {
+    done();
+  } else {
+    callFn(runnable, ctx, done);
+  }
+}
+
+/**
+ * Execute a function and handle promise results.
+ *
+ * @param {Runnable} runnable
+ * @param {Object} ctx
+ * @param {Function} done
+ */
+function callFn (runnable, ctx, done) {
+  const result = runnable.fn.call(ctx);
   if (result && typeof result.then === 'function') {
     runnable.resetTimeout();
-    result.then(
-      () => runnable.callback(),
-      (reason) => runnable.callback(reason || new Error('Promise rejected with no or falsy reason'))
-    );
+    result
+      .then(() => {
+        done();
+        return null; // silence bluebird warnings
+      })
+      .catch((reason) => {
+        done(reason || new Error('Promise rejected with no or falsy reason'));
+      });
   } else {
     if (runnable.asyncOnly) {
-      runnable.callback(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      return;
+      return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
     }
-    runnable.callback();
+    done();
   }
 }

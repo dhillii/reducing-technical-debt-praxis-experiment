@@ -1860,6 +1860,53 @@ describe("ast-utils", () => {
 			false,
 		];
 
+		describe("isOpeningBraceToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isOpeningBraceToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotOpeningBraceToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotOpeningBraceToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
 		describe("isOpeningBracketToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
@@ -2257,8 +2304,8 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: 2n,
-						bigint: "2",
+						value: 1n,
+						bigint: "1",
 					},
 					nodeB: {
 						type: "Literal",

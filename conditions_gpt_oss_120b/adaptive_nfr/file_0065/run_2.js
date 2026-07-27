@@ -673,7 +673,8 @@ function getInvocationLocation(relative = getInvocationLocation) {
 		};
 	};
 	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	// Access stack to trigger Error.prepareStackTrace in Node.js
+	dummyObject.stack;
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -1095,7 +1096,7 @@ class RuleTester {
 		/**
 		 * Runs a hook on the given item when it's assigned to the given property
 		 * @param {Object} item Item to run the hook on
-		 * @param {string} prop The property having the hook assigned
+		 * @param {string} prop The property having the hook assigned to
 		 * @throws {Error} If the property is not a function or that function throws an error
 		 * @returns {void}
 		 * @private

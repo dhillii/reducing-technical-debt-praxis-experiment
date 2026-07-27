@@ -145,7 +145,7 @@ Runner.prototype.grepTotal = function (suite) {
  * @api private
  */
 Runner.prototype.globalProps = function () {
-  const props = Object.keys(global);
+  let props = Object.keys(global);
 
   // non-enumerables
   for (let i = 0; i < globals.length; ++i) {
@@ -402,7 +402,7 @@ Runner.prototype.hookDown = function (name, fn) {
  * @api private
  */
 Runner.prototype.parents = function () {
-  let suite = this.suite;
+  const suite = this.suite;
   const suites = [];
   while (suite.parent) {
     suite = suite.parent;
@@ -454,7 +454,7 @@ Runner.prototype.runTest = function (fn) {
  */
 Runner.prototype.runTests = function (suite, fn) {
   const self = this;
-  let tests = suite.tests.slice();
+  const tests = suite.tests.slice();
   let test;
 
   function hookErr (_, errSuite, after) {
@@ -706,18 +706,18 @@ Runner.prototype.uncaught = function (err) {
   }
   err.uncaught = true;
 
-  const runnable = this.currentRunnable;
+  let runnable = this.currentRunnable;
 
   if (!runnable) {
-    const newRunnable = new Runnable('Uncaught error outside test suite');
-    newRunnable.parent = this.suite;
+    runnable = new Runnable('Uncaught error outside test suite');
+    runnable.parent = this.suite;
 
     if (this.started) {
-      this.fail(newRunnable, err);
+      this.fail(runnable, err);
     } else {
       // Can't recover from this failure
       this.emit('start');
-      this.fail(newRunnable, err);
+      this.fail(runnable, err);
       this.emit('end');
     }
 

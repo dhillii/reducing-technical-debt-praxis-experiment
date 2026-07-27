@@ -111,9 +111,8 @@ function DeleteButton({
           onPrimaryAction={handleDelete}
         >
           <Text>
-            Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be
-            undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            ? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -128,7 +127,7 @@ function DeleteButton({
 }
 
 /**
- * Simple not‑found UI.
+ * Generic "not found" UI component.
  */
 function ItemNotFound(props: PropsWithChildren) {
   return (
@@ -214,9 +213,9 @@ function ItemForm({
   const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
-    const hasInvalid = invalidFields.size !== 0
-    setForceValidation(hasInvalid)
-    if (hasInvalid) return
+    const needsValidation = invalidFields.size !== 0
+    setForceValidation(needsValidation)
+    if (needsValidation) return
 
     const { error: _error } = await update({
       variables: {
@@ -248,6 +247,7 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/* Workaround for react-aria "bug" where pressing enter in a form field moves focus to the submit button. */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -313,18 +313,41 @@ function ItemForm({
 }
 
 /**
- * Determines the appropriate not‑found UI based on list configuration.
+ * Determines navigation after an action based on its configuration.
  */
-function renderItemNotFound(list: ListMeta, itemId: string | undefined): JSX.Element {
-  const isSingleton = list.isSingleton
-  const hideCreate = list.hideCreate
+function handleNavigation(
+  navigation: ActionMeta['itemView']['navigation'],
+  resultId: string | null,
+  itemId: string | undefined,
+  list: ListMeta,
+  routerInstance: ReturnType<typeof useRouter>,
+  refetch: () => void
+) {
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    refetch()
+  } else if (navigation === 'follow' && resultId) {
+    routerInstance.push(`/${list.path}/${resultId}`)
+  } else {
+    routerInstance.push(list.isSingleton ? '/' : `/${list.path}`)
+  }
+}
 
-  if (isSingleton) {
+/**
+ * Renders the appropriate "Item not found" UI based on list configuration.
+ */
+function renderItemNotFound({
+  list,
+  itemId,
+}: {
+  list: ListMeta
+  itemId: string | undefined
+}) {
+  if (list.isSingleton) {
     if (itemId === '1') {
       return (
         <ItemNotFound>
           <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-          {!hideCreate && <CreateButtonLink list={list} />}
+          {!list.hideCreate && <CreateButtonLink list={list} />}
         </ItemNotFound>
       )
     }
@@ -340,37 +363,18 @@ function renderItemNotFound(list: ListMeta, itemId: string | undefined): JSX.Ele
   return (
     <ItemNotFound>
       <Text>
-        The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to it.
+        The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+        access to it.
       </Text>
     </ItemNotFound>
   )
 }
 
 /**
- * Handles navigation after an action is performed.
+ * Returns a component that renders the item page.
  */
-function handleActionNavigation(
-  action: ActionMeta,
-  resultId: string | null,
-  currentItemId: string | undefined,
-  list: ListMeta,
-  routerInstance: ReturnType<typeof useRouter>,
-  refetch: () => void
-) {
-  const { navigation } = action.itemView
+export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-  if ((navigation === 'follow' && resultId === currentItemId) || navigation === 'refetch') {
-    refetch()
-  } else if (navigation === 'follow' && resultId) {
-    routerInstance.push(`/${list.path}/${resultId}`)
-  } else {
-    routerInstance.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-}
-
-/**
- * Main page component for an item.
- */
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const routerInstance = useRouter()
@@ -393,9 +397,9 @@ function ItemPage({ listKey }: ItemPageProps) {
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
     const actionModes: Record<string, string> = {}
-    const fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> = {}
-    const fieldPositions: Record<string, 'form' | 'sidebar'> = {}
-    const isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>> = {}
+    const fieldModes: Record<string, string> = {}
+    const fieldPositions: Record<string, string> = {}
+    const isRequireds: Record<string, any> = {}
 
     for (const [k, v] of Object.entries(list.actions)) {
       actionModes[k] = v.itemView.actionMode
@@ -407,7 +411,14 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
 
     for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
-      if (!field?.itemView || !field.key) continue
+      if (
+        !field?.itemView ||
+        !field.key ||
+        !field.itemView.fieldMode ||
+        !field.itemView.fieldPosition ||
+        field.itemView.isRequired === undefined
+      )
+        continue
       fieldModes[field.key] = field.itemView.fieldMode
       fieldPositions[field.key] = field.itemView.fieldPosition
       isRequireds[field.key] = field.itemView.isRequired
@@ -432,7 +443,14 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [data?.keystone?.adminMeta, list.actions, list.fields])
 
   const onAction = (action: ActionMeta, resultId: string | null) => {
-    handleActionNavigation(action, resultId, itemId, list, routerInstance, refetch)
+    handleNavigation(
+      action.itemView.navigation,
+      resultId,
+      itemId,
+      list,
+      routerInstance,
+      refetch
+    )
   }
 
   return (
@@ -457,7 +475,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderItemNotFound(list, itemId)}
+            {item == null && renderItemNotFound({ list, itemId })}
           </Box>
           {initialValue && (
             <ItemForm
@@ -475,5 +493,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-
-export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />

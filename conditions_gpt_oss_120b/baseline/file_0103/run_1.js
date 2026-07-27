@@ -192,9 +192,7 @@ Lawnchair.adapter('indexed-db', (function(){
             req.onsuccess = req.onerror = null;
             // exists iff req.result is not null
             // XXX but firefox returns undefined instead, sigh XXX
-            let undef;
-            self.lambda(callback).call(self, event.target.result !== null &&
-                                             event.target.result !== undef);
+            self.lambda(callback).call(self, event.target.result !== null && event.target.result !== undefined);
         };
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
@@ -265,12 +263,11 @@ Lawnchair.adapter('indexed-db', (function(){
 
         let toDelete = keyOrArray; 
         if (!this.isArray(keyOrArray)) {
-          toDelete=[keyOrArray];
+          toDelete = [keyOrArray];
         }
 
-
         const win = function () {
-          if (callback) self.lambda(callback).call(self)
+          if (callback) self.lambda(callback).call(self);
         };
 
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
@@ -278,7 +275,7 @@ Lawnchair.adapter('indexed-db', (function(){
         for (let i = 0; i < toDelete.length; i++) {
           const delKey = toDelete[i].key ? toDelete[i].key : toDelete[i];
           os['delete'](delKey);
-        };
+        }
 
         os.transaction.oncomplete = win;
         os.transaction.onabort = fail;
@@ -295,7 +292,7 @@ Lawnchair.adapter('indexed-db', (function(){
         }
         
         const self = this;
-        const win  = callback ? function() { self.lambda(callback).call(self) } : function(){};
+        const win  = callback ? () => { self.lambda(callback).call(self) } : () => {};
         
         try {
           const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);

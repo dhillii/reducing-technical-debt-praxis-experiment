@@ -12,10 +12,12 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 /**
- * Abstract base class for all data types.
+ * Base abstract data type.
+ * @constructor
  */
 function ABSTRACT() {
-  // intentionally empty – serves as a base prototype
+  // placeholder to avoid empty function body
+  this._abstract = true;
 }
 ABSTRACT.prototype.dialectTypes = '';
 
@@ -37,36 +39,6 @@ ABSTRACT.prototype.stringify = function stringify(value, options) {
   }
   return value;
 };
-
-/**
- * Resolve SQL type for TEXT based on length.
- * @param {string} length
- * @returns {string}
- */
-function resolveTextSql(length) {
-  const map = {
-    tiny: 'TINYTEXT',
-    medium: 'MEDIUMTEXT',
-    long: 'LONGTEXT'
-  };
-  const key = length && typeof length === 'string' ? length.toLowerCase() : '';
-  return map[key] || 'TEXT';
-}
-
-/**
- * Resolve SQL type for BLOB based on length.
- * @param {string} length
- * @returns {string}
- */
-function resolveBlobSql(length) {
-  const map = {
-    tiny: 'TINYBLOB',
-    medium: 'MEDIUMBLOB',
-    long: 'LONGBLOB'
-  };
-  const key = length && typeof length === 'string' ? length.toLowerCase() : '';
-  return map[key] || 'BLOB';
-}
 
 function STRING(length, binary) {
   const options = typeof length === 'object' && length || { length, binary };
@@ -119,8 +91,18 @@ function TEXT(length) {
 inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
+const textSqlMap = {
+  tiny: 'TINYTEXT',
+  medium: 'MEDIUMTEXT',
+  long: 'LONGTEXT'
+};
+/**
+ * Returns the SQL type for TEXT based on length.
+ * @returns {string}
+ */
 TEXT.prototype.toSql = function toSql() {
-  return resolveTextSql(this._length);
+  const key = this._length.toLowerCase();
+  return textSqlMap[key] || this.key;
 };
 TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
@@ -291,7 +273,8 @@ for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
       return "'NaN'";
-    } else if (!isFinite(value)) {
+    }
+    if (!isFinite(value)) {
       const sign = value < 0 ? '-' : '';
       return "'" + sign + "Infinity'";
     }
@@ -458,8 +441,18 @@ function BLOB(length) {
 }
 inherits(BLOB, ABSTRACT);
 BLOB.prototype.key = BLOB.key = 'BLOB';
+const blobSqlMap = {
+  tiny: 'TINYBLOB',
+  medium: 'MEDIUMBLOB',
+  long: 'LONGBLOB'
+};
+/**
+ * Returns the SQL type for BLOB based on length.
+ * @returns {string}
+ */
 BLOB.prototype.toSql = function toSql() {
-  return resolveBlobSql(this._length);
+  const key = this._length.toLowerCase();
+  return blobSqlMap[key] || this.key;
 };
 BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
@@ -703,7 +696,7 @@ for (const helper of Object.keys(helpers)) {
 }
 
 /**
- * DataTypes collection exposing constructors and shortcuts.
+ * A convenience class holding commonly used data types.
  */
 const DataTypes = module.exports = {
   ABSTRACT,

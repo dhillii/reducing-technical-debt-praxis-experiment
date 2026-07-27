@@ -226,33 +226,31 @@ module.exports = class Tier {
     }
 
     /**
+     * Create a new Tier instance from raw data.
+     *
      * @param {any} data
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const {resolvedId, isNew} = resolveId(data);
-
-        const type = validateType(data.type ?? 'paid');
-
-        const tierData = {
-            id: resolvedId,
-            slug: validateField(data.slug, validateSlug),
-            name: validateField(data.name, validateName),
-            description: validateField(data.description, validateDescription, null),
-            welcome_page_url: validateField(data.welcomePageURL, validateWelcomePageURL, null),
-            status: validateField(data.status, validateStatus, 'active'),
-            visibility: validateField(data.visibility, validateVisibility, 'public'),
-            type,
-            trial_days: validateField(data.trialDays, (v) => validateTrialDays(v, type), 0),
-            currency: validateField(data.currency, (v) => validateCurrency(v, type), null),
-            monthly_price: validateField(data.monthlyPrice, (v) => validateMonthlyPrice(v, type), null),
-            yearly_price: validateField(data.yearlyPrice, (v) => validateYearlyPrice(v, type), null),
-            created_at: validateField(data.createdAt, validateCreatedAt),
-            updated_at: validateField(data.updatedAt, validateUpdatedAt, null),
-            benefits: validateField(data.benefits, validateBenefits, [])
-        };
-
-        const tier = new Tier(tierData);
+        const {id, isNew} = resolveId(data.id);
+        const resolved = resolveFields(data);
+        const tier = new Tier({
+            id,
+            slug: resolved.slug,
+            name: resolved.name,
+            description: resolved.description,
+            welcome_page_url: resolved.welcomePageURL,
+            status: resolved.status,
+            visibility: resolved.visibility,
+            type: resolved.type,
+            trial_days: resolved.trialDays,
+            currency: resolved.currency,
+            monthly_price: resolved.monthlyPrice,
+            yearly_price: resolved.yearlyPrice,
+            created_at: resolved.createdAt,
+            updated_at: resolved.updatedAt,
+            benefits: resolved.benefits
+        });
 
         if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
@@ -263,19 +261,20 @@ module.exports = class Tier {
 };
 
 /**
- * Resolve the tier ID, handling creation of a new ObjectID when necessary.
- * @param {any} data
- * @returns {{resolvedId: ObjectID, isNew: boolean}}
+ * Resolve the Tier ID, handling creation of a new ObjectID when necessary.
+ *
+ * @param {any} rawId
+ * @returns {{id: ObjectID, isNew: boolean}}
  */
-function resolveId(data) {
-    if (!data.id) {
-        return {resolvedId: new ObjectID(), isNew: true};
+function resolveId(rawId) {
+    if (!rawId) {
+        return {id: new ObjectID(), isNew: true};
     }
-    if (typeof data.id === 'string') {
-        return {resolvedId: ObjectID.createFromHexString(data.id), isNew: false};
+    if (typeof rawId === 'string') {
+        return {id: ObjectID.createFromHexString(rawId), isNew: false};
     }
-    if (data.id instanceof ObjectID) {
-        return {resolvedId: data.id, isNew: false};
+    if (rawId instanceof ObjectID) {
+        return {id: rawId, isNew: false};
     }
     throw new ValidationError({
         message: 'Invalid ID provided for Tier'
@@ -283,17 +282,43 @@ function resolveId(data) {
 }
 
 /**
- * Validate a field value, applying a default when the value is undefined.
- * @template T
- * @param {any} value
- * @param {(v: any) => T} validator
- * @param {any} [defaultValue]
- * @returns {T}
+ * Validate and normalize all Tier fields, applying defaults where appropriate.
+ *
+ * @param {any} data
+ * @returns {object}
  */
-function validateField(value, validator, defaultValue) {
-    const hasValue = value !== undefined;
-    const finalValue = hasValue ? value : defaultValue;
-    return validator(finalValue);
+function resolveFields(data) {
+    const name = validateName(data.name);
+    const slug = validateSlug(data.slug);
+    const description = validateDescription(data.description);
+    const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
+    const status = validateStatus(data.status || 'active');
+    const visibility = validateVisibility(data.visibility || 'public');
+    const type = validateType(data.type || 'paid');
+    const currency = validateCurrency(data.currency ?? null, type);
+    const trialDays = validateTrialDays(data.trialDays ?? 0, type);
+    const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
+    const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
+    const createdAt = validateCreatedAt(data.createdAt);
+    const updatedAt = validateUpdatedAt(data.updatedAt);
+    const benefits = validateBenefits(data.benefits);
+
+    return {
+        slug,
+        name,
+        description,
+        welcomePageURL,
+        status,
+        visibility,
+        type,
+        trialDays,
+        currency,
+        monthlyPrice,
+        yearlyPrice,
+        createdAt,
+        updatedAt,
+        benefits
+    };
 }
 
 function validateSlug(value) {

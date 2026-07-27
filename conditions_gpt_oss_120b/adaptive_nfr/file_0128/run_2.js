@@ -15,9 +15,10 @@ const {
 
 /**
  * Transform a value or array of values to an array of string IDs.
- * @param {any|any[]} array
- * @param {string} pk
- * @returns {string[]}
+ *
+ * @param {any|any[]} array - The value(s) to transform.
+ * @param {string} pk - Primary key field name.
+ * @returns {string[]} Array of string IDs.
  */
 const transformToArrayID = (array, pk) => {
   if (_.isArray(array)) {
@@ -34,6 +35,11 @@ const removeUndefinedKeys = (obj = {}) => _.pickBy(obj, _.negate(_.isUndefined))
 
 /**
  * Add a morph relation.
+ *
+ * @param {Object} model - Mongoose model.
+ * @param {Object} params - Relation parameters.
+ * @param {Object} [options] - Options.
+ * @param {any} [options.session=null] - Transaction session.
  */
 const addRelationMorph = async (model, params, { session = null } = {}) => {
   const { id, alias, refId, ref, field, filter } = params;
@@ -57,6 +63,11 @@ const addRelationMorph = async (model, params, { session = null } = {}) => {
 
 /**
  * Remove a morph relation.
+ *
+ * @param {Object} model - Mongoose model.
+ * @param {Object} params - Relation parameters.
+ * @param {Object} [options] - Options.
+ * @param {any} [options.session=null] - Transaction session.
  */
 const removeRelationMorph = async (model, params, { session = null } = {}) => {
   const { alias } = params;
@@ -95,214 +106,903 @@ const removeRelationMorph = async (model, params, { session = null } = {}) => {
 };
 
 /**
- * Handlers for different association natures during update.
+ * Process attribute based on association nature.
+ *
+ * @param {Object} ctx - Context containing helpers and state.
+ * @param {Object} ctx.entry - Current DB entry.
+ * @param {Object} ctx.relationUpdates - Array collecting async updates.
+ * @param {Object} ctx.session - Transaction session.
+ * @param {string} attribute - Attribute name.
+ * @param {any} currentValue - Current stored value.
+ * @param {any} newValue - New value from params.
+ * @param {Object} association - Association metadata.
+ * @param {Object} details - Attribute details.
+ * @param {Object} model - Current model (this).
+ * @returns {Object} Updated accumulator.
  */
-const natureHandlers = {
-  oneWay: ({
-    acc,
-    attribute,
-    newValue,
-    assocModel,
-  }) => _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue)),
-
-  oneToOne: ({
-    acc,
-    attribute,
-    newValue,
-    currentValue,
-    assocModel,
-    details,
-    primaryKeyValue,
-    relationUpdates,
-    session,
-  }) => {
-    if (currentValue === newValue) return acc;
-
-    if (_.isNull(newValue)) {
-      const updatePromise = assocModel.updateOne(
-        {
-          [assocModel.primaryKey]: getValuePrimaryKey(currentValue, assocModel.primaryKey),
-        },
-        { [details.via]: null },
-        { session }
-      );
-      relationUpdates.push(updatePromise);
-      return _.set(acc, attribute, null);
-    }
-
-    const updateLink = this.updateOne(
-      { [attribute]: new mongoose.Types.ObjectId(newValue) },
-      { [attribute]: null },
-      { session }
-    ).then(() => {
-      return assocModel.updateOne(
-        {
-          [this.primaryKey]: new mongoose.Types.ObjectId(newValue),
-        },
-        { [details.via]: primaryKeyValue },
-        { session }
-      );
-    });
-
-    relationUpdates.push(updateLink);
-    return _.set(acc, attribute, newValue);
-  },
-
-  oneToMany: ({
-    acc,
-    attribute,
-    newValue,
-    currentValue,
-    assocModel,
-    details,
-    primaryKeyValue,
-    relationUpdates,
-    session,
-  }) => {
-    const toRemove = _.differenceWith(currentValue, newValue, (a, b) => {
-      return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
-    });
-
-    const updatePromise = assocModel
-      .updateMany(
-        {
-          [assocModel.primaryKey]: {
-            $in: toRemove.map(val => new mongoose.Types.ObjectId(val[assocModel.primaryKey] || val)),
-          },
-        },
-        { [details.via]: null },
-        { session }
-      )
-      .then(() => {
-        return assocModel.updateMany(
+const processAttribute = ({
+  entry,
+  relationUpdates,
+  session,
+  attribute,
+  currentValue,
+  newValue,
+  association,
+  details,
+  model,
+}) => {
+  const primaryKeyValue = getValuePrimaryKey(entry, model.primaryKey);
+  const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
+  const handlers = {
+    oneWay: () => _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue)),
+    manyToOne: () => _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue)),
+    oneToOne: () => {
+      if (currentValue === newValue) return acc;
+      if (_.isNull(newValue)) {
+        const upd = assocModel.updateOne(
           {
-            [assocModel.primaryKey]: {
-              $in: newValue.map(val => new mongoose.Types.ObjectId(val[assocModel.primaryKey] || val)),
-            },
+            [assocModel.primaryKey]: getValuePrimaryKey(currentValue, assocModel.primaryKey),
           },
-          { [details.via]: primaryKeyValue },
+          { [details.via]: null },
           { session }
         );
+        relationUpdates.push(upd);
+        return _.set(acc, attribute, null);
+      }
+      const link = model
+        .updateOne(
+          { [attribute]: new mongoose.Types.ObjectId(newValue) },
+          { [attribute]: null },
+          { session }
+        )
+        .then(() =>
+          assocModel.updateOne(
+            { [model.primaryKey]: new mongoose.Types.ObjectId(newValue) },
+            { [details.via]: primaryKeyValue },
+            { session }
+          )
+        );
+      relationUpdates.push(link);
+      return _.set(acc, attribute, newValue);
+    },
+    oneToMany: () => {
+      const toRemove = _.differenceWith(currentValue, newValue, (a, b) => {
+        return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
       });
+      const upd = assocModel
+        .updateMany(
+          {
+            [assocModel.primaryKey]: {
+              $in: toRemove.map(v => new mongoose.Types.ObjectId(v[assocModel.primaryKey] || v)),
+            },
+          },
+          { [details.via]: null },
+          { session }
+        )
+        .then(() =>
+          assocModel.updateMany(
+            {
+              [assocModel.primaryKey]: {
+                $in: newValue.map(v => new mongoose.Types.ObjectId(v[assocModel.primaryKey] || v)),
+              },
+            },
+            { [details.via]: primaryKeyValue },
+            { session }
+          )
+        );
+      relationUpdates.push(upd);
+      return acc;
+    },
+    manyWay: () => handlers.manyToMany(),
+    manyToMany: () => {
+      if (association.dominant) {
+        return _.set(
+          acc,
+          attribute,
+          newValue ? newValue.map(v => v[assocModel.primaryKey] || v) : newValue
+        );
+      }
+      const upd = assocModel
+        .updateMany(
+          {
+            [assocModel.primaryKey]: {
+              $in: currentValue.map(v => new mongoose.Types.ObjectId(v[assocModel.primaryKey] || v)),
+            },
+          },
+          {
+            $pull: {
+              [association.via]: new mongoose.Types.ObjectId(primaryKeyValue),
+            },
+          },
+          { session }
+        )
+        .then(() =>
+          assocModel.updateMany(
+            {
+              [assocModel.primaryKey]: {
+                $in: newValue
+                  ? newValue.map(v => new mongoose.Types.ObjectId(v[assocModel.primaryKey] || v))
+                  : newValue,
+              },
+            },
+            {
+              $addToSet: { [association.via]: [primaryKeyValue] },
+            },
+            { session }
+          )
+        );
+      relationUpdates.push(upd);
+      return acc;
+    },
+    manyMorphToMany: () => handleMorphMany({ entry, relationUpdates, session, newValue, association, model }),
+    manyMorphToOne: () => handlers.manyMorphToMany(),
+    oneToManyMorph: () => handleMorphOneToMany({ entry, relationUpdates, session, currentValue, newValue, details, association, model }),
+    manyToManyMorph: () => handlers.oneToManyMorph(),
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorphToOne: () => acc,
+    oneMorphToMany: () => acc,
+    oneMorph: () => acc,
+  };
 
-    relationUpdates.push(updatePromise);
-    return acc;
-  },
-
-  manyToOne: ({
-    acc,
-    attribute,
-    newValue,
-    assocModel,
-  }) => _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue)),
-
-  manyWay: handleManyToManyOrManyWay,
-  manyToMany: handleManyToManyOrManyWay,
-
-  manyMorphToMany: handleManyMorph,
-  manyMorphToOne: handleManyMorph,
-
-  oneToManyMorph: handleOneMorph,
-  manyToManyMorph: handleOneMorph,
-
-  oneMorphToOne: () => {},
-  oneMorphToMany: () => {},
+  const handler = handlers[association.nature];
+  if (handler) {
+    return handler();
+  }
+  return acc;
 };
 
 /**
- * Handler for many-to-many and many-way relations.
+ * Handle manyMorph (manyMorphToMany / manyMorphToOne) updates.
+ *
+ * @param {Object} ctx - Context.
  */
-function handleManyToManyOrManyWay({
-  acc,
-  attribute,
-  newValue,
-  currentValue,
-  assocModel,
-  association,
-  primaryKeyValue,
-  relationUpdates,
-  session,
-}) {
-  if (association.dominant) {
-    return _.set(
-      acc,
-      attribute,
-      newValue ? newValue.map(val => val[assocModel.primaryKey] || val) : newValue
-    );
-  }
-
-  const updatePromise = assocModel
-    .updateMany(
-      {
-        [assocModel.primaryKey]: {
-          $in: currentValue.map(
-            val => new mongoose.Types.ObjectId(val[assocModel.primaryKey] || val)
-          ),
-        },
-      },
-      {
-        $pull: {
-          [association.via]: new mongoose.Types.ObjectId(primaryKeyValue),
-        },
-      },
-      { session }
-    )
-    .then(() => {
-      return assocModel.updateMany(
-        {
-          [assocModel.primaryKey]: {
-            $in: newValue
-              ? newValue.map(val => new mongoose.Types.ObjectId(val[assocModel.primaryKey] || val))
-              : newValue,
-          },
-        },
-        {
-          $addToSet: { [association.via]: [primaryKeyValue] },
-        },
-        { session }
-      );
-    });
-
-  relationUpdates.push(updatePromise);
-  return acc;
-}
-
-/**
- * Handler for many morph relations.
- */
-function handleManyMorph({
-  acc,
-  attribute,
-  newValue,
+const handleMorphMany = async ({
   entry,
-  association,
   relationUpdates,
   session,
-}) {
+  newValue,
+  association,
+  model,
+}) => {
   newValue.forEach(obj => {
     const refModel = strapi.db.getModel(obj.ref, obj.source);
 
     const createRelation = () => {
-      return addRelationMorph(this, {
-        id: entry[this.primaryKey],
-        alias: association.alias,
-        ref: obj.kind || refModel.globalId,
-        refId: new mongoose.Types.ObjectId(obj.refId),
-        field: obj.field,
-        filter: association.filter,
-      }, { session });
-    };
-
-    const reverseAssoc = refModel.associations.find(assoc => assoc.alias === obj.field);
-    if (reverseAssoc?.nature === 'oneToManyMorph') {
-      relationUpdates.push(
-        removeRelationMorph(this, {
+      return addRelationMorph(
+        model,
+        {
+          id: entry[model.primaryKey],
           alias: association.alias,
           ref: obj.kind || refModel.globalId,
           refId: new mongoose.Types.ObjectId(obj.refId),
           field: obj.field,
           filter: association.filter,
-        }, { session })
+        },
+        { session }
+      );
+    };
+
+    const reverseAssoc = refModel.associations.find(assoc => assoc.alias === obj.field);
+    if (reverseAssoc?.nature === 'oneToManyMorph') {
+      relationUpdates.push(
+        removeRelationMorph(
+          model,
+          {
+            alias: association.alias,
+            ref: obj.kind || refModel.globalId,
+            refId: new mongoose.Types.ObjectId(obj.refId),
+            field: obj.field,
+            filter: association.filter,
+          },
+          { session }
+        )
           .then(createRelation)
           .then(() => {
             return refModel.updateMany(
@@ -310,7 +1010,7 @@ function handleManyMorph({
                 [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
               },
               {
-                [obj.field]: new mongoose.Types.ObjectId(entry[this.primaryKey]),
+                [obj.field]: new mongoose.Types.ObjectId(entry[model.primaryKey]),
               },
               { session }
             );
@@ -324,7 +1024,7 @@ function handleManyMorph({
               [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
             },
             {
-              $push: { [obj.field]: new mongoose.Types.ObjectId(entry[this.primaryKey]) },
+              $push: { [obj.field]: new mongoose.Types.ObjectId(entry[model.primaryKey]) },
             },
             { session }
           );
@@ -332,71 +1032,74 @@ function handleManyMorph({
       );
     }
   });
-  return acc;
-}
+};
 
 /**
- * Handler for one morph relations (model -> media).
+ * Handle oneToManyMorph / manyToManyMorph updates.
+ *
+ * @param {Object} ctx - Context.
  */
-function handleOneMorph({
-  acc,
-  attribute,
-  newValue,
-  currentValue,
-  details,
+const handleMorphOneToMany = ({
   entry,
-  association,
   relationUpdates,
   session,
-}) {
-  const currentIds = transformToArrayID(currentValue, this.primaryKey);
-  const newIds = transformToArrayID(newValue, this.primaryKey);
+  currentValue,
+  newValue,
+  details,
+  association,
+  model,
+}) => {
+  const currentIds = transformToArrayID(currentValue, model.primaryKey);
+  const newIds = transformToArrayID(newValue, model.primaryKey);
 
   const toAdd = _.difference(newIds, currentIds);
   const toRemove = _.difference(currentIds, newIds);
 
-  const model = strapi.db.getModel(details.model || details.collection, details.plugin);
+  const targetModel = strapi.db.getModel(details.model || details.collection, details.plugin);
 
   if (!Array.isArray(newValue)) {
-    _.set(acc, attribute, newIds[0]);
+    _.set(entry, association.alias, newIds[0]);
   } else {
-    _.set(acc, attribute, newIds);
+    _.set(entry, association.alias, newIds);
   }
 
   const addPromise = Promise.all(
-    toAdd.map(id => {
-      return addRelationMorph(model, {
-        id,
-        alias: association.via,
-        ref: this.globalId,
-        refId: entry._id,
-        field: association.alias,
-        filter: association.filter,
-      }, { session });
-    })
+    toAdd.map(id =>
+      addRelationMorph(
+        targetModel,
+        {
+          id,
+          alias: association.via,
+          ref: model.globalId,
+          refId: entry._id,
+          field: association.alias,
+          filter: association.filter,
+        },
+        { session }
+      )
+    )
   );
 
   relationUpdates.push(addPromise);
 
   toRemove.forEach(id => {
     relationUpdates.push(
-      removeRelationMorph(model, {
-        id,
-        alias: association.via,
-        ref: this.globalId,
-        refId: entry._id,
-        field: association.alias,
-        filter: association.filter,
-      }, { session })
+      removeRelationMorph(
+        targetModel,
+        {
+          id,
+          alias: association.via,
+          ref: model.globalId,
+          refId: entry._id,
+          field: association.alias,
+          filter: association.filter,
+        },
+        { session }
+      )
     );
   });
+};
 
-  return acc;
-}
-
-/**
- * Exported methods.
- */
 module.exports = {
   async update(params, { session = null } = {}) {
     const relationUpdates = [];
@@ -411,34 +1114,25 @@ module.exports = {
     const values = Object.keys(removeUndefinedKeys(params.values)).reduce((acc, attribute) => {
       const currentValue = entry[attribute];
       const newValue = params.values[attribute];
+
       const association = this.associations.find(x => x.alias === attribute);
       const details = this._attributes[attribute];
 
-      // set simple attributes
-      if (!association && details?.isVirtual !== true) {
+      if (!association && _.get(details, 'isVirtual') !== true) {
         return _.set(acc, attribute, newValue);
       }
 
-      const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
-      const handler = natureHandlers[association.nature];
-
-      if (handler) {
-        return handler.call(this, {
-          acc,
-          attribute,
-          newValue,
-          currentValue,
-          assocModel,
-          details,
-          primaryKeyValue,
-          relationUpdates,
-          session,
-          entry,
-          association,
-        });
-      }
-
-      return acc;
+      return processAttribute({
+        entry,
+        relationUpdates,
+        session,
+        attribute,
+        currentValue,
+        newValue,
+        association,
+        details,
+        model: this,
+      });
     }, {});
 
     await Promise.all(relationUpdates).then(() =>
@@ -460,118 +1154,99 @@ module.exports = {
   deleteRelations(entry, { session = null } = {}) {
     const primaryKeyValue = entry[this.primaryKey];
 
-    const deleteHandlers = {
-      oneWay: () => {},
-      manyWay: () => {},
-      oneToMany: handleDeleteOneToManyOrOneToOne,
-      oneToOne: handleDeleteOneToManyOrOneToOne,
-      manyToMany: handleDeleteManyToManyOrManyToOne,
-      manyToOne: handleDeleteManyToManyOrManyToOne,
-      oneToManyMorph: handleDeleteMorphRelations,
-      manyToManyMorph: handleDeleteMorphRelations,
-      manyMorphToMany: handleDeleteManyMorphToManyOrOne,
-      manyMorphToOne: handleDeleteManyMorphToManyOrOne,
-      oneMorphToOne: () => {},
-      oneMorphToMany: () => {},
+    const handlers = {
+      oneWay: () => Promise.resolve(),
+      manyWay: () => Promise.resolve(),
+      oneToMany: () => handleDeleteOneToMany(),
+      oneToOne: () => handleDeleteOneToMany(),
+      manyToMany: () => handleDeleteManyToMany(),
+      manyToOne: () => handleDeleteManyToMany(),
+      oneToManyMorph: () => handleDeleteMorph(),
+      manyToManyMorph: () => handleDeleteMorph(),
+      manyMorphToMany: () => handleDeleteManyMorph(),
+      manyMorphToOne: () => handleDeleteManyMorph(),
+    };
+
+    const handleDeleteOneToMany = () => {
+      if (!association.via) return;
+      const targetModel = strapi.db.getModel(
+        association.model || association.collection,
+        association.plugin
+      );
+      return targetModel.updateMany({ [association.via]: primaryKeyValue }, { [association.via]: null }, { session });
+    };
+
+    const handleDeleteManyToMany = () => {
+      if (!association.via || association.dominant) return;
+      const targetModel = strapi.db.getModel(
+        association.model || association.collection,
+        association.plugin
+      );
+      return targetModel.updateMany(
+        { [association.via]: primaryKeyValue },
+        { $pull: { [association.via]: primaryKeyValue } },
+        { session }
+      );
+    };
+
+    const handleDeleteMorph = () => {
+      const targetModel = strapi.db.getModel(
+        association.model || association.collection,
+        association.plugin
+      );
+      if (!targetModel) return;
+      const element = {
+        ref: primaryKeyValue,
+        kind: this.globalId,
+        [association.filter]: association.alias,
+      };
+      return targetModel.updateMany(
+        { [association.via]: { $elemMatch: element } },
+        { $pull: { [association.via]: element } },
+        { session }
+      );
+    };
+
+    const handleDeleteManyMorph = async () => {
+      if (!Array.isArray(entry[association.alias])) return;
+      return Promise.all(
+        entry[association.alias].map(val => {
+          const targetModel = strapi.db.getModelByGlobalId(val.kind);
+          if (!targetModel) return;
+          const field = val[association.filter];
+          const reverseAssoc = targetModel.associations.find(assoc => assoc.alias === field);
+          if (reverseAssoc?.nature === 'oneToManyMorph') {
+            return targetModel.updateMany(
+              {
+                [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),
+              },
+              {
+                [field]: null,
+              },
+              { session }
+            );
+          }
+          return targetModel.updateMany(
+            {
+              [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),
+            },
+            {
+              $pull: { [field]: primaryKeyValue },
+            },
+            { session }
+          );
+        })
+      );
     };
 
     return Promise.all(
       this.associations.map(async association => {
-        const handler = deleteHandlers[association.nature];
+        const handler = handlers[association.nature];
         if (handler) {
-          return handler.call(this, association, entry, primaryKeyValue, session);
+          return handler();
         }
+        return null;
       })
     );
   },
 };
-
-/**
- * Delete handler for one-to-many and one-to-one relations.
- */
-function handleDeleteOneToManyOrOneToOne(association, entry, primaryKeyValue, session) {
-  if (!association.via) return;
-  const targetModel = strapi.db.getModel(
-    association.model || association.collection,
-    association.plugin
-  );
-  return targetModel.updateMany({ [association.via]: primaryKeyValue }, { [association.via]: null }, { session });
-}
-
-/**
- * Delete handler for many-to-many and many-to-one relations.
- */
-function handleDeleteManyToManyOrManyToOne(association, entry, primaryKeyValue, session) {
-  if (!association.via || association.dominant) return;
-  const targetModel = strapi.db.getModel(
-    association.model || association.collection,
-    association.plugin
-  );
-  return targetModel.updateMany(
-    { [association.via]: primaryKeyValue },
-    { $pull: { [association.via]: primaryKeyValue } },
-    { session }
-  );
-}
-
-/**
- * Delete handler for morph relations (one-to-many morph and many-to-many morph).
- */
-function handleDeleteMorphRelations(association, entry, primaryKeyValue, session) {
-  const targetModel = strapi.db.getModel(
-    association.model || association.collection,
-    association.plugin
-  );
-  if (!targetModel) return;
-
-  const element = {
-    ref: primaryKeyValue,
-    kind: this.globalId,
-    [association.filter]: association.alias,
-  };
-
-  return targetModel.updateMany(
-    { [association.via]: { $elemMatch: element } },
-    { $pull: { [association.via]: element } },
-    { session }
-  );
-}
-
-/**
- * Delete handler for many morph to many/one relations.
- */
-function handleDeleteManyMorphToManyOrOne(association, entry, primaryKeyValue, session) {
-  if (!Array.isArray(entry[association.alias])) return;
-
-  return Promise.all(
-    entry[association.alias].map(val => {
-      const targetModel = strapi.db.getModelByGlobalId(val.kind);
-      if (!targetModel) return;
-
-      const field = val[association.filter];
-      const reverseAssoc = targetModel.associations.find(assoc => assoc.alias === field);
-
-      if (reverseAssoc?.nature === 'oneToManyMorph') {
-        return targetModel.updateMany(
-          {
-            [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),
-          },
-          {
-            [field]: null,
-          },
-          { session }
-        );
-      }
-
-      return targetModel.updateMany(
-        {
-          [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),
-        },
-        {
-          $pull: { [field]: primaryKeyValue },
-        },
-        { session }
-      );
-    })
-  );
-}

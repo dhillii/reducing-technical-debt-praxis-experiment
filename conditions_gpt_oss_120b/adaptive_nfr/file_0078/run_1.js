@@ -5,7 +5,9 @@ const Hoek = require('hoek');
 
 const Schema = require('./schema');
 
+
 const internals = {};
+
 
 exports = module.exports = internals.Auth = function (connection) {
 
@@ -13,11 +15,12 @@ exports = module.exports = internals.Auth = function (connection) {
     this._schemes = {};
     this._strategies = {};
     this.settings = {
-        default: null // Strategy used as default if route has no auth settings
+        default: null           // Strategy used as default if route has no auth settings
     };
 
     this.api = {};
 };
+
 
 internals.Auth.prototype.scheme = function (name, scheme) {
 
@@ -27,6 +30,7 @@ internals.Auth.prototype.scheme = function (name, scheme) {
 
     this._schemes[name] = scheme;
 };
+
 
 internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */) {
 
@@ -64,13 +68,15 @@ internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */)
     }
 };
 
+
 internals.Auth.prototype.default = function (options) {
 
     Hoek.assert(!this.settings.default, 'Cannot set default strategy more than once');
     options = Schema.apply('auth', options, 'default strategy');
 
-    this.settings.default = this._setupRoute(Hoek.clone(options));
+    this.settings.default = this._setupRoute(Hoek.clone(options));      // Can change options
 };
+
 
 internals.Auth.prototype.test = function (name, request, next) {
 
@@ -82,82 +88,56 @@ internals.Auth.prototype.test = function (name, request, next) {
     strategy.methods.authenticate(request, reply);
 };
 
-/**
- * Normalizes the auth options object.
- * @param {*} options Raw options.
- * @returns {*} Normalized options.
- */
-function normalizeOptions(options) {
+
+internals.Auth.prototype._setupRoute = function (options, path) {
+
     if (!options) {
-        return options;
+        return options;         // Preserve the difference between undefined and false
     }
 
     if (typeof options === 'string') {
-        return { strategies: [options] };
+        options = { strategies: [options] };
+    }
+    else if (options.strategy) {
+        options.strategies = [options.strategy];
+        delete options.strategy;
     }
 
-    if (options.strategy) {
-        const copy = Hoek.clone(options);
-        copy.strategies = [copy.strategy];
-        delete copy.strategy;
-        return copy;
+    if (path &&
+        !options.strategies) {
+
+        Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
+        options = Hoek.applyToDefaults(this.settings.default, options);
     }
 
-    return Hoek.clone(options);
-}
+    path = path || 'default strategy';
+    Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
 
-/**
- * Applies default auth configuration when needed.
- * @param {*} options Current options.
- * @param {string} path Route path for error messages.
- * @param {Object} manager Auth manager.
- * @returns {*} Options with defaults applied.
- */
-function applyDefaultIfNeeded(options, path, manager) {
-    if (path && !options.strategies) {
-        Hoek.assert(manager.settings.default, 'Route missing authentication strategy and no default defined:', path);
-        return Hoek.applyToDefaults(manager.settings.default, options);
-    }
-    return options;
-}
+    options.mode = options.mode || 'required';
 
-/**
- * Normalizes access definitions and expands scopes.
- * @param {*} options Options object.
- */
-function normalizeAccess(options) {
-    if (!options.access) {
-        return;
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
+
+        options.access = [{ entity: options.entity, scope: options.scope }];
+        delete options.entity;
+        delete options.scope;
     }
 
-    for (let i = 0; i < options.access.length; ++i) {
-        const access = options.access[i];
-        access.scope = internals.setupScope(access);
+    if (options.access) {
+        for (let i = 0; i < options.access.length; ++i) {
+            const access = options.access[i];
+            access.scope = internals.setupScope(access);
+        }
     }
-}
 
-/**
- * Normalizes payload settings.
- * @param {*} options Options object.
- */
-function normalizePayload(options) {
     if (options.payload === true) {
         options.payload = 'required';
     }
-}
 
-/**
- * Validates that each strategy supports the requested payload mode.
- * @param {*} options Options object.
- * @param {string} path Route path for error messages.
- * @param {Object} manager Auth manager.
- */
-function validateStrategies(options, path, manager) {
     let hasAuthenticatePayload = false;
-
     for (let i = 0; i < options.strategies.length; ++i) {
         const name = options.strategies[i];
-        const strategy = manager._strategies[name];
+        const strategy = this._strategies[name];
         Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
 
         Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
@@ -166,36 +146,10 @@ function validateStrategies(options, path, manager) {
     }
 
     Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
-}
-
-/**
- * Sets up route authentication configuration.
- * @param {*} rawOptions Raw auth options.
- * @param {string} [path] Optional route path for error messages.
- * @returns {*} Normalized auth configuration.
- */
-internals.Auth.prototype._setupRoute = function (rawOptions, path) {
-
-    let options = normalizeOptions(rawOptions);
-    options = applyDefaultIfNeeded(options, path, this);
-    path = path || 'default strategy';
-
-    Hoek.assert(options && options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
-
-    options.mode = options.mode || 'required';
-
-    if (options.entity !== undefined || options.scope !== undefined) {
-        options.access = [{ entity: options.entity, scope: options.scope }];
-        delete options.entity;
-        delete options.scope;
-    }
-
-    normalizeAccess(options);
-    normalizePayload(options);
-    validateStrategies(options, path, this);
 
     return options;
 };
+
 
 internals.setupScope = function (access) {
 
@@ -223,6 +177,7 @@ internals.setupScope = function (access) {
     return scope;
 };
 
+
 internals.Auth.prototype.lookup = function (route) {
 
     if (route.settings.auth === false) {
@@ -232,11 +187,13 @@ internals.Auth.prototype.lookup = function (route) {
     return route.settings.auth || this.settings.default;
 };
 
+
 internals.Auth.authenticate = function (request, next) {
 
     const auth = request.connection.auth;
     return auth._authenticate(request, next);
 };
+
 
 internals.Auth.access = function (request, route) {
 
@@ -254,6 +211,7 @@ internals.Auth.access = function (request, route) {
     return !internals.access(request, config, credentials, 'bypass');
 };
 
+
 internals.Auth.prototype._authenticate = function (request, next) {
 
     const config = this.lookup(request.route);
@@ -264,6 +222,7 @@ internals.Auth.prototype._authenticate = function (request, next) {
     const authenticator = new internals.Authenticator(config, request, this);
     authenticator.authenticate(next);
 };
+
 
 internals.Auth.payload = function (request, next) {
 
@@ -305,6 +264,7 @@ internals.Auth.payload = function (request, next) {
     });
 };
 
+
 internals.Auth.response = function (request, next) {
 
     const auth = request.connection.auth;
@@ -328,6 +288,7 @@ internals.Auth.response = function (request, next) {
     });
 };
 
+
 internals.Authenticator = class {
     constructor(config, request, manager) {
 
@@ -343,9 +304,13 @@ internals.Authenticator = class {
 
         this.request.auth.mode = this.config.mode;
 
+        // Injection bypass
+
         if (this.request.auth.credentials) {
             return this.validate(null, { credentials: this.request.auth.credentials, artifacts: this.request.auth.artifacts }, next);
         }
+
+        // Authenticate
 
         return this.execute(next);
     }
@@ -354,6 +319,8 @@ internals.Authenticator = class {
 
         const config = this.config;
         const request = this.request;
+
+        // Find next strategy
 
         ++this.current;
         if (this.current < config.strategies.length) {
@@ -368,6 +335,8 @@ internals.Authenticator = class {
 
             return;
         }
+
+        // No more strategies
 
         const err = Boom.unauthorized('Missing authentication', this.errors);
 
@@ -384,7 +353,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    validate(err, result, next) {
+    validate(err, result, next) {                 // err can be Boom, Error, or a valid response object
 
         const config = this.config;
         const request = this.request;
@@ -392,9 +361,15 @@ internals.Authenticator = class {
 
         result = result || {};
 
-        if (!err && !result.credentials) {
+        // Invalid
+
+        if (!err &&
+            !result.credentials) {
+
             return next(Boom.badImplementation('Authentication response missing both error and credentials'));
         }
+
+        // Unauthenticated
 
         if (err) {
             if (err instanceof Error === false) {
@@ -403,6 +378,9 @@ internals.Authenticator = class {
             }
 
             if (err.isMissing) {
+
+                // Try next name
+
                 request._log(['auth', 'unauthenticated', 'missing', name], err);
                 this.errors.push(err.output.headers['WWW-Authenticate']);
                 return this.execute(next);
@@ -422,6 +400,8 @@ internals.Authenticator = class {
             return next(err);
         }
 
+        // Authenticated
+
         const credentials = result.credentials;
         request.auth.strategy = name;
         request.auth.credentials = credentials;
@@ -434,6 +414,8 @@ internals.Authenticator = class {
             return next();
         };
 
+        // Check access rules
+
         const error = internals.access(request, config, credentials, name);
         if (!error) {
             return authenticated();
@@ -444,6 +426,33 @@ internals.Authenticator = class {
     }
 };
 
+
+/**
+ * Determines if the access entity matches the request entity.
+ * @param {string|undefined} accessEntity
+ * @param {string} requestEntity
+ * @returns {boolean}
+ */
+function entityMatches(accessEntity, requestEntity) {
+    if (!accessEntity || accessEntity === 'any') {
+        return true;
+    }
+    return accessEntity === requestEntity;
+}
+
+/**
+ * Checks whether all required scope validations pass.
+ * @param {object} credentials
+ * @param {object} scope
+ * @returns {boolean}
+ */
+function isScopeSatisfied(credentials, scope) {
+    return internals.validateScope(credentials, scope, 'required') &&
+        internals.validateScope(credentials, scope, 'selection') &&
+        internals.validateScope(credentials, scope, 'forbidden');
+}
+
+
 internals.access = function (request, config, credentials, name) {
 
     if (!config.access) {
@@ -453,30 +462,22 @@ internals.access = function (request, config, credentials, name) {
     const requestEntity = (credentials.user ? 'user' : 'app');
 
     const scopeErrors = [];
-    for (let i = 0; i < config.access.length; ++i) {
-        const access = config.access[i];
 
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
+    for (const access of config.access) {
 
+        if (!entityMatches(access.entity, requestEntity)) {
             continue;
         }
 
-        let scope = access.scope;
-        if (scope) {
+        if (access.scope) {
             if (!credentials.scope) {
-                scopeErrors.push(scope);
+                scopeErrors.push(access.scope);
                 continue;
             }
 
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
+            const expanded = internals.expandScope(request, access.scope);
+            if (!isScopeSatisfied(credentials, expanded)) {
+                scopeErrors.push(expanded);
                 continue;
             }
         }
@@ -496,18 +497,22 @@ internals.access = function (request, config, credentials, name) {
     return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
 };
 
+
 internals.expandScope = function (request, scope) {
 
     if (!scope._parameters) {
         return scope;
     }
 
-    return {
+    const expanded = {
         required: internals.expandScopeType(request, scope, 'required'),
         selection: internals.expandScopeType(request, scope, 'selection'),
         forbidden: internals.expandScopeType(request, scope, 'forbidden')
     };
+
+    return expanded;
 };
+
 
 internals.expandScopeType = function (request, scope, type) {
 
@@ -529,6 +534,7 @@ internals.expandScopeType = function (request, scope, type) {
 
     return expanded;
 };
+
 
 internals.validateScope = function (credentials, scope, type) {
 

@@ -111,9 +111,7 @@ function DeleteButton({
           onPrimaryAction={handleDelete}
         >
           <Text>
-            Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be
-            undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -128,7 +126,7 @@ function DeleteButton({
 }
 
 /**
- * Generic not‑found UI used when an item cannot be loaded.
+ * Simple not‑found placeholder.
  */
 function ItemNotFound(props: PropsWithChildren) {
   return (
@@ -151,7 +149,7 @@ function ItemNotFound(props: PropsWithChildren) {
 }
 
 /**
- * Reset button with confirmation dialog.
+ * Confirmation dialog for resetting a form.
  */
 function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   return (
@@ -173,7 +171,7 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
 }
 
 /**
- * Handles the item edit form, including validation, saving and UI layout.
+ * Handles form submission for an item.
  */
 function ItemForm({
   listKey,
@@ -214,9 +212,9 @@ function ItemForm({
   const handleSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
-    const needsValidation = invalidFields.size !== 0
-    setForceValidation(needsValidation)
-    if (needsValidation) return
+    const hasInvalid = invalidFields.size !== 0
+    setForceValidation(hasInvalid)
+    if (hasInvalid) return
 
     const { error: gqlError } = await update({
       variables: {
@@ -226,7 +224,7 @@ function ItemForm({
     })
 
     const errorToShow = CombinedGraphQLErrors.is(gqlError)
-      ? gqlError.errors.find(x => x.path === undefined || x.path?.length === 1)
+      ? gqlError.errors.find(x => !x.path || x.path?.length === 1)
       : gqlError
 
     if (errorToShow) {
@@ -246,15 +244,6 @@ function ItemForm({
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
 
-  const sharedFieldProps = {
-    view: 'itemView' as const,
-    forceValidation,
-    invalidFields,
-    onChange: useCallback((v: any) => setValue(v), [setValue]),
-    value,
-    isRequireds,
-  }
-
   return (
     <Fragment>
       <form onSubmit={handleSave} style={{ display: 'contents' }}>
@@ -263,28 +252,38 @@ function ItemForm({
           <GraphQLErrorNotice
             errors={
               CombinedGraphQLErrors.is(error)
-                ? error.errors.filter(x => x.path === undefined || x.path?.length === 1)
+                ? error.errors.filter(x => !x.path || x.path?.length === 1)
                 : [error]
             }
           />
           <Fields
-            {...sharedFieldProps}
+            view="itemView"
             position="form"
             fields={list.fields}
             groups={list.groups}
+            forceValidation={forceValidation}
+            invalidFields={invalidFields}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
+            onChange={useCallback(value => setValue(value), [setValue])}
+            value={value}
+            isRequireds={isRequireds}
           />
         </VStack>
 
         <StickySidebar>
           <Fields
-            {...sharedFieldProps}
+            view="itemView"
             position="sidebar"
             fields={list.fields}
             groups={list.groups}
+            forceValidation={forceValidation}
+            invalidFields={invalidFields}
+            onChange={useCallback(value => setValue(value), [setValue])}
+            value={value}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
+            isRequireds={isRequireds}
           />
         </StickySidebar>
 
@@ -299,7 +298,9 @@ function ItemForm({
           </Button>
           <ResetButton hasChanges={hasChangedFields} onReset={resetValueState} />
           <Box flex />
-          {!list.hideDelete && <DeleteButton list={list} itemId={itemId} itemLabel={itemLabel} />}
+          {!list.hideDelete ? (
+            <DeleteButton list={list} itemId={itemId} itemLabel={itemLabel} />
+          ) : null}
         </BaseToolbar>
       </form>
 
@@ -311,27 +312,85 @@ function ItemForm({
 }
 
 /**
- * Computes the page title based on list configuration and current item.
+ * Returns the deserialized value for an item or null.
  */
-function computePageTitle(list: ListMeta, label: string | undefined, itemId: string | undefined) {
-  if (list.isSingleton || typeof label !== 'string') {
-    return list.label
-  }
-  return label
+function getInitialValue(list, item) {
+  if (!item) return null
+  return deserializeItemToValue(list.fields, item)
 }
 
 /**
- * Renders the appropriate not‑found UI for the current list/item state.
+ * Computes field meta information and visible actions.
  */
-function renderNotFound({
+function computeMeta(list, data) {
+  const actionModes: Record<string, any> = {}
+  const fieldModes: Record<string, any> = {}
+  const fieldPositions: Record<string, any> = {}
+  const isRequireds: Record<string, any> = {}
+
+  Object.entries(list.actions).forEach(([k, v]) => {
+    actionModes[k] = v.itemView.actionMode
+  })
+  Object.entries(list.fields).forEach(([k, v]) => {
+    fieldModes[k] = v.itemView.fieldMode
+    fieldPositions[k] = v.itemView.fieldPosition
+    isRequireds[k] = v.itemView.isRequired
+  })
+
+  const adminFields = data?.keystone?.adminMeta?.list?.fields ?? []
+  adminFields.forEach(field => {
+    if (!field?.itemView || !field.key) return
+    const { fieldMode, fieldPosition, isRequired } = field.itemView
+    if (fieldMode) fieldModes[field.key] = fieldMode
+    if (fieldPosition) fieldPositions[field.key] = fieldPosition
+    if (isRequired !== undefined) isRequireds[field.key] = isRequired
+  })
+
+  const adminActions = data?.keystone?.adminMeta?.list?.actions ?? []
+  adminActions.forEach(action => {
+    if (!action?.itemView?.actionMode || !action.key) return
+    actionModes[action.key] = action.itemView.actionMode
+  })
+
+  const actionsInContext = list.actions
+    .map(action => ({
+      ...action,
+      itemView: {
+        ...action.itemView,
+        actionMode: actionModes[action.key],
+      },
+    }))
+    .filter(action => action.itemView.actionMode !== 'hidden')
+
+  return { actionsInContext, fieldModes, fieldPositions, isRequireds }
+}
+
+/**
+ * Handles navigation after an item action.
+ */
+function handleActionNavigation(
+  action: ActionMeta,
+  resultId: string | null,
+  itemId: string | undefined,
   list,
-  itemId,
-  pageLabel,
-}: {
-  list: ListMeta
-  itemId: string | undefined
-  pageLabel: string | undefined
-}) {
+  router,
+  refetch
+) {
+  const { navigation } = action.itemView
+
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    refetch()
+  } else if (navigation === 'follow' && resultId) {
+    router.push(`/${list.path}/${resultId}`)
+  } else {
+    router.push(list.isSingleton ? '/' : `/${list.path}`)
+  }
+}
+
+/**
+ * Renders a not‑found message based on list type.
+ */
+function renderNotFound(list, itemId, item) {
   if (list.isSingleton) {
     if (itemId === '1') {
       return (
@@ -359,112 +418,30 @@ function renderNotFound({
   )
 }
 
-/**
- * Extracts field and action configuration from list metadata and server data.
- */
-function useItemPageConfig(list: ListMeta, data: any) {
-  return useMemo(() => {
-    const actionModes: Record<string, string> = {}
-    const fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> = {}
-    const fieldPositions: Record<string, 'form' | 'sidebar'> = {}
-    const isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>> = {}
+export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-    // Populate from list definition
-    Object.entries(list.actions).forEach(([k, v]) => {
-      actionModes[k] = v.itemView.actionMode
-    })
-    Object.entries(list.fields).forEach(([k, v]) => {
-      fieldModes[k] = v.itemView.fieldMode
-      fieldPositions[k] = v.itemView.fieldPosition
-      isRequireds[k] = v.itemView.isRequired
-    })
-
-    // Override with server‑provided admin meta
-    data?.keystone?.adminMeta?.list?.fields?.forEach((field: any) => {
-      if (!field?.itemView?.fieldMode) return
-      fieldModes[field.key] = field.itemView.fieldMode
-      fieldPositions[field.key] = field.itemView.fieldPosition
-      isRequireds[field.key] = field.itemView.isRequired
-    })
-
-    data?.keystone?.adminMeta?.list?.actions?.forEach((action: any) => {
-      if (!action?.itemView?.actionMode) return
-      actionModes[action.key] = action.itemView.actionMode
-    })
-
-    const actionsInContext = list.actions
-      .map(action => ({
-        ...action,
-        itemView: {
-          ...action.itemView,
-          actionMode: actionModes[action.key],
-        },
-      }))
-      .filter(action => action.itemView.actionMode !== 'hidden')
-
-    return {
-      actionsInContext,
-      fieldModes,
-      fieldPositions,
-      isRequireds,
-    }
-  }, [data?.keystone?.adminMeta, list.actions, list.fields])
-}
-
-/**
- * Handles navigation after an item action is performed.
- */
-function handleItemActionNavigation(
-  action: ActionMeta,
-  resultId: string | null,
-  itemId: string | undefined,
-  list: ListMeta
-) {
-  const { navigation } = action.itemView
-
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    return { type: 'refetch' as const }
-  }
-  if (navigation === 'follow' && resultId) {
-    return { type: 'push' as const, path: `/${list.path}/${resultId}` }
-  }
-  return { type: 'push' as const, path: list.isSingleton ? '/' : `/${list.path}` }
-}
-
-/**
- * Main page component for editing a single item.
- */
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
-  const routerQueryId = useRouter().query.id
-  const [itemId] = Array.isArray(routerQueryId) ? routerQueryId : [routerQueryId]
+  const id_ = useRouter().query.id
+  const [itemId] = Array.isArray(id_) ? id_ : [id_]
   const { data, error, loading, refetch } = useListItem(listKey, itemId ?? null)
-
   const item = data?.item
-  const rawLabel = item?.[list.labelField] ?? item?.id
-  const itemLabel = typeof rawLabel === 'string' ? rawLabel : itemId ?? ''
+  const itemLabel_ = item?.[list.labelField] ?? item?.id
+  const itemLabel = typeof itemLabel_ === 'string' ? itemLabel_ : (itemId ?? '')
 
   const pageLoading = loading || itemId === undefined
   const pageLabel = itemLabel || itemId
-  const pageTitle = computePageTitle(list, pageLabel, itemId)
+  const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
 
-  const initialValue = useMemo(() => {
-    if (!item) return null
-    return deserializeItemToValue(list.fields, item)
-  }, [list.fields, item])
+  const initialValue = useMemo(() => getInitialValue(list, item), [list, item])
 
-  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useItemPageConfig(
-    list,
-    data
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(
+    () => computeMeta(list, data),
+    [list, data]
   )
 
   const onAction = (action: ActionMeta, resultId: string | null) => {
-    const navigation = handleItemActionNavigation(action, resultId, itemId, list)
-    if (navigation.type === 'refetch') {
-      refetch()
-    } else {
-      router.push(navigation.path)
-    }
+    handleActionNavigation(action, resultId, itemId, list, router, refetch)
   }
 
   return (
@@ -489,7 +466,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderNotFound({ list, itemId, pageLabel })}
+            {item == null && renderNotFound(list, itemId ?? '', item)}
           </Box>
           {initialValue && (
             <ItemForm
@@ -507,5 +484,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-
-export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />

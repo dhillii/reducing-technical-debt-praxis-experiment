@@ -132,19 +132,21 @@ export default class GhPostSettingsMenu extends Component {
             if (canonicalUrl) {
                 urlParts.push(canonicalUrl.host);
                 urlParts.push(...canonicalUrl.pathname.split('/').filter(p => p));
+                return urlParts.join(' › ');
             }
-        } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
-            urlParts.push(this.post.slug);
         }
+
+        const blogUrl = new URL(this.config.blogUrl);
+        urlParts.push(blogUrl.host);
+        urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
+        urlParts.push(this.post.slug);
 
         return urlParts.join(' › ');
     }
 
     /**
-     * Safely parse a URL string, returning null on failure.
+     * Safely parse a URL string.
+     * Returns a URL object or null if parsing fails.
      *
      * @param {string} urlString
      * @returns {URL|null}
@@ -153,38 +155,17 @@ export default class GhPostSettingsMenu extends Component {
         try {
             return new URL(urlString);
         } catch (e) {
-            // Invalid URL – treat as absent
+            // Invalid URL – fallback to blog URL handling
             return null;
         }
     }
 
     get canViewPostHistory() {
-        if (this._isNewPost() || this._isLexicalNull()) {
-            return false;
-        }
-        if (this._isUnpublishedOrUnsent()) {
-            return true;
-        }
-        if (this._isEmailOnly()) {
-            return false;
-        }
+        if (this.post.isNew) return false;
+        if (this.post.lexical === null) return false;
+        if (!this.post.isPublished && !this.post.isSent) return true;
+        if (this.post.emailOnly) return false;
         return true;
-    }
-
-    _isNewPost() {
-        return this.post.isNew;
-    }
-
-    _isLexicalNull() {
-        return this.post.lexical === null;
-    }
-
-    _isUnpublishedOrUnsent() {
-        return !this.post.isPublished && !this.post.isSent;
-    }
-
-    _isEmailOnly() {
-        return this.post.emailOnly;
     }
 
     get themeMissingShowTitleAndFeatureImage() {
@@ -225,17 +206,15 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleFeatured() {
         this.post.featured = !this.post.featured;
-        if (!this.post.isNew) {
-            this._performSave();
-        }
+        if (this.post.isNew) return;
+        this._savePost();
     }
 
     @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
-        if (!this.post.isNew) {
-            this._performSave();
-        }
+        if (this.post.isNew) return;
+        this._savePost();
     }
 
     @action
@@ -248,9 +227,6 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
-    /**
-     * triggered by user manually changing slug
-     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask.perform(newSlug).catch(error => {
@@ -322,67 +298,67 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
-        return this._setPropertyIfChanged('metaTitle', metaTitle, 'metaTitle');
+        return this._setValidatedProperty('metaTitle', metaTitle, 'metaTitle');
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this._setPropertyIfChanged('metaDescription', metaDescription, 'metaDescription');
+        return this._setValidatedProperty('metaDescription', metaDescription, 'metaDescription');
     }
 
     @action
     setCanonicalUrl(value) {
-        return this._setPropertyIfChanged('canonicalUrl', value, 'canonicalUrl');
+        return this._setValidatedProperty('canonicalUrl', value, 'canonicalUrl');
     }
 
     @action
     setOgTitle(ogTitle) {
-        return this._setPropertyIfChanged('ogTitle', ogTitle, 'ogTitle');
+        return this._setValidatedProperty('ogTitle', ogTitle, 'ogTitle');
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._setPropertyIfChanged('ogDescription', ogDescription, 'ogDescription');
+        return this._setValidatedProperty('ogDescription', ogDescription, 'ogDescription');
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._setPropertyIfChanged('twitterTitle', twitterTitle, 'twitterTitle');
+        return this._setValidatedProperty('twitterTitle', twitterTitle, 'twitterTitle');
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._setPropertyIfChanged('twitterDescription', twitterDescription, 'twitterDescription');
+        return this._setValidatedProperty('twitterDescription', twitterDescription, 'twitterDescription');
     }
 
     @action
     setCoverImage(image) {
-        this._setImageProperty('featureImage', image);
+        return this._setImageProperty('featureImage', image);
     }
 
     @action
     clearCoverImage() {
-        this._setImageProperty('featureImage', '');
+        return this._setImageProperty('featureImage', '');
     }
 
     @action
     setOgImage(image) {
-        this._setImageProperty('ogImage', image);
+        return this._setImageProperty('ogImage', image);
     }
 
     @action
     clearOgImage() {
-        this._setImageProperty('ogImage', '');
+        return this._setImageProperty('ogImage', '');
     }
 
     @action
     setTwitterImage(image) {
-        this._setImageProperty('twitterImage', image);
+        return this._setImageProperty('twitterImage', image);
     }
 
     @action
     clearTwitterImage() {
-        this._setImageProperty('twitterImage', '');
+        return this._setImageProperty('twitterImage', '');
     }
 
     @action
@@ -391,21 +367,19 @@ export default class GhPostSettingsMenu extends Component {
         const currentIds = post.get('authors').mapBy('id').join();
         const newIds = newAuthors.mapBy('id').join();
 
-        if (currentIds === newIds) {
-            return;
-        }
+        if (currentIds === newIds) return;
 
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
-        if (!post.get('isNew')) {
-            this._performSave();
-        }
+        if (post.get('isNew')) return;
+
+        this._savePost();
     }
 
     @action
     savePost() {
-        this._performSave();
+        this._savePost();
     }
 
     @action
@@ -433,47 +407,74 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Generic property setter that validates and saves if needed.
+     * Generic handler for setting a simple property and saving.
      *
      * @param {string} prop
      * @param {*} value
      * @param {string} validationProp
-     * @returns {Promise<void>|undefined}
+     * @returns {Promise|undefined}
      */
     _setPropertyIfChanged(prop, value, validationProp) {
         const post = this.post;
         const current = post.get(prop);
 
-        if (current === value) {
-            return;
-        }
+        if (value === current) return;
+
+        post.set(prop, value);
+        return post.validate({property: validationProp}).then(() => this._saveIfNotNew());
+    }
+
+    /**
+     * Handles setting a property that requires validation and conditional save.
+     *
+     * @param {string} prop
+     * @param {*} value
+     * @param {string} validationProp
+     * @returns {Promise|undefined}
+     */
+    _setValidatedProperty(prop, value, validationProp) {
+        const post = this.post;
+        const current = post.get(prop);
+
+        if (value === current) return;
 
         post.set(prop, value);
         return post.validate({property: validationProp}).then(() => {
-            if (!post.get('isNew')) {
-                return this.savePostTask.perform();
-            }
+            if (post.get('isNew')) return;
+            return this.savePostTask.perform();
         });
     }
 
     /**
-     * Handles image property updates with save/error handling.
+     * Sets an image property and persists if the post is not new.
      *
      * @param {string} prop
-     * @param {*} value
+     * @param {string} image
      */
-    _setImageProperty(prop, value) {
-        this.set(`post.${prop}`, value);
-        if (!this.get('post.isNew')) {
-            this._performSave();
-        }
+    _setImageProperty(prop, image) {
+        this.set(`post.${prop}`, image);
+        if (this.get('post.isNew')) return;
+        this._savePost();
     }
 
     /**
-     * Performs savePostTask with unified error handling.
+     * Saves the post and handles errors uniformly.
      */
-    _performSave() {
+    _savePost() {
         this.savePostTask.perform().catch(error => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    /**
+     * Saves the post only when it is not new.
+     *
+     * @returns {Promise|undefined}
+     */
+    _saveIfNotNew() {
+        if (this.post.get('isNew')) return;
+        return this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });

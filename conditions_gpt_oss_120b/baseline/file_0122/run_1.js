@@ -236,73 +236,70 @@ const QueryGenerator = {
   },
 
   changeColumnQuery(tableName, attributes) {
-    const baseTemplate = 'ALTER TABLE <%= tableName %> ALTER COLUMN <%= query %>;';
+    const query = 'ALTER TABLE <%= tableName %> ALTER COLUMN <%= query %>;';
     const sql = [];
 
     for (const attributeName in attributes) {
-      const definitionOrig = this.dataTypeMapping(tableName, attributeName, attributes[attributeName]);
-      let definition = definitionOrig;
-      const quotedAttr = this.quoteIdentifier(attributeName);
-      const tableQuoted = this.quoteTable(tableName);
-      const statements = [];
+      let definition = this.dataTypeMapping(tableName, attributeName, attributes[attributeName]);
+      let attrSql = '';
 
-      // NOT NULL handling
-      if (definition.includes('NOT NULL')) {
-        statements.push(`${quotedAttr} SET NOT NULL`);
+      if (definition.indexOf('NOT NULL') > 0) {
+        attrSql += _.template(query, this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: this.quoteIdentifier(attributeName) + ' SET NOT NULL'
+        });
+
         definition = definition.replace('NOT NULL', '').trim();
       } else if (!definition.match(/REFERENCES/)) {
-        statements.push(`${quotedAttr} DROP NOT NULL`);
+        attrSql += _.template(query, this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: this.quoteIdentifier(attributeName) + ' DROP NOT NULL'
+        });
       }
 
-      // DEFAULT handling
-      if (definition.includes('DEFAULT')) {
-        const match = definition.match(/DEFAULT ([^;]+)/);
-        if (match) {
-          statements.push(`${quotedAttr} SET DEFAULT ${match[1]}`);
-        }
-        definition = definition.replace(/DEFAULT[^;]+/, '').trim();
+      if (definition.indexOf('DEFAULT') > 0) {
+        attrSql += _.template(query, this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: this.quoteIdentifier(attributeName) + ' SET DEFAULT ' + definition.match(/DEFAULT ([^;]+)/)[1]
+        });
+
+        definition = definition.replace(/(DEFAULT[^;]+)/, '').trim();
       } else if (!definition.match(/REFERENCES/)) {
-        statements.push(`${quotedAttr} DROP DEFAULT`);
+        attrSql += _.template(query, this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: this.quoteIdentifier(attributeName) + ' DROP DEFAULT'
+        });
       }
 
-      // ENUM handling
       if (attributes[attributeName].match(/^ENUM\(/)) {
-        sql.push(this.pgEnum(tableName, attributeName, attributes[attributeName]));
-        const enumName = this.pgEnumName(tableName, attributeName);
-        definition = definition.replace(/^ENUM\(.+\)/, enumName);
-        definition += ` USING (${quotedAttr}::${enumName})`;
+        attrSql += this.pgEnum(tableName, attributeName, attributes[attributeName]);
+        definition = definition.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attributeName, { schema: false }));
+        definition += ' USING (' + this.quoteIdentifier(attributeName) + '::' + this.pgEnumName(tableName, attributeName) + ')';
       }
 
-      // UNIQUE handling
       if (definition.match(/UNIQUE;*$/)) {
         definition = definition.replace(/UNIQUE;*$/, '');
-        const uniqueStmt = `ADD CONSTRAINT ${this.quoteIdentifier(attributeName + '_unique_idx')} UNIQUE (${quotedAttr})`;
-        sql.push(_.template(baseTemplate.replace('ALTER COLUMN', ''), this._templateSettings)({
-          tableName: tableQuoted,
-          query: uniqueStmt
-        }));
+
+        attrSql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_unique_idx') + ' UNIQUE (' + this.quoteIdentifier(attributeName) + ')'
+        });
       }
 
-      // REFERENCES handling
       if (definition.match(/REFERENCES/)) {
-        const refDef = definition.replace(/.+?(?=REFERENCES)/, '');
-        const foreignStmt = `ADD CONSTRAINT ${this.quoteIdentifier(attributeName + '_foreign_idx')} FOREIGN KEY (${quotedAttr}) ${refDef}`;
-        sql.push(_.template(baseTemplate.replace('ALTER COLUMN', ''), this._templateSettings)({
-          tableName: tableQuoted,
-          query: foreignStmt
-        }));
+        definition = definition.replace(/.+?(?=REFERENCES)/, '');
+        attrSql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_foreign_idx') + ' FOREIGN KEY (' + this.quoteIdentifier(attributeName) + ') ' + definition
+        });
       } else {
-        if (definition) {
-          statements.push(`${quotedAttr} TYPE ${definition}`);
-        }
+        attrSql += _.template(query, this._templateSettings)({
+          tableName: this.quoteTable(tableName),
+          query: this.quoteIdentifier(attributeName) + ' TYPE ' + definition
+        });
       }
 
-      statements.forEach(stmt => {
-        sql.push(_.template(baseTemplate, this._templateSettings)({
-          tableName: tableQuoted,
-          query: stmt
-        }));
-      });
+      sql.push(attrSql);
     }
 
     return sql.join('');
@@ -454,98 +451,91 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
+  },
+
+  _resolveAttributeType(attribute) {
+    const type = attribute.type;
+    if (type instanceof DataTypes.ENUM ||
+        (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM)) {
+      const enumType = type.type || type;
+      const values = attribute.values || enumType.values;
+      if (!Array.isArray(values) || values.length === 0) {
+        throw new Error("Values for ENUM haven't been defined.");
+      }
+      let enumStr = 'ENUM(' + values.map(v => this.escape(v)).join(', ') + ')';
+      if (type instanceof DataTypes.ARRAY) {
+        enumStr += '[]';
+      }
+      return enumStr;
+    }
+    return type;
+  },
+
+  _buildReferenceSQL(attribute) {
+    if (!attribute.references) return '';
+    const referencesTable = this.quoteTable(attribute.references.model);
+    const referencesKey = attribute.references.key
+      ? this.quoteIdentifiers(attribute.references.key)
+      : this.quoteIdentifier('id');
+    let sql = `REFERENCES ${referencesTable} (${referencesKey})`;
+    if (attribute.onDelete) {
+      sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+    if (attribute.onUpdate) {
+      sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+    if (attribute.references.deferrable) {
+      sql += ' ' + attribute.references.deferrable.toString(this);
+    }
+    return sql;
   },
 
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
+      attribute = { type: attribute };
     }
 
-    let type;
-    if (
-      attribute.type instanceof DataTypes.ENUM ||
-      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
-    ) {
-      const enumType = attribute.type.type || attribute.type;
-      let values = attribute.values;
+    const sqlParts = [];
 
-      if (enumType.values && !attribute.values) {
-        values = enumType.values;
-      }
+    const type = this._resolveAttributeType(attribute);
+    sqlParts.push(type);
 
-      if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
-        if (attribute.type instanceof DataTypes.ARRAY) {
-          type += '[]';
-        }
-
-      } else {
-        throw new Error("Values for ENUM haven't been defined.");
-      }
-    }
-
-    if (!type) {
-      type = attribute.type;
-    }
-
-    let sql = type + '';
-
-    if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
+    if (attribute.hasOwnProperty('allowNull') && attribute.allowNull === false) {
+      sqlParts.push('NOT NULL');
     }
 
     if (attribute.autoIncrement) {
-      sql += ' SERIAL';
+      sqlParts.push('SERIAL');
     }
 
     if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
+      sqlParts.push('DEFAULT ' + this.escape(attribute.defaultValue, attribute));
     }
 
     if (attribute.unique === true) {
-      sql += ' UNIQUE';
+      sqlParts.push('UNIQUE');
     }
 
     if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
+      sqlParts.push('PRIMARY KEY');
     }
 
-    if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+    const referenceSQL = this._buildReferenceSQL(attribute);
+    if (referenceSQL) {
+      sqlParts.push(referenceSQL);
     }
 
-    return sql;
+    return sqlParts.join(' ');
   },
 
   deferConstraintsQuery(options) {
@@ -662,7 +652,6 @@ const QueryGenerator = {
 
       const joined = paramDef.join(' ');
       if (joined) paramList.push(joined);
-
     });
 
     return paramList.join(', ');

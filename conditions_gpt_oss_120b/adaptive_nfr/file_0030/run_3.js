@@ -15,11 +15,16 @@ import {resetQueryParams} from 'ghost-admin/helpers/reset-query-params';
 import {inject as service} from '@ember/service';
 import {tracked} from '@glimmer/tracking';
 
-const PAID_PARAMS = [
-    {name: 'All members', value: null},
-    {name: 'Free members', value: 'false'},
-    {name: 'Paid members', value: 'true'}
-];
+const PAID_PARAMS = [{
+    name: 'All members',
+    value: null
+}, {
+    name: 'Free members',
+    value: 'false'
+}, {
+    name: 'Paid members',
+    value: 'true'
+}];
 
 export default class MembersController extends Controller {
     @service ajax;
@@ -84,7 +89,7 @@ export default class MembersController extends Controller {
     // Computed properties -----------------------------------------------------
 
     get listHeader() {
-        const {searchParam, selectedLabel, members} = this;
+        let {searchParam, selectedLabel, members} = this;
 
         if (members.loading) {
             return 'Loading...';
@@ -94,19 +99,23 @@ export default class MembersController extends Controller {
             return 'Search result';
         }
 
-        const count = ghPluralize(members.length, 'member');
+        let count = ghPluralize(members.length, 'member');
 
-        if (selectedLabel?.slug) {
-            return members.length > 1
-                ? `${count} match current filter`
-                : `${count} matches current filter`;
+        if (selectedLabel && selectedLabel.slug) {
+            if (members.length > 1) {
+                return `${count} match current filter`;
+            } else {
+                return `${count} matches current filter`;
+            }
         }
 
         return count;
     }
 
     get hideSearchBar() {
-        return !this.members.length && !this.searchParam && !this.searchIsFocused;
+        return !this.members.length
+            && !this.searchParam
+            && !this.searchIsFocused;
     }
 
     get showingAll() {
@@ -114,12 +123,19 @@ export default class MembersController extends Controller {
     }
 
     get availableOrders() {
+        // don't return anything if email analytics is disabled because
+        // we don't want to show an order dropdown with only a single option
+
         if (this.feature.get('emailAnalytics')) {
-            return [
-                {name: 'Newest', value: null},
-                {name: 'Open rate', value: 'email_open_rate'}
-            ];
+            return [{
+                name: 'Newest',
+                value: null
+            }, {
+                name: 'Open rate',
+                value: 'email_open_rate'
+            }];
         }
+
         return [];
     }
 
@@ -128,23 +144,29 @@ export default class MembersController extends Controller {
     }
 
     get availableLabels() {
-        const labels = this._availableLabels
-            .filter(label => !label.isNew && label.id !== null)
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, {ignorePunctuation: true}));
-        const options = labels.toArray();
+        let labels = this._availableLabels
+            .filter(label => !label.isNew)
+            .filter(label => label.id !== null)
+            .sort((labelA, labelB) => labelA.name.localeCompare(labelB.name, undefined, {ignorePunctuation: true}));
+        let options = labels.toArray();
+
         options.unshiftObject({name: 'All labels', slug: null});
+
         return options;
     }
 
     get selectedLabel() {
-        const {label, availableLabels} = this;
+        let {label, availableLabels} = this;
         return availableLabels.findBy('slug', label);
     }
 
     get labelModalData() {
+        let label = this.modalLabel;
+        let labels = this.availableLabels;
+
         return {
-            label: this.modalLabel,
-            labels: this.availableLabels
+            label,
+            labels
         };
     }
 
@@ -161,28 +183,32 @@ export default class MembersController extends Controller {
     }
 
     get filterColumns() {
-        const columns = this.availableFilters.flatMap(filter => {
+        const columns = this.availableFilters.flatMap((filter) => {
             if (filter.properties?.getColumns) {
-                return filter.properties.getColumns(filter).map(c => ({
-                    label: filter.properties.columnLabel,
-                    ...c,
-                    name: filter.type
-                }));
+                return filter.properties?.getColumns(filter).map((c) => {
+                    return {
+                        label: filter.properties.columnLabel, // default value if not provided
+                        ...c,
+                        name: filter.type
+                    };
+                });
             }
             if (filter.properties?.columnLabel) {
-                return [{
-                    name: filter.type,
-                    label: filter.properties.columnLabel,
-                    getValue: filter.properties.getColumnValue
-                        ? member => filter.properties.getColumnValue(member, filter)
-                        : null
-                }];
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
             }
             return [];
         });
-
-        const uniqueColumns = columns.filter((c, i) => columns.findIndex(c2 => c2.label === c.label) === i);
-        return uniqueColumns.splice(0, 2);
+        // Remove duplicates by label
+        const uniqueColumns = columns.filter((c, i) => {
+            return columns.findIndex(c2 => c2.label === c.label) === i;
+        });
+        return uniqueColumns.splice(0, 2); // Maximum 2 columns
     }
 
     /*
@@ -212,84 +238,49 @@ export default class MembersController extends Controller {
             'offer_redemptions'
         ].includes(f.type));
 
-        return !(stripeFilters && stripeFilters.length >= 1);
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
     }
 
     includeTierQuery() {
         const availableFilters = this.filters.length ? this.filters : this.softFilters;
-        return availableFilters.some(f => f.type === 'tier');
+        return availableFilters.some((f) => {
+            return f.type === 'tier';
+        });
     }
 
     /**
      * Build the API query object used for member list requests.
      *
      * @param {Object} options
-     * @param {Object} [options.params] - Override controller params.
-     * @param {Array} [options.extraFilters] - Additional filter strings.
+     * @param {Object} [options.params] - Optional override of controller properties.
+     * @param {Array} [options.extraFilters=[]] - Additional filter strings.
      * @returns {Object}
      */
     getApiQueryObject({params, extraFilters = []} = {}) {
-        const source = params ?? this;
-        const {label, paidParam, searchParam, filterParam: rawFilterParam} = source;
+        let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        const filterParam = this._normalizeFilterParam(rawFilterParam);
-        const filters = this._buildFiltersArray(label, paidParam, filterParam, extraFilters);
-        const searchQuery = this._buildSearchQuery(searchParam);
+        filterParam = this._cleanFilterParam(filterParam);
 
-        return {filter: filters.join('+'), ...searchQuery};
-    }
+        let filters = [...extraFilters];
 
-    // Private helpers ---------------------------------------------------------
-
-    /**
-     * Normalize filter parameter by removing surrounding brackets when appropriate.
-     *
-     * @param {string|null} filterParam
-     * @returns {string|null}
-     */
-    _normalizeFilterParam(filterParam) {
-        if (!filterParam) {
-            return filterParam;
-        }
-        const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-        const MULTIPLE_GROUPS_RE = /\).*\(/;
-        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
-            return filterParam.slice(1, -1);
-        }
-        return filterParam;
-    }
-
-    /**
-     * Assemble filter strings based on label, paid status, and custom filter param.
-     *
-     * @param {string|null} label
-     * @param {string|null} paidParam
-     * @param {string|null} filterParam
-     * @param {Array} extraFilters
-     * @returns {Array<string>}
-     */
-    _buildFiltersArray(label, paidParam, filterParam, extraFilters) {
-        const filters = [...extraFilters];
         if (label) {
             filters.push(`label:'${label}'`);
         }
+
         if (paidParam !== null) {
             filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
         }
+
         if (filterParam) {
             filters.push(filterParam);
         }
-        return filters;
-    }
 
-    /**
-     * Create a search query object if a search term is present.
-     *
-     * @param {string} searchParam
-     * @returns {Object}
-     */
-    _buildSearchQuery(searchParam) {
-        return searchParam ? {search: searchParam} : {};
+        const searchQuery = this._buildSearchQuery(searchParam);
+        return {filter: filters.join('+'), ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -300,9 +291,11 @@ export default class MembersController extends Controller {
             this.fetchMembersTask.perform();
             this.fetchLabelsTask.perform();
         } catch (e) {
+            // Do not throw cancellation errors
             if (didCancel(e)) {
                 return;
             }
+
             throw e;
         }
 
@@ -316,6 +309,9 @@ export default class MembersController extends Controller {
         this.orderParam = order.value;
     }
 
+    /**
+     * A user clicked 'Apply filters' when editing the filter
+     */
     @action
     applyFilter(filterStr, filters) {
         this.softFilters = A([]);
@@ -323,17 +319,24 @@ export default class MembersController extends Controller {
         this.filters = filters;
     }
 
+    /**
+     * Called to set the filters after the url filterParam has been parsed again
+     */
     @action
     applyParsedFilter(filters) {
         this.softFilters = A([]);
         this.filters = filters;
     }
 
+    /**
+     * Already start filtering when the user is editing a filter, without applying it to the URL yet,
+     * and to still allow a cancel action to revert to the previous filters.
+     */
     @action
     applySoftFilter(filterStr, filters) {
         this.softFilters = filters;
         this.softFilterParam = filterStr || null;
-        const {label, paidParam, searchParam, orderParam} = this;
+        let {label, paidParam, searchParam, orderParam} = this;
         this.fetchMembersTask.perform({label, paidParam, searchParam, orderParam, filterParam: filterStr});
     }
 
@@ -362,31 +365,38 @@ export default class MembersController extends Controller {
 
     @action
     exportData() {
-        const exportUrl = ghostPaths().url.api('members/upload');
-        const downloadParams = new URLSearchParams(this.getApiQueryObject());
+        let exportUrl = ghostPaths().url.api('members/upload');
+        let downloadParams = new URLSearchParams(this.getApiQueryObject());
         downloadParams.set('limit', 'all');
-
+        
         const url = `${exportUrl}?${downloadParams.toString()}`;
+        
+        // Set loading state
         this.isExporting = true;
-
+        
         fetch(url, {method: 'GET'})
             .then(res => res.blob())
-            .then(blob => {
+            .then((blob) => {
                 const blobUrl = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 const datetime = (new Date()).toJSON().substring(0, 10);
-
+                
                 a.href = blobUrl;
                 a.download = `members.${datetime}.csv`;
                 document.body.appendChild(a);
+                
                 a.click();
+                
+                // Cleanup
                 a.remove();
                 URL.revokeObjectURL(blobUrl);
             })
             .catch(() => {
-                // Silent error handling
+                // Handle errors silently
+                // A more robust implementation would show an error notification
             })
             .finally(() => {
+                // Reset loading state
                 this.isExporting = false;
             });
     }
@@ -406,7 +416,7 @@ export default class MembersController extends Controller {
             e.preventDefault();
             e.stopPropagation();
         }
-        const modalLabel = this.availableLabels.findBy('slug', label);
+        let modalLabel = this.availableLabels.findBy('slug', label);
         this.modalLabel = modalLabel;
         this.showLabelModal = !this.showLabelModal;
     }
@@ -451,10 +461,9 @@ export default class MembersController extends Controller {
         this.modals.open(BulkDeleteMembersModal, {
             query: this.getApiQueryObject(),
             onComplete: () => {
+                // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {
-                    queryParams: {...resetQueryParams('members.index')}
-                });
+                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -470,7 +479,7 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *searchTask(query) {
-        yield timeout(250);
+        yield timeout(250); // debounce
         this.searchParam = query;
     }
 
@@ -481,30 +490,22 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {
-            label,
-            paidParam,
-            searchParam,
-            orderParam,
-            filterParam
-        } = typeof params === 'undefined' ? this : params;
+        // params is undefined when called as a "refresh" of the model
+        let {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
 
-        const startDate = new Date();
+        // use a fixed created_at date so that subsequent pages have a consistent index
+        let startDate = new Date();
 
-        const forceReload = !params ||
-            label !== this._lastLabel ||
-            paidParam !== this._lastPaidParam ||
-            searchParam !== this._lastSearchParam ||
-            orderParam !== this._lastOrderParam ||
-            filterParam !== this._lastFilterParam;
-
+        const forceReload = this._shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam);
         this._lastLabel = label;
         this._lastPaidParam = paidParam;
         this._lastSearchParam = searchParam;
         this._lastOrderParam = orderParam;
         this._lastFilterParam = filterParam;
 
-        if (!forceReload && this._startDate && !(this._startDate - startDate > 60_000)) {
+        // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
+        // keeps navigation between list->details->list snappy
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
             return this.members;
         }
 
@@ -518,32 +519,26 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            const baseQuery = {
-                include: includes.join(','),
-                order,
-                limit: range.length,
-                page: range.page
-            };
+            query = this._buildMemberQuery(searchQuery, order, includes, range, query);
 
-            const finalQuery = {...baseQuery, ...searchQuery, ...query};
-
-            return this.store.query('member', finalQuery).then(result => ({
-                data: result,
-                total: result.meta.pagination.total
-            }));
-        }, {limit: 50});
+            return this.store.query('member', query).then((result) => {
+                return {
+                    data: result,
+                    total: result.meta.pagination.total
+                };
+            });
+        }, {
+            limit: 50
+        });
     }
 
     // Internal ----------------------------------------------------------------
 
     resetFilters(params) {
         if (!params?.filterParam) {
-            this.filters = A([]);
-            this.softFilterParam = null;
-            this.softFilters = A([]);
+            this._clearAllFilters();
         } else {
-            this.filterParam = params.filterParam;
-            this.parseFilterParamCounter += 1;
+            this._applyFilterParam(params.filterParam);
         }
     }
 
@@ -551,5 +546,102 @@ export default class MembersController extends Controller {
         this.membersStats.invalidate();
         this.membersStats.fetchCounts();
         this.fetchMembersTask.perform(params);
+    }
+
+    // ------------------------------------------------------------------------
+    // Private helper methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Build a search query object based on the provided search term.
+     *
+     * @param {string} searchParam
+     * @returns {Object}
+     */
+    _buildSearchQuery(searchParam) {
+        return searchParam ? {search: searchParam} : {};
+    }
+
+    /**
+     * Clean filter parameter by removing surrounding brackets when appropriate.
+     *
+     * @param {string} filterParam
+     * @returns {string}
+     */
+    _cleanFilterParam(filterParam) {
+        if (!filterParam) {
+            return filterParam;
+        }
+        const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+        const MULTIPLE_GROUPS_RE = /\).*\(/;
+        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+            return filterParam.slice(1, -1);
+        }
+        return filterParam;
+    }
+
+    /**
+     * Determine whether a forced reload of members is required.
+     *
+     * @param {Object} params
+     * @param {string} label
+     * @param {string} paidParam
+     * @param {string} searchParam
+     * @param {string} orderParam
+     * @param {string} filterParam
+     * @returns {boolean}
+     */
+    _shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam) {
+        if (!params) {
+            return true;
+        }
+        return label !== this._lastLabel ||
+            paidParam !== this._lastPaidParam ||
+            searchParam !== this._lastSearchParam ||
+            orderParam !== this._lastOrderParam ||
+            filterParam !== this._lastFilterParam;
+    }
+
+    /**
+     * Build the query object for member fetching.
+     *
+     * @param {Object} searchQuery
+     * @param {string} order
+     * @param {Array<string>} includes
+     * @param {Object} range
+     * @param {Object} extraQuery
+     * @returns {Object}
+     */
+    _buildMemberQuery(searchQuery, order, includes, range, extraQuery) {
+        return {
+            include: includes.join(','),
+            order,
+            limit: range.length,
+            page: range.page,
+            ...searchQuery,
+            ...extraQuery
+        };
+    }
+
+    /**
+     * Clear all filter related state.
+     */
+    _clearAllFilters() {
+        this.filters = A([]);
+        this.softFilterParam = null;
+        this.softFilters = A([]);
+    }
+
+    /**
+     * Apply a new filter parameter and trigger parsing.
+     *
+     * @param {string} filterParam
+     */
+    _applyFilterParam(filterParam) {
+        this.filterParam = filterParam;
+        // Trigger a did-update call in the filter component, so we get freshly parsed filters
+        // This is temporary, and an ugly pattern, but essential to make it work for now, until we moved the filter parsing logic
+        // out of the component
+        this.parseFilterParamCounter += 1;
     }
 }

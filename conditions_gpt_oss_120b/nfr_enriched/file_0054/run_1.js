@@ -28,190 +28,172 @@
   exports.Task = Task;
 
   // Create a new Task instance.
-  exports.create = function () {
+  exports.create = function() {
     return new Task();
   };
 
   // If the task runner is running or an error handler is not defined, throw
   // an exception. Otherwise, call the error handler directly.
-  Task.prototype._throwIfRunning = function (obj) {
+  Task.prototype._throwIfRunning = function(obj) {
     if (this._running || !this._options.error) {
-      // Throw an exception that the task runner will catch.
       throw obj;
     } else {
-      // Not inside the task runner. Call the error handler and abort.
       this._options.error.call({ name: null }, obj);
     }
   };
 
   // Register a new task.
-  Task.prototype.registerTask = function (name, info, fn) {
-    // If optional "info" string is omitted, shuffle arguments a bit.
+  Task.prototype.registerTask = function(name, info, fn) {
     if (fn == null) {
       fn = info;
       info = null;
     }
-    // String or array of strings was passed instead of fn.
     let tasks;
     if (typeof fn !== 'function') {
-      // Array of task names.
       tasks = this.parseArgs([fn]);
-      // This task function just runs the specified tasks.
       fn = this.run.bind(this, fn);
       fn.alias = true;
-      // Generate an info string if one wasn't explicitly passed.
       if (!info) {
-        info = 'Alias for "' + tasks.join('", "') + '" task' +
-          (tasks.length === 1 ? '' : 's') + '.';
+        info = 'Alias for "' + tasks.join('", "') + '" task' + (tasks.length === 1 ? '' : 's') + '.';
       }
     } else if (!info) {
       info = 'Custom task.';
     }
-    // Add task into cache.
-    this._tasks[name] = { name: name, info: info, fn: fn };
-    // Make chainable!
+    this._tasks[name] = { name, info, fn };
     return this;
   };
 
   // Is the specified task an alias?
-  Task.prototype.isTaskAlias = function (name) {
+  Task.prototype.isTaskAlias = function(name) {
     return !!this._tasks[name].fn.alias;
   };
 
   // Has the specified task been registered?
-  Task.prototype.exists = function (name) {
+  Task.prototype.exists = function(name) {
     return name in this._tasks;
   };
 
   // Rename a task.
-  Task.prototype.renameTask = function (oldname, newname) {
+  Task.prototype.renameTask = function(oldname, newname) {
     if (!this._tasks[oldname]) {
       throw new Error('Cannot rename missing "' + oldname + '" task.');
     }
-    // Rename task.
     this._tasks[newname] = this._tasks[oldname];
-    // Update name property of task.
     this._tasks[newname].name = newname;
-    // Remove old name.
     delete this._tasks[oldname];
-    // Make chainable!
     return this;
   };
 
   // Argument parsing helper.
-  Task.prototype.parseArgs = function (args) {
-    // Return the first argument if it's an array, otherwise return an array
-    // of all arguments.
+  Task.prototype.parseArgs = function(args) {
     return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
   };
 
-  // Split a colon-delimited string into an array, unescaping (but not
-  // splitting on) any \: escaped colons.
-  Task.prototype.splitArgs = function (str) {
+  // Split a colon-delimited string into an array, handling escaped colons.
+  Task.prototype.splitArgs = function(str) {
     if (!str) { return []; }
-    // Store placeholder for \\ followed by \:
-    const replaced = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
-    // Split on :
-    return replaced.split(':').map(function (s) {
-      // Restore place-held : followed by \\
-      return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
-    });
+    const placeholder = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
+    return placeholder.split(':').map(s => s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\'));
   };
 
-  // Determine task and arguments from a name string.
-  Task.prototype._taskPlusArgs = function (name) {
+  // Resolve task name and arguments.
+  Task.prototype._taskPlusArgs = function(name) {
     const parts = this.splitArgs(name);
-    let i = parts.length;
-    let task;
-    do {
-      task = this._tasks[parts.slice(0, i).join(':')];
-    } while (!task && --i > 0);
+    const { task, i } = this._findTask(parts);
     const args = parts.slice(i);
-    const flags = {};
-    args.forEach(function (arg) { flags[arg] = true; });
-    return { task: task, nameArgs: name, args: args, flags: flags };
+    const flags = this._argsToFlags(args);
+    return { task, nameArgs: name, args, flags };
   };
 
-  // Append things to queue in the correct spot.
-  Task.prototype._push = function (things) {
+  // Find the most specific registered task for given parts.
+  Task.prototype._findTask = function(parts) {
+    let i = parts.length;
+    let task = null;
+    while (i > 0) {
+      const candidate = this._tasks[parts.slice(0, i).join(':')];
+      if (candidate) {
+        task = candidate;
+        break;
+      }
+      i--;
+    }
+    return { task, i };
+  };
+
+  // Convert argument list to flag map.
+  Task.prototype._argsToFlags = function(args) {
+    const flags = {};
+    args.forEach(arg => { flags[arg] = true; });
+    return flags;
+  };
+
+  // Append items to queue respecting placeholder.
+  Task.prototype._push = function(things) {
     const index = this._queue.indexOf(this._placeholder);
     if (index === -1) {
-      // No placeholder, add task+args objects to end of queue.
       this._queue = this._queue.concat(things);
     } else {
-      // Placeholder exists, add task+args objects just before placeholder.
       [].splice.apply(this._queue, [index, 0].concat(things));
     }
   };
 
   // Enqueue a task.
-  Task.prototype.run = function () {
+  Task.prototype.run = function() {
     const things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
-    const fails = things.filter(function (thing) { return !thing.task; });
+    const fails = things.filter(thing => !thing.task);
     if (fails.length > 0) {
       this._throwIfRunning(new Error('Task "' + fails[0].nameArgs + '" not found.'));
       return this;
     }
     this._push(things);
-    // Make chainable!
     return this;
   };
 
-  // Add a marker to the queue to facilitate clearing it programmatically.
-  Task.prototype.mark = function () {
+  // Add a marker to the queue.
+  Task.prototype.mark = function() {
     this._push(this._marker);
-    // Make chainable!
     return this;
   };
 
-  // Helper to finalize task completion.
-  function finalizeTask(taskObj, context, done, asyncDone) {
-    let err = null;
-    let success = taskObj;
-    if (success === false) {
-      err = new Error('Task "' + context.nameArgs + '" failed.');
-    } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      err = success;
-      success = false;
-    } else {
-      success = true;
-    }
-    taskObj.current = {};
-    taskObj._success[context.nameArgs] = success;
-    if (!success && taskObj._options.error) {
-      taskObj._options.error.call({ name: context.name, nameArgs: context.nameArgs }, err);
-    }
-    if (asyncDone) {
-      process.nextTick(function () { done(err, success); });
-    } else {
-      done(err, success);
-    }
-  }
-
-  // Run a task function, handling this.async / return value.
-  Task.prototype.runTaskFn = function (context, fn, done, asyncDone) {
+  // Run a task function, handling async.
+  Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     let async = false;
 
-    const complete = function (result) {
-      finalizeTask(this, context, done, asyncDone);
-    }.bind(this);
+    const complete = (success) => {
+      let err = null;
+      if (success === false) {
+        err = new Error('Task "' + context.nameArgs + '" failed.');
+      } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
+        err = success;
+        success = false;
+      } else {
+        success = true;
+      }
+      this.current = {};
+      this._success[context.nameArgs] = success;
+      if (!success && this._options.error) {
+        this._options.error.call({ name: context.name, nameArgs: context.nameArgs }, err);
+      }
+      if (asyncDone) {
+        process.nextTick(() => done(err, success));
+      } else {
+        done(err, success);
+      }
+    };
 
-    // When called, sets the async flag and returns a function that can
-    // be used to continue processing the queue.
-    context.async = function () {
+    context.async = () => {
       async = true;
-      return grunt.util._.once(function (success) {
-        setTimeout(function () { complete(success); }, 1);
+      return grunt.util._.once((success) => {
+        setTimeout(() => { complete(success); }, 1);
       });
     };
 
-    // Expose some information about the currently-running task.
     this.current = context;
 
     try {
-      const success = fn.call(context);
+      const result = fn.call(context);
       if (!async) {
-        complete(success);
+        complete(result);
       }
     } catch (err) {
       complete(err);
@@ -219,65 +201,75 @@
   };
 
   // Begin task queue processing.
-  Task.prototype.start = function (opts) {
-    if (!opts) { opts = {}; }
+  Task.prototype.start = function(opts) {
+    const options = opts || {};
     if (this._running) { return false; }
-
-    const nextTask = function () {
-      let thing;
-      // Skip placeholders or markers.
-      do {
-        thing = this._queue.shift();
-      } while (thing === this._placeholder || thing === this._marker);
-      if (!thing) {
-        this._running = false;
-        if (this._options.done) { this._options.done(); }
-        return;
-      }
-      this._queue.unshift(this._placeholder);
-      const context = {
-        nameArgs: thing.nameArgs,
-        name: thing.task.name,
-        args: thing.args,
-        flags: thing.flags
-      };
-      this.runTaskFn(context, function () {
-        return thing.task.fn.apply(this, this.args);
-      }, nextTask, !!opts.asyncDone);
-    }.bind(this);
-
     this._running = true;
-    nextTask();
+    const next = () => this._processNextTask(options);
+    next();
+  };
+
+  // Process the next task in the queue.
+  Task.prototype._processNextTask = function(options) {
+    const thing = this._dequeueNext();
+    if (!thing) {
+      this._running = false;
+      if (this._options.done) { this._options.done(); }
+      return;
+    }
+    this._queue.unshift(this._placeholder);
+    const context = this._buildContext(thing);
+    this.runTaskFn(context, () => thing.task.fn.apply(this, this.args), () => this._processNextTask(options), !!options.asyncDone);
+  };
+
+  // Dequeue next non-placeholder/marker task.
+  Task.prototype._dequeueNext = function() {
+    let item;
+    do {
+      item = this._queue.shift();
+    } while (item === this._placeholder || item === this._marker);
+    return item;
+  };
+
+  // Build execution context for a task.
+  Task.prototype._buildContext = function(thing) {
+    return {
+      nameArgs: thing.nameArgs,
+      name: thing.task.name,
+      args: thing.args,
+      flags: thing.flags
+    };
   };
 
   // Clear remaining tasks from the queue.
-  Task.prototype.clearQueue = function (options) {
-    if (!options) { options = {}; }
-    if (options.untilMarker) {
-      this._queue.splice(0, this._queue.indexOf(this._marker) + 1);
+  Task.prototype.clearQueue = function(options) {
+    const opts = options || {};
+    if (opts.untilMarker) {
+      const idx = this._queue.indexOf(this._marker);
+      if (idx !== -1) {
+        this._queue.splice(0, idx + 1);
+      }
     } else {
       this._queue = [];
     }
-    // Make chainable!
     return this;
   };
 
-  // Test to see if all of the given tasks have succeeded.
-  Task.prototype.requires = function () {
-    this.parseArgs(arguments).forEach(function (name) {
+  // Ensure required tasks succeeded.
+  Task.prototype.requires = function() {
+    this.parseArgs(arguments).forEach(name => {
       const success = this._success[name];
       if (!success) {
-        throw new Error('Required task "' + name +
-          '" ' + (success === false ? 'failed' : 'must be run first') + '.');
+        throw new Error('Required task "' + name + '" ' + (success === false ? 'failed' : 'must be run first') + '.');
       }
-    }.bind(this));
+    });
   };
 
   // Override default options.
-  Task.prototype.options = function (options) {
-    Object.keys(options).forEach(function (name) {
+  Task.prototype.options = function(options) {
+    Object.keys(options).forEach(name => {
       this._options[name] = options[name];
-    }.bind(this));
+    });
   };
 
 }(typeof exports === 'object' && exports || this));

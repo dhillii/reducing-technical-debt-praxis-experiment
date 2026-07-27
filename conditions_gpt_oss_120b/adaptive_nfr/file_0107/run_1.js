@@ -187,19 +187,19 @@ Runner.prototype.checkGlobals = function (test) {
   }
   let ok = this._globals;
 
-  const globals = this.globalProps();
+  const globalsList = this.globalProps();
   let leaks;
 
   if (test) {
     ok = ok.concat(test._allowedGlobals || []);
   }
 
-  if (this.prevGlobalsLength === globals.length) {
+  if (this.prevGlobalsLength === globalsList.length) {
     return;
   }
-  this.prevGlobalsLength = globals.length;
+  this.prevGlobalsLength = globalsList.length;
 
-  leaks = filterLeaks(ok, globals);
+  leaks = filterLeaks(ok, globalsList);
   this._globals = this._globals.concat(leaks);
 
   if (leaks.length > 1) {
@@ -966,7 +966,7 @@ function extraGlobals () {
     const parts = process.version.split('.');
     const nodeVersion = parts.reduce(function (a, v) {
       return a << 8 | v;
-    });
+    }, 0);
 
     // 'errno' was renamed to process._errno in v0.9.11.
 

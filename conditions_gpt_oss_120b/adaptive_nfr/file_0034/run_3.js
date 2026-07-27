@@ -101,9 +101,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send', // internal
-            label: 'Publish and email', // shown in expanded options
-            display: 'Publish and email', // shown in option title
+            value: 'publish+send',
+            label: 'Publish and email',
+            display: 'Publish and email',
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -134,7 +134,6 @@ export default class PublishOptions {
     // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
-
         return !this.mailgunIsConfigured || hasNoMembers || this.emailDisabledError;
     }
 
@@ -145,7 +144,6 @@ export default class PublishOptions {
 
     @action
     setPublishType(newValue) {
-        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
@@ -180,34 +178,34 @@ export default class PublishOptions {
         }
     }
 
+    /**
+     * Compute the default recipient filter based on settings and post visibility.
+     * @returns {string|null}
+     */
     get defaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
+        return this._computeDefaultRecipientFilter();
+    }
 
-        const usuallyNobody = recipients === 'filter' && filter === null;
+    /**
+     * @private
+     */
+    _computeDefaultRecipientFilter() {
+        const {editorDefaultEmailRecipients: recipients, editorDefaultEmailRecipientsFilter: filter} = this.settings;
 
         if (recipients === 'disabled') {
             return null;
         }
 
+        const usuallyNobody = recipients === 'filter' && filter === null;
+
         if (recipients === 'visibility' || usuallyNobody) {
-            if (this.post.visibility === 'public') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'paid') {
-                return 'status:-free';
-            }
-
-            if (this.post.visibility === 'tiers') {
-                return this.post.visibilitySegment;
-            }
-
-            return this.post.visibility;
+            const visibilityMap = {
+                public: 'status:free,status:-free',
+                members: 'status:free,status:-free',
+                paid: 'status:-free',
+                tiers: this.post.visibilitySegment
+            };
+            return visibilityMap[this.post.visibility] ?? this.post.visibility;
         }
 
         return filter;
@@ -244,9 +242,6 @@ export default class PublishOptions {
         this.user = user;
         this.membersCountCache = membersCountCache;
 
-        // this needs to be set here rather than a class-level property because
-        // unlike Ember-based classes the services are not injected so can't be
-        // used until after they are assigned above
         this.allNewsletters = this.store.peekAll('newsletter');
 
         this.setupTask.perform();
@@ -256,17 +251,12 @@ export default class PublishOptions {
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
 
-        // TODO: set up initial state / defaults
-
         this.newsletter = this.defaultNewsletter;
 
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
         }
 
-        // When default recipients is set to "Usually nobody":
-        // Set publish type to "Publish" but keep email recipients matching post visibility
-        // to avoid multiple clicks to turn on emailing
         if (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
@@ -282,16 +272,18 @@ export default class PublishOptions {
     @task
     *fetchRequiredDataTask() {
         const promises = [
-            ...(this.user.isAdmin
-                ? [this.membersCountCache.count({}).then(res => {
-                    this.totalMemberCount = res;
-                })]
-                : []),
+            ...(
+                this.user.isAdmin
+                    ? [this.membersCountCache.count({}).then(res => { this.totalMemberCount = res; })]
+                    : []
+            ),
             this._checkSendingLimit(),
             this._checkPublishingLimit(),
-            ...(!this.user.isContributor
-                ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})]
-                : [])
+            ...(
+                !this.user.isContributor
+                    ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})]
+                    : []
+            )
         ];
 
         yield Promise.all(promises);
@@ -301,8 +293,6 @@ export default class PublishOptions {
 
     @task({drop: true})
     *saveTask() {
-        // willEmail can change after model changes are applied because the post
-        // can leave draft status - grab it now before that happens
         const willEmail = this.willEmail;
 
         this._applyModelChanges();
@@ -353,10 +343,8 @@ export default class PublishOptions {
     _applyModelChanges() {
         const willEmail = this.willEmail;
 
-        // store backup of original values in case we need to revert
         this._originalModelValues = {};
 
-        // this only applies to the full publish flow which is only available for drafts
         if (!this.post.isDraft) {
             return;
         }
@@ -399,7 +387,6 @@ export default class PublishOptions {
     }
 
     async _checkPublishingLimit() {
-        // non-admin users cannot fetch members count so we can't error at this stage for them
         if (!this.user.isAdmin) {
             return;
         }

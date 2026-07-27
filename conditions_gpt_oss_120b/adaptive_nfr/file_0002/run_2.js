@@ -23,25 +23,20 @@ interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
 }
 
 /**
- * Returns a user‑friendly error message based on the upload error object.
+ * Returns a user‑friendly error message based on an HTTP status code.
  */
-function getUploadErrorMessage(error: unknown): string {
-    let message = 'Failed to upload image. Try again.';
-    if (error && typeof error === 'object' && 'statusCode' in error) {
-        const status = (error as {statusCode?: number}).statusCode;
-        if (status === 413) {
-            message = 'Image size exceeds limit.';
-        } else if (status === 415) {
-            message = 'The file type is not supported.';
-        }
-    }
-    return message;
-}
+const getImageUploadErrorMessage = (statusCode: number | undefined): string => {
+    const messages: Record<number, string> = {
+        413: 'Image size exceeds limit.',
+        415: 'The file type is not supported.'
+    };
+    return statusCode && messages[statusCode] ? messages[statusCode] : 'Failed to upload image. Try again.';
+};
 
 /**
- * Determines the placeholder text for the textarea based on reply context.
+ * Generates the placeholder text for the textarea.
  */
-function getPlaceholder(replyTo?: NewNoteModalProps['replyTo']): string {
+const getPlaceholder = (replyTo?: NewNoteModalProps['replyTo']): string => {
     if (!replyTo) {
         return "What's new?";
     }
@@ -50,42 +45,7 @@ function getPlaceholder(replyTo?: NewNoteModalProps['replyTo']): string {
         return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
     }
     return "What's new?";
-}
-
-/**
- * Handles the open/close state changes of the modal and performs cleanup.
- */
-function useOpenChangeHandler(
-    setIsOpen: (open: boolean) => void,
-    onOpenChange: ((open: boolean) => void) | undefined,
-    setContent: (c: string) => void,
-    setImagePreview: (url: string | null) => void,
-    setUploadedImageUrl: (url: string | null) => void,
-    setAltText: (t: string) => void,
-    setShowAltInput: (v: boolean) => void,
-    imagePreviewRef: React.MutableRefObject<string | null>,
-    imageInputRef: React.MutableRefObject<HTMLInputElement | null>
-) {
-    return (open: boolean) => {
-        if (open) {
-            setContent('');
-            setImagePreview(null);
-            setUploadedImageUrl(null);
-            setAltText('');
-            setShowAltInput(false);
-            if (imagePreviewRef.current) {
-                URL.revokeObjectURL(imagePreviewRef.current);
-            }
-            if (imageInputRef.current) {
-                imageInputRef.current.value = '';
-            }
-        }
-        setIsOpen(open);
-        if (onOpenChange) {
-            onOpenChange(open);
-        }
-    };
-}
+};
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({
     children,
@@ -102,15 +62,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     const [isOpen, setIsOpen] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const altTextInputRef = useRef<HTMLInputElement>(null);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [isImageUploading, setIsImageUploading] = useState(false);
     const imageInputRef = useRef<HTMLInputElement>(null);
 
     const [content, setContent] = useState('');
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
     const [altText, setAltText] = useState('');
     const [showAltInput, setShowAltInput] = useState(false);
     const [isPosting, setIsPosting] = useState(false);
+    const [isImageUploading, setIsImageUploading] = useState(false);
     const [isSticky, setIsSticky] = useState(false);
     const navigate = useNavigateWithBasePath();
 
@@ -126,15 +86,35 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            const timer = setTimeout(() => {
-                setIsSticky(true);
-            }, 300);
+            const timer = setTimeout(() => setIsSticky(true), 300);
             return () => clearTimeout(timer);
         }
         setIsSticky(false);
     }, [isOpen, props.open]);
 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
+
+    const resetModalState = useCallback(() => {
+        setContent('');
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    }, [imagePreview]);
+
+    const handleDialogOpenChange = useCallback((open: boolean) => {
+        if (open) {
+            resetModalState();
+        }
+        setIsOpen(open);
+        onOpenChange?.(open);
+    }, [resetModalState, onOpenChange]);
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
@@ -144,20 +124,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
         try {
             setIsPosting(true);
+            const payload = {
+                content: trimmedContent,
+                imageUrl: uploadedImageUrl || undefined,
+                altText: altText || undefined
+            };
+
             if (replyTo) {
                 await replyMutation.mutateAsync({
                     inReplyTo: replyTo.object.id,
-                    content: trimmedContent,
-                    imageUrl: uploadedImageUrl || undefined,
-                    altText: altText || undefined
+                    ...payload
                 });
                 onReply?.();
             } else {
-                await noteMutation.mutateAsync({
-                    content: trimmedContent,
-                    imageUrl: uploadedImageUrl || undefined,
-                    altText: altText || undefined
-                });
+                await noteMutation.mutateAsync(payload);
                 navigate('/notes');
             }
 
@@ -182,8 +162,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
         onReply,
         onReplyError,
         setIsOpen,
-        navigate,
-        onOpenChange
+        onOpenChange,
+        navigate
     ]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -201,9 +181,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
-            const timeoutId = setTimeout(() => {
-                textareaRef.current?.focus();
-            }, 100);
+            const timeoutId = setTimeout(() => textareaRef.current?.focus(), 100);
             return () => clearTimeout(timeoutId);
         }
     }, [isOpen, props.open]);
@@ -211,9 +189,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
-            const timeoutId = setTimeout(() => {
-                altTextInputRef.current?.focus();
-            }, 100);
+            const timeoutId = setTimeout(() => altTextInputRef.current?.focus(), 100);
             return () => clearTimeout(timeoutId);
         }
     }, [showAltInput]);
@@ -273,7 +249,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
             setUploadedImageUrl(imageUrl);
         } catch (error) {
             setImagePreview(null);
-            toast.error(getUploadErrorMessage(error));
+            const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as any).statusCode : undefined;
+            toast.error(getImageUploadErrorMessage(statusCode));
         } finally {
             setIsImageUploading(false);
         }
@@ -327,22 +304,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
     const placeholder = getPlaceholder(replyTo);
 
-    const onOpenChangeHandler = useOpenChangeHandler(
-        setIsOpen,
-        onOpenChange,
-        setContent,
-        setImagePreview,
-        setUploadedImageUrl,
-        setAltText,
-        setShowAltInput,
-        {current: imagePreview},
-        imageInputRef
-    );
-
     return (
         <Dialog
             open={props.open !== undefined ? props.open : isOpen}
-            onOpenChange={onOpenChangeHandler}
+            onOpenChange={handleDialogOpenChange}
             {...(props.open !== undefined ? {} : props)}
         >
             <DialogTrigger asChild>{children}</DialogTrigger>
@@ -418,9 +383,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                     <div className="group relative mt-6 flex min-h-[200px] w-full items-center justify-center">
                         <img
                             alt="Image attachment preview"
-                            className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${
-                                isImageUploading && 'opacity-10'
-                            }`}
+                            className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isImageUploading && 'opacity-10'}`}
                             src={imagePreview}
                         />
                         {isImageUploading && (
@@ -436,9 +399,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                         </Button>
                         {!isImageUploading && (
                             <Button
-                                className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${
-                                    !showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'
-                                }`}
+                                className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`}
                                 onClick={handleToggleAltInput}
                             >
                                 Alt

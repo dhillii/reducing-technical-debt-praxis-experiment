@@ -1,7 +1,7 @@
 import { useListFormatter } from '@react-aria/i18n'
 import { type Key, useMemo, useState } from 'react'
 
-import { FieldLabel } from '@keystar/ui/field'
+import { FieldLabel } } from '@keystar/ui/field'
 import { VStack } from '@keystar/ui/layout'
 import { ListView } from '@keystar/ui/list-view'
 import { Item, Picker } from '@keystar/ui/picker'
@@ -24,7 +24,7 @@ import type {
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
-  const [preNullValue, setPreNullValue] = useState(
+  const [preNullValue, setPreNullValue] = useState<string | null>(
     value.value ?? (value.kind === 'update' ? value.initial : null)
   )
   const longestLabelLength = useMemo(() => {
@@ -236,6 +236,7 @@ export function controller(config: Config): FieldController<
             selectionMode="multiple"
             onSelectionChange={selection => {
               if (selection === 'all') return
+
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
             selectedKeys={value}

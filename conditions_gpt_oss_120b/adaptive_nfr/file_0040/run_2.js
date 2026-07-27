@@ -23,118 +23,83 @@ let defaultSettings;
 const doBlock = fn => fn();
 
 const getMembersKey = doBlock(() => {
-    let keyPairCache;
+    let UNO_KEYPAIRINO;
     return function getKey(type) {
-        if (!keyPairCache) {
-            keyPairCache = keypair({bits: 1024});
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
         }
-        return keyPairCache[type];
+        return UNO_KEYPAIRINO[type];
     };
 });
 
 const getGhostKey = doBlock(() => {
-    let keyPairCache;
+    let UNO_KEYPAIRINO;
     return function getKey(type) {
-        if (!keyPairCache) {
-            keyPairCache = keypair({bits: 1024});
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
         }
-        return keyPairCache[type];
+        return UNO_KEYPAIRINO[type];
     };
 });
 
 /**
- * Checks if a value is a string representation of a boolean number ('0' or '1')
- * @param {any} value
- * @returns {boolean}
- */
-function isBooleanNumericString(value) {
-    return value === '0' || value === '1';
-}
-
-/**
- * Checks if a value is a string representation of a boolean ('true' or 'false')
- * @param {any} value
- * @returns {boolean}
- */
-function isBooleanLiteralString(value) {
-    return value === 'true' || value === 'false';
-}
-
-/**
- * Determines if a setting key is one of the URL related keys
+ * Determines if a setting key corresponds to a URL field.
  * @param {string} key
  * @returns {boolean}
  */
 function isUrlKey(key) {
-    const urlKeys = [
-        'cover_image',
-        'logo',
-        'icon',
-        'portal_button_icon',
-        'og_image',
-        'twitter_image',
-        'pintura_js_url',
-        'pintura_css_url'
-    ];
-    return urlKeys.includes(key);
+    return ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(key);
 }
 
 /**
- * Normalizes boolean values for storage
- * @param {any} value
- * @returns {string}
+ * Validates a value against a regex and throws a ValidationError on mismatch.
+ * @param {string} value
+ * @param {RegExp} regex
+ * @param {string} message
+ * @throws {errors.ValidationError}
  */
-function normalizeBooleanValue(value) {
-    if (isBooleanNumericString(value)) {
-        return (!!+value).toString();
+function validateRegex(value, regex, message) {
+    if (!regex.test(value)) {
+        throw new errors.ValidationError({message});
     }
-    if (isBooleanLiteralString(value)) {
-        return JSON.parse(value).toString();
-    }
-    if (_.isBoolean(value)) {
-        return value.toString();
-    }
-    return value;
 }
 
 /**
- * Parses boolean values from storage
- * @param {any} value
- * @returns {any}
+ * Checks whether the provided value is a plain object that should be stringified.
+ * @param {*} value
+ * @returns {boolean}
  */
-function parseBooleanValue(value) {
-    if (isBooleanNumericString(value)) {
+function shouldStringifyObject(value) {
+    return _.isObject(value) && !_.isArray(value);
+}
+
+/**
+ * Returns true if the given key/value pair represents a boolean string representation.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isBooleanString(value) {
+    return value === '0' || value === '1' || value === 'false' || value === 'true';
+}
+
+/**
+ * Parses a boolean string into its proper boolean value.
+ * @param {string} value
+ * @returns {boolean|string}
+ */
+function parseBooleanString(value) {
+    if (value === '0' || value === '1') {
         return !!+value;
     }
-    if (isBooleanLiteralString(value)) {
+    if (value === 'false' || value === 'true') {
         return JSON.parse(value);
     }
     return value;
 }
 
 /**
- * Transforms URL values for write operations
- * @param {object} attrs
- */
-function transformUrlOnWrite(attrs) {
-    if (attrs.value && isUrlKey(attrs.key)) {
-        attrs.value = urlUtils.toTransformReady(attrs.value);
-    }
-}
-
-/**
- * Transforms URL values after reading from DB
- * @param {object} attrs
- */
-function transformUrlOnRead(attrs) {
-    if (isUrlKey(attrs.key)) {
-        attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
-    }
-}
-
-/**
- * Generates default settings map
- * @returns {object}
+ * Parses default settings, flattening categories and attaching dynamic defaults.
+ * @returns {Object}
  */
 function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
@@ -155,14 +120,18 @@ function parseDefaultSettings() {
         indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
     };
 
-    _.each(defaultSettingsInCategories, (settings, categoryName) => {
-        _.each(settings, (setting, settingName) => {
+    _.each(defaultSettingsInCategories, function each(settings, categoryName) {
+        _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
 
-            setting.getDefaultValue = function () {
-                const dyn = dynamicDefault[setting.key];
-                return dyn ? dyn() : setting.defaultValue;
+            setting.getDefaultValue = function getDefaultValue() {
+                const getDynamicDefault = dynamicDefault[setting.key];
+                if (getDynamicDefault) {
+                    return getDynamicDefault();
+                } else {
+                    return setting.defaultValue;
+                }
             };
 
             defaultSettingsFlattened[settingName] = setting;
@@ -176,177 +145,12 @@ function getDefaultSettings() {
     if (!defaultSettings) {
         defaultSettings = parseDefaultSettings();
     }
+
     return defaultSettings;
 }
 
-/**
- * Validates a single item before edit
- * @param {object} item
- * @returns {Promise<void>}
- */
-async function validateEditItem(item) {
-    if (!(_.isString(item.key) && item.key.length > 0)) {
-        throw new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)});
-    }
-    if (_.isObject(item.value)) {
-        item.value = JSON.stringify(item.value);
-    }
-}
-
-/**
- * Prepares item data for saving
- * @param {object} item
- * @param {object} self
- * @returns {object}
- */
-function prepareItemData(item, self) {
-    return self.filterData(item);
-}
-
-/**
- * Updates a setting model based on item data
- * @param {object} setting
- * @param {object} item
- * @param {object} options
- * @returns {Promise<object>}
- */
-async function updateSetting(setting, item, options) {
-    if (options.importing) {
-        return setting.save(item, options);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-        setting.set('value', item.value);
-    }
-
-    if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-        setting.set('type', item.type);
-    }
-
-    if (setting.hasChanged()) {
-        return setting.save(null, options);
-    }
-
-    return setting;
-}
-
-/**
- * Handles edit operation for a single item
- * @param {object} item
- * @param {object} self
- * @param {object} options
- * @returns {Promise<object>}
- */
-async function handleEditItem(item, self, options) {
-    if (item.toJSON) {
-        item = item.toJSON();
-    }
-
-    await validateEditItem(item);
-    const preparedItem = prepareItemData(item, self);
-
-    const setting = await Settings.forge({key: preparedItem.key}).fetch(options);
-    if (!setting) {
-        throw new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: preparedItem.key})});
-    }
-
-    return updateSetting(setting, preparedItem, options);
-}
-
-/**
- * Checks if a plan is valid according to business rules
- * @param {object} plan
- * @param {object} options
- * @throws {errors.ValidationError}
- */
-function validateStripePlan(plan, options) {
-    if (!options.importing) {
-        if (plan.amount < 100 && plan.name !== 'Complimentary') {
-            throw new errors.ValidationError({message: 'Plans cannot have an amount less than 1'});
-        }
-    }
-
-    if (typeof plan.name !== 'string') {
-        throw new errors.ValidationError({message: 'Plan must have a name'});
-    }
-
-    if (typeof plan.currency !== 'string') {
-        throw new errors.ValidationError({message: 'Plan must have a currency'});
-    }
-
-    if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
-        throw new errors.ValidationError({message: 'Plan interval must be one of: year, month, week or day'});
-    }
-}
-
-/**
- * Validates stripe plans array
- * @param {object} model
- * @param {object} options
- */
-async function validateStripePlans(model, options) {
-    const plans = JSON.parse(model.get('value'));
-    for (const plan of plans) {
-        validateStripePlan(plan, options);
-    }
-}
-
-/**
- * Validates labs flag values
- * @param {object} model
- */
-async function validateLabs(model) {
-    const flags = JSON.parse(model.get('value'));
-    for (const flag in flags) {
-        if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
-            throw new errors.ValidationError({
-                message: `Settings lab value cannot have value other then ${WRITABLE_KEYS_ALLOWLIST.join(', ')}`
-            });
-        }
-    }
-}
-
-/**
- * Generic regex validator for Stripe keys
- * @param {string} value
- * @param {RegExp} regex
- * @param {string} fieldName
- */
-function validateStripeKeyRegex(value, regex, fieldName) {
-    if (value === null) {
-        return;
-    }
-    if (!regex.test(value)) {
-        throw new errors.ValidationError({
-            message: `${fieldName} did not match ${regex}`
-        });
-    }
-}
-
-/**
- * Validates a setting against its default definition
- * @param {object} model
- */
-async function validateAll(model) {
-    const settingName = model.get('key');
-    const settingDefault = getDefaultSettings()[settingName];
-
-    if (!settingDefault) {
-        return;
-    }
-
-    const validationErrors = validator.validate(
-        model.get('value'),
-        model.get('key'),
-        settingDefault.validations,
-        'settings'
-    );
-
-    if (validationErrors.length) {
-        throw new errors.ValidationError({message: validationErrors.join('\n')});
-    }
-}
-
+// Each setting is saved as a separate row in the database,
+// but the overlying API treats them as a single key:value mapping
 Settings = ghostBookshelf.Model.extend({
 
     tableName: 'settings',
@@ -355,71 +159,95 @@ Settings = ghostBookshelf.Model.extend({
     actionsResourceType: 'setting',
     actionsExtraContext: ['key', 'group'],
 
-    emitChange(event, options) {
-        const eventToTrigger = `settings.${event}`;
+    emitChange: function emitChange(event, options) {
+        const eventToTrigger = 'settings' + '.' + event;
         ghostBookshelf.Model.prototype.emitChange.bind(this)(this, eventToTrigger, options);
     },
 
-    onDestroyed(model, options) {
+    onDestroyed: function onDestroyed(model, options) {
         ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
+
         model.emitChange('deleted', options);
-        model.emitChange(`${model._previousAttributes.key}.deleted`, options);
+        model.emitChange(model._previousAttributes.key + '.' + 'deleted', options);
     },
 
-    onCreated(model, options) {
+    onCreated: function onCreated(model, options) {
         ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
+
         model.emitChange('added', options);
-        model.emitChange(`${model.attributes.key}.added`, options);
+        model.emitChange(model.attributes.key + '.' + 'added', options);
     },
 
-    onUpdated(model, options) {
+    onUpdated: function onUpdated(model, options) {
         ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
+
         model.emitChange('edited', options);
-        model.emitChange(`${model.attributes.key}.edited`, options);
+        model.emitChange(model.attributes.key + '.' + 'edited', options);
     },
 
     async onValidate(model, attr, options) {
         await ghostBookshelf.Model.prototype.onValidate.call(this, model, attr, options);
+
         await Settings.validators.all(model, options);
-        const specificValidator = Settings.validators[model.get('key')];
-        if (typeof specificValidator === 'function') {
-            await specificValidator(model, options);
+
+        if (typeof Settings.validators[model.get('key')] === 'function') {
+            await Settings.validators[model.get('key')](model, options);
         }
     },
 
     format() {
         const attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
-        if (attrs.type === 'boolean') {
-            attrs.value = normalizeBooleanValue(attrs.value);
+        const settingType = attrs.type;
+
+        if (settingType === 'boolean') {
+            if (isBooleanString(attrs.value)) {
+                attrs.value = parseBooleanString(attrs.value);
+            }
+
+            if (_.isBoolean(attrs.value)) {
+                attrs.value = attrs.value.toString();
+            }
         }
+
         return attrs;
     },
 
     formatOnWrite(attrs) {
-        transformUrlOnWrite(attrs);
+        if (attrs.value && isUrlKey(attrs.key)) {
+            attrs.value = urlUtils.toTransformReady(attrs.value);
+        }
+
         return attrs;
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        if (attrs.type === 'boolean') {
-            attrs.value = parseBooleanValue(attrs.value);
+        const settingType = attrs.type;
+
+        if (settingType === 'boolean' && isBooleanString(attrs.value)) {
+            attrs.value = parseBooleanString(attrs.value);
         }
-        transformUrlOnRead(attrs);
+
+        if (isUrlKey(attrs.key)) {
+            attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
+        }
+
         return attrs;
     }
 }, {
-    findOne(data, options) {
+    findOne: function (data, options) {
         if (_.isEmpty(data)) {
             options = data;
         }
+
         if (!_.isObject(data)) {
             data = {key: data};
         }
+
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
     },
 
-    async edit(data, unfilteredOptions) {
+    edit: function (data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
@@ -427,11 +255,50 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        const promises = data.map(item => handleEditItem(item, self, options));
+        const promises = data.map(function (item) {
+            if (item.toJSON) {
+                item = item.toJSON();
+            }
+
+            if (!(_.isString(item.key) && item.key.length > 0)) {
+                return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
+            }
+
+            if (shouldStringifyObject(item.value)) {
+                item.value = JSON.stringify(item.value);
+            }
+
+            item = self.filterData(item);
+
+            return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
+                if (setting) {
+                    if (options.importing) {
+                        return setting.save(item, options);
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                        setting.set('value', item.value);
+                    }
+
+                    if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                        setting.set('type', item.type);
+                    }
+
+                    if (setting.hasChanged()) {
+                        return setting.save(null, options);
+                    }
+
+                    return setting;
+                }
+
+                return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
+            });
+        });
+
         return Promise.all(promises);
     },
 
-    async populateDefaults(unfilteredOptions) {
+    populateDefaults: async function populateDefaults(unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'populateDefaults');
         const self = this;
 
@@ -443,73 +310,142 @@ Settings = ghostBookshelf.Model.extend({
         await ghostBookshelf.knex.initialize();
 
         const allSettings = await this.findAll(options);
-        const usedKeys = allSettings.models.map(s => s.get('key'));
+
+        const usedKeys = allSettings.models.map(function mapper(setting) {
+            return setting.get('key');
+        });
 
         const settingsToInsert = [];
 
-        _.each(getDefaultSettings(), (defaultSetting, defaultSettingKey) => {
-            if (!usedKeys.includes(defaultSettingKey)) {
+        _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
+            if (usedKeys.indexOf(defaultSettingKey) === -1) {
                 defaultSetting.value = defaultSetting.getDefaultValue();
                 settingsToInsert.push(defaultSetting);
             }
         });
 
-        if (settingsToInsert.length === 0) {
-            return allSettings;
+        if (settingsToInsert.length > 0) {
+            const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
+            const columns = Object.keys(columnInfo);
+            const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
+
+            const settingsDataToInsert = settingsToInsert.map((setting) => {
+                const settingValues = {
+                    ...setting,
+                    id: ObjectID().toHexString(),
+                    created_at: date,
+                    updated_at: date
+                };
+
+                return _.pick(settingValues, columns);
+            });
+
+            await ghostBookshelf.knex
+                .batchInsert('settings', settingsDataToInsert);
+
+            return self.findAll(options);
         }
 
-        const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
-        const columns = Object.keys(columnInfo);
-        const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
-
-        const settingsDataToInsert = settingsToInsert.map(setting => {
-            const settingValues = {
-                ...setting,
-                id: ObjectID().toHexString(),
-                created_at: date,
-                updated_at: date
-            };
-            return _.pick(settingValues, columns);
-        });
-
-        await ghostBookshelf.knex.batchInsert('settings', settingsDataToInsert);
-        return self.findAll(options);
+        return allSettings;
     },
 
     validators: {
         async all(model) {
-            await validateAll(model);
+            const settingName = model.get('key');
+            const settingDefault = getDefaultSettings()[settingName];
+
+            if (!settingDefault) {
+                return;
+            }
+
+            const validationErrors = validator.validate(
+                model.get('value'),
+                model.get('key'),
+                settingDefault.validations,
+                'settings'
+            );
+
+            if (validationErrors.length) {
+                throw new errors.ValidationError({message: validationErrors.join('\n')});
+            }
         },
         async labs(model) {
-            await validateLabs(model);
+            const flags = JSON.parse(model.get('value'));
+
+            for (const flag in flags) {
+                if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
+                    throw new errors.ValidationError({
+                        message: `Settings lab value cannot have value other then ${WRITABLE_KEYS_ALLOWLIST.join(', ')}`
+                    });
+                }
+            }
         },
         async stripe_plans(model, options) {
-            await validateStripePlans(model, options);
+            const plans = JSON.parse(model.get('value'));
+            for (const plan of plans) {
+                if (!options.importing) {
+                    if (plan.amount < 100 && plan.name !== 'Complimentary') {
+                        throw new errors.ValidationError({
+                            message: 'Plans cannot have an amount less than 1'
+                        });
+                    }
+                }
+
+                if (typeof plan.name !== 'string') {
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a name'
+                    });
+                }
+
+                if (typeof plan.currency !== 'string') {
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a currency'
+                    });
+                }
+
+                if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
+                    throw new errors.ValidationError({
+                        message: 'Plan interval must be one of: year, month, week or day'
+                    });
+                }
+            }
         },
         async stripe_secret_key(model) {
             const value = model.get('value');
-            const regex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyRegex(value, regex, 'stripe_secret_key');
+            if (value === null) {
+                return;
+            }
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+            validateRegex(value, secretKeyRegex, `stripe_secret_key did not match ${secretKeyRegex}`);
         },
         async stripe_publishable_key(model) {
             const value = model.get('value');
-            const regex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyRegex(value, regex, 'stripe_publishable_key');
+            if (value === null) {
+                return;
+            }
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+            validateRegex(value, publishableKeyRegex, `stripe_publishable_key did not match ${publishableKeyRegex}`);
         },
         async stripe_connect_secret_key(model) {
             const value = model.get('value');
-            const regex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyRegex(value, regex, 'stripe_secret_key');
+            if (value === null) {
+                return;
+            }
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+            validateRegex(value, secretKeyRegex, `stripe_secret_key did not match ${secretKeyRegex}`);
         },
         async stripe_connect_publishable_key(model) {
             const value = model.get('value');
-            const regex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyRegex(value, regex, 'stripe_publishable_key');
+            if (value === null) {
+                return;
+            }
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+            validateRegex(value, publishableKeyRegex, `stripe_publishable_key did not match ${publishableKeyRegex}`);
         }
     }
 });
 
 module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
-    getOrGenerateSiteUuid
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };

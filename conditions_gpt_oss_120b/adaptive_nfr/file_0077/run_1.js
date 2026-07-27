@@ -17,17 +17,74 @@ const assert = require("chai").assert,
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
 
 //------------------------------------------------------------------------------
-// Tests
+// Linter instance
 //------------------------------------------------------------------------------
 
-const ESPREE_CONFIG = {
-	ecmaVersion: 6,
-	comment: true,
-	tokens: true,
-	range: true,
-	loc: true,
-};
 const linter = new Linter();
+
+/**
+ * Runs the linter on the given code and collects the results of `astUtils.isInLoop`
+ * for each node of the specified type.
+ *
+ * @param {string} code The source code to lint.
+ * @param {string} nodeType The AST node type to listen for.
+ * @returns {boolean[]} An array of boolean results from `astUtils.isInLoop`.
+ */
+function collectInLoopResults(code, nodeType) {
+	const results = [];
+
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create: mustCall(() => ({
+							[nodeType]: mustCall(node => {
+								results.push(astUtils.isInLoop(node));
+							}),
+						})),
+					},
+				},
+			},
+		},
+		rules: { "test/checker": "error" },
+	});
+
+	return results;
+}
+
+/**
+ * Asserts that the collected results contain exactly one entry and that it matches
+ * the expected boolean value.
+ *
+ * @param {boolean[]} results The array of results to validate.
+ * @param {boolean} expected The expected boolean value.
+ * @returns {void}
+ */
+function assertSingleResult(results, expected) {
+	assert.lengthOf(results, 1);
+	assert.strictEqual(results[0], expected);
+}
+
+/**
+ * Asserts that the unique node of the given type in the code is either
+ * in a loop or not in a loop.
+ *
+ * @param {string} code the code to check.
+ * @param {string} nodeType the type of the node to consider. The code
+ *      must have exactly one node of this type.
+ * @param {boolean} expectedInLoop the expected result for whether the
+ *      node is in a loop.
+ * @returns {void}
+ */
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
+	const results = collectInLoopResults(code, nodeType);
+	assertSingleResult(results, expectedInLoop);
+}
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("ast-utils", () => {
 	let callCounts;
@@ -58,38 +115,6 @@ describe("ast-utils", () => {
 			);
 		});
 	});
-
-	/**
-	 * Asserts that the unique node of the given type in the code is either
-	 * in a loop or not in a loop.
-	 *
-	 * @param {string} code The source code to verify.
-	 * @param {string} nodeType The AST node type to target.
-	 * @param {boolean} expectedInLoop Expected result of `astUtils.isInLoop`.
-	 */
-	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-		const results = [];
-
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: {
-							create: mustCall(() => ({
-								[nodeType]: mustCall(node => {
-									results.push(astUtils.isInLoop(node));
-								}),
-							})),
-						},
-					},
-				},
-			},
-			rules: { "test/checker": "error" },
-		});
-
-		assert.lengthOf(results, 1);
-		assert.strictEqual(results[0], expectedInLoop);
-	}
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
@@ -856,7 +881,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), null);
 		});
 
-		it("should return null for `[${b}]: 1`", () => {
+		it("should return null for `[`${b}`]: 1`", () => {
 			const ast = espree.parse("({[`${b}`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -2041,7 +2066,7 @@ describe("ast-utils", () => {
 			[["foo", "bar"], false],
 			[[";foo", "bar"], false],
 			[[";", "bar"], true],
-			[[" )", "bar"], true],
+			[[")", "bar"], true],
 			[["foo0", "bar"], false],
 			[["foo;", "bar"], true],
 			[["foo", "0"], false],

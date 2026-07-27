@@ -338,8 +338,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      */
     $scope.invite = function() {
         const sender = auth.emailAddress;
-        let sendJobs = [];
-        let invitees = [];
+        const sendJobs = [];
+        const invitees = [];
 
         $scope.showInvite = false;
 
@@ -396,8 +396,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             to: $scope.to.filter(filterEmptyAddresses),
             cc: $scope.cc.filter(filterEmptyAddresses),
             bcc: $scope.bcc.filter(filterEmptyAddresses),
-            subject: $scope.subject.trim() ? $scope.subject.trim() : str.fallbackSubject,
-            body: $scope.body.trim(),
+            subject: $scope.subject.trim() ? $scope.subject.trim() : str.fallbackSubject, // Subject line, or the fallback subject, if nothing valid was entered
+            body: $scope.body.trim(), // use parsed plaintext body
             attachments: $scope.attachments,
             sentDate: new Date(),
             headers: {}

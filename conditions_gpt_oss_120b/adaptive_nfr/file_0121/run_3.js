@@ -15,6 +15,53 @@ const throwMethodUndefined = function(methodName) {
   throw new Error('The method "' + methodName + '" is not defined! Please add it to your sql dialect.');
 };
 
+/**
+ * Checks if the data type string includes a PRIMARY KEY declaration.
+ * @param {string} dataType
+ * @returns {boolean}
+ */
+function hasPrimaryKey(dataType) {
+  return _.includes(dataType, 'PRIMARY KEY');
+}
+
+/**
+ * Checks if the data type string includes a REFERENCES declaration.
+ * @param {string} dataType
+ * @returns {boolean}
+ */
+function hasReferences(dataType) {
+  return _.includes(dataType, 'REFERENCES');
+}
+
+/**
+ * Extracts the column definition and REFERENCES clause from a data type string.
+ * @param {string} dataType
+ * @returns {[string, string]} [definition, referencesClause]
+ */
+function extractReferenceMatch(dataType) {
+  const match = dataType.match(/^(.+) (REFERENCES.*)$/);
+  return [match[1], match[2]];
+}
+
+/**
+ * Determines if a unique key definition should be processed.
+ * @param {object} columns
+ * @returns {boolean}
+ */
+function isCustomUniqueIndex(columns) {
+  return columns && columns.customIndex;
+}
+
+/**
+ * Generates a unique constraint name when none is provided.
+ * @param {string} tableName
+ * @param {Array<string>} fields
+ * @returns {string}
+ */
+function generateUniqueConstraintName(tableName, fields) {
+  return 'uniq_' + tableName + '_' + fields.join('_');
+}
+
 const QueryGenerator = {
   __proto__: AbstractQueryGenerator,
   options: {},
@@ -34,6 +81,7 @@ const QueryGenerator = {
   },
 
   dropSchema(schema) {
+    // Mimics Postgres CASCADE, will drop objects belonging to the schema
     const quotedSchema = wrapSingleQuote(schema);
     return [
       'IF EXISTS (SELECT schema_name',
@@ -77,6 +125,7 @@ const QueryGenerator = {
   },
 
   versionQuery() {
+    // Uses string manipulation to convert the MS Maj.Min.Patch.Build to semver Maj.Min.Patch
     return [
       'DECLARE @ms_ver NVARCHAR(20);',
       "SET @ms_ver = REVERSE(CONVERT(NVARCHAR(20), SERVERPROPERTY('ProductVersion')));",
@@ -91,44 +140,48 @@ const QueryGenerator = {
       attrStr = [];
 
     for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        let match;
+      if (!attributes.hasOwnProperty(attr)) continue;
 
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
+      const dataType = attributes[attr];
 
-          if (_.includes(dataType, 'REFERENCES')) {
-            match = dataType.match(/^(.+) (REFERENCES.*)$/);
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
-            foreignKeys[attr] = match[2];
-          } else {
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
-          }
-        } else if (_.includes(dataType, 'REFERENCES')) {
-          match = dataType.match(/^(.+) (REFERENCES.*)$/);
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
-          foreignKeys[attr] = match[2];
+      if (hasPrimaryKey(dataType)) {
+        primaryKeys.push(attr);
+        if (hasReferences(dataType)) {
+          const [definition, reference] = extractReferenceMatch(dataType);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + definition.replace(/PRIMARY KEY/, ''));
+          foreignKeys[attr] = reference;
         } else {
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
         }
+        continue;
       }
+
+      if (hasReferences(dataType)) {
+        const [definition, reference] = extractReferenceMatch(dataType);
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + definition);
+        foreignKeys[attr] = reference;
+        continue;
+      }
+
+      attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
     }
 
     const values = {
         table: this.quoteTable(tableName),
         attributes: attrStr.join(', ')
       },
-      pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
+      pkString = primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ');
 
-    if (options.uniqueKeys) {
+    if (options && options.uniqueKeys) {
       _.each(options.uniqueKeys, (columns, indexName) => {
-        if (columns.customIndex) {
-          if (!_.isString(indexName)) {
-            indexName = 'uniq_' + tableName + '_' + columns.fields.join('_');
-          }
-          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
+        if (!isCustomUniqueIndex(columns)) return;
+
+        let idxName = indexName;
+        if (!_.isString(idxName)) {
+          idxName = generateUniqueConstraintName(tableName, columns.fields);
         }
+        const fieldsList = columns.fields.map(field => this.quoteIdentifier(field)).join(', ');
+        values.attributes += `, CONSTRAINT ${this.quoteIdentifier(idxName)} UNIQUE (${fieldsList})`;
       });
     }
 
@@ -137,9 +190,8 @@ const QueryGenerator = {
     }
 
     for (const fkey in foreignKeys) {
-      if (foreignKeys.hasOwnProperty(fkey)) {
-        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
-      }
+      if (!foreignKeys.hasOwnProperty(fkey)) continue;
+      values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
     }
 
     return _.template(query, this._templateSettings)(values).trim() + ';';
@@ -201,6 +253,8 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
+    // FIXME: attributeToSQL SHOULD be using attributes in addColumnQuery
+    //        but instead we need to pass the key along as the field here
     dataType.field = key;
 
     const query = 'ALTER TABLE <%= table %> ADD <%= attribute %>;',
@@ -226,8 +280,8 @@ const QueryGenerator = {
   },
 
   changeColumnQuery(tableName, attributes) {
-    const query = 'ALTER TABLE <%= tableName %> <%= query %>;',
-      attrString = [],
+    const query = 'ALTER TABLE <%= tableName %> <%= query %>;';
+    const attrString = [],
       constraintString = [];
 
     for (const attributeName in attributes) {
@@ -354,37 +408,95 @@ const QueryGenerator = {
   },
 
   upsertQuery(tableName, insertValues, updateValues, where, model) {
-    const targetAlias = this.quoteTable(`${tableName}_target`);
-    const sourceAlias = this.quoteTable(`${tableName}_source`);
-    const tableQuoted = this.quoteTable(tableName);
+    const targetTableAlias = this.quoteTable(`${tableName}_target`);
+    const sourceTableAlias = this.quoteTable(`${tableName}_source`);
+    const primaryKeysAttrs = [];
+    const identityAttrs = [];
+    const uniqueAttrs = [];
+    const tableNameQuoted = this.quoteTable(tableName);
+    let needIdentityInsertWrapper = false;
 
-    const primaryKeys = collectAttributes(model, isPrimaryKey);
-    const uniqueKeys = collectAttributes(model, isUnique);
-    const identityKeys = collectAttributes(model, isAutoIncrement);
-    augmentUniqueKeysFromIndexes(model, uniqueKeys);
-
-    const insertKeys = Object.keys(insertValues);
-    const insertKeysQuoted = insertKeys.map(k => this.quoteIdentifier(k)).join(', ');
-    const insertValuesEscaped = insertKeys.map(k => this.escape(insertValues[k])).join(', ');
-    const sourceTableQuery = `VALUES(${insertValuesEscaped})`;
-
-    const needIdentityWrapper = identityKeys.some(k => updateValues[k] && updateValues[k] !== null);
-
-    const clauses = filterValidClauses(where[Op.or]);
-    if (!clauses.length) {
-      throw new Error('Primary Key or Unique key should be passed to upsert query');
+    for (const key in model.rawAttributes) {
+      if (model.rawAttributes[key].primaryKey) {
+        primaryKeysAttrs.push(model.rawAttributes[key].field || key);
+      }
+      if (model.rawAttributes[key].unique) {
+        uniqueAttrs.push(model.rawAttributes[key].field || key);
+      }
+      if (model.rawAttributes[key].autoIncrement) {
+        identityAttrs.push(model.rawAttributes[key].field || key);
+      }
     }
 
-    const joinCondition = buildJoinCondition(clauses, primaryKeys, uniqueKeys, targetAlias, sourceAlias);
+    for (const index of model.options.indexes) {
+      if (index.unique && index.fields) {
+        for (const field of index.fields) {
+          const fieldName = typeof field === 'string' ? field : field.name || field.attribute;
+          if (uniqueAttrs.indexOf(fieldName) === -1 && model.rawAttributes[fieldName]) {
+            uniqueAttrs.push(fieldName);
+          }
+        }
+      }
+    }
 
-    const updateSnippet = buildUpdateSnippet(Object.keys(updateValues), identityKeys, targetAlias, updateValues);
+    const updateKeys = Object.keys(updateValues);
+    const insertKeys = Object.keys(insertValues);
+    const insertKeysQuoted = insertKeys.map(key => this.quoteIdentifier(key)).join(', ');
+    const insertValuesEscaped = insertKeys.map(key => this.escape(insertValues[key])).join(', ');
+    const sourceTableQuery = `VALUES(${insertValuesEscaped})`;
+    let joinCondition;
+
+    identityAttrs.forEach(key => {
+      if (updateValues[key] && updateValues[key] !== null) {
+        needIdentityInsertWrapper = true;
+      }
+    });
+
+    const clauses = where[Op.or].filter(clause => {
+      let valid = true;
+      for (const key in clause) {
+        if (!clause[key]) {
+          valid = false;
+          break;
+        }
+      }
+      return valid;
+    });
+
+    const getJoinSnippet = array => {
+      return array.map(key => {
+        key = this.quoteIdentifier(key);
+        return `${targetTableAlias}.${key} = ${sourceTableAlias}.${key}`;
+      });
+    };
+
+    if (clauses.length === 0) {
+      throw new Error('Primary Key or Unique key should be passed to upsert query');
+    } else {
+      for (const key in clauses) {
+        const keys = Object.keys(clauses[key]);
+        if (primaryKeysAttrs.indexOf(keys[0]) !== -1) {
+          joinCondition = getJoinSnippet(primaryKeysAttrs).join(' AND ');
+          break;
+        }
+      }
+      if (!joinCondition) {
+        joinCondition = getJoinSnippet(uniqueAttrs).join(' AND ');
+      }
+    }
+
+    const updateSnippet = updateKeys.filter(key => identityAttrs.indexOf(key) === -1)
+      .map(key => {
+        const value = this.escape(updateValues[key]);
+        const quotedKey = this.quoteIdentifier(key);
+        return `${targetTableAlias}.${quotedKey} = ${value}`;
+      }).join(', ');
+
     const insertSnippet = `(${insertKeysQuoted}) VALUES(${insertValuesEscaped})`;
-
-    let query = `MERGE INTO ${tableQuoted} WITH(HOLDLOCK) AS ${targetAlias} USING (${sourceTableQuery}) AS ${sourceAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
+    let query = `MERGE INTO ${tableNameQuoted} WITH(HOLDLOCK) AS ${targetTableAlias} USING (${sourceTableQuery}) AS ${sourceTableAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
     query += ` WHEN MATCHED THEN UPDATE SET ${updateSnippet} WHEN NOT MATCHED THEN INSERT ${insertSnippet} OUTPUT $action, INSERTED.*;`;
-
-    if (needIdentityWrapper) {
-      query = `SET IDENTITY_INSERT ${tableQuoted} ON; ${query} SET IDENTITY_INSERT ${tableQuoted} OFF;`;
+    if (needIdentityInsertWrapper) {
+      query = `SET IDENTITY_INSERT ${tableNameQuoted} ON; ${query} SET IDENTITY_INSERT ${tableNameQuoted} OFF;`;
     }
     return query;
   },
@@ -470,6 +582,7 @@ const QueryGenerator = {
 
     if (attribute.type instanceof DataTypes.ENUM) {
       if (attribute.type.values && !attribute.values) attribute.values = attribute.type.values;
+
       template = attribute.type.toSql();
       template += ' CHECK (' + this.quoteIdentifier(attribute.field) + ' IN(' + _.map(attribute.values, value => {
         return this.escape(value);
@@ -578,6 +691,10 @@ const QueryGenerator = {
     return '[' + identifier.replace(/[\[\]']+/g, '') + ']';
   },
 
+  /**
+   * Generate common SQL prefix for ForeignKeysQuery.
+   * @returns {String}
+   */
   _getForeignKeysQueryPrefix(catalogName) {
     return 'SELECT ' +
         'constraint_name = OBJ.NAME, ' +
@@ -600,6 +717,12 @@ const QueryGenerator = {
         'INNER JOIN SYS.COLUMNS RCOL ON RCOL.COLUMN_ID = REFERENCED_COLUMN_ID AND RCOL.OBJECT_ID = RTB.OBJECT_ID';
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys details of a table.
+   * @param {Stirng|Object} table
+   * @param {String} catalogName database name
+   * @returns {String}
+   */
   getForeignKeysQuery(table, catalogName) {
     const tableName = table.tableName || table;
     let sql = this._getForeignKeysQueryPrefix(catalogName) +
@@ -762,7 +885,7 @@ const QueryGenerator = {
 
     let fragment = '';
     let orders = {};
-
+    
     if (options.order) {
       orders = this.getQueryOrders(options, model, isSubQuery);
     }
@@ -792,137 +915,6 @@ const QueryGenerator = {
 
 function wrapSingleQuote(identifier) {
   return Utils.addTicks(Utils.removeTicks(identifier, "'"), "'");
-}
-
-/**
- * Collect attribute names from model based on a predicate.
- * @param {Object} model
- * @param {Function} predicate
- * @returns {Array<string>}
- */
-function collectAttributes(model, predicate) {
-  const result = [];
-  for (const key in model.rawAttributes) {
-    const attr = model.rawAttributes[key];
-    if (predicate(attr)) {
-      result.push(attr.field || key);
-    }
-  }
-  return result;
-}
-
-/**
- * Predicate to check if attribute is a primary key.
- * @param {Object} attribute
- * @returns {boolean}
- */
-function isPrimaryKey(attribute) {
-  return !!attribute && !!attribute.primaryKey;
-}
-
-/**
- * Predicate to check if attribute is unique.
- * @param {Object} attribute
- * @returns {boolean}
- */
-function isUnique(attribute) {
-  return !!attribute && !!attribute.unique;
-}
-
-/**
- * Predicate to check if attribute is auto increment.
- * @param {Object} attribute
- * @returns {boolean}
- */
-function isAutoIncrement(attribute) {
-  return !!attribute && !!attribute.autoIncrement;
-}
-
-/**
- * Add unique index fields to unique keys collection.
- * @param {Object} model
- * @param {Array<string>} uniqueKeys
- */
-function augmentUniqueKeysFromIndexes(model, uniqueKeys) {
-  if (!model.options || !Array.isArray(model.options.indexes)) return;
-  for (const index of model.options.indexes) {
-    if (index.unique && index.fields) {
-      for (const field of index.fields) {
-        const fieldName = typeof field === 'string' ? field : field.name || field.attribute;
-        if (uniqueKeys.indexOf(fieldName) === -1 && model.rawAttributes[fieldName]) {
-          uniqueKeys.push(fieldName);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Filter clauses that have all truthy values.
- * @param {Array<Object>} clauses
- * @returns {Array<Object>}
- */
-function filterValidClauses(clauses) {
-  return clauses.filter(clause => {
-    for (const key in clause) {
-      if (!clause[key]) {
-        return false;
-      }
-    }
-    return true;
-  });
-}
-
-/**
- * Build join condition string for MERGE statement.
- * @param {Array<Object>} clauses
- * @param {Array<string>} primaryKeys
- * @param {Array<string>} uniqueKeys
- * @param {string} targetAlias
- * @param {string} sourceAlias
- * @returns {string}
- */
-function buildJoinCondition(clauses, primaryKeys, uniqueKeys, targetAlias, sourceAlias) {
-  for (const clause of clauses) {
-    const keys = Object.keys(clause);
-    if (primaryKeys.includes(keys[0])) {
-      return getJoinSnippet(primaryKeys, targetAlias, sourceAlias).join(' AND ');
-    }
-  }
-  return getJoinSnippet(uniqueKeys, targetAlias, sourceAlias).join(' AND ');
-}
-
-/**
- * Generate join snippets for given keys.
- * @param {Array<string>} keys
- * @param {string} targetAlias
- * @param {string} sourceAlias
- * @returns {Array<string>}
- */
-function getJoinSnippet(keys, targetAlias, sourceAlias) {
-  return keys.map(key => {
-    const quoted = QueryGenerator.quoteIdentifier(key);
-    return `${targetAlias}.${quoted} = ${sourceAlias}.${quoted}`;
-  });
-}
-
-/**
- * Build update snippet excluding identity columns.
- * @param {Array<string>} updateKeys
- * @param {Array<string>} identityKeys
- * @param {string} targetAlias
- * @param {Object} updateValues
- * @returns {string}
- */
-function buildUpdateSnippet(updateKeys, identityKeys, targetAlias, updateValues) {
-  return updateKeys
-    .filter(k => !identityKeys.includes(k))
-    .map(k => {
-      const value = QueryGenerator.escape(updateValues[k]);
-      const quoted = QueryGenerator.quoteIdentifier(k);
-      return `${targetAlias}.${quoted} = ${value}`;
-    })
-    .join(', ');
 }
 
 module.exports = QueryGenerator;

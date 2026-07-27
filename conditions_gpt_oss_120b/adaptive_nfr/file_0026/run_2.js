@@ -13,45 +13,56 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 countries.registerLocale(enLocale);
 
 /**
- * Returns a human‑readable label for a device identifier.
- * @param value - The raw device value from the API.
- * @returns The display label.
+ * Mapping of device identifiers to human‑readable labels.
+ */
+const DEVICE_LABEL_MAP: Record<string, string> = {
+    'mobile-ios': 'iOS',
+    'mobile-android': 'Android',
+    'desktop': 'Desktop',
+    'bot': 'Bot',
+    'unknown': 'Unknown'
+};
+
+/**
+ * Returns a display label for a device identifier.
+ * Falls back to the original value if no mapping exists.
+ *
+ * @param value - Device identifier from the API.
+ * @returns Human‑readable label.
  */
 function getDeviceLabel(value: string): string {
-    switch (value) {
-        case 'mobile-ios':
-            return 'iOS';
-        case 'mobile-android':
-            return 'Android';
-        case 'desktop':
-            return 'Desktop';
-        case 'bot':
-            return 'Bot';
-        case 'unknown':
-            return 'Unknown';
-        default:
-            return value;
-    }
+    return DEVICE_LABEL_MAP[value] ?? value;
 }
 
-interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
-    filters: Filter[];
-    onChange?: (filters: Filter[]) => void;
+/**
+ * Transforms a raw device value into the shape expected by filter options.
+ *
+ * @param v - Raw device string.
+ * @returns Object containing the original value and its display label.
+ */
+function transformDeviceValue(v: string): {value: string; label: string} {
+    return {value: v, label: getDeviceLabel(v)};
 }
 
-// Helper to get country name from code
+/**
+ * Helper to get country name from code
+ */
 const getCountryName = (code: string): string => {
     return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
 };
 
-// Helper component for visit count badge - used by all filter options
+/**
+ * Helper component for visit count badge - used by all filter options
+ */
 const VisitCountBadge = ({visits}: {visits: number}) => (
     <span className="order-2 font-mono text-xs text-muted-foreground">
         {visits.toLocaleString()}
     </span>
 );
 
-// Configuration for each filter field type
+/**
+ * Configuration for each filter field type
+ */
 interface FilterFieldDefinition {
     endpoint: string;
     valueKey: string;
@@ -107,14 +118,13 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: transformDeviceValue
     }
 };
 
-// Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
+/**
+ * Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
+ */
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -151,8 +161,10 @@ interface UseTinybirdFilterOptionsConfig {
     enabled?: boolean;
 }
 
-// Generic hook to fetch filter options from Tinybird
-// Handles the common pattern: fetch data, transform to options, ensure selected value is included
+/**
+ * Generic hook to fetch filter options from Tinybird
+ * Handles the common pattern: fetch data, transform to options, ensure selected value is included
+ */
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
@@ -223,8 +235,10 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-// Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
-// This uses a different API pattern so it can't use the generic hook
+/**
+ * Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
+ * This uses a different API pattern so it can't use the generic hook
+ */
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
     const {enabled = true} = config;
     const {range} = useGlobalData();

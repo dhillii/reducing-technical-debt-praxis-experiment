@@ -12,13 +12,40 @@ import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api
 /**
  * Returns the appropriate modal title based on the tier state.
  * @param tier - The tier being edited, or undefined for a new tier.
- * @returns The modal title string.
  */
 function getModalTitle(tier?: Tier): string {
     if (!tier) {
         return 'New tier';
     }
     return tier.active ? 'Edit tier' : 'Edit archived tier';
+}
+
+/**
+ * Returns left button properties based on tier state.
+ * @param tier - The tier being edited, or undefined.
+ * @param confirmCallback - Callback to invoke when the button is clicked.
+ */
+function getLeftButtonProps(tier: Tier | undefined, confirmCallback: () => void): ButtonProps {
+    if (!tier) {
+        return {};
+    }
+    if (tier.active && tier.type !== 'free') {
+        return {
+            label: 'Archive tier',
+            color: 'red',
+            link: true,
+            onClick: confirmCallback
+        };
+    }
+    if (!tier.active) {
+        return {
+            label: 'Reactivate tier',
+            color: 'green',
+            link: true,
+            onClick: confirmCallback
+        };
+    }
+    return {};
 }
 
 export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
@@ -162,26 +189,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    let leftButtonProps: ButtonProps = {};
-    if (tier) {
-        if (tier.active && tier.type !== 'free') {
-            leftButtonProps = {
-                label: 'Archive tier',
-                color: 'red',
-                link: true,
-                onClick: confirmTierStatusChange
-            };
-        } else if (!tier.active) {
-            leftButtonProps = {
-                label: 'Reactivate tier',
-                color: 'green',
-                link: true,
-                onClick: confirmTierStatusChange
-            };
-        }
-    }
-
-    const modalTitle = getModalTitle(tier);
+    const leftButtonProps: ButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
 
     return <Modal
         afterClose={() => {
@@ -195,7 +203,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={modalTitle}
+        title={getModalTitle(tier)}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

@@ -1,7 +1,9 @@
 'use strict';
+
 /*!
  * Module dependencies.
  */
+
 const ms = require('ms');
 const mpath = require('mpath');
 const sliced = require('sliced');
@@ -20,6 +22,7 @@ const schemaMerge = require('./helpers/schema/merge');
 const specialProperties = require('./helpers/specialProperties');
 
 let Document;
+
 exports.specialProperties = specialProperties;
 
 /*!
@@ -31,8 +34,12 @@ exports.specialProperties = specialProperties;
  * @return {String} a collection name
  * @api private
  */
+
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -42,39 +49,30 @@ exports.toCollectionName = function(name, pluralize) {
 };
 
 /*!
- * Normalizes values for deep equality checks.
+ * Determines if `a` and `b` are deep equal.
+ *
+ * Modified from node/lib/assert.js
+ *
+ * @param {any} a a value to compare to `b`
+ * @param {any} b a value to compare to `a`
+ * @return {Boolean}
+ * @api private
  */
-function _normalize(val) {
-  if (val && val.$__ != null) {
-    return val._doc;
-  }
-  if (isMongooseObject(val)) {
-    return val.toObject();
-  }
-  return val;
+
+function isBsonEqual(a, b) {
+  return (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) &&
+    a.toString() === b.toString();
 }
 
-/*!
- * Compare two RegExp objects.
- */
-function _compareRegExp(a, b) {
+function isRegExpEqual(a, b) {
   return a.source === b.source &&
     a.ignoreCase === b.ignoreCase &&
     a.multiline === b.multiline &&
     a.global === b.global;
 }
 
-/*!
- * Compare two Buffer objects.
- */
-function _compareBuffer(a, b) {
-  return exports.buffer.areEqual(a, b);
-}
-
-/*!
- * Compare two Map objects.
- */
-function _compareMap(a, b) {
+function isMapEqual(a, b) {
   if (a.size !== b.size) return false;
   const aKeys = Array.from(a.keys());
   const bKeys = Array.from(b.keys());
@@ -84,10 +82,25 @@ function _compareMap(a, b) {
   return deepEqual(aVals, bVals);
 }
 
-/*!
- * Compare two plain objects.
- */
-function _compareObject(a, b) {
+function isArrayEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; ++i) {
+    if (!deepEqual(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+function normalizeMongoose(val) {
+  if (val && val.$__ != null) {
+    return val._doc;
+  }
+  if (isMongooseObject(val)) {
+    return val.toObject();
+  }
+  return val;
+}
+
+function isPlainObjectEqual(a, b) {
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
@@ -102,114 +115,164 @@ function _compareObject(a, b) {
   return true;
 }
 
-/*!
- * Compare two arrays.
- */
-function _compareArray(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; ++i) {
-    if (!deepEqual(a[i], b[i])) return false;
-  }
-  return true;
-}
-
-/*!
- * Determines if `a` and `b` are deep equal.
- *
- * Modified from node/lib/assert.js
- *
- * @param {any} a a value to compare to `b`
- * @param {any} b a value to compare to `a`
- * @return {Boolean}
- * @api private
- */
 exports.deepEqual = function deepEqual(a, b) {
   if (a === b) return true;
-  if (typeof a !== 'object' && typeof b !== 'object') return a === b;
-  if (a == null || b == null) return false;
 
-  a = _normalize(a);
-  b = _normalize(b);
+  if (typeof a !== 'object' && typeof b !== 'object') {
+    return a === b;
+  }
+
+  if (a == null || b == null) return false;
 
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
-  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
-  }
+
+  if (isBsonEqual(a, b)) return true;
+
   if (a instanceof RegExp && b instanceof RegExp) {
-    return _compareRegExp(a, b);
+    return isRegExpEqual(a, b);
   }
+
+  if (a.prototype !== b.prototype) return false;
+
   if (a instanceof Map && b instanceof Map) {
-    return _compareMap(a, b);
+    return isMapEqual(a, b);
   }
+
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
-  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
-    return _compareBuffer(a, b);
+
+  if (Buffer.isBuffer(a) || Buffer.isBuffer(b)) {
+    return exports.buffer.areEqual(a, b);
   }
+
   if (Array.isArray(a) && Array.isArray(b)) {
-    return _compareArray(a, b);
+    return isArrayEqual(a, b);
   }
-  if (typeof a === 'object' && typeof b === 'object') {
-    return _compareObject(a, b);
-  }
-  return false;
+
+  const na = normalizeMongoose(a);
+  const nb = normalizeMongoose(b);
+
+  return isPlainObjectEqual(na, nb);
 };
 
 /*!
  * Get the last element of an array
  */
+
 exports.last = function(arr) {
-  return arr.length > 0 ? arr[arr.length - 1] : void 0;
+  if (arr.length > 0) {
+    return arr[arr.length - 1];
+  }
+  return void 0;
 };
 
 exports.clone = clone;
+
+/*!
+ * ignore
+ */
+
 exports.promiseOrCallback = promiseOrCallback;
 
+/*!
+ * ignore
+ */
+
 exports.omit = function omit(obj, keys) {
-  if (keys == null) return Object.assign({}, obj);
-  if (!Array.isArray(keys)) keys = [keys];
+  if (keys == null) {
+    return Object.assign({}, obj);
+  }
+  if (!Array.isArray(keys)) {
+    keys = [keys];
+  }
+
   const ret = Object.assign({}, obj);
-  for (const key of keys) delete ret[key];
+  for (const key of keys) {
+    delete ret[key];
+  }
   return ret;
 };
 
+
+/*!
+ * Shallow copies defaults into options.
+ *
+ * @param {Object} defaults
+ * @param {Object} options
+ * @return {Object} the merged object
+ * @api private
+ */
+
 exports.options = function(defaults, options) {
   const keys = Object.keys(defaults);
+  let i = keys.length;
+  let k;
+
   options = options || {};
-  for (let i = keys.length - 1; i >= 0; --i) {
-    const k = keys[i];
-    if (!(k in options)) options[k] = defaults[k];
+
+  while (i--) {
+    k = keys[i];
+    if (!(k in options)) {
+      options[k] = defaults[k];
+    }
   }
+
   return options;
 };
+
+/*!
+ * Generates a random string
+ *
+ * @api private
+ */
 
 exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
+/*!
+ * Merges `from` into `to` without overwriting existing properties.
+ *
+ * @param {Object} to
+ * @param {Object} from
+ * @api private
+ */
+
 exports.merge = function merge(to, from, options, path) {
   options = options || {};
+
   const keys = Object.keys(from);
+  let i = 0;
+  const len = keys.length;
+  let key;
+
   path = path || '';
   const omitNested = options.omitNested || {};
 
-  for (let i = 0; i < keys.length; ++i) {
-    const key = keys[i];
-    if (options.omit && options.omit[key]) continue;
-    if (omitNested[path]) continue;
-    if (specialProperties.has(key)) continue;
+  while (i < len) {
+    key = keys[i++];
+    if (options.omit && options.omit[key]) {
+      continue;
+    }
+    if (omitNested[path]) {
+      continue;
+    }
+    if (specialProperties.has(key)) {
+      continue;
+    }
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      if (!exports.isObject(to[key])) to[key] = {};
+      if (!exports.isObject(to[key])) {
+        to[key] = {};
+      }
       if (from[key] != null) {
         if (options.isDiscriminatorSchemaMerge &&
-            ((from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
-             (from[key].$isMongooseDocumentArray && to[key].$isSingleNested))) {
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
           continue;
         } else if (from[key].instanceOfSchema) {
           if (to[key].instanceOfSchema) {
@@ -230,29 +293,81 @@ exports.merge = function merge(to, from, options, path) {
   }
 };
 
+/*!
+ * Applies toObject recursively.
+ *
+ * @param {Document|Array|Object} obj
+ * @return {Object}
+ * @api private
+ */
+
 exports.toObject = function toObject(obj) {
   Document || (Document = require('./document'));
-  if (obj == null) return obj;
-  if (obj instanceof Document) return obj.toObject();
-  if (Array.isArray(obj)) return obj.map(toObject);
-  if (exports.isPOJO(obj)) {
-    const ret = {};
-    for (const k of Object.keys(obj)) {
-      if (specialProperties.has(k)) continue;
-      ret[k] = toObject(obj[k]);
+  let ret;
+
+  if (obj == null) {
+    return obj;
+  }
+
+  if (obj instanceof Document) {
+    return obj.toObject();
+  }
+
+  if (Array.isArray(obj)) {
+    ret = [];
+
+    for (const doc of obj) {
+      ret.push(toObject(doc));
     }
+
     return ret;
   }
+
+  if (exports.isPOJO(obj)) {
+    ret = {};
+
+    for (const k of Object.keys(obj)) {
+      if (specialProperties.has(k)) {
+        continue;
+      }
+      ret[k] = toObject(obj[k]);
+    }
+
+    return ret;
+  }
+
   return obj;
 };
 
 exports.isObject = isObject;
 
+/*!
+ * Determines if `arg` is a plain old JavaScript object (POJO). Specifically,
+ * `arg` must be an object but not an instance of any special class, like String,
+ * ObjectId, etc.
+ *
+ * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
+ *
+ * @param {Object|Array|String|Function|RegExp|any} arg
+ * @api private
+ * @return {Boolean}
+ */
+
 exports.isPOJO = function isPOJO(arg) {
-  if (arg == null || typeof arg !== 'object') return false;
+  if (arg == null || typeof arg !== 'object') {
+    return false;
+  }
   const proto = Object.getPrototypeOf(arg);
+  // Prototype may be null if you used `Object.create(null)`
+  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
+  // explicitly crosses the boundary from object data to object metadata
   return !proto || proto.constructor.name === 'Object';
 };
+
+/*!
+ * Determines if `obj` is a built-in object like an array, date, boolean,
+ * etc.
+ */
 
 exports.isNativeObject = function(arg) {
   return Array.isArray(arg) ||
@@ -262,30 +377,73 @@ exports.isNativeObject = function(arg) {
     arg instanceof String;
 };
 
+/*!
+ * Determines if `val` is an object that has no own keys
+ */
+
 exports.isEmptyObject = function(val) {
-  return val != null && typeof val === 'object' && Object.keys(val).length === 0;
+  return val != null &&
+    typeof val === 'object' &&
+    Object.keys(val).length === 0;
 };
 
+/*!
+ * Search if `obj` or any POJOs nested underneath `obj` has a property named
+ * `key`
+ */
+
 exports.hasKey = function hasKey(obj, key) {
-  for (const prop of Object.keys(obj)) {
-    if (prop === key) return true;
-    if (exports.isPOJO(obj[prop]) && exports.hasKey(obj[prop], key)) return true;
+  const props = Object.keys(obj);
+  for (const prop of props) {
+    if (prop === key) {
+      return true;
+    }
+    if (exports.isPOJO(obj[prop]) && exports.hasKey(obj[prop], key)) {
+      return true;
+    }
   }
   return false;
 };
 
+/*!
+ * A faster Array.prototype.slice.call(arguments) alternative
+ * @api private
+ */
+
 exports.args = sliced;
 
+/*!
+ * process.nextTick helper.
+ *
+ * Wraps `callback` in a try/catch + nextTick.
+ *
+ * node-mongodb-native has a habit of state corruption when an error is immediately thrown from within a collection callback.
+ *
+ * @param {Function} callback
+ * @api private
+ */
+
 exports.tick = function tick(callback) {
-  if (typeof callback !== 'function') return;
+  if (typeof callback !== 'function') {
+    return;
+  }
   return function() {
     try {
       callback.apply(this, arguments);
     } catch (err) {
-      immediate(() => { throw err; });
+      // only nextTick on err to get out of
+      // the event loop and avoid state corruption.
+      immediate(function() {
+        throw err;
+      });
     }
   };
 };
+
+/*!
+ * Returns true if `v` is an object that can be serialized as a primitive in
+ * MongoDB
+ */
 
 exports.isMongooseType = function(v) {
   return v instanceof ObjectId || v instanceof Decimal || v instanceof Buffer;
@@ -293,47 +451,97 @@ exports.isMongooseType = function(v) {
 
 exports.isMongooseObject = isMongooseObject;
 
+/*!
+ * Converts `expires` options of index objects to `expiresAfterSeconds` options for MongoDB.
+ *
+ * @param {Object} object
+ * @api private
+ */
+
 exports.expires = function expires(object) {
-  if (!(object && object.constructor.name === 'Object')) return;
-  if (!('expires' in object)) return;
-  const when = typeof object.expires !== 'string'
-    ? object.expires
-    : Math.round(ms(object.expires) / 1000);
+  if (!(object && object.constructor.name === 'Object')) {
+    return;
+  }
+  if (!('expires' in object)) {
+    return;
+  }
+
+  let when;
+  if (typeof object.expires !== 'string') {
+    when = object.expires;
+  } else {
+    when = Math.round(ms(object.expires) / 1000);
+  }
   object.expireAfterSeconds = when;
   delete object.expires;
 };
 
+/*!
+ * populate helper
+ */
+
 exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
   let obj = null;
   if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) return [path];
+    if (path instanceof PopulateOptions) {
+      return [path];
+    }
+
     if (Array.isArray(path)) {
       const singles = makeSingles(path);
       return singles.map(o => exports.populate(o)[0]);
     }
-    obj = exports.isObject(path) ? Object.assign({}, path) : { path };
+
+    if (exports.isObject(path)) {
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
+    }
   } else if (typeof model === 'object') {
-    obj = { path, select, match: model, options: match };
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
   } else {
-    obj = { path, select, model, match, options, populate: subPopulate, justOne, count };
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
+
   if (typeof obj.path !== 'string') {
     throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
   }
+
   return _populateObj(obj);
+
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
   function makeSingles(arr) {
     const ret = [];
-    arr.forEach(function(o) {
-      if (/[\s]/.test(o.path)) {
-        o.path.split(' ').forEach(p => {
-          const copy = Object.assign({}, o);
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
           copy.path = p;
           ret.push(copy);
         });
       } else {
-        ret.push(o);
+        ret.push(obj);
       }
     });
+
     return ret;
   }
 };
@@ -341,137 +549,278 @@ exports.populate = function populate(path, select, model, match, options, subPop
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(p) {
-      if (/[\s]/.test(p.path)) {
-        const copy = Object.assign({}, p);
-        copy.path.split(' ').forEach(pth => {
-          copy.path = pth;
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
+        const paths = copy.path.split(' ');
+        paths.forEach(function(p) {
+          copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(exports.populate(p)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
     obj.populate = exports.populate(ret);
   } else if (obj.populate != null && typeof obj.populate === 'object') {
     obj.populate = exports.populate(obj.populate);
   }
+
   const ret = [];
   const paths = obj.path.split(' ');
-  if (obj.options != null) obj.options = exports.clone(obj.options);
-  for (const path of paths) {
-    ret.push(new PopulateOptions(Object.assign({}, obj, { path })));
+  if (obj.options != null) {
+    obj.options = exports.clone(obj.options);
   }
+
+  for (const path of paths) {
+    ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
+  }
+
   return ret;
 }
+
+/*!
+ * Return the value of `obj` at the given `path`.
+ *
+ * @param {String} path
+ * @param {Object} obj
+ */
 
 exports.getValue = function(path, obj, map) {
   return mpath.get(path, obj, '_doc', map);
 };
 
+/*!
+ * Sets the value of `obj` at the given `path`.
+ *
+ * @param {String} path
+ * @param {Anything} val
+ * @param {Object} obj
+ */
+
 exports.setValue = function(path, val, obj, map, _copying) {
   mpath.set(path, val, obj, '_doc', map, _copying);
 };
 
+/*!
+ * Returns an array of values from object `o`.
+ *
+ * @param {Object} o
+ * @return {Array}
+ * @private
+ */
+
 exports.object = {};
 exports.object.vals = function vals(o) {
   const keys = Object.keys(o);
-  const ret = new Array(keys.length);
-  for (let i = keys.length - 1; i >= 0; --i) {
-    ret[i] = o[keys[i]];
+  let i = keys.length;
+  const ret = [];
+
+  while (i--) {
+    ret.push(o[keys[i]]);
   }
+
   return ret;
 };
 
+/*!
+ * @see exports.options
+ */
+
 exports.object.shallowCopy = exports.options;
+
+/*!
+ * Safer helper for hasOwnProperty checks
+ *
+ * @param {Object} obj
+ * @param {String} prop
+ */
 
 const hop = Object.prototype.hasOwnProperty;
 exports.object.hasOwnProperty = function(obj, prop) {
   return hop.call(obj, prop);
 };
 
+/*!
+ * Determine if `val` is null or undefined
+ *
+ * @return {Boolean}
+ */
+
 exports.isNullOrUndefined = function(val) {
   return val === null || val === undefined;
 };
 
+/*!
+ * ignore
+ */
+
 exports.array = {};
 
+/*!
+ * Flattens an array.
+ *
+ * [ 1, [ 2, 3, [4] ]] -> [1,2,3,4]
+ *
+ * @param {Array} arr
+ * @param {Function} [filter] If passed, will be invoked with each item in the array. If `filter` returns a falsy value, the item will not be included in the results.
+ * @return {Array}
+ * @private
+ */
+
 exports.array.flatten = function flatten(arr, filter, ret) {
-  ret = ret || [];
-  arr.forEach(item => {
+  ret || (ret = []);
+
+  arr.forEach(function(item) {
     if (Array.isArray(item)) {
       flatten(item, filter, ret);
-    } else if (!filter || filter(item)) {
-      ret.push(item);
+    } else {
+      if (!filter || filter(item)) {
+        ret.push(item);
+      }
     }
   });
+
   return ret;
 };
 
+/*!
+ * ignore
+ */
+
 const _hasOwnProperty = Object.prototype.hasOwnProperty;
+
 exports.hasUserDefinedProperty = function(obj, key) {
-  if (obj == null) return false;
-  if (Array.isArray(key)) {
-    return key.some(k => exports.hasUserDefinedProperty(obj, k));
+  if (obj == null) {
+    return false;
   }
-  if (_hasOwnProperty.call(obj, key)) return true;
+
+  if (Array.isArray(key)) {
+    for (const k of key) {
+      if (exports.hasUserDefinedProperty(obj, k)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (_hasOwnProperty.call(obj, key)) {
+    return true;
+  }
   if (typeof obj === 'object' && key in obj) {
     const v = obj[key];
     return v !== Object.prototype[key] && v !== Array.prototype[key];
   }
+
   return false;
 };
 
+/*!
+ * ignore
+ */
+
 const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
+
 exports.isArrayIndex = function(val) {
-  if (typeof val === 'number') return val >= 0 && val <= MAX_ARRAY_INDEX;
-  if (typeof val === 'string' && /^\d+$/.test(val)) {
-    const num = +val;
-    return num >= 0 && num <= MAX_ARRAY_INDEX;
+  if (typeof val === 'number') {
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
+  if (typeof val === 'string') {
+    if (!/^\d+$/.test(val)) {
+      return false;
+    }
+    val = +val;
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
+  }
+
   return false;
 };
+
+/*!
+ * Removes duplicate values from an array
+ *
+ * [1, 2, 3, 3, 5] => [1, 2, 3, 5]
+ * [ ObjectId("550988ba0c19d57f697dc45e"), ObjectId("550988ba0c19d57f697dc45e") ]
+ *    => [ObjectId("550988ba0c19d57f697dc45e")]
+ *
+ * @param {Array} arr
+ * @return {Array}
+ * @private
+ */
 
 exports.array.unique = function(arr) {
   const primitives = new Set();
   const ids = new Set();
   const ret = [];
+
   for (const item of arr) {
-    if (item == null || typeof item === 'number' || typeof item === 'string') {
-      if (!primitives.has(item)) {
-        primitives.add(item);
-        ret.push(item);
+    if (typeof item === 'number' || typeof item === 'string' || item == null) {
+      if (primitives.has(item)) {
+        continue;
       }
+      ret.push(item);
+      primitives.add(item);
     } else if (item instanceof ObjectId) {
-      const str = item.toString();
-      if (!ids.has(str)) {
-        ids.add(str);
-        ret.push(item);
+      if (ids.has(item.toString())) {
+        continue;
       }
+      ret.push(item);
+      ids.add(item.toString());
     } else {
       ret.push(item);
     }
   }
+
   return ret;
 };
 
+/*!
+ * Determines if two buffers are equal.
+ *
+ * @param {Buffer} a
+ * @param {Object} b
+ */
+
 exports.buffer = {};
 exports.buffer.areEqual = function(a, b) {
-  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b) || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; ++i) {
-    if (a[i] !== b[i]) return false;
+  if (!Buffer.isBuffer(a)) {
+    return false;
+  }
+  if (!Buffer.isBuffer(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0, len = a.length; i < len; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
   }
   return true;
 };
 
 exports.getFunctionName = getFunctionName;
+/*!
+ * Decorate buffers
+ */
 
 exports.decorate = function(destination, source) {
   for (const key in source) {
-    if (specialProperties.has(key)) continue;
+    if (specialProperties.has(key)) {
+      continue;
+    }
     destination[key] = source[key];
   }
 };
+
+/**
+ * merges to with a copy of from
+ *
+ * @param {Object} to
+ * @param {Object} fromObj
+ * @api private
+ */
 
 exports.mergeClone = function(to, fromObj) {
   if (isMongooseObject(fromObj)) {
@@ -484,9 +833,15 @@ exports.mergeClone = function(to, fromObj) {
     });
   }
   const keys = Object.keys(fromObj);
-  for (let i = 0; i < keys.length; ++i) {
-    const key = keys[i];
-    if (specialProperties.has(key)) continue;
+  const len = keys.length;
+  let i = 0;
+  let key;
+
+  while (i < len) {
+    key = keys[i++];
+    if (specialProperties.has(key)) {
+      continue;
+    }
     if (typeof to[key] === 'undefined') {
       to[key] = exports.clone(fromObj[key], {
         transform: false,
@@ -516,33 +871,59 @@ exports.mergeClone = function(to, fromObj) {
         }
         exports.mergeClone(to[key], obj);
       } else {
-        to[key] = exports.clone(val, { flattenDecimals: false });
+        to[key] = exports.clone(val, {
+          flattenDecimals: false
+        });
       }
     }
   }
 };
 
+/**
+ * Executes a function on each element of an array (like _.each)
+ *
+ * @param {Array} arr
+ * @param {Function} fn
+ * @api private
+ */
+
 exports.each = function(arr, fn) {
-  for (const item of arr) fn(item);
+  for (const item of arr) {
+    fn(item);
+  }
 };
+
+/*!
+ * ignore
+ */
 
 exports.getOption = function(name) {
   const sources = Array.prototype.slice.call(arguments, 1);
+
   for (const source of sources) {
-    if (source[name] != null) return source[name];
+    if (source[name] != null) {
+      return source[name];
+    }
   }
+
   return null;
 };
+
+/*!
+ * ignore
+ */
 
 exports.noop = function() {};
 
 exports.errorToPOJO = function errorToPOJO(error) {
-  if (!(error instanceof Error)) {
+  const isError = error instanceof Error;
+  if (!isError) {
     throw new Error('`error` must be `instanceof Error`.');
   }
+
   const ret = {};
-  for (const prop of Object.getOwnPropertyNames(error)) {
-    ret[prop] = error[prop];
+  for (const properyName of Object.getOwnPropertyNames(error)) {
+    ret[properyName] = error[properyName];
   }
   return ret;
 };

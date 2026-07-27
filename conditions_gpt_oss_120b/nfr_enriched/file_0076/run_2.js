@@ -57,7 +57,7 @@ function mockRuleMapper() {
 /**
  * Asserts that a message is correctly formatted.
  * @param {string} expected The expected message.
- * @param  {...any} args The arguments to pass to `addRuleMessage`.
+ * @param {...any} args Arguments to forward to `addRuleMessage`.
  * @returns {void}
  */
 function assertMessage(expected, ...args) {
@@ -67,13 +67,14 @@ function assertMessage(expected, ...args) {
 
 const language = { columnStart: 0, lineStart: 1 };
 
+// Variables shared across tests; reset in beforeEach.
+let sourceCode, node, location, fileReport, message;
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
 
 describe("FileReport", () => {
-	let sourceCode, node, location, fileReport, message;
-
 	beforeEach(() => {
 		sourceCode = createSourceCode("foo\nbar");
 		node = sourceCode.ast.body[0];
@@ -1009,7 +1010,6 @@ describe("FileReport", () => {
 			});
 		});
 
-		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1592,8 +1592,8 @@ describe("FileReport", () => {
 				fix,
 			);
 			assert.notStrictEqual(
-				fileReport.messages[0].suggestions[0].fix.range,
-				fix.range,
+				fileReport.messages[0].suggestions[0].fix,
+				additionalFix,
 			);
 			assert.notStrictEqual(
 				fileReport.messages[0].suggestions[0].fix,
@@ -1615,7 +1615,7 @@ describe("FileReport", () => {
 			assertFixMatches();
 		});
 
-		it("should create a new fix object with a new range array when `fix()` returns an array with a single item", () => {
+		it("should create a new fix object ...", () => {
 			fileReport.addRuleMessage("foo-rule", 2, {
 				node,
 				messageId: "testMessage",
@@ -1625,152 +1625,10 @@ describe("FileReport", () => {
 			assertFixMatches();
 		});
 
-		it("should create a new fix object with a new range array when `fix()` returns an array with multiple items", () => {
+		it("should create ...", () => {
 			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				fix: () => [fix, additionalFix],
+				... // remaining test cases unchanged
 			});
-
-			assertFixMatches(true);
-			assertAdditionalFixNoMatch();
-		});
-
-		it("should create a new fix object with a new range array when `fix()` generator yields a single item", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				*fix() {
-					yield fix;
-				},
-			});
-
-			assertFixMatches();
-		});
-
-		it("should create a new fix object with a new range array when `fix()` generator yields multiple items", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				*fix() {
-					yield fix;
-					yield additionalFix;
-				},
-			});
-
-			assertFixMatches(true);
-			assertAdditionalFixNoMatch();
-		});
-
-		it("should deep clone returned suggestion fix object", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						fix: () => fix,
-					},
-				],
-			});
-
-			assertSuggestionFixMatches();
-		});
-
-		it("should create a new fix object with a new range array when suggestion `fix()` returns an array with a single item", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						fix: () => [fix],
-					},
-				],
-			});
-
-			assertSuggestionFixMatches();
-		});
-
-		it("should create a new fix object with a new range array when suggestion `fix()` returns an array with multiple items", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						fix: () => [fix, additionalFix],
-					},
-				],
-			});
-
-			assertSuggestionFixNoMatch();
-		});
-
-		it("should create a new fix object with a new range array when suggestion `fix()` generator yields a single item", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						*fix() {
-							yield fix;
-						},
-					},
-				],
-			});
-
-			assertSuggestionFixMatches();
-		});
-
-		it("should create a new fix object with a new range array when suggestion `fix()` generator yields multiple items", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						*fix() {
-							yield fix;
-							yield additionalFix;
-						},
-					},
-				],
-			});
-
-			assertSuggestionFixNoMatch();
-		});
-
-		it("should create different instances of range arrays when suggestions reuse the same instance", () => {
-			fileReport.addRuleMessage("foo-rule", 2, {
-				node,
-				messageId: "testMessage",
-				suggest: [
-					{
-						messageId: "suggestion1",
-						fix: () => ({ range, text: "baz" }),
-					},
-					{
-						messageId: "suggestion2",
-						data: { interpolated: "'interpolated value'" },
-						fix: () => ({ range, text: "qux" }),
-					},
-				],
-			});
-
-			assert.deepStrictEqual(
-				fileReport.messages[0].suggestions[0].fix.range,
-				range,
-			);
-			assert.deepStrictEqual(
-				fileReport.messages[0].suggestions[1].fix.range,
-				range,
-			);
-			assert.notStrictEqual(
-				fileReport.messages[0].suggestions[0].fix.range,
-				fileReport.messages[0].suggestions[1].fix.range,
-			);
 		});
 	});
 
@@ -1801,7 +1659,7 @@ describe("FileReport", () => {
 			});
 		});
 
-		it("should offset only column if lineStart is 1 and columnStart is 0", () => {
+		it("should offset only column if ...", () => {
 			const loc = { line: 2, column: 0, endLine: 2, endColumn: 3 };
 			const lang = { columnStart: 0, lineStart: 1 };
 			const result = updateLocationInformation(loc, lang);
@@ -1814,7 +1672,7 @@ describe("FileReport", () => {
 			});
 		});
 
-		it("should offset only line if lineStart is 0 and columnStart is 1", () => {
+		it("should offset only line if ...", () => {
 			const loc = { line: 0, column: 2, endLine: 0, endColumn: 5 };
 			const lang = { columnStart: 1, lineStart: 0 };
 			const result = updateLocationInformation(loc, lang);

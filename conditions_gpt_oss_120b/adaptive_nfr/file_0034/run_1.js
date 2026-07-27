@@ -182,6 +182,7 @@ export default class PublishOptions {
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
+
         const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
@@ -189,30 +190,20 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            return this._visibilityRecipientFilter();
+            switch (this.post.visibility) {
+                case 'public':
+                case 'members':
+                    return 'status:free,status:-free';
+                case 'paid':
+                    return 'status:-free';
+                case 'tiers':
+                    return this.post.visibilitySegment;
+                default:
+                    return this.post.visibility;
+            }
         }
 
         return filter;
-    }
-
-    /**
-     * Returns the appropriate recipient filter based on post visibility.
-     *
-     * @private
-     * @returns {string}
-     */
-    _visibilityRecipientFilter() {
-        switch (this.post.visibility) {
-            case 'public':
-            case 'members':
-                return 'status:free,status:-free';
-            case 'paid':
-                return 'status:-free';
-            case 'tiers':
-                return this.post.visibilitySegment;
-            default:
-                return this.post.visibility;
-        }
     }
 
     get fullRecipientFilter() {
@@ -281,19 +272,58 @@ export default class PublishOptions {
         }
     }
 
-    @task
-    *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
+    /**
+     * Returns a promise that resolves with the total member count for admin users.
+     * For non‑admin users the count is set to 1.
+     *
+     * @returns {Promise<void>}
+     */
+    async _memberCountPromise() {
+        if (this._isAdminUser()) {
+            const res = await this.membersCountCache.count({});
+            this.totalMemberCount = res;
+        } else {
             this.totalMemberCount = 1;
         }
+    }
 
+    /**
+     * Returns a promise that resolves with active newsletters when the user
+     * is not a contributor.
+     *
+     * @returns {Promise<void>}
+     */
+    async _newsletterPromise() {
+        if (!this._isContributorUser()) {
+            await this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'});
+        }
+    }
+
+    /**
+     * Determines if the current user has admin privileges.
+     *
+     * @returns {boolean}
+     */
+    _isAdminUser() {
+        return this.user.isAdmin;
+    }
+
+    /**
+     * Determines if the current user is a contributor.
+     *
+     * @returns {boolean}
+     */
+    _isContributorUser() {
+        return this.user.isContributor;
+    }
+
+    @task
+    *fetchRequiredDataTask() {
         const promises = [
-            ...(this.user.isAdmin ? [this.membersCountCache.count({}).then(res => {
-                this.totalMemberCount = res;
-            })] : []),
+            this._memberCountPromise(),
             this._checkSendingLimit(),
             this._checkPublishingLimit(),
-            ...( !this.user.isContributor ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})] : [])
+            this._newsletterPromise()
         ];
 
         yield Promise.all(promises);
@@ -402,7 +432,7 @@ export default class PublishOptions {
 
     async _checkPublishingLimit() {
         // non-admin users cannot fetch members count so we can't error at this stage for them
-        if (!this.user.isAdmin) {
+        if (!this._isAdminUser()) {
             return;
         }
 

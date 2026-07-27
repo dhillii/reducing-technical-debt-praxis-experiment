@@ -5,9 +5,8 @@ import ProfileCardShadow from '@assets/images/profile-card-shadow.png';
 import ProfileCardShadowSquare from '@assets/images/profile-card-shadow-square.png';
 import html2canvas from 'html2canvas-objectfit-fix';
 import {Account} from '@src/api/activitypub';
-import {Button, H2, LoadingIndicator, LucideIcon, Skeleton, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@tryghost/shade';
+import {Button, H2, LoadingIndicator, LucideIcon, Skeleton, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, toast} from '@tryghost/shade';
 import {imageUrlToDataUrl} from '@src/utils/image';
-import {toast} from 'sonner';
 import {useBrowseSite} from '@tryghost/admin-x-framework/api/site';
 
 type ProfileProps = {
@@ -36,66 +35,104 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const getBackgroundColorValue = (bg: 'light' | 'dark' | 'accent', accent?: string) => {
-    const map: Record<string, string> = {
-        light: '#fff',
-        dark: '#15171a',
-        accent: accent || '#15171a'
-    };
-    return map[bg] ?? '#fff';
+const backgroundMap: Record<ProfileCardProps['backgroundColor'], (accent?: string) => string> = {
+    light: () => '#fff',
+    dark: () => '#15171a',
+    accent: (accent) => accent || '#15171a'
 };
 
-const getTextColorValue = (bg: 'light' | 'dark' | 'accent') => {
-    const map: Record<string, string> = {
-        light: '#15171a',
-        dark: '#fff',
-        accent: '#fff'
-    };
-    return map[bg] ?? '#15171a';
+const textMap: Record<ProfileCardProps['backgroundColor'], string> = {
+    light: '#15171a',
+    dark: '#fff',
+    accent: '#fff'
 };
 
-const getGradient = (bg: 'light' | 'dark' | 'accent', accent?: string) => {
-    switch (bg) {
-        case 'light':
-            return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
-        case 'dark':
-            return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
-        case 'accent':
-            return `linear-gradient(to bottom left, ${hexToRgba(accent || '#15171a', 0.08)}, ${hexToRgba(accent || '#15171a', 0.06)})`;
-        default:
-            return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+const Banner: React.FC<{
+    src: string | undefined;
+    placeholderColor: string;
+    isScreenshot: boolean;
+    accentColor?: string;
+    backgroundColor: ProfileCardProps['backgroundColor'];
+}> = ({src, placeholderColor, isScreenshot, accentColor, backgroundColor}) => {
+    if (src) {
+        return (
+            <img
+                alt=""
+                className='size-full rounded-[26px] rounded-b-none object-cover'
+                referrerPolicy='no-referrer'
+                src={src}
+            />
+        );
     }
+    const gradient = `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})`;
+    const dotColor = backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)';
+    const top = isScreenshot ? '-42px' : '-84px';
+    const left = isScreenshot ? '-69px' : '-138px';
+    return (
+        <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: gradient}}>
+            <DotsPattern className='absolute' style={{color: dotColor, top, left}} />
+        </div>
+    );
 };
 
-const getDotsPatternColor = (bg: 'light' | 'dark' | 'accent') => {
-    const map: Record<string, string> = {
-        light: hexToRgba('#15171a', 0.025),
-        dark: hexToRgba('#15171a', 0.23),
-        accent: 'rgba(0, 0, 0, 0.02)'
-    };
-    return map[bg] ?? hexToRgba('#15171a', 0.025);
+const AvatarOverlay: React.FC<{
+    src: string | undefined;
+    borderColor: string;
+    name: string;
+    handle?: string;
+    siteTitle?: string;
+    isScreenshot: boolean;
+}> = ({src, borderColor, name, handle, siteTitle, isScreenshot}) => {
+    if (!src) return null;
+    return (
+        <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor}}>
+            <APAvatar
+                author={{
+                    icon: {url: src},
+                    name: name || siteTitle || '',
+                    handle
+                }}
+                size='md'
+            />
+        </div>
+    );
 };
 
-const generateCanvasBlob = async (element: HTMLElement): Promise<Blob> => {
-    const canvas = await html2canvas(element, {
-        backgroundColor: 'transparent',
-        scale: 2,
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
-        imageTimeout: 0
-    });
-    return new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to create blob'));
-        }, 'image/png');
-    });
-};
-
-const copyBlobToClipboard = async (blob: Blob) => {
-    const item = new ClipboardItem({'image/png': blob});
-    await navigator.clipboard.write([item]);
+const HandleSection: React.FC<{
+    handle?: string;
+    copied: boolean;
+    onCopy: () => void;
+    backgroundColor: ProfileCardProps['backgroundColor'];
+    accentColor?: string;
+    isScreenshot: boolean;
+}> = ({handle, copied, onCopy, backgroundColor, accentColor, isScreenshot}) => {
+    if (!handle) return null;
+    const textColor = backgroundColor !== 'light' ? '#fff' : accentColor;
+    const border = accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined;
+    const bg = accentColor
+        ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})`
+        : undefined;
+    return (
+        <div
+            className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
+            style={{color: textColor, borderColor: border, background: bg}}
+        >
+            <div className='mb-0.5'>
+                {handle}
+                {!isScreenshot && (
+                    <Button
+                        className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
+                        style={{color: textColor}}
+                        title='Copy handle'
+                        variant='link'
+                        onClick={onCopy}
+                    >
+                        {copied ? <LucideIcon.Check size={12} /> : <LucideIcon.Copy size={12} />}
+                    </Button>
+                )}
+            </div>
+        </div>
+    );
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -139,41 +176,34 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
         }
     };
 
-    const cardBackgroundColor = getBackgroundColorValue(backgroundColor, accentColor);
-    const textColor = getTextColorValue(backgroundColor);
+    const cardBackgroundColor = backgroundMap[backgroundColor](accentColor);
+    const textColor = textMap[backgroundColor];
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
     const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
     const cardHeight = 'h-[422px]';
-    const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
-    const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
+
+    const bannerSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
+    const avatarSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
 
     return (
         <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
             <div className='relative h-48 p-2'>
-                {bannerImageSrc ?
-                    <img
-                        alt={account?.name}
-                        className='size-full rounded-[26px] rounded-b-none object-cover'
-                        referrerPolicy='no-referrer'
-                        src={bannerImageSrc}
-                    /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})`}}>
-                        <DotsPattern className='absolute' style={{color: backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)', top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
-                    </div>
-                }
-                {avatarImageSrc &&
-                    <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor: cardBackgroundColor}}>
-                        <APAvatar
-                            author={{
-                                icon: {url: avatarImageSrc || ''},
-                                name: account?.name || siteTitle || '',
-                                handle: account?.handle
-                            }}
-                            size='md'
-                        />
-                    </div>
-                }
+                <Banner
+                    src={bannerSrc}
+                    placeholderColor={cardBackgroundColor}
+                    isScreenshot={isScreenshot}
+                    accentColor={accentColor}
+                    backgroundColor={backgroundColor}
+                />
+                <AvatarOverlay
+                    src={avatarSrc}
+                    borderColor={cardBackgroundColor}
+                    name={account?.name || ''}
+                    handle={account?.handle}
+                    siteTitle={siteTitle}
+                    isScreenshot={isScreenshot}
+                />
             </div>
             <div className={`flex grow flex-col items-center p-6 ${(account?.avatarUrl || publicationIcon) ? 'pt-9' : 'pt-3'} text-center ${format === 'square' ? 'flex-1 justify-center' : ''}`}>
                 <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
@@ -182,29 +212,14 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
                     {!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}
                 </span>
-                <div
-                    className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
-                    style={{
-                        color: backgroundColor !== 'light' ? '#fff' : accentColor,
-                        borderColor: accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined,
-                        background: accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined
-                    }}
-                >
-                    <div className='mb-0.5'>
-                        {account?.handle}
-                        {!isScreenshot && account?.handle && (
-                            <Button
-                                className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
-                                style={{color: backgroundColor !== 'light' ? '#fff' : accentColor}}
-                                title='Copy handle'
-                                variant='link'
-                                onClick={handleCopy}
-                            >
-                                {copied ? <LucideIcon.Check size={12} /> : <LucideIcon.Copy size={12} />}
-                            </Button>
-                        )}
-                    </div>
-                </div>
+                <HandleSection
+                    handle={account?.handle}
+                    copied={copied}
+                    onCopy={handleCopy}
+                    backgroundColor={backgroundColor}
+                    accentColor={accentColor}
+                    isScreenshot={isScreenshot}
+                />
             </div>
         </div>
     );
@@ -255,16 +270,59 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         };
     }, [convertImagesToDataUrls]);
 
+    const getGradient = () => {
+        switch (backgroundColor) {
+            case 'light':
+                return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+            case 'dark':
+                return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
+            case 'accent':
+                return `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`;
+            default:
+                return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+        }
+    };
+
+    const getDotsPatternColor = () => {
+        switch (backgroundColor) {
+            case 'light':
+                return hexToRgba('#15171a', 0.025);
+            case 'dark':
+                return hexToRgba('#15171a', 0.23);
+            case 'accent':
+                return 'rgba(0, 0, 0, 0.02)';
+            default:
+                return hexToRgba('#15171a', 0.025);
+        }
+    };
+
     const handleCopy = async () => {
-        if (!profileCardRef.current || isProcessing) return;
+        if (!profileCardRef.current || isProcessing) {
+            return;
+        }
         setIsProcessing(true);
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await new Promise((resolve) => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(resolve);
+            });
+        });
         try {
-            if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+            if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
                 throw new Error('Clipboard API not supported');
             }
-            const blob = await generateCanvasBlob(profileCardRef.current);
-            await copyBlobToClipboard(blob);
+            const canvas = await html2canvas(profileCardRef.current!, {
+                backgroundColor: 'transparent',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+                imageTimeout: 0
+            });
+            const blob = await new Promise<Blob>((resolve, reject) => {
+                canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Blob creation failed')), 'image/png');
+            });
+            const clipboardItem = new ClipboardItem({'image/png': blob});
+            await navigator.clipboard.write([clipboardItem]);
             toast.success('Image copied to clipboard');
         } catch {
             toast.error('Failed to copy image');
@@ -279,47 +337,47 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                 <div className='flex items-center justify-between max-sm:flex-col max-sm:items-start max-sm:gap-3'>
                     <H2>Share your profile</H2>
                     <div className='flex gap-4'>
-                        <ToggleGroup defaultValue='light' type='single' value={backgroundColor} onValueChange={value => value && setBackgroundColor(value as any)}>
+                        <ToggleGroup defaultValue='light' type='single' value={backgroundColor} onValueChange={(value) => value && setBackgroundColor(value as typeof backgroundColor)}>
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Light' value='light'>
                                         <div className='size-4 rounded-full border border-gray-500 dark:border-0 dark:bg-white' />
-                                    </TooltipTrigger>
-                                </Tooltip>
+                                    </ToggleGroupItem>
+                                </TooltipTrigger>
                                 <TooltipContent>Light</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Dark' value='dark'>
                                         <div className='size-4 rounded-full bg-black dark:border dark:border-gray-700 dark:bg-transparent' />
-                                    </TooltipTrigger>
-                                </Tooltip>
+                                    </ToggleGroupItem>
+                                </TooltipTrigger>
                                 <TooltipContent>Dark</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Accent color' value='accent'>
                                         <div className='size-4 rounded-full' style={{backgroundColor: accentColor}} />
-                                    </TooltipTrigger>
-                                </Tooltip>
+                                    </ToggleGroupItem>
+                                </TooltipTrigger>
                                 <TooltipContent>Accent color</TooltipContent>
                             </Tooltip>
                         </ToggleGroup>
-                        <ToggleGroup defaultValue='vertical' type='single' value={cardFormat} onValueChange={value => value && setCardFormat(value as any)}>
+                        <ToggleGroup defaultValue='vertical' type='single' value={cardFormat} onValueChange={(value) => value && setCardFormat(value as typeof cardFormat)}>
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Vertical' value='vertical'>
                                         <LucideIcon.RectangleVertical className='size-4' />
-                                    </TooltipTrigger>
-                                </Tooltip>
+                                    </ToggleGroupItem>
+                                </TooltipTrigger>
                                 <TooltipContent>Vertical</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Square' value='square'>
                                         <LucideIcon.Square className='size-4' />
-                                    </TooltipTrigger>
-                                </Tooltip>
+                                    </ToggleGroupItem>
+                                </TooltipTrigger>
                                 <TooltipContent>Square</TooltipContent>
                             </Tooltip>
                         </ToggleGroup>
@@ -359,9 +417,9 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) && (
-                        <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                        <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     )}
-                    <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
+                    <div className='absolute inset-0' style={{background: getGradient()}} />
                 </div>
 
                 <div
@@ -386,9 +444,12 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) && (
-                        <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                        <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     )}
-                    <div className='absolute left-0 top-0 size-full' style={{background: getGradient(backgroundColor, accentColor)}} />
+                    <div
+                        className='absolute left-0 top-0 size-full'
+                        style={{background: getGradient()}}
+                    />
                     <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />
                 </div>
             </div>

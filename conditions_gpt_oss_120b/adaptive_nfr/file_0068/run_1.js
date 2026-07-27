@@ -11,314 +11,2641 @@
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
- * Loads accessor and array related rule modules.
- * @returns {Object<string, () => any>} Mapping of rule names to loader functions.
+ * Loads the accessor-pairs rule module.
+ * @returns {import("../types").Rule.RuleModule}
  */
-function loadAccessorAndArrayRules() {
-    return {
-        "accessor-pairs": () => require("./accessor-pairs"),
-        "array-bracket-newline": () => require("./array-bracket-newline"),
-        "array-bracket-spacing": () => require("./array-bracket-spacing"),
-        "array-callback-return": () => require("./array-callback-return"),
-        "array-element-newline": () => require("./array-element-newline"),
-        "arrow-body-style": () => require("./arrow-body-style"),
-        "arrow-parens": () => require("./arrow-parens"),
-        "arrow-spacing": () => require("./arrow-spacing"),
-        "block-scoped-var": () => require("./block-scoped-var"),
-        "block-spacing": () => require("./block-spacing"),
-        "brace-style": () => require("./brace-style"),
-        "callback-return": () => require("./callback-return"),
-        camelcase: () => require("./camelcase"),
-        "capitalized-comments": () => require("./capitalized-comments"),
-        "class-methods-use-this": () => require("./class-methods-use-this"),
-        "comma-dangle": () => require("./comma-dangle"),
-        "comma-spacing": () => require("./comma-spacing"),
-        "comma-style": () => require("./comma-style"),
-        complexity: () => require("./complexity"),
-        "computed-property-spacing": () => require("./computed-property-spacing"),
-        "consistent-return": () => require("./consistent-return"),
-        "consistent-this": () => require("./consistent-this"),
-        "constructor-super": () => require("./constructor-super"),
-        curly: () => require("./curly"),
-        "default-case": () => require("./default-case"),
-        "default-case-last": () => require("./default-case-last"),
-        "default-param-last": () => require("./default-param-last"),
-        "dot-location": () => require("./dot-location"),
-        "dot-notation": () => require("./dot-notation"),
-        "eol-last": () => require("./eol-last"),
-        eqeqeq: () => require("./eqeqeq"),
-        "for-direction": () => require("./for-direction"),
-        "func-call-spacing": () => require("./func-call-spacing"),
-        "func-name-matching": () => require("./func-name-matching"),
-        "func-names": () => require("./func-names"),
-        "func-style": () => require("./func-style"),
-        "function-call-argument-newline": () => require("./function-call-argument-newline"),
-        "function-paren-newline": () => require("./function-paren-newline"),
-        "generator-star-spacing": () => require("./generator-star-spacing"),
-        "getter-return": () => require("./getter-return"),
-        "global-require": () => require("./global-require"),
-        "grouped-accessor-pairs": () => require("./grouped-accessor-pairs"),
-        "guard-for-in": () => require("./guard-for-in"),
-        "handle-callback-err": () => require("./handle-callback-err"),
-        "id-blacklist": () => require("./id-blacklist"),
-        "id-denylist": () => require("./id-denylist"),
-        "id-length": () => require("./id-length"),
-        "id-match": () => require("./id-match"),
-        "implicit-arrow-linebreak": () => require("./implicit-arrow-linebreak"),
-        indent: () => require("./indent"),
-        "indent-legacy": () => require("./indent-legacy"),
-        "init-declarations": () => require("./init-declarations"),
-        "jsx-quotes": () => require("./jsx-quotes"),
-        "key-spacing": () => require("./key-spacing"),
-        "keyword-spacing": () => require("./keyword-spacing"),
-        "line-comment-position": () => require("./line-comment-position"),
-        "linebreak-style": () => require("./linebreak-style"),
-        "lines-around-comment": () => require("./lines-around-comment"),
-        "lines-around-directive": () => require("./lines-around-directive"),
-        "lines-between-class-members": () => require("./lines-between-class-members"),
-        "logical-assignment-operators": () => require("./logical-assignment-operators"),
-        "max-classes-per-file": () => require("./max-classes-per-file"),
-        "max-depth": () => require("./max-depth"),
-        "max-len": () => require("./max-len"),
-        "max-lines": () => require("./max-lines"),
-        "max-lines-per-function": () => require("./max-lines-per-function"),
-        "max-nested-callbacks": () => require("./max-nested-callbacks"),
-        "max-params": () => require("./max-params"),
-        "max-statements": () => require("./max-statements"),
-        "max-statements-per-line": () => require("./max-statements-per-line"),
-        "multiline-comment-style": () => require("./multiline-comment-style"),
-        "multiline-ternary": () => require("./multiline-ternary"),
-        "new-cap": () => require("./new-cap"),
-        "new-parens": () => require("./new-parens"),
-        "newline-after-var": () => require("./newline-after-var"),
-        "newline-before-return": () => require("./newline-before-return"),
-        "newline-per-chained-call": () => require("./newline-per-chained-call"),
-        "no-alert": () => require("./no-alert"),
-        "no-array-constructor": () => require("./no-array-constructor"),
-        "no-async-promise-executor": () => require("./no-async-promise-executor"),
-        "no-await-in-loop": () => require("./no-await-in-loop"),
-        "no-bitwise": () => require("./no-bitwise"),
-        "no-buffer-constructor": () => require("./no-buffer-constructor"),
-        "no-caller": () => require("./no-caller"),
-        "no-case-declarations": () => require("./no-case-declarations"),
-        "no-catch-shadow": () => require("./no-catch-shadow"),
-        "no-class-assign": () => require("./no-class-assign"),
-        "no-compare-neg-zero": () => require("./no-compare-neg-zero"),
-        "no-cond-assign": () => require("./no-cond-assign"),
-        "no-confusing-arrow": () => require("./no-confusing-arrow"),
-        "no-console": () => require("./no-console"),
-        "no-const-assign": () => require("./no-const-assign"),
-        "no-constant-binary-expression": () => require("./no-constant-binary-expression"),
-        "no-constant-condition": () => require("./no-constant-condition"),
-        "no-constructor-return": () => require("./no-constructor-return"),
-        "no-continue": () => require("./no-continue"),
-        "no-control-regex": () => require("./no-control-regex"),
-        "no-debugger": () => require("./no-debugger"),
-        "no-delete-var": () => require("./no-delete-var"),
-        "no-div-regex": () => require("./no-div-regex"),
-        "no-dupe-args": () => require("./no-dupe-args"),
-        "no-dupe-class-members": () => require("./no-dupe-class-members"),
-        "no-dupe-else-if": () => require("./no-dupe-else-if"),
-        "no-dupe-keys": () => require("./no-dupe-keys"),
-        "no-duplicate-case": () => require("./no-duplicate-case"),
-        "no-duplicate-imports": () => require("./no-duplicate-imports"),
-        "no-else-return": () => require("./no-else-return"),
-        "no-empty": () => require("./no-empty"),
-        "no-empty-character-class": () => require("./no-empty-character-class"),
-        "no-empty-function": () => require("./no-empty-function"),
-        "no-empty-pattern": () => require("./no-empty-pattern"),
-        "no-empty-static-block": () => require("./no-empty-static-block"),
-        "no-eq-null": () => require("./no-eq-null"),
-        "no-eval": () => require("./no-eval"),
-        "no-ex-assign": () => require("./no-ex-assign"),
-        "no-extend-native": () => require("./no-extend-native"),
-        "no-extra-bind": () => require("./no-extra-bind"),
-        "no-extra-boolean-cast": () => require("./no-extra-boolean-cast"),
-        "no-extra-label": () => require("./no-extra-label"),
-        "no-extra-parens": () => require("./no-extra-parens"),
-        "no-extra-semi": () => require("./no-extra-semi"),
-        "no-fallthrough": () => require("./no-fallthrough"),
-        "no-floating-decimal": () => require("./no-floating-decimal"),
-        "no-func-assign": () => require("./no-func-assign"),
-        "no-global-assign": () => require("./no-global-assign"),
-        "no-implicit-coercion": () => require("./no-implicit-coercion"),
-        "no-implicit-globals": () => require("./no-implicit-globals"),
-        "no-implied-eval": () => require("./no-implied-eval"),
-        "no-import-assign": () => require("./no-import-assign"),
-        "no-inline-comments": () => require("./no-inline-comments"),
-        "no-inner-declarations": () => require("./no-inner-declarations"),
-        "no-invalid-regexp": () => require("./no-invalid-regexp"),
-        "no-invalid-this": () => require("./no-invalid-this"),
-        "no-irregular-whitespace": () => require("./no-irregular-whitespace"),
-        "no-iterator": () => require("./no-iterator"),
-        "no-label-var": () => require("./no-label-var"),
-        "no-labels": () => require("./no-labels"),
-        "no-lone-blocks": () => require("./no-lone-blocks"),
-        "no-lonely-if": () => require("./no-lonely-if"),
-        "no-loop-func": () => require("./no-loop-func"),
-        "no-loss-of-precision": () => require("./no-loss-of-precision"),
-        "no-magic-numbers": () => require("./no-magic-numbers"),
-        "no-misleading-character-class": () => require("./no-misleading-character-class"),
-        "no-mixed-operators": () => require("./no-mixed-operators"),
-        "no-mixed-requires": () => require("./no-mixed-requires"),
-        "no-mixed-spaces-and-tabs": () => require("./no-mixed-spaces-and-tabs"),
-        "no-multi-assign": () => require("./no-multi-assign"),
-        "no-multi-spaces": () => require("./no-multi-spaces"),
-        "no-multi-str": () => require("./no-multi-str"),
-        "no-multiple-empty-lines": () => require("./no-multiple-empty-lines"),
-        "no-native-reassign": () => require("./no-native-reassign"),
-        "no-negated-condition": () => require("./no-negated-condition"),
-        "no-negated-in-lhs": () => require("./no-negated-in-lhs"),
-        "no-nested-ternary": () => require("./no-nested-ternary"),
-        "no-new": () => require("./no-new"),
-        "no-new-func": () => require("./no-new-func"),
-        "no-new-native-nonconstructor": () => require("./no-new-native-nonconstructor"),
-        "no-new-object": () => require("./no-new-object"),
-        "no-new-require": () => require("./no-new-require"),
-        "no-new-symbol": () => require("./no-new-symbol"),
-        "no-new-wrappers": () => require("./no-new-wrappers"),
-        "no-nonoctal-decimal-escape": () => require("./no-nonoctal-decimal-escape"),
-        "no-obj-calls": () => require("./no-obj-calls"),
-        "no-object-constructor": () => require("./no-object-constructor"),
-        "no-octal": () => require("./no-octal"),
-        "no-octal-escape": () => require("./no-octal-escape"),
-        "no-param-reassign": () => require("./no-param-reassign"),
-        "no-path-concat": () => require("./no-path-concat"),
-        "no-plusplus": () => require("./no-plusplus"),
-        "no-process-env": () => require("./no-process-env"),
-        "no-process-exit": () => require("./no-process-exit"),
-        "no-promise-executor-return": () => require("./no-promise-executor-return"),
-        "no-proto": () => require("./no-proto"),
-        "no-prototype-builtins": () => require("./no-prototype-builtins"),
-        "no-redeclare": () => require("./no-redeclare"),
-        "no-regex-spaces": () => require("./no-regex-spaces"),
-        "no-restricted-exports": () => require("./no-restricted-exports"),
-        "no-restricted-globals": () => require("./no-restricted-globals"),
-        "no-restricted-imports": () => require("./no-restricted-imports"),
-        "no-restricted-modules": () => require("./no-restricted-modules"),
-        "no-restricted-properties": () => require("./no-restricted-properties"),
-        "no-restricted-syntax": () => require("./no-restricted-syntax"),
-        "no-return-assign": () => require("./no-return-assign"),
-        "no-return-await": () => require("./no-return-await"),
-        "no-script-url": () => require("./no-script-url"),
-        "no-self-assign": () => require("./no-self-assign"),
-        "no-self-compare": () => require("./no-self-compare"),
-        "no-sequences": () => require("./no-sequences"),
-        "no-setter-return": () => require("./no-setter-return"),
-        "no-shadow": () => require("./no-shadow"),
-        "no-shadow-restricted-names": () => require("./no-shadow-restricted-names"),
-        "no-spaced-func": () => require("./no-spaced-func"),
-        "no-sparse-arrays": () => require("./no-sparse-arrays"),
-        "no-sync": () => require("./no-sync"),
-        "no-tabs": () => require("./no-tabs"),
-        "no-template-curly-in-string": () => require("./no-template-curly-in-string"),
-        "no-ternary": () => require("./no-ternary"),
-        "no-this-before-super": () => require("./no-this-before-super"),
-        "no-throw-literal": () => require("./no-throw-literal"),
-        "no-trailing-spaces": () => require("./no-trailing-spaces"),
-        "no-unassigned-vars": () => require("./no-unassigned-vars"),
-        "no-undef": () => require("./no-undef"),
-        "no-undef-init": () => require("./no-undef-init"),
-        "no-undefined": () => require("./no-undefined"),
-        "no-underscore-dangle": () => require("./no-underscore-dangle"),
-        "no-unexpected-multiline": () => require("./no-unexpected-multiline"),
-        "no-unmodified-loop-condition": () => require("./no-unmodified-loop-condition"),
-        "no-unneeded-ternary": () => require("./no-unneeded-ternary"),
-        "no-unreachable": () => require("./no-unreachable"),
-        "no-unreachable-loop": () => require("./no-unreachable-loop"),
-        "no-unsafe-finally": () => require("./no-unsafe-finally"),
-        "no-unsafe-negation": () => require("./no-unsafe-negation"),
-        "no-unsafe-optional-chaining": () => require("./no-unsafe-optional-chaining"),
-        "no-unused-expressions": () => require("./no-unused-expressions"),
-        "no-unused-labels": () => require("./no-unused-labels"),
-        "no-unused-private-class-members": () => require("./no-unused-private-class-members"),
-        "no-unused-vars": () => require("./no-unused-vars"),
-        "no-use-before-define": () => require("./no-use-before-define"),
-        "no-useless-assignment": () => require("./no-useless-assignment"),
-        "no-useless-backreference": () => require("./no-useless-backreference"),
-        "no-useless-call": () => require("./no-useless-call"),
-        "no-useless-catch": () => require("./no-useless-catch"),
-        "no-useless-computed-key": () => require("./no-useless-computed-key"),
-        "no-useless-concat": () => require("./no-useless-concat"),
-        "no-useless-constructor": () => require("./no-useless-constructor"),
-        "no-useless-escape": () => require("./no-useless-escape"),
-        "no-useless-rename": () => require("./no-useless-rename"),
-        "no-useless-return": () => require("./no-useless-return"),
-        "no-var": () => require("./no-var"),
-        "no-void": () => require("./no-void"),
-        "no-warning-comments": () => require("./no-warning-comments"),
-        "no-whitespace-before-property": () => require("./no-whitespace-before-property"),
-        "no-with": () => require("./no-with"),
-        "nonblock-statement-body-position": () => require("./nonblock-statement-body-position"),
-        "object-curly-newline": () => require("./object-curly-newline"),
-        "object-curly-spacing": () => require("./object-curly-spacing"),
-        "object-property-newline": () => require("./object-property-newline"),
-        "object-shorthand": () => require("./object-shorthand"),
-        "one-var": () => require("./one-var"),
-        "one-var-declaration-per-line": () => require("./one-var-declaration-per-line"),
-        "operator-assignment": () => require("./operator-assignment"),
-        "operator-linebreak": () => require("./operator-linebreak"),
-        padded: () => require("./padded-blocks"),
-        "padded-blocks": () => require("./padded-blocks"),
-        "padding-line-between-statements": () => require("./padding-line-between-statements"),
-        "prefer-arrow-callback": () => require("./prefer-arrow-callback"),
-        "prefer-const": () => require("./prefer-const"),
-        "prefer-destructuring": () => require("./prefer-destructuring"),
-        "prefer-exponentiation-operator": () => require("./prefer-exponentiation-operator"),
-        "prefer-named-capture-group": () => require("./prefer-named-capture-group"),
-        "prefer-numeric-literals": () => require("./prefer-numeric-literals"),
-        "prefer-object-has-own": () => require("./prefer-object-has-own"),
-        "prefer-object-spread": () => require("./prefer-object-spread"),
-        "prefer-promise-reject-errors": () => require("./prefer-promise-reject-errors"),
-        "prefer-reflect": () => require("./prefer-reflect"),
-        "prefer-regex-literals": () => require("./prefer-regex-literals"),
-        "prefer-rest-params": () => require("./prefer-rest-params"),
-        "prefer-spread": () => require("./prefer-spread"),
-        "prefer-template": () => require("./prefer-template"),
-        "preserve-caught-error": () => require("./preserve-caught-error"),
-        "quote-props": () => require("./quote-props"),
-        quotes: () => require("./quotes"),
-        radix: () => require("./radix"),
-        "require-atomic-updates": () => require("./require-atomic-updates"),
-        "require-await": () => require("./require-await"),
-        "require-unicode-regexp": () => require("./require-unicode-regexp"),
-        "require-yield": () => require("./require-yield"),
-        "rest-spread-spacing": () => require("./rest-spread-spacing"),
-        semi: () => require("./semi"),
-        "semi-spacing": () => require("./semi-spacing"),
-        "semi-style": () => require("./semi-style"),
-        "sort-imports": () => require("./sort-imports"),
-        "sort-keys": () => require("./sort-keys"),
-        "sort-vars": () => require("./sort-vars"),
-        "space-before-blocks": () => require("./space-before-blocks"),
-        "space-before-function-paren": () => require("./space-before-function-paren"),
-        "space-in-parens": () => require("./space-in-parens"),
-        "space-infix-ops": () => require("./space-infix-ops"),
-        "space-unary-ops": () => require("./space-unary-ops"),
-        "spaced-comment": () => require("./spaced-comment"),
-        strict: () => require("./strict"),
-        "switch-colon-spacing": () => require("./switch-colon-spacing"),
-        "symbol-description": () => require("./symbol-description"),
-        "template-curly-spacing": () => require("./template-curly-spacing"),
-        "template-tag-spacing": () => require("./template-tag-spacing"),
-        "unicode-bom": () => require("./unicode-bom"),
-        "use-isnan": () => require("./use-isnan"),
-        "valid-typeof": () => require("./valid-typeof"),
-        "vars-on-top": () => require("./vars-on-top"),
-        "wrap-iife": () => require("./wrap-iife"),
-        "wrap-regex": () => require("./wrap-regex"),
-        "yield-star-spacing": () => require("./yield-star-spacing"),
-        yoda: () => require("./yoda")
-    };
+function loadAccessorPairs() {
+    return require("./accessor-pairs");
 }
 
 /**
- * Orchestrates loading of all rule modules by delegating to specialized loaders.
- * @returns {Array<[string, () => any]>} Entries suitable for LazyLoadingRuleMap.
+ * Loads the array-bracket-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
  */
-function getAllRuleEntries() {
-    const allLoaders = loadAccessorAndArrayRules();
-    return Object.entries(allLoaders);
+function loadArrayBracketNewline() {
+    return require("./array-bracket-newline");
 }
 
-module.exports = new LazyLoadingRuleMap(getAllRuleEntries());
+/**
+ * Loads the array-bracket-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrayBracketSpacing() {
+    return require("./array-bracket-spacing");
+}
+
+/**
+ * Loads the array-callback-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrayCallbackReturn() {
+    return require("./array-callback-return");
+}
+
+/**
+ * Loads the array-element-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrayElementNewline() {
+    return require("./array-element-newline");
+}
+
+/**
+ * Loads the arrow-body-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrowBodyStyle() {
+    return require("./arrow-body-style");
+}
+
+/**
+ * Loads the arrow-parens rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrowParens() {
+    return require("./arrow-parens");
+}
+
+/**
+ * Loads the arrow-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadArrowSpacing() {
+    return require("./arrow-spacing");
+}
+
+/**
+ * Loads the block-scoped-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadBlockScopedVar() {
+    return require("./block-scoped-var");
+}
+
+/**
+ * Loads the block-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadBlockSpacing() {
+    return require("./block-spacing");
+}
+
+/**
+ * Loads the brace-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadBraceStyle() {
+    return require("./brace-style");
+}
+
+/**
+ * Loads the callback-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCallbackReturn() {
+    return require("./callback-return");
+}
+
+/**
+ * Loads the camelcase rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCamelcase() {
+    return require("./camelcase");
+}
+
+/**
+ * Loads the capitalized-comments rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCapitalizedComments() {
+    return require("./capitalized-comments");
+}
+
+/**
+ * Loads the class-methods-use-this rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadClassMethodsUseThis() {
+    return require("./class-methods-use-this");
+}
+
+/**
+ * Loads the comma-dangle rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCommaDangle() {
+    return require("./comma-dangle");
+}
+
+/**
+ * Loads the comma-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCommaSpacing() {
+    return require("./comma-spacing");
+}
+
+/**
+ * Loads the comma-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCommaStyle() {
+    return require("./comma-style");
+}
+
+/**
+ * Loads the complexity rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadComplexity() {
+    return require("./complexity");
+}
+
+/**
+ * Loads the computed-property-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadComputedPropertySpacing() {
+    return require("./computed-property-spacing");
+}
+
+/**
+ * Loads the consistent-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadConsistentReturn() {
+    return require("./consistent-return");
+}
+
+/**
+ * Loads the consistent-this rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadConsistentThis() {
+    return require("./consistent-this");
+}
+
+/**
+ * Loads the constructor-super rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadConstructorSuper() {
+    return require("./constructor-super");
+}
+
+/**
+ * Loads the curly rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadCurly() {
+    return require("./curly");
+}
+
+/**
+ * Loads the default-case rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadDefaultCase() {
+    return require("./default-case");
+}
+
+/**
+ * Loads the default-case-last rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadDefaultCaseLast() {
+    return require("./default-case-last");
+}
+
+/**
+ * Loads the default-param-last rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadDefaultParamLast() {
+    return require("./default-param-last");
+}
+
+/**
+ * Loads the dot-location rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadDotLocation() {
+    return require("./dot-location");
+}
+
+/**
+ * Loads the dot-notation rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadDotNotation() {
+    return require("./dot-notation");
+}
+
+/**
+ * Loads the eol-last rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadEolLast() {
+    return require("./eol-last");
+}
+
+/**
+ * Loads the eqeqeq rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadEqeqeq() {
+    return require("./eqeqeq");
+}
+
+/**
+ * Loads the for-direction rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadForDirection() {
+    return require("./for-direction");
+}
+
+/**
+ * Loads the func-call-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFuncCallSpacing() {
+    return require("./func-call-spacing");
+}
+
+/**
+ * Loads the func-name-matching rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFuncNameMatching() {
+    return require("./func-name-matching");
+}
+
+/**
+ * Loads the func-names rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFuncNames() {
+    return require("./func-names");
+}
+
+/**
+ * Loads the func-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFuncStyle() {
+    return require("./func-style");
+}
+
+/**
+ * Loads the function-call-argument-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFunctionCallArgumentNewline() {
+    return require("./function-call-argument-newline");
+}
+
+/**
+ * Loads the function-paren-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadFunctionParenNewline() {
+    return require("./function-paren-newline");
+}
+
+/**
+ * Loads the generator-star-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadGeneratorStarSpacing() {
+    return require("./generator-star-spacing");
+}
+
+/**
+ * Loads the getter-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadGetterReturn() {
+    return require("./getter-return");
+}
+
+/**
+ * Loads the global-require rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadGlobalRequire() {
+    return require("./global-require");
+}
+
+/**
+ * Loads the grouped-accessor-pairs rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadGroupedAccessorPairs() {
+    return require("./grouped-accessor-pairs");
+}
+
+/**
+ * Loads the guard-for-in rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadGuardForIn() {
+    return require("./guard-for-in");
+}
+
+/**
+ * Loads the handle-callback-err rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadHandleCallbackErr() {
+    return require("./handle-callback-err");
+}
+
+/**
+ * Loads the id-blacklist rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIdBlacklist() {
+    return require("./id-blacklist");
+}
+
+/**
+ * Loads the id-denylist rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIdDenylist() {
+    return require("./id-denylist");
+}
+
+/**
+ * Loads the id-length rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIdLength() {
+    return require("./id-length");
+}
+
+/**
+ * Loads the id-match rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIdMatch() {
+    return require("./id-match");
+}
+
+/**
+ * Loads the implicit-arrow-linebreak rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadImplicitArrowLinebreak() {
+    return require("./implicit-arrow-linebreak");
+}
+
+/**
+ * Loads the indent rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIndent() {
+    return require("./indent");
+}
+
+/**
+ * Loads the indent-legacy rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadIndentLegacy() {
+    return require("./indent-legacy");
+}
+
+/**
+ * Loads the init-declarations rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadInitDeclarations() {
+    return require("./init-declarations");
+}
+
+/**
+ * Loads the jsx-quotes rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadJsxQuotes() {
+    return require("./jsx-quotes");
+}
+
+/**
+ * Loads the key-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadKeySpacing() {
+    return require("./key-spacing");
+}
+
+/**
+ * Loads the keyword-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadKeywordSpacing() {
+    return require("./keyword-spacing");
+}
+
+/**
+ * Loads the line-comment-position rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLineCommentPosition() {
+    return require("./line-comment-position");
+}
+
+/**
+ * Loads the linebreak-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLinebreakStyle() {
+    return require("./linebreak-style");
+}
+
+/**
+ * Loads the lines-around-comment rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLinesAroundComment() {
+    return require("./lines-around-comment");
+}
+
+/**
+ * Loads the lines-around-directive rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLinesAroundDirective() {
+    return require("./lines-around-directive");
+}
+
+/**
+ * Loads the lines-between-class-members rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLinesBetweenClassMembers() {
+    return require("./lines-between-class-members");
+}
+
+/**
+ * Loads the logical-assignment-operators rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadLogicalAssignmentOperators() {
+    return require("./logical-assignment-operators");
+}
+
+/**
+ * Loads the max-classes-per-file rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxClassesPerFile() {
+    return require("./max-classes-per-file");
+}
+
+/**
+ * Loads the max-depth rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxDepth() {
+    return require("./max-depth");
+}
+
+/**
+ * Loads the max-len rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxLen() {
+    return require("./max-len");
+}
+
+/**
+ * Loads the max-lines rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxLines() {
+    return require("./max-lines");
+}
+
+/**
+ * Loads the max-lines-per-function rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxLinesPerFunction() {
+    return require("./max-lines-per-function");
+}
+
+/**
+ * Loads the max-nested-callbacks rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxNestedCallbacks() {
+    return require("./max-nested-callbacks");
+}
+
+/**
+ * Loads the max-params rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxParams() {
+    return require("./max-params");
+}
+
+/**
+ * Loads the max-statements rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxStatements() {
+    return require("./max-statements");
+}
+
+/**
+ * Loads the max-statements-per-line rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMaxStatementsPerLine() {
+    return require("./max-statements-per-line");
+}
+
+/**
+ * Loads the multiline-comment-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMultilineCommentStyle() {
+    return require("./multiline-comment-style");
+}
+
+/**
+ * Loads the multiline-ternary rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadMultilineTernary() {
+    return require("./multiline-ternary");
+}
+
+/**
+ * Loads the new-cap rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNewCap() {
+    return require("./new-cap");
+}
+
+/**
+ * Loads the new-parens rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNewParens() {
+    return require("./new-parens");
+}
+
+/**
+ * Loads the newline-after-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNewlineAfterVar() {
+    return require("./newline-after-var");
+}
+
+/**
+ * Loads the newline-before-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNewlineBeforeReturn() {
+    return require("./newline-before-return");
+}
+
+/**
+ * Loads the newline-per-chained-call rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNewlinePerChainedCall() {
+    return require("./newline-per-chained-call");
+}
+
+/**
+ * Loads the no-alert rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoAlert() {
+    return require("./no-alert");
+}
+
+/**
+ * Loads the no-array-constructor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoArrayConstructor() {
+    return require("./no-array-constructor");
+}
+
+/**
+ * Loads the no-async-promise-executor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoAsyncPromiseExecutor() {
+    return require("./no-async-promise-executor");
+}
+
+/**
+ * Loads the no-await-in-loop rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoAwaitInLoop() {
+    return require("./no-await-in-loop");
+}
+
+/**
+ * Loads the no-bitwise rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoBitwise() {
+    return require("./no-bitwise");
+}
+
+/**
+ * Loads the no-buffer-constructor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoBufferConstructor() {
+    return require("./no-buffer-constructor");
+}
+
+/**
+ * Loads the no-caller rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoCaller() {
+    return require("./no-caller");
+}
+
+/**
+ * Loads the no-case-declarations rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoCaseDeclarations() {
+    return require("./no-case-declarations");
+}
+
+/**
+ * Loads the no-catch-shadow rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoCatchShadow() {
+    return require("./no-catch-shadow");
+}
+
+/**
+ * Loads the no-class-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoClassAssign() {
+    return require("./no-class-assign");
+}
+
+/**
+ * Loads the no-compare-neg-zero rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoCompareNegZero() {
+    return require("./no-compare-neg-zero");
+}
+
+/**
+ * Loads the no-cond-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoCondAssign() {
+    return require("./no-cond-assign");
+}
+
+/**
+ * Loads the no-confusing-arrow rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConfusingArrow() {
+    return require("./no-confusing-arrow");
+}
+
+/**
+ * Loads the no-console rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConsole() {
+    return require("./no-console");
+}
+
+/**
+ * Loads the no-const-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConstAssign() {
+    return require("./no-const-assign");
+}
+
+/**
+ * Loads the no-constant-binary-expression rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConstantBinaryExpression() {
+    return require("./no-constant-binary-expression");
+}
+
+/**
+ * Loads the no-constant-condition rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConstantCondition() {
+    return require("./no-constant-condition");
+}
+
+/**
+ * Loads the no-constructor-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoConstructorReturn() {
+    return require("./no-constructor-return");
+}
+
+/**
+ * Loads the no-continue rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoContinue() {
+    return require("./no-continue");
+}
+
+/**
+ * Loads the no-control-regex rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoControlRegex() {
+    return require("./no-control-regex");
+}
+
+/**
+ * Loads the no-debugger rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDebugger() {
+    return require("./no-debugger");
+}
+
+/**
+ * Loads the no-delete-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDeleteVar() {
+    return require("./no-delete-var");
+}
+
+/**
+ * Loads the no-div-regex rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDivRegex() {
+    return require("./no-div-regex");
+}
+
+/**
+ * Loads the no-dupe-args rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDupeArgs() {
+    return require("./no-dupe-args");
+}
+
+/**
+ * Loads the no-dupe-class-members rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDupeClassMembers() {
+    return require("./no-dupe-class-members");
+}
+
+/**
+ * Loads the no-dupe-else-if rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDupeElseIf() {
+    return require("./no-dupe-else-if");
+}
+
+/**
+ * Loads the no-dupe-keys rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDupeKeys() {
+    return require("./no-dupe-keys");
+}
+
+/**
+ * Loads the no-duplicate-case rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDuplicateCase() {
+    return require("./no-duplicate-case");
+}
+
+/**
+ * Loads the no-duplicate-imports rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoDuplicateImports() {
+    return require("./no-duplicate-imports");
+}
+
+/**
+ * Loads the no-else-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoElseReturn() {
+    return require("./no-else-return");
+}
+
+/**
+ * Loads the no-empty rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEmpty() {
+    return require("./no-empty");
+}
+
+/**
+ * Loads the no-empty-character-class rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEmptyCharacterClass() {
+    return require("./no-empty-character-class");
+}
+
+/**
+ * Loads the no-empty-function rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEmptyFunction() {
+    return require("./no-empty-function");
+}
+
+/**
+ * Loads the no-empty-pattern rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEmptyPattern() {
+    return require("./no-empty-pattern");
+}
+
+/**
+ * Loads the no-empty-static-block rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEmptyStaticBlock() {
+    return require("./no-empty-static-block");
+}
+
+/**
+ * Loads the no-eq-null rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEqNull() {
+    return require("./no-eq-null");
+}
+
+/**
+ * Loads the no-eval rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoEval() {
+    return require("./no-eval");
+}
+
+/**
+ * Loads the no-ex-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExAssign() {
+    return require("./no-ex-assign");
+}
+
+/**
+ * Loads the no-extend-native rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtendNative() {
+    return require("./no-extend-native");
+}
+
+/**
+ * Loads the no-extra-bind rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtraBind() {
+    return require("./no-extra-bind");
+}
+
+/**
+ * Loads the no-extra-boolean-cast rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtraBooleanCast() {
+    return require("./no-extra-boolean-cast");
+}
+
+/**
+ * Loads the no-extra-label rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtraLabel() {
+    return require("./no-extra-label");
+}
+
+/**
+ * Loads the no-extra-parens rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtraParens() {
+    return require("./no-extra-parens");
+}
+
+/**
+ * Loads the no-extra-semi rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoExtraSemi() {
+    return require("./no-extra-semi");
+}
+
+/**
+ * Loads the no-fallthrough rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoFallthrough() {
+    return require("./no-fallthrough");
+}
+
+/**
+ * Loads the no-floating-decimal rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoFloatingDecimal() {
+    return require("./no-floating-decimal");
+}
+
+/**
+ * Loads the no-func-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoFuncAssign() {
+    return require("./no-func-assign");
+}
+
+/**
+ * Loads the no-global-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoGlobalAssign() {
+    return require("./no-global-assign");
+}
+
+/**
+ * Loads the no-implicit-coercion rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoImplicitCoercion() {
+    return require("./no-implicit-coercion");
+}
+
+/**
+ * Loads the no-implicit-globals rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoImplicitGlobals() {
+    return require("./no-implicit-globals");
+}
+
+/**
+ * Loads the no-implied-eval rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoImpliedEval() {
+    return require("./no-implied-eval");
+}
+
+/**
+ * Loads the no-import-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoImportAssign() {
+    return require("./no-import-assign");
+}
+
+/**
+ * Loads the no-inline-comments rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoInlineComments() {
+    return require("./no-inline-comments");
+}
+
+/**
+ * Loads the no-inner-declarations rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoInnerDeclarations() {
+    return require("./no-inner-declarations");
+}
+
+/**
+ * Loads the no-invalid-regexp rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoInvalidRegexp() {
+    return require("./no-invalid-regexp");
+}
+
+/**
+ * Loads the no-invalid-this rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoInvalidThis() {
+    return require("./no-invalid-this");
+}
+
+/**
+ * Loads the no-irregular-whitespace rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoIrregularWhitespace() {
+    return require("./no-irregular-whitespace");
+}
+
+/**
+ * Loads the no-iterator rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoIterator() {
+    return require("./no-iterator");
+}
+
+/**
+ * Loads the no-label-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLabelVar() {
+    return require("./no-label-var");
+}
+
+/**
+ * Loads the no-labels rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLabels() {
+    return require("./no-labels");
+}
+
+/**
+ * Loads the no-lone-blocks rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLoneBlocks() {
+    return require("./no-lone-blocks");
+}
+
+/**
+ * Loads the no-lonely-if rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLonelyIf() {
+    return require("./no-lonely-if");
+}
+
+/**
+ * Loads the no-loop-func rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLoopFunc() {
+    return require("./no-loop-func");
+}
+
+/**
+ * Loads the no-loss-of-precision rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoLossOfPrecision() {
+    return require("./no-loss-of-precision");
+}
+
+/**
+ * Loads the no-magic-numbers rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMagicNumbers() {
+    return require("./no-magic-numbers");
+}
+
+/**
+ * Loads the no-misleading-character-class rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMisleadingCharacterClass() {
+    return require("./no-misleading-character-class");
+}
+
+/**
+ * Loads the no-mixed-operators rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMixedOperators() {
+    return require("./no-mixed-operators");
+}
+
+/**
+ * Loads the no-mixed-requires rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMixedRequires() {
+    return require("./no-mixed-requires");
+}
+
+/**
+ * Loads the no-mixed-spaces-and-tabs rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMixedSpacesAndTabs() {
+    return require("./no-mixed-spaces-and-tabs");
+}
+
+/**
+ * Loads the no-multi-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMultiAssign() {
+    return require("./no-multi-assign");
+}
+
+/**
+ * Loads the no-multi-spaces rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMultiSpaces() {
+    return require("./no-multi-spaces");
+}
+
+/**
+ * Loads the no-multi-str rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMultiStr() {
+    return require("./no-multi-str");
+}
+
+/**
+ * Loads the no-multiple-empty-lines rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoMultipleEmptyLines() {
+    return require("./no-multiple-empty-lines");
+}
+
+/**
+ * Loads the no-native-reassign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNativeReassign() {
+    return require("./no-native-reassign");
+}
+
+/**
+ * Loads the no-negated-condition rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNegatedCondition() {
+    return require("./no-negated-condition");
+}
+
+/**
+ * Loads the no-negated-in-lhs rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNegatedInLhs() {
+    return require("./no-negated-in-lhs");
+}
+
+/**
+ * Loads the no-nested-ternary rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNestedTernary() {
+    return require("./no-nested-ternary");
+}
+
+/**
+ * Loads the no-new rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNew() {
+    return require("./no-new");
+}
+
+/**
+ * Loads the no-new-func rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewFunc() {
+    return require("./no-new-func");
+}
+
+/**
+ * Loads the no-new-native-nonconstructor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewNativeNonconstructor() {
+    return require("./no-new-native-nonconstructor");
+}
+
+/**
+ * Loads the no-new-object rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewObject() {
+    return require("./no-new-object");
+}
+
+/**
+ * Loads the no-new-require rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewRequire() {
+    return require("./no-new-require");
+}
+
+/**
+ * Loads the no-new-symbol rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewSymbol() {
+    return require("./no-new-symbol");
+}
+
+/**
+ * Loads the no-new-wrappers rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNewWrappers() {
+    return require("./no-new-wrappers");
+}
+
+/**
+ * Loads the no-nonoctal-decimal-escape rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoNonoctalDecimalEscape() {
+    return require("./no-nonoctal-decimal-escape");
+}
+
+/**
+ * Loads the no-obj-calls rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoObjCalls() {
+    return require("./no-obj-calls");
+}
+
+/**
+ * Loads the no-object-constructor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoObjectConstructor() {
+    return require("./no-object-constructor");
+}
+
+/**
+ * Loads the no-octal rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoOctal() {
+    return require("./no-octal");
+}
+
+/**
+ * Loads the no-octal-escape rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoOctalEscape() {
+    return require("./no-octal-escape");
+}
+
+/**
+ * Loads the no-param-reassign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoParamReassign() {
+    return require("./no-param-reassign");
+}
+
+/**
+ * Loads the no-path-concat rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoPathConcat() {
+    return require("./no-path-concat");
+}
+
+/**
+ * Loads the no-plusplus rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoPlusplus() {
+    return require("./no-plusplus");
+}
+
+/**
+ * Loads the no-process-env rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoProcessEnv() {
+    return require("./no-process-env");
+}
+
+/**
+ * Loads the no-process-exit rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoProcessExit() {
+    return require("./no-process-exit");
+}
+
+/**
+ * Loads the no-promise-executor-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoPromiseExecutorReturn() {
+    return require("./no-promise-executor-return");
+}
+
+/**
+ * Loads the no-proto rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoProto() {
+    return require("./no-proto");
+}
+
+/**
+ * Loads the no-prototype-builtins rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoPrototypeBuiltins() {
+    return require("./no-prototype-builtins");
+}
+
+/**
+ * Loads the no-redeclare rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRedeclare() {
+    return require("./no-redeclare");
+}
+
+/**
+ * Loads the no-regex-spaces rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRegexSpaces() {
+    return require("./no-regex-spaces");
+}
+
+/**
+ * Loads the no-restricted-exports rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedExports() {
+    return require("./no-restricted-exports");
+}
+
+/**
+ * Loads the no-restricted-globals rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedGlobals() {
+    return require("./no-restricted-globals");
+}
+
+/**
+ * Loads the no-restricted-imports rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedImports() {
+    return require("./no-restricted-imports");
+}
+
+/**
+ * Loads the no-restricted-modules rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedModules() {
+    return require("./no-restricted-modules");
+}
+
+/**
+ * Loads the no-restricted-properties rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedProperties() {
+    return require("./no-restricted-properties");
+}
+
+/**
+ * Loads the no-restricted-syntax rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoRestrictedSyntax() {
+    return require("./no-restricted-syntax");
+}
+
+/**
+ * Loads the no-return-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoReturnAssign() {
+    return require("./no-return-assign");
+}
+
+/**
+ * Loads the no-return-await rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoReturnAwait() {
+    return require("./no-return-await");
+}
+
+/**
+ * Loads the no-script-url rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoScriptUrl() {
+    return require("./no-script-url");
+}
+
+/**
+ * Loads the no-self-assign rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSelfAssign() {
+    return require("./no-self-assign");
+}
+
+/**
+ * Loads the no-self-compare rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSelfCompare() {
+    return require("./no-self-compare");
+}
+
+/**
+ * Loads the no-sequences rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSequences() {
+    return require("./no-sequences");
+}
+
+/**
+ * Loads the no-setter-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSetterReturn() {
+    return require("./no-setter-return");
+}
+
+/**
+ * Loads the no-shadow rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoShadow() {
+    return require("./no-shadow");
+}
+
+/**
+ * Loads the no-shadow-restricted-names rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoShadowRestrictedNames() {
+    return require("./no-shadow-restricted-names");
+}
+
+/**
+ * Loads the no-spaced-func rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSpacedFunc() {
+    return require("./no-spaced-func");
+}
+
+/**
+ * Loads the no-sparse-arrays rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSparseArrays() {
+    return require("./no-sparse-arrays");
+}
+
+/**
+ * Loads the no-sync rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoSync() {
+    return require("./no-sync");
+}
+
+/**
+ * Loads the no-tabs rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoTabs() {
+    return require("./no-tabs");
+}
+
+/**
+ * Loads the no-template-curly-in-string rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoTemplateCurlyInString() {
+    return require("./no-template-curly-in-string");
+}
+
+/**
+ * Loads the no-ternary rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoTernary() {
+    return require("./no-ternary");
+}
+
+/**
+ * Loads the no-this-before-super rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoThisBeforeSuper() {
+    return require("./no-this-before-super");
+}
+
+/**
+ * Loads the no-throw-literal rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoThrowLiteral() {
+    return require("./no-throw-literal");
+}
+
+/**
+ * Loads the no-trailing-spaces rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoTrailingSpaces() {
+    return require("./no-trailing-spaces");
+}
+
+/**
+ * Loads the no-unassigned-vars rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnassignedVars() {
+    return require("./no-unassigned-vars");
+}
+
+/**
+ * Loads the no-undef rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUndef() {
+    return require("./no-undef");
+}
+
+/**
+ * Loads the no-undef-init rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUndefInit() {
+    return require("./no-undef-init");
+}
+
+/**
+ * Loads the no-undefined rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUndefined() {
+    return require("./no-undefined");
+}
+
+/**
+ * Loads the no-underscore-dangle rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnderscoreDangle() {
+    return require("./no-underscore-dangle");
+}
+
+/**
+ * Loads the no-unexpected-multiline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnexpectedMultiline() {
+    return require("./no-unexpected-multiline");
+}
+
+/**
+ * Loads the no-unmodified-loop-condition rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnmodifiedLoopCondition() {
+    return require("./no-unmodified-loop-condition");
+}
+
+/**
+ * Loads the no-unneeded-ternary rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnneededTernary() {
+    return require("./no-unneeded-ternary");
+}
+
+/**
+ * Loads the no-unreachable rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnreachable() {
+    return require("./no-unreachable");
+}
+
+/**
+ * Loads the no-unreachable-loop rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnreachableLoop() {
+    return require("./no-unreachable-loop");
+}
+
+/**
+ * Loads the no-unsafe-finally rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnsafeFinally() {
+    return require("./no-unsafe-finally");
+}
+
+/**
+ * Loads the no-unsafe-negation rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnsafeNegation() {
+    return require("./no-unsafe-negation");
+}
+
+/**
+ * Loads the no-unsafe-optional-chaining rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnsafeOptionalChaining() {
+    return require("./no-unsafe-optional-chaining");
+}
+
+/**
+ * Loads the no-unused-expressions rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnusedExpressions() {
+    return require("./no-unused-expressions");
+}
+
+/**
+ * Loads the no-unused-labels rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnusedLabels() {
+    return require("./no-unused-labels");
+}
+
+/**
+ * Loads the no-unused-private-class-members rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnusedPrivateClassMembers() {
+    return require("./no-unused-private-class-members");
+}
+
+/**
+ * Loads the no-unused-vars rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUnusedVars() {
+    return require("./no-unused-vars");
+}
+
+/**
+ * Loads the no-use-before-define rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUseBeforeDefine() {
+    return require("./no-use-before-define");
+}
+
+/**
+ * Loads the no-useless-assignment rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessAssignment() {
+    return require("./no-useless-assignment");
+}
+
+/**
+ * Loads the no-useless-backreference rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessBackreference() {
+    return require("./no-useless-backreference");
+}
+
+/**
+ * Loads the no-useless-call rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessCall() {
+    return require("./no-useless-call");
+}
+
+/**
+ * Loads the no-useless-catch rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessCatch() {
+    return require("./no-useless-catch");
+}
+
+/**
+ * Loads the no-useless-computed-key rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessComputedKey() {
+    return require("./no-useless-computed-key");
+}
+
+/**
+ * Loads the no-useless-concat rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessConcat() {
+    return require("./no-useless-concat");
+}
+
+/**
+ * Loads the no-useless-constructor rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessConstructor() {
+    return require("./no-useless-constructor");
+}
+
+/**
+ * Loads the no-useless-escape rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessEscape() {
+    return require("./no-useless-escape");
+}
+
+/**
+ * Loads the no-useless-rename rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessRename() {
+    return require("./no-useless-rename");
+}
+
+/**
+ * Loads the no-useless-return rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoUselessReturn() {
+    return require("./no-useless-return");
+}
+
+/**
+ * Loads the no-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoVar() {
+    return require("./no-var");
+}
+
+/**
+ * Loads the no-void rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoVoid() {
+    return require("./no-void");
+}
+
+/**
+ * Loads the no-warning-comments rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoWarningComments() {
+    return require("./no-warning-comments");
+}
+
+/**
+ * Loads the no-whitespace-before-property rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoWhitespaceBeforeProperty() {
+    return require("./no-whitespace-before-property");
+}
+
+/**
+ * Loads the no-with rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNoWith() {
+    return require("./no-with");
+}
+
+/**
+ * Loads the nonblock-statement-body-position rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadNonblockStatementBodyPosition() {
+    return require("./nonblock-statement-body-position");
+}
+
+/**
+ * Loads the object-curly-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadObjectCurlyNewline() {
+    return require("./object-curly-newline");
+}
+
+/**
+ * Loads the object-curly-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadObjectCurlySpacing() {
+    return require("./object-curly-spacing");
+}
+
+/**
+ * Loads the object-property-newline rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadObjectPropertyNewline() {
+    return require("./object-property-newline");
+}
+
+/**
+ * Loads the object-shorthand rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadObjectShorthand() {
+    return require("./object-shorthand");
+}
+
+/**
+ * Loads the one-var rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadOneVar() {
+    return require("./one-var");
+}
+
+/**
+ * Loads the one-var-declaration-per-line rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadOneVarDeclarationPerLine() {
+    return require("./one-var-declaration-per-line");
+}
+
+/**
+ * Loads the operator-assignment rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadOperatorAssignment() {
+    return require("./operator-assignment");
+}
+
+/**
+ * Loads the operator-linebreak rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadOperatorLinebreak() {
+    return require("./operator-linebreak");
+}
+
+/**
+ * Loads the padded-blocks rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPaddedBlocks() {
+    return require("./padded-blocks");
+}
+
+/**
+ * Loads the padding-line-between-statements rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPaddingLineBetweenStatements() {
+    return require("./padding-line-between-statements");
+}
+
+/**
+ * Loads the prefer-arrow-callback rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferArrowCallback() {
+    return require("./prefer-arrow-callback");
+}
+
+/**
+ * Loads the prefer-const rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferConst() {
+    return require("./prefer-const");
+}
+
+/**
+ * Loads the prefer-destructuring rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferDestructuring() {
+    return require("./prefer-destructuring");
+}
+
+/**
+ * Loads the prefer-exponentiation-operator rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferExponentiationOperator() {
+    return require("./prefer-exponentiation-operator");
+}
+
+/**
+ * Loads the prefer-named-capture-group rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferNamedCaptureGroup() {
+    return require("./prefer-named-capture-group");
+}
+
+/**
+ * Loads the prefer-numeric-literals rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferNumericLiterals() {
+    return require("./prefer-numeric-literals");
+}
+
+/**
+ * Loads the prefer-object-has-own rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferObjectHasOwn() {
+    return require("./prefer-object-has-own");
+}
+
+/**
+ * Loads the prefer-object-spread rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferObjectSpread() {
+    return require("./prefer-object-spread");
+}
+
+/**
+ * Loads the prefer-promise-reject-errors rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferPromiseRejectErrors() {
+    return require("./prefer-promise-reject-errors");
+}
+
+/**
+ * Loads the prefer-reflect rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferReflect() {
+    return require("./prefer-reflect");
+}
+
+/**
+ * Loads the prefer-regex-literals rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferRegexLiterals() {
+    return require("./prefer-regex-literals");
+}
+
+/**
+ * Loads the prefer-rest-params rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferRestParams() {
+    return require("./prefer-rest-params");
+}
+
+/**
+ * Loads the prefer-spread rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferSpread() {
+    return require("./prefer-spread");
+}
+
+/**
+ * Loads the prefer-template rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreferTemplate() {
+    return require("./prefer-template");
+}
+
+/**
+ * Loads the preserve-caught-error rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadPreserveCaughtError() {
+    return require("./preserve-caught-error");
+}
+
+/**
+ * Loads the quote-props rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadQuoteProps() {
+    return require("./quote-props");
+}
+
+/**
+ * Loads the quotes rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadQuotes() {
+    return require("./quotes");
+}
+
+/**
+ * Loads the radix rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRadix() {
+    return require("./radix");
+}
+
+/**
+ * Loads the require-atomic-updates rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRequireAtomicUpdates() {
+    return require("./require-atomic-updates");
+}
+
+/**
+ * Loads the require-await rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRequireAwait() {
+    return require("./require-await");
+}
+
+/**
+ * Loads the require-unicode-regexp rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRequireUnicodeRegexp() {
+    return require("./require-unicode-regexp");
+}
+
+/**
+ * Loads the require-yield rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRequireYield() {
+    return require("./require-yield");
+}
+
+/**
+ * Loads the rest-spread-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadRestSpreadSpacing() {
+    return require("./rest-spread-spacing");
+}
+
+/**
+ * Loads the semi rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSemi() {
+    return require("./semi");
+}
+
+/**
+ * Loads the semi-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSemiSpacing() {
+    return require("./semi-spacing");
+}
+
+/**
+ * Loads the semi-style rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSemiStyle() {
+    return require("./semi-style");
+}
+
+/**
+ * Loads the sort-imports rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSortImports() {
+    return require("./sort-imports");
+}
+
+/**
+ * Loads the sort-keys rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSortKeys() {
+    return require("./sort-keys");
+}
+
+/**
+ * Loads the sort-vars rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSortVars() {
+    return require("./sort-vars");
+}
+
+/**
+ * Loads the space-before-blocks rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpaceBeforeBlocks() {
+    return require("./space-before-blocks");
+}
+
+/**
+ * Loads the space-before-function-paren rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpaceBeforeFunctionParen() {
+    return require("./space-before-function-paren");
+}
+
+/**
+ * Loads the space-in-parens rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpaceInParens() {
+    return require("./space-in-parens");
+}
+
+/**
+ * Loads the space-infix-ops rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpaceInfixOps() {
+    return require("./space-infix-ops");
+}
+
+/**
+ * Loads the space-unary-ops rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpaceUnaryOps() {
+    return require("./space-unary-ops");
+}
+
+/**
+ * Loads the spaced-comment rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSpacedComment() {
+    return require("./spaced-comment");
+}
+
+/**
+ * Loads the strict rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadStrict() {
+    return require("./strict");
+}
+
+/**
+ * Loads the switch-colon-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSwitchColonSpacing() {
+    return require("./switch-colon-spacing");
+}
+
+/**
+ * Loads the symbol-description rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadSymbolDescription() {
+    return require("./symbol-description");
+}
+
+/**
+ * Loads the template-curly-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadTemplateCurlySpacing() {
+    return require("./template-curly-spacing");
+}
+
+/**
+ * Loads the template-tag-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadTemplateTagSpacing() {
+    return require("./template-tag-spacing");
+}
+
+/**
+ * Loads the unicode-bom rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadUnicodeBom() {
+    return require("./unicode-bom");
+}
+
+/**
+ * Loads the use-isnan rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadUseIsnan() {
+    return require("./use-isnan");
+}
+
+/**
+ * Loads the valid-typeof rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadValidTypeof() {
+    return require("./valid-typeof");
+}
+
+/**
+ * Loads the vars-on-top rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadVarsOnTop() {
+    return require("./vars-on-top");
+}
+
+/**
+ * Loads the wrap-iife rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadWrapIife() {
+    return require("./wrap-iife");
+}
+
+/**
+ * Loads the wrap-regex rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadWrapRegex() {
+    return require("./wrap-regex");
+}
+
+/**
+ * Loads the yield-star-spacing rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadYieldStarSpacing() {
+    return require("./yield-star-spacing");
+}
+
+/**
+ * Loads the yoda rule module.
+ * @returns {import("../types").Rule.RuleModule}
+ */
+function loadYoda() {
+    return require("./yoda");
+}
+
+/**
+ * Builds the array of rule entries for LazyLoadingRuleMap.
+ * @returns {Array<[string, Function]>}
+ */
+function buildRuleEntries() {
+    return [
+        ["accessor-pairs", loadAccessorPairs],
+        ["array-bracket-newline", loadArrayBracketNewline],
+        ["array-bracket-spacing", loadArrayBracketSpacing],
+        ["array-callback-return", loadArrayCallbackReturn],
+        ["array-element-newline", loadArrayElementNewline],
+        ["arrow-body-style", loadArrowBodyStyle],
+        ["arrow-parens", loadArrowParens],
+        ["arrow-spacing", loadArrowSpacing],
+        ["block-scoped-var", loadBlockScopedVar],
+        ["block-spacing", loadBlockSpacing],
+        ["brace-style", loadBraceStyle],
+        ["callback-return", loadCallbackReturn],
+        ["camelcase", loadCamelcase],
+        ["capitalized-comments", loadCapitalizedComments],
+        ["class-methods-use-this", loadClassMethodsUseThis],
+        ["comma-dangle", loadCommaDangle],
+        ["comma-spacing", loadCommaSpacing],
+        ["comma-style", loadCommaStyle],
+        ["complexity", loadComplexity],
+        ["computed-property-spacing", loadComputedPropertySpacing],
+        ["consistent-return", loadConsistentReturn],
+        ["consistent-this", loadConsistentThis],
+        ["constructor-super", loadConstructorSuper],
+        ["curly", loadCurly],
+        ["default-case", loadDefaultCase],
+        ["default-case-last", loadDefaultCaseLast],
+        ["default-param-last", loadDefaultParamLast],
+        ["dot-location", loadDotLocation],
+        ["dot-notation", loadDotNotation],
+        ["eol-last", loadEolLast],
+        ["eqeqeq", loadEqeqeq],
+        ["for-direction", loadForDirection],
+        ["func-call-spacing", loadFuncCallSpacing],
+        ["func-name-matching", loadFuncNameMatching],
+        ["func-names", loadFuncNames],
+        ["func-style", loadFuncStyle],
+        ["function-call-argument-newline", loadFunctionCallArgumentNewline],
+        ["function-paren-newline", loadFunctionParenNewline],
+        ["generator-star-spacing", loadGeneratorStarSpacing],
+        ["getter-return", loadGetterReturn],
+        ["global-require", loadGlobalRequire],
+        ["grouped-accessor-pairs", loadGroupedAccessorPairs],
+        ["guard-for-in", loadGuardForIn],
+        ["handle-callback-err", loadHandleCallbackErr],
+        ["id-blacklist", loadIdBlacklist],
+        ["id-denylist", loadIdDenylist],
+        ["id-length", loadIdLength],
+        ["id-match", loadIdMatch],
+        ["implicit-arrow-linebreak", loadImplicitArrowLinebreak],
+        ["indent", loadIndent],
+        ["indent-legacy", loadIndentLegacy],
+        ["init-declarations", loadInitDeclarations],
+        ["jsx-quotes", loadJsxQuotes],
+        ["key-spacing", loadKeySpacing],
+        ["keyword-spacing", loadKeywordSpacing],
+        ["line-comment-position", loadLineCommentPosition],
+        ["linebreak-style", loadLinebreakStyle],
+        ["lines-around-comment", loadLinesAroundComment],
+        ["lines-around-directive", loadLinesAroundDirective],
+        ["lines-between-class-members", loadLinesBetweenClassMembers],
+        ["logical-assignment-operators", loadLogicalAssignmentOperators],
+        ["max-classes-per-file", loadMaxClassesPerFile],
+        ["max-depth", loadMaxDepth],
+        ["max-len", loadMaxLen],
+        ["max-lines", loadMaxLines],
+        ["max-lines-per-function", loadMaxLinesPerFunction],
+        ["max-nested-callbacks", loadMaxNestedCallbacks],
+        ["max-params", loadMaxParams],
+        ["max-statements", loadMaxStatements],
+        ["max-statements-per-line", loadMaxStatementsPerLine],
+        ["multiline-comment-style", loadMultilineCommentStyle],
+        ["multiline-ternary", loadMultilineTernary],
+        ["new-cap", loadNewCap],
+        ["new-parens", loadNewParens],
+        ["newline-after-var", loadNewlineAfterVar],
+        ["newline-before-return", loadNewlineBeforeReturn],
+        ["newline-per-chained-call", loadNewlinePerChainedCall],
+        ["no-alert", loadNoAlert],
+        ["no-array-constructor", loadNoArrayConstructor],
+        ["no-async-promise-executor", loadNoAsyncPromiseExecutor],
+        ["no-await-in-loop", loadNoAwaitInLoop],
+        ["no-bitwise", loadNoBitwise],
+        ["no-buffer-constructor", loadNoBufferConstructor],
+        ["no-caller", loadNoCaller],
+        ["no-case-declarations", loadNoCaseDeclarations],
+        ["no-catch-shadow", loadNoCatchShadow],
+        ["no-class-assign", loadNoClassAssign],
+        ["no-compare-neg-zero", loadNoCompareNegZero],
+        ["no-cond-assign", loadNoCondAssign],
+        ["no-confusing-arrow", loadNoConfusingArrow],
+        ["no-console", loadNoConsole],
+        ["no-const-assign", loadNoConstAssign],
+        ["no-constant-binary-expression", loadNoConstantBinaryExpression],
+        ["no-constant-condition", loadNoConstantCondition],
+        ["no-constructor-return", loadNoConstructorReturn],
+        ["no-continue", loadNoContinue],
+        ["no-control-regex", loadNoControlRegex],
+        ["no-debugger", loadNoDebugger],
+        ["no-delete-var", loadNoDeleteVar],
+        ["no-div-regex", loadNoDivRegex],
+        ["no-dupe-args", loadNoDupeArgs],
+        ["no-dupe-class-members", loadNoDupeClassMembers],
+        ["no-dupe-else-if", loadNoDupeElseIf],
+        ["no-dupe-keys", loadNoDupeKeys],
+        ["no-duplicate-case", loadNoDuplicateCase],
+        ["no-duplicate-imports", loadNoDuplicateImports],
+        ["no-else-return", loadNoElseReturn],
+        ["no-empty", loadNoEmpty],
+        ["no-empty-character-class", loadNoEmptyCharacterClass],
+        ["no-empty-function", loadNoEmptyFunction],
+        ["no-empty-pattern", loadNoEmptyPattern],
+        ["no-empty-static-block", loadNoEmptyStaticBlock],
+        ["no-eq-null", loadNoEqNull],
+        ["no-eval", loadNoEval],
+        ["no-ex-assign", loadNoExAssign],
+        ["no-extend-native", loadNoExtendNative],
+        ["no-extra-bind", loadNoExtraBind],
+        ["no-extra-boolean-cast", loadNoExtraBooleanCast],
+        ["no-extra-label", loadNoExtraLabel],
+        ["no-extra-parens", loadNoExtraParens],
+        ["no-extra-semi", loadNoExtraSemi],
+        ["no-fallthrough", loadNoFallthrough],
+        ["no-floating-decimal", loadNoFloatingDecimal],
+        ["no-func-assign", loadNoFuncAssign],
+        ["no-global-assign", loadNoGlobalAssign],
+        ["no-implicit-coercion", loadNoImplicitCoercion],
+        ["no-implicit-globals", loadNoImplicitGlobals],
+        ["no-implied-eval", loadNoImpliedEval],
+        ["no-import-assign", loadNoImportAssign],
+        ["no-inline-comments", loadNoInlineComments],
+        ["no-inner-declarations", loadNoInnerDeclarations],
+        ["no-invalid-regexp", loadNoInvalidRegexp],
+        ["no-invalid-this", loadNoInvalidThis],
+        ["no-irregular-whitespace", loadNoIrregularWhitespace],
+        ["no-iterator", loadNoIterator],
+        ["no-label-var", loadNoLabelVar],
+        ["no-labels", loadNoLabels],
+        ["no-lone-blocks", loadNoLoneBlocks],
+        ["no-lonely-if", loadNoLonelyIf],
+        ["no-loop-func", loadNoLoopFunc],
+        ["no-loss-of-precision", loadNoLossOfPrecision],
+        ["no-magic-numbers", loadNoMagicNumbers],
+        ["no-misleading-character-class", loadNoMisleadingCharacterClass],
+        ["no-mixed-operators", loadNoMixedOperators],
+        ["no-mixed-requires", loadNoMixedRequires],
+        ["no-mixed-spaces-and-tabs", loadNoMixedSpacesAndTabs],
+        ["no-multi-assign", loadNoMultiAssign],
+        ["no-multi-spaces", loadNoMultiSpaces],
+        ["no-multi-str", loadNoMultiStr],
+        ["no-multiple-empty-lines", loadNoMultipleEmptyLines],
+        ["no-native-reassign", loadNoNativeReassign],
+        ["no-negated-condition", loadNoNegatedCondition],
+        ["no-negated-in-lhs", loadNoNegatedInLhs],
+        ["no-nested-ternary", loadNoNestedTernary],
+        ["no-new", loadNoNew],
+        ["no-new-func", loadNoNewFunc],
+        ["no-new-native-nonconstructor", loadNoNewNativeNonconstructor],
+        ["no-new-object", loadNoNewObject],
+        ["no-new-require", loadNoNewRequire],
+        ["no-new-symbol", loadNoNewSymbol],
+        ["no-new-wrappers", loadNoNewWrappers],
+        ["no-nonoctal-decimal-escape", loadNoNonoctalDecimalEscape],
+        ["no-obj-calls", loadNoObjCalls],
+        ["no-object-constructor", loadNoObjectConstructor],
+        ["no-octal", loadNoOctal],
+        ["no-octal-escape", loadNoOctalEscape],
+        ["no-param-reassign", loadNoParamReassign],
+        ["no-path-concat", loadNoPathConcat],
+        ["no-plusplus", loadNoPlusplus],
+        ["no-process-env", loadNoProcessEnv],
+        ["no-process-exit", loadNoProcessExit],
+        ["no-promise-executor-return", loadNoPromiseExecutorReturn],
+        ["no-proto", loadNoProto],
+        ["no-prototype-builtins", loadNoPrototypeBuiltins],
+        ["no-redeclare", loadNoRedeclare],
+        ["no-regex-spaces", loadNoRegexSpaces],
+        ["no-restricted-exports", loadNoRestrictedExports],
+        ["no-restricted-globals", loadNoRestrictedGlobals],
+        ["no-restricted-imports", loadNoRestrictedImports],
+        ["no-restricted-modules", loadNoRestrictedModules],
+        ["no-restricted-properties", loadNoRestrictedProperties],
+        ["no-restricted-syntax", loadNoRestrictedSyntax],
+        ["no-return-assign", loadNoReturnAssign],
+        ["no-return-await", loadNoReturnAwait],
+        ["no-script-url", loadNoScriptUrl],
+        ["no-self-assign", loadNoSelfAssign],
+        ["no-self-compare", loadNoSelfCompare],
+        ["no-sequences", loadNoSequences],
+        ["no-setter-return", loadNoSetterReturn],
+        ["no-shadow", loadNoShadow],
+        ["no-shadow-restricted-names", loadNoShadowRestrictedNames],
+        ["no-spaced-func", loadNoSpacedFunc],
+        ["no-sparse-arrays", loadNoSparseArrays],
+        ["no-sync", loadNoSync],
+        ["no-tabs", loadNoTabs],
+        ["no-template-curly-in-string", loadNoTemplateCurlyInString],
+        ["no-ternary", loadNoTernary],
+        ["no-this-before-super", loadNoThisBeforeSuper],
+        ["no-throw-literal", loadNoThrowLiteral],
+        ["no-trailing-spaces", loadNoTrailingSpaces],
+        ["no-unassigned-vars", loadNoUnassignedVars],
+        ["no-undef", loadNoUndef],
+        ["no-undef-init", loadNoUndefInit],
+        ["no-undefined", loadNoUndefined],
+        ["no-underscore-dangle", loadNoUnderscoreDangle],
+        ["no-unexpected-multiline", loadNoUnexpectedMultiline],
+        ["no-unmodified-loop-condition", loadNoUnmodifiedLoopCondition],
+        ["no-unneeded-ternary", loadNoUnneededTernary],
+        ["no-unreachable", loadNoUnreachable],
+        ["no-unreachable-loop", loadNoUnreachableLoop],
+        ["no-unsafe-finally", loadNoUnsafeFinally],
+        ["no-unsafe-negation", loadNoUnsafeNegation],
+        ["no-unsafe-optional-chaining", loadNoUnsafeOptionalChaining],
+        ["no-unused-expressions", loadNoUnusedExpressions],
+        ["no-unused-labels", loadNoUnusedLabels],
+        ["no-unused-private-class-members", loadNoUnusedPrivateClassMembers],
+        ["no-unused-vars", loadNoUnusedVars],
+        ["no-use-before-define", loadNoUseBeforeDefine],
+        ["no-useless-assignment", loadNoUselessAssignment],
+        ["no-useless-backreference", loadNoUselessBackreference],
+        ["no-useless-call", loadNoUselessCall],
+        ["no-useless-catch", loadNoUselessCatch],
+        ["no-useless-computed-key", loadNoUselessComputedKey],
+        ["no-useless-concat", loadNoUselessConcat],
+        ["no-useless-constructor", loadNoUselessConstructor],
+        ["no-useless-escape", loadNoUselessEscape],
+        ["no-useless-rename", loadNoUselessRename],
+        ["no-useless-return", loadNoUselessReturn],
+        ["no-var", loadNoVar],
+        ["no-void", loadNoVoid],
+        ["no-warning-comments", loadNoWarningComments],
+        ["no-whitespace-before-property", loadNoWhitespaceBeforeProperty],
+        ["no-with", loadNoWith],
+        ["nonblock-statement-body-position", loadNonblockStatementBodyPosition],
+        ["object-curly-newline", loadObjectCurlyNewline],
+        ["object-curly-spacing", loadObjectCurlySpacing],
+        ["object-property-newline", loadObjectPropertyNewline],
+        ["object-shorthand", loadObjectShorthand],
+        ["one-var", loadOneVar],
+        ["one-var-declaration-per-line", loadOneVarDeclarationPerLine],
+        ["operator-assignment", loadOperatorAssignment],
+        ["operator-linebreak", loadOperatorLinebreak],
+        ["padded-blocks", loadPaddedBlocks],
+        ["padding-line-between-statements", loadPaddingLineBetweenStatements],
+        ["prefer-arrow-callback", loadPreferArrowCallback],
+        ["prefer-const", loadPreferConst],
+        ["prefer-destructuring", loadPreferDestructuring],
+        ["prefer-exponentiation-operator", loadPreferExponentiationOperator],
+        ["prefer-named-capture-group", loadPreferNamedCaptureGroup],
+        ["prefer-numeric-literals", loadPreferNumericLiterals],
+        ["prefer-object-has-own", loadPreferObjectHasOwn],
+        ["prefer-object-spread", loadPreferObjectSpread],
+        ["prefer-promise-reject-errors", loadPreferPromiseRejectErrors],
+        ["prefer-reflect", loadPreferReflect],
+        ["prefer-regex-literals", loadPreferRegexLiterals],
+        ["prefer-rest-params", loadPreferRestParams],
+        ["prefer-spread", loadPreferSpread],
+        ["prefer-template", loadPreferTemplate],
+        ["preserve-caught-error", loadPreserveCaughtError],
+        ["quote-props", loadQuoteProps],
+        ["quotes", loadQuotes],
+        ["radix", loadRadix],
+        ["require-atomic-updates", loadRequireAtomicUpdates],
+        ["require-await", loadRequireAwait],
+        ["require-unicode-regexp", loadRequireUnicodeRegexp],
+        ["require-yield", loadRequireYield],
+        ["rest-spread-spacing", loadRestSpreadSpacing],
+        ["semi", loadSemi],
+        ["semi-spacing", loadSemiSpacing],
+        ["semi-style", loadSemiStyle],
+        ["sort-imports", loadSortImports],
+        ["sort-keys", loadSortKeys],
+        ["sort-vars", loadSortVars],
+        ["space-before-blocks", loadSpaceBeforeBlocks],
+        ["space-before-function-paren", loadSpaceBeforeFunctionParen],
+        ["space-in-parens", loadSpaceInParens],
+        ["space-infix-ops", loadSpaceInfixOps],
+        ["space-unary-ops", loadSpaceUnaryOps],
+        ["spaced-comment", loadSpacedComment],
+        ["strict", loadStrict],
+        ["switch-colon-spacing", loadSwitchColonSpacing],
+        ["symbol-description", loadSymbolDescription],
+        ["template-curly-spacing", loadTemplateCurlySpacing],
+        ["template-tag-spacing", loadTemplateTagSpacing],
+        ["unicode-bom", loadUnicodeBom],
+        ["use-isnan", loadUseIsnan],
+        ["valid-typeof", loadValidTypeof],
+        ["vars-on-top", loadVarsOnTop],
+        ["wrap-iife", loadWrapIife],
+        ["wrap-regex", loadWrapRegex],
+        ["yield-star-spacing", loadYieldStarSpacing],
+        ["yoda", loadYoda],
+    ];
+}
+
+/** @type {Map<string, import("../types").Rule.RuleModule>} */
+module.exports = new LazyLoadingRuleMap(buildRuleEntries());

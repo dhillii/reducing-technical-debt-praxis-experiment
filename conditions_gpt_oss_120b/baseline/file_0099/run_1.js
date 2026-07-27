@@ -388,7 +388,10 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     $scope.sendToOutbox = function() {
-        const message = {
+        let message;
+
+        // build email model for smtp-client
+        message = {
             from: [{
                 name: auth.realname,
                 address: auth.emailAddress

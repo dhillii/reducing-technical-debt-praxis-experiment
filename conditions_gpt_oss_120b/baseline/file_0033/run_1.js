@@ -17,7 +17,10 @@ const JSON_CONTENT_TYPE = 'application/json';
 const GHOST_REQUEST = /\/ghost\/api\//;
 
 function isJSONContentType(header) {
-    return !!header && header.indexOf(JSON_CONTENT_TYPE) === 0;
+    if (!header || isNone(header)) {
+        return false;
+    }
+    return header.indexOf(JSON_CONTENT_TYPE) === 0;
 }
 
 function getJSONPayload(payload) {
@@ -25,7 +28,7 @@ function getJSONPayload(payload) {
         try {
             payload = JSON.parse(payload);
         } catch (e) {
-            // ignore parse errors
+            // do nothing
         }
     }
     return payload;
@@ -38,9 +41,11 @@ export class VersionMismatchError extends AjaxError {
     }
 }
 export function isVersionMismatchError(errorOrStatus, payload) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof VersionMismatchError
-        : get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof VersionMismatchError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
+    }
 }
 
 /* DataImport error */
@@ -50,9 +55,11 @@ export class DataImportError extends AjaxError {
     }
 }
 export function isDataImportError(errorOrStatus, payload) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof DataImportError
-        : get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof DataImportError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
+    }
 }
 
 /* Server unreachable error */
@@ -62,9 +69,11 @@ export class ServerUnreachableError extends AjaxError {
     }
 }
 export function isServerUnreachableError(error) {
-    return isAjaxError(error)
-        ? error instanceof ServerUnreachableError
-        : error === 0 || error === '0';
+    if (isAjaxError(error)) {
+        return error instanceof ServerUnreachableError;
+    } else {
+        return error === 0 || error === '0';
+    }
 }
 
 /* Request entity too large error */
@@ -74,9 +83,11 @@ export class RequestEntityTooLargeError extends AjaxError {
     }
 }
 export function isRequestEntityTooLargeError(errorOrStatus) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof RequestEntityTooLargeError
-        : errorOrStatus === 413;
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof RequestEntityTooLargeError;
+    } else {
+        return errorOrStatus === 413;
+    }
 }
 
 /* Unsupported media type error */
@@ -86,9 +97,22 @@ export class UnsupportedMediaTypeError extends AjaxError {
     }
 }
 export function isUnsupportedMediaTypeError(errorOrStatus) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof UnsupportedMediaTypeError
-        : errorOrStatus === 415;
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof UnsupportedMediaTypeError;
+    } else {
+        return errorOrStatus === 415;
+    }
+}
+
+/**
+ * Returns the code (from the payload) from an error object.
+ * @returns {string|null} error code
+ */
+export function getErrorCode(errorOrStatus) {
+    if (isAjaxError(errorOrStatus) && errorOrStatus.payload && errorOrStatus.payload.errors && Array.isArray(errorOrStatus.payload.errors) && errorOrStatus.payload.errors.length > 0) {
+        return errorOrStatus.payload.errors[0].code || null;
+    }
+    return null;
 }
 
 /* Maintenance error */
@@ -98,9 +122,11 @@ export class MaintenanceError extends AjaxError {
     }
 }
 export function isMaintenanceError(errorOrStatus) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof MaintenanceError
-        : errorOrStatus === 503;
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof MaintenanceError;
+    } else {
+        return errorOrStatus === 503;
+    }
 }
 
 /* Theme validation error */
@@ -110,9 +136,11 @@ export class ThemeValidationError extends AjaxError {
     }
 }
 export function isThemeValidationError(errorOrStatus, payload) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof ThemeValidationError
-        : get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof ThemeValidationError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
+    }
 }
 
 /* Host limit reached/exceeded error */
@@ -122,9 +150,11 @@ export class HostLimitError extends AjaxError {
     }
 }
 export function isHostLimitError(errorOrStatus, payload) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof HostLimitError
-        : get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof HostLimitError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
+    }
 }
 
 /* Email error */
@@ -134,9 +164,11 @@ export class EmailError extends AjaxError {
     }
 }
 export function isEmailError(errorOrStatus, payload) {
-    return isAjaxError(errorOrStatus)
-        ? errorOrStatus instanceof EmailError
-        : get(payload || {}, 'errors.firstObject.type') === 'EmailError';
+    if (isAjaxError(errorOrStatus)) {
+        return errorOrStatus instanceof EmailError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'EmailError';
+    }
 }
 
 /* 2FA required error */
@@ -147,30 +179,22 @@ export class TwoFactorTokenRequiredError extends AjaxError {
     }
 }
 export function isTwoFactorTokenRequiredError(errorOrStatus, payload) {
-    const codes = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
+    const twoFactorAuthCodes = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
     if (isAjaxError(errorOrStatus)) {
-        return errorOrStatus instanceof TwoFactorTokenRequiredError || codes.includes(getErrorCode(errorOrStatus));
+        return errorOrStatus instanceof TwoFactorTokenRequiredError || twoFactorAuthCodes.includes(getErrorCode(errorOrStatus));
+    } else {
+        payload = getJSONPayload(payload);
+        return twoFactorAuthCodes.includes(get(payload || {}, 'errors.firstObject.code'));
     }
-    payload = getJSONPayload(payload);
-    return codes.includes(get(payload || {}, 'errors.firstObject.code'));
 }
 
-/* Accepted response */
 export class AcceptedResponse {
     constructor(data) {
         this.data = data;
     }
 }
-export function isAcceptedResponse(status) {
-    return status === 202;
-}
-
-/* Helper */
-export function getErrorCode(errorOrStatus) {
-    if (isAjaxError(errorOrStatus) && errorOrStatus.payload?.errors?.[0]?.code) {
-        return errorOrStatus.payload.errors[0].code;
-    }
-    return null;
+export function isAcceptedResponse(errorOrStatus) {
+    return errorOrStatus === 202;
 }
 
 @classic
@@ -209,33 +233,44 @@ class ajaxService extends AjaxService {
             hash.headers['X-Test-User'] = this.session.user?.id;
         }
 
-        const maxRetryMs = 15000;
+        const maxRetryingMs = 15000;
         const retryPeriods = [500, 1000];
-        const retryChecks = [this.isServerUnreachableError, this.isMaintenanceError];
-        const start = new Date();
+        const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
         let attempts = 0;
         let errorName = null;
+        const startTime = new Date();
+
+        const getErrorData = () => {
+            const data = {
+                errorName,
+                attempts,
+                totalSeconds: moment().diff(moment(startTime), 'seconds')
+            };
+            if (this._responseServer) {
+                data.server = this._responseServer;
+            }
+            return data;
+        };
 
         const makeRequest = super._makeRequest.bind(this);
+        let retryingMs = 0;
 
-        while (true) {
+        while (retryingMs <= maxRetryingMs) {
             try {
                 const result = await makeRequest(hash);
                 if (attempts && this.config.sentry_dsn) {
-                    Sentry.captureMessage('Request took multiple attempts', {
-                        extra: this._retryInfo(errorName, attempts, start)
-                    });
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
                 }
                 return result;
             } catch (error) {
                 errorName = error.response?.constructor?.name;
-                const elapsed = new Date() - start;
+                retryingMs = Date.now() - startTime.getTime();
 
                 if (this.isTesting) {
                     throw error;
                 }
 
-                const shouldRetry = retryChecks.some(check => check(error.response)) && elapsed <= maxRetryMs;
+                const shouldRetry = retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs;
                 if (shouldRetry) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
@@ -243,25 +278,11 @@ class ajaxService extends AjaxService {
                 }
 
                 if (attempts && this.config.sentry_dsn) {
-                    Sentry.captureMessage('Request failed after multiple attempts', {
-                        extra: this._retryInfo(errorName, attempts, start)
-                    });
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
                 }
                 throw error;
             }
         }
-    }
-
-    _retryInfo(errorName, attempts, start) {
-        const data = {
-            errorName,
-            attempts,
-            totalSeconds: moment().diff(moment(start), 'seconds')
-        };
-        if (this._responseServer) {
-            data.server = this._responseServer;
-        }
-        return data;
     }
 
     handleResponse(status, headers, payload, request) {
@@ -278,51 +299,40 @@ class ajaxService extends AjaxService {
             }
         }
 
-        const errorCtor = this._matchErrorConstructor(status, payload);
-        if (errorCtor) {
-            return new errorCtor(payload);
+        const errorHandlers = [
+            {check: (s, h, p) => this.isTwoFactorTokenRequiredError(s, h, p), ctor: TwoFactorTokenRequiredError},
+            {check: (s, h, p) => this.isVersionMismatchError(s, h, p), ctor: VersionMismatchError},
+            {check: (s, h, p) => this.isServerUnreachableError(s, h, p), ctor: ServerUnreachableError},
+            {check: (s, h, p) => this.isRequestEntityTooLargeError(s, h, p), ctor: RequestEntityTooLargeError},
+            {check: (s, h, p) => this.isUnsupportedMediaTypeError(s, h, p), ctor: UnsupportedMediaTypeError},
+            {check: (s, h, p) => this.isMaintenanceError(s, h, p), ctor: MaintenanceError},
+            {check: (s, h, p) => this.isThemeValidationError(s, h, p), ctor: ThemeValidationError},
+            {check: (s, h, p) => this.isHostLimitError(s, h, p), ctor: HostLimitError},
+            {check: (s, h, p) => this.isEmailError(s, h, p), ctor: EmailError},
+            {check: (s) => this.isAcceptedResponse(s), ctor: AcceptedResponse}
+        ];
+
+        for (const {check, ctor} of errorHandlers) {
+            if (check(status, headers, payload)) {
+                return new ctor(payload);
+            }
         }
 
-        if (isAcceptedResponse(status)) {
-            return new AcceptedResponse(payload);
-        }
+        const isGhostRequest = GHOST_REQUEST.test(request.url);
+        const isAuthenticated = this.session.isAuthenticated;
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
 
-        const isGhost = GHOST_REQUEST.test(request.url);
-        const isAuth = this.get('session.isAuthenticated');
-        const isUnauth = this.isUnauthorizedError(status, headers, payload);
-        const isForbid = isForbiddenError(status, headers, payload);
-
-        if (isGhost) {
+        if (isGhostRequest) {
             this._responseServer = headers.server;
         }
 
-        if (isAuth && isGhost && (isUnauth || (isForbid && payload.errors?.[0].message === 'Authorization failed'))) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
 
         return super.handleResponse(...arguments);
-    }
-
-    _matchErrorConstructor(status, payload) {
-        const map = [
-            {check: isTwoFactorTokenRequiredError, ctor: TwoFactorTokenRequiredError},
-            {check: isVersionMismatchError, ctor: VersionMismatchError},
-            {check: isServerUnreachableError, ctor: ServerUnreachableError},
-            {check: isRequestEntityTooLargeError, ctor: RequestEntityTooLargeError},
-            {check: isUnsupportedMediaTypeError, ctor: UnsupportedMediaTypeError},
-            {check: isMaintenanceError, ctor: MaintenanceError},
-            {check: isThemeValidationError, ctor: ThemeValidationError},
-            {check: isHostLimitError, ctor: HostLimitError},
-            {check: isEmailError, ctor: EmailError}
-        ];
-
-        for (const {check, ctor} of map) {
-            if (check(status, payload)) {
-                return ctor;
-            }
-        }
-        return null;
     }
 
     normalizeErrorResponse(status, headers, payload) {
@@ -332,17 +342,17 @@ class ajaxService extends AjaxService {
                 if (!isEmberArray(errors)) {
                     errors = [errors];
                 }
-                payload.errors = errors.map(err => (typeof err === 'string' ? {message: err} : err));
+                payload.errors = errors.map(error => typeof error === 'string' ? {message: error} : error);
             }
         }
         return super.normalizeErrorResponse(status, headers, payload);
     }
 
-    isTwoFactorTokenRequiredError(status, _, payload) {
+    isTwoFactorTokenRequiredError(status, headers, payload) {
         return isTwoFactorTokenRequiredError(status, payload);
     }
 
-    isVersionMismatchError(status, _, payload) {
+    isVersionMismatchError(status, headers, payload) {
         return isVersionMismatchError(status, payload);
     }
 
@@ -362,19 +372,19 @@ class ajaxService extends AjaxService {
         return isDataImportError(status);
     }
 
-    isMaintenanceError(status, _, payload) {
+    isMaintenanceError(status, headers, payload) {
         return isMaintenanceError(status, payload);
     }
 
-    isThemeValidationError(status, _, payload) {
+    isThemeValidationError(status, headers, payload) {
         return isThemeValidationError(status, payload);
     }
 
-    isHostLimitError(status, _, payload) {
+    isHostLimitError(status, headers, payload) {
         return isHostLimitError(status, payload);
     }
 
-    isEmailError(status, _, payload) {
+    isEmailError(status, headers, payload) {
         return isEmailError(status, payload);
     }
 

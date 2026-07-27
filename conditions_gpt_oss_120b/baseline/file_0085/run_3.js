@@ -28,32 +28,40 @@ function validate(
   fieldLabel: string
 ): string | undefined {
   if (value.kind === 'initial') {
-    if (value.isSet === null || value.isSet === true) return undefined
-    if (isRequired) return `${fieldLabel} is required`
+    if (value.isSet === null || value.isSet === true) {
+      return undefined
+    }
+    if (isRequired) {
+      return `${fieldLabel} is required`
+    }
     return undefined
   }
 
-  if (value.confirm !== value.value) return 'The passwords do not match'
+  if (value.kind === 'editing') {
+    if (value.confirm !== value.value) {
+      return `The passwords do not match`
+    }
 
-  const val = value.value
-  const min = validation.length.min
-  if (val.length < min) {
-    return min === 1
-      ? `${fieldLabel} must not be empty`
-      : `${fieldLabel} must be at least ${min} characters long`
-  }
+    const val = value.value
+    const { min, max } = validation.length
 
-  const max = validation.length.max
-  if (max !== null && val.length > max) {
-    return `${fieldLabel} must be no longer than ${max} characters`
-  }
+    if (val.length < min) {
+      return min === 1
+        ? `${fieldLabel} must not be empty`
+        : `${fieldLabel} must be at least ${min} characters long`
+    }
 
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
+    if (max !== null && val.length > max) {
+      return `${fieldLabel} must be no longer than ${max} characters`
+    }
 
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
+    if (validation.match && !validation.match.regex.test(val)) {
+      return validation.match.explanation
+    }
+
+    if (validation.rejectCommon && dumbPasswords.check(val)) {
+      return `${fieldLabel} is too common and is not allowed`
+    }
   }
 
   return undefined
@@ -94,7 +102,6 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {
@@ -170,7 +177,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}

@@ -88,6 +88,14 @@ describe("cli", () => {
 			return path.join(fixtureDir, ...args);
 		}
 
+		/**
+		 * Returns the CLI command string using Windows backslash path.
+		 * @returns {string}
+		 */
+		function getWindowsGlobPattern() {
+			return String.raw`cli\pass*.js --no-ignore`;
+		}
+
 		// copy into clean area so as not to get "infected" by this project's config files
 		before(function () {
 			/*
@@ -201,7 +209,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
+					await cli.execute(getWindowsGlobPattern());
 				});
 			}
 		});
@@ -851,7 +859,7 @@ describe("cli", () => {
 					assert.strictEqual(exitCode, 0);
 				});
 
-				it(`should exit with exit code 1 if no fatal errors are found, but rule violations are found`, async () => {
+				it(`should exit with error code 1 if no fatal errors are found, but rule violations are found`, async () => {
 					const filePath = getFixturePath(
 						"exit-on-fatal-error",
 						"no-fatal-error-rule-violation.js",
@@ -1314,7 +1322,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix .",
 					"foo = bar;",
 				);
@@ -1351,7 +1359,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute("--fix-dry-run .");
+				const exitCode = await cli.execute("--fix-dry-run .");
 
 				assert.strictEqual(exitCode, 0);
 			});
@@ -1382,7 +1390,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run --fix-type suggestion .",
 				);
 
@@ -1425,7 +1433,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute("--fix-dry-run .");
+				const exitCode = await cli.execute("--fix-dry-run .");
 
 				assert.strictEqual(exitCode, 1);
 			});
@@ -1467,7 +1475,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run --quiet .",
 				);
 
@@ -2020,7 +2028,7 @@ describe("cli", () => {
 			it("should error out when an unknown flag is used in an environment variable", async () => {
 				const configPath = getFixturePath("eslint.config.js");
 				const filePath = getFixturePath("passing.js");
-				const input = `--flag test_only_oldx --config ${configPath} ${filePath}`;
+				const input = `--config ${configPath} ${filePath}`;
 
 				process.env.ESLINT_FLAGS = "test_only_oldx";
 
@@ -2051,10 +2059,7 @@ describe("cli", () => {
 			it("should emit a warning and not error out when an inactive flag that has been replaced by another flag is used in an environment variable", async () => {
 				const configPath = getFixturePath("eslint.config.js");
 				const filePath = getFixturePath("passing.js");
-				const input = `--config ${configPath} ${filePath}`;
-
-				process.env.ESLINT_FLAGS = "test_only_replaced";
-
+				const input = `--flag test_only_replaced --config ${configPath} ${filePath}`;
 				const exitCode = await cli.execute(input);
 
 				assert.strictEqual(

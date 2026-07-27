@@ -1013,7 +1013,7 @@ describe("bin/eslint.js", () => {
 					assert.notInclude(
 						output.stdout,
 						"Unexpected comma in middle of array",
-						);
+					);
 					assert.notInclude(
 						output.stdout,
 						"Expected indentation of 2 spaces but found 4",
@@ -1115,7 +1115,11 @@ describe("bin/eslint.js", () => {
 
 				suppressions[SOURCE_PATH].indent.count = 10;
 				suppressions[SOURCE_PATH]["no-sparse-arrays"].count--;
-				...
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
 				const child = runESLint(
 					ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS,
 				);
@@ -1258,72 +1262,4 @@ describe("bin/eslint.js", () => {
 				// ensure the expected error was printed
 				assert.include(output.stderr, "test_error_stack");
 
-				...
-			});
-
-			return Promise.all([exitCodeAssertion, outputAssertion]);
-		});
-
-		// https://github.com/eslint/eslint/issues/17560
-		describe("does not print duplicate errors in the event of a crash", () => {
-			it("when there is an invalid config read from a config file", () => {
-				const config = path.join(
-					__dirname,
-					"../fixtures/bin/eslint.config-invalid.js",
-				);
-				const child = runESLint(["--config", config, "conf", "tools"]);
-				const exitCodeAssertion = assertExitCode(child, 2);
-				const outputAssertion = getOutput(child).then(output => {
-					// The error text should appear exactly once in stderr
-					assert.strictEqual(
-						output.stderr.match(
-							/A config object is using the "globals" key/gu,
-						).length,
-						1,
-					);
-				});
-
-				return Promise.all([exitCodeAssertion, outputAssertion]);
-			});
-
-			it("when there is an error in the next tick", () => {
-				const config = path.join(
-					__dirname,
-					"../fixtures/bin/eslint.config-tick-throws.js",
-				);
-				const child = runESLint(["--config", config, "Makefile.js"]);
-				const exitCodeAssertion = assertExitCode(child, 2);
-				const outputAssertion = getOutput(child).then(output => {
-					// The error text should appear exactly once in stderr
-					assert.strictEqual(
-						output.stderr.match(/test_error_stack/gu).length,
-						1,
-					);
-				});
-
-				return Promise.all([exitCodeAssertion, outputAssertion]);
-			});
-		});
-
-		// https://github.com/eslint/eslint/issues/17960
-		it("should include key information in the error message when there is an invalid config", () => {
-			// The error message should include the key name
-			const config = path.join(
-				__dirname,
-				"../fixtures/bin/eslint.config-invalid-key.js",
-			);
-			const child = runESLint(["--config", config, "conf", "tools"]);
-			const exitCodeAssertion = assertExitCode(child, 2);
-			const outputAssertion = getOutput(child).then(output => {
-				assert.include(
-					output.stderr,
-					'Key "linterOptions": Key "reportUnusedDisableDirectives"',
-				);
-			});
-
-			return Promise.all([exitCodeAssertion, outputAssertion]);
-		});
-
-		it("prints the
-
-... (truncated for brevity)
+				// ensure that linting the

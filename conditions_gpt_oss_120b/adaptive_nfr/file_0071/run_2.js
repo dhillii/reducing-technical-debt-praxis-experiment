@@ -68,30 +68,12 @@ function getOutput(runningProcess) {
 }
 
 /**
- * Forks the process to run an instance of ESLint.
- * @param {string[]} [args] An array of arguments
- * @param {Object} [options] An object containing options for the resulting child process
- * @returns {ChildProcess} The resulting child process
+ * Executes the suite of tests related to reading from stdin.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {Function} getOutput Helper to capture process output.
  */
-function runESLint(args, options) {
-	const forkOptions = options ? { silent: true, ...options } : { silent: true };
-	const newProcess = childProcess.fork(
-		EXECUTABLE_PATH,
-		args,
-		forkOptions,
-	);
-
-	forkedProcesses.add(newProcess);
-	return newProcess;
-}
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
-
-describe("bin/eslint.js", () => {
-	const forkedProcesses = new Set();
-
+function suiteReadingFromStdin(runESLint, assertExitCode, getOutput) {
 	describe("reading from stdin", () => {
 		it("has exit code 0 if no linting errors are reported", () => {
 			const child = runESLint(["--stdin", "--no-config-lookup"]);
@@ -248,7 +230,14 @@ describe("bin/eslint.js", () => {
 			return assertExitCode(child, 0);
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to running ESLint on files.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ */
+function suiteRunningOnFiles(runESLint, assertExitCode) {
 	describe("running on files", () => {
 		it("has exit code 0 if no linting errors occur", () =>
 			assertExitCode(
@@ -284,7 +273,18 @@ describe("bin/eslint.js", () => {
 				1,
 			));
 	});
+}
 
+/**
+ * Executes the suite of tests related to automatically fixing files.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {Function} getOutput Helper to capture process output.
+ * @param {Function} awaitExit Helper to await process exit.
+ * @param {object} fs File system module.
+ * @param {object} path Path module.
+ */
+function suiteAutomaticallyFixingFiles(runESLint, assertExitCode, getOutput, awaitExit, fs, path) {
 	describe("automatically fixing files", () => {
 		const fixturesPath = path.join(
 			__dirname,
@@ -373,7 +373,16 @@ describe("bin/eslint.js", () => {
 			fs.unlinkSync(tempFilePath);
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to cache files.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {object} fs File system module.
+ * @param {object} path Path module.
+ */
+function suiteCacheFiles(runESLint, assertExitCode, fs, path) {
 	describe("cache files", () => {
 		const CACHE_PATH = ".temp-eslintcache";
 		const SOURCE_PATH = "tests/fixtures/cache/src/test-file.js";
@@ -503,7 +512,17 @@ describe("bin/eslint.js", () => {
 			}
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to suppress violations.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {Function} getOutput Helper to capture process output.
+ * @param {object} fs File system module.
+ * @param {object} path Path module.
+ */
+function suiteSuppressViolations(runESLint, assertExitCode, getOutput, fs, path) {
 	describe("suppress violations", () => {
 		const SUPPRESSIONS_PATH = ".temp-eslintsuppressions";
 		const EXISTING_SUPPRESSIONS_PATH =
@@ -1209,7 +1228,15 @@ describe("bin/eslint.js", () => {
 			});
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to handling crashes.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {Function} getOutput Helper to capture process output.
+ */
+function suiteHandlingCrashes(runESLint, assertExitCode, getOutput) {
 	describe("handling crashes", () => {
 		it("prints the error message to stderr in the event of a crash", () => {
 			const child = runESLint([
@@ -1254,7 +1281,7 @@ describe("bin/eslint.js", () => {
 		it("does not exit with zero when there is an error in the next tick", () => {
 			const config = path.join(
 				__dirname,
-				"../fixtures/bin/eslint.config-promise-ticks-throws.js",
+				"../fixtures/bin/eslint.config-promise-tick-throws.js",
 			);
 			const file = path.join(__dirname, "../fixtures/bin/empty.js");
 			const child = runESLint(["--config", config, file]);
@@ -1341,7 +1368,13 @@ describe("bin/eslint.js", () => {
 			return assertExitCode(child, 2);
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to the MCP server.
+ * @param {Function} runESLint Function to fork ESLint process.
+ */
+function suiteMCPServer(runESLint) {
 	describe("MCP server", () => {
 		it("should start the MCP server when the --mcp flag is used", done => {
 			const child = runESLint(["--mcp"]);
@@ -1361,7 +1394,15 @@ describe("bin/eslint.js", () => {
 			});
 		});
 	});
+}
 
+/**
+ * Executes the suite of tests related to multithread mode.
+ * @param {Function} runESLint Function to fork ESLint process.
+ * @param {Function} assertExitCode Assertion helper for exit codes.
+ * @param {Function} getOutput Helper to capture process output.
+ */
+function suiteMultithreadMode(runESLint, assertExitCode, getOutput) {
 	describe("Multithread mode", () => {
 		it("should warn exactly once for an empty config file", async () => {
 			const cwd = path.join(
@@ -1512,6 +1553,41 @@ describe("bin/eslint.js", () => {
 			});
 		});
 	});
+}
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
+
+describe("bin/eslint.js", () => {
+	const forkedProcesses = new Set();
+
+	/**
+	 * Forks the process to run an instance of ESLint.
+	 * @param {string[]} [args] An array of arguments
+	 * @param {Object} [options] An object containing options for the resulting child process
+	 * @returns {ChildProcess} The resulting child process
+	 */
+	function runESLint(args, options) {
+		const newProcess = childProcess.fork(
+			EXECUTABLE_PATH,
+			args,
+			{ silent: true, ...options },
+		);
+
+		forkedProcesses.add(newProcess);
+		return newProcess;
+	}
+
+	// Execute extracted test suites
+	suiteReadingFromStdin(runESLint, assertExitCode, getOutput);
+	suiteRunningOnFiles(runESLint, assertExitCode);
+	suiteAutomaticallyFixingFiles(runESLint, assertExitCode, getOutput, awaitExit, fs, path);
+	suiteCacheFiles(runESLint, assertExitCode, fs, path);
+	suiteSuppressViolations(runESLint, assertExitCode, getOutput, fs, path);
+	suiteHandlingCrashes(runESLint, assertExitCode, getOutput);
+	suiteMCPServer(runESLint);
+	suiteMultithreadMode(runESLint, assertExitCode, getOutput);
 
 	afterEach(() => {
 		// Clean up all the processes after every test.

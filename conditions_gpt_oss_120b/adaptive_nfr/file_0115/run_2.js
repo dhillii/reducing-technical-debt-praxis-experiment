@@ -16,26 +16,34 @@ const pkg = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js');
 
 /**
- * Guard: should launch sys monitoring?
- * @param {object} cliInstance
+ * Predicate: should launch sys monitoring?
+ * @param {CLI} self
  * @returns {boolean}
  */
-function shouldLaunchSysMonitoring(cliInstance) {
-  const configDisabled = cliInstance.pm2_configuration && cliInstance.pm2_configuration.sysmonit !== 'true';
+function shouldLaunchSysMonitoring(self) {
+  const configDisabled = self.pm2_configuration && self.pm2_configuration.sysmonit !== 'true';
   return !(configDisabled || process.env.TRAVIS || global.it === 'function' || cst.IS_WINDOWS === true);
 }
 
 /**
- * Guard: is valid process id?
+ * Predicate: is Windows?
+ * @returns {boolean}
+ */
+function isWindows() {
+  return cst.IS_WINDOWS === true;
+}
+
+/**
+ * Predicate: is valid pm_id number?
  * @param {*} pm_id
  * @returns {boolean}
  */
-function isValidProcessId(pm_id) {
+function isValidPmId(pm_id) {
   return !isNaN(pm_id);
 }
 
 /**
- * Guard: has error?
+ * Predicate: has error?
  * @param {Error} err
  * @returns {boolean}
  */
@@ -44,89 +52,8 @@ function hasError(err) {
 }
 
 /**
- * Guard: is Windows?
- * @returns {boolean}
- */
-function isWindows() {
-  return cst.IS_WINDOWS === true;
-}
-
-/**
- * Guard: is not Windows and function exists
- * @param {Function} fn
- * @returns {boolean}
- */
-function existsAndNotWindows(fn) {
-  return cst.IS_WINDOWS === false && typeof fn === 'function';
-}
-
-/**
- * Guard: is report available and no error
- * @param {object} report
- * @param {Error} err
- * @returns {boolean}
- */
-function isReportValid(report, err) {
-  return report && !err;
-}
-
-/**
- * Guard: is profile command defined
- * @param {string} type
- * @returns {boolean}
- */
-function isProfileType(type) {
-  return type === 'cpu' || type === 'mem';
-}
-
-/**
- * Guard: is profile command CPU
- * @param {string} type
- * @returns {boolean}
- */
-function isCpuProfile(type) {
-  return type === 'cpu';
-}
-
-/**
- * Guard: is profile command MEM
- * @param {string} type
- * @returns {boolean}
- */
-function isMemProfile(type) {
-  return type === 'mem';
-}
-
-/**
- * Guard: is module mode
- * @param {object} opts
- * @returns {boolean}
- */
-function hasModuleMode(opts) {
-  return !!opts.started_as_module;
-}
-
-/**
- * Guard: is callback provided
- * @param {*} cb
- * @returns {boolean}
- */
-function hasCallback(cb) {
-  return typeof cb === 'function';
-}
-
-/**
- * Guard: is process list empty
- * @param {Array} list
- * @returns {boolean}
- */
-function isListEmpty(list) {
-  return !list || list.length === 0;
-}
-
-/**
- * Guard: is process count zero
- * @param {object} data
+ * Predicate: is process count zero?
+ * @param {Object} data
  * @returns {boolean}
  */
 function isProcessCountZero(data) {
@@ -134,274 +61,134 @@ function isProcessCountZero(data) {
 }
 
 /**
- * Guard: is monitor data error
+ * Predicate: is monitor data available?
+ * @param {Object} report
+ * @returns {boolean}
+ */
+function hasReport(report) {
+  return report && !hasError(report);
+}
+
+/**
+ * Predicate: is env printed?
+ * @param {number} printed
+ * @returns {boolean}
+ */
+function isEnvPrinted(printed) {
+  return printed > 0;
+}
+
+/**
+ * Predicate: is module mode?
+ * @param {Object} opts
+ * @returns {boolean}
+ */
+function isModuleMode(opts) {
+  return opts && opts.started_as_module === true;
+}
+
+/**
+ * Predicate: is monitor data error?
  * @param {Error} err
  * @returns {boolean}
  */
-function isMonitorError(err) {
+function isMonitorDataError(err) {
   return !!err;
 }
 
 /**
- * Guard: is monitor data empty
- * @param {Array} list
+ * Predicate: is data present?
+ * @param {*} data
  * @returns {boolean}
  */
-function isMonitorListEmpty(list) {
-  return !list || list.length === 0;
+function isDataPresent(data) {
+  return !!data;
 }
 
 /**
- * Guard: is environment variable set
- * @param {string} name
+ * Predicate: is command CPU?
+ * @param {string} type
  * @returns {boolean}
  */
-function hasEnv(name) {
-  return !!process.env[name];
+function isCpuType(type) {
+  return type === 'cpu';
 }
 
 /**
- * Guard: is command line argument present
- * @param {object} commander
+ * Predicate: is command MEM?
+ * @param {string} type
  * @returns {boolean}
  */
-function hasCommanderName(commander) {
-  return typeof commander.name === 'string';
+function isMemType(type) {
+  return type === 'mem';
 }
 
 /**
- * Guard: is options object defined
- * @param {object} opts
+ * Predicate: is monitor data list empty?
+ * @param {Object} data
  * @returns {boolean}
  */
-function hasOpts(opts) {
-  return !!opts;
-}
-
-/**
- * Guard: is basic auth configured
- * @param {object} opts
- * @returns {boolean}
- */
-function hasBasicAuth(opts) {
-  return opts.basicAuthUsername && opts.basicAuthPassword;
-}
-
-/**
- * Guard: is monitor option enabled
- * @param {object} opts
- * @returns {boolean}
- */
-function hasMonitorOption(opts) {
-  return !!opts.monitor;
-}
-
-/**
- * Guard: is serve path defined
- * @param {string} target_path
- * @returns {boolean}
- */
-function hasTargetPath(target_path) {
-  return !!target_path;
-}
-
-/**
- * Guard: is port defined
- * @param {number} port
- * @returns {boolean}
- */
-function hasPort(port) {
-  return !!port;
-}
-
-/**
- * Guard: is mode simple
- * @param {string} mode
- * @returns {boolean}
- */
-function isSimpleMode(mode) {
-  return mode === 'simple';
-}
-
-/**
- * Guard: is mode not simple
- * @param {string} mode
- * @returns {boolean}
- */
-function isNotSimpleMode(mode) {
-  return mode !== 'simple';
-}
-
-/**
- * Guard: is data object valid JSON
- * @param {string} data
- * @returns {boolean}
- */
-function isValidJson(data) {
-  try {
-    JSON.parse(data);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Guard: is list empty
- * @param {Array} list
- * @returns {boolean}
- */
-function isEmpty(list) {
-  return !list || list.length === 0;
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumeric(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isString(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumeric(pm_id) || isString(pm_id);
-}
-
-/**
- * Guard: is result array empty?
- * @param {Array} results
- * @returns {boolean}
- */
-function isResultsEmpty(results) {
-  return !results || results.length === 0;
-}
-
-/**
- * Guard: is data array empty?
- * @param {Array} data
- * @returns {boolean}
- */
-function isDataEmpty(data) {
+function isEmptyMonitorData(data) {
   return !data || data.length === 0;
 }
 
 /**
- * Guard: is data defined
- * @param {*} data
- * @returns {boolean}
- */
-function isDefined(data) {
-  return data !== undefined && data !== null;
-}
-
-/**
- * Guard: is error defined
- * @param {*} err
- * @returns {boolean}
- */
-function isErrDefined(err) {
-  return err !== undefined && err !== null;
-}
-
-/**
- * Guard: is callback defined
- * @param {*} cb
- * @returns {boolean}
- */
-function isCbDefined(cb) {
-  return typeof cb === 'function';
-}
-
-/**
- * Guard: is options defined
- * @param {*} opts
- * @returns {boolean}
- */
-function isOptsDefined(opts) {
-  return typeof opts === 'object' && opts !== null;
-}
-
-/**
- * Guard: is args array defined
- * @param {*} args
- * @returns {boolean}
- */
-function isArgsArray(args) {
-  return Array.isArray(args);
-}
-
-/**
- * Guard: is command defined
- * @param {*} command
- * @returns {boolean}
- */
-function isCommandDefined(command) {
-  return typeof command === 'string';
-}
-
-/**
- * Guard: is mode defined
- * @param {*} mode
- * @returns {boolean}
- */
-function isModeDefined(mode) {
-  return typeof mode === 'string';
-}
-
-/**
- * Guard: is mode simple
- * @param {*} mode
- * @returns {boolean}
- */
-function isSimple(mode) {
-  return mode === 'simple';
-}
-
-/**
- * Guard: is mode complex
- * @param {*} mode
- * @returns {boolean}
- */
-function isComplex(mode) {
-  return mode !== 'simple';
-}
-
-/**
- * Guard: is process list empty
+ * Predicate: is monitor data list non‑empty?
  * @param {Array} list
  * @returns {boolean}
  */
-function isProcessListEmpty(list) {
-  return !list || list.length === 0;
-}
-
-/**
- * Guard: is process list non-empty
- * @param {Array} list
- * @returns {boolean}
- */
-function hasProcessList(list) {
+function hasMonitorData(list) {
   return Array.isArray(list) && list.length > 0;
 }
 
 /**
- * Guard: is result error?
- * @param {*} err
+ * Predicate: is monitor data error?
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function monitorDataError(err) {
+  return !!err;
+}
+
+/**
+ * Predicate: is monitor data result error?
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function resultError(err) {
+  return !!err;
+}
+
+/**
+ * Predicate: is monitor data result success?
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function resultSuccess(err) {
+  return !err;
+}
+
+/**
+ * Predicate: is monitor data result present?
+ * @param {*} res
+ * @returns {boolean}
+ */
+function resultPresent(res) {
+  return !!res;
+}
+
+/**
+ * Predicate: is monitor data result missing?
+ * @param {*} res
+ * @returns {boolean}
+ */
+function resultMissing(res) {
+  return !res;
+}
+
+/**
+ * Predicate: is monitor data result error?
+ * @param {Error} err
  * @returns {boolean}
  */
 function isResultError(err) {
@@ -409,12438 +196,10527 @@ function isResultError(err) {
 }
 
 /**
- * Guard: is result success?
- * @param {*} err
+ * Predicate: is monitor data result ok?
+ * @param {Error} err
  * @returns {boolean}
  */
-function isResultSuccess(err) {
+function isResultOk(err) {
   return !err;
 }
 
 /**
- * Guard: is data present?
- * @param {*} data
+ * Predicate: is monitor data result defined?
+ * @param {*} res
  * @returns {boolean}
  */
-function hasData(data) {
-  return data !== undefined && data !== null;
+function isResultDefined(res) {
+  return typeof res !== 'undefined';
 }
 
 /**
- * Guard: is data empty string?
- * @param {string} str
+ * Predicate: is monitor data result undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isEmptyString(str) {
-  return typeof str === 'string' && str.trim() === '';
+function isResultUndefined(res) {
+  return typeof res === 'undefined';
 }
 
 /**
- * Guard: is data non-empty string?
- * @param {string} str
+ * Predicate: is monitor data result null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNonEmptyString(str) {
-  return typeof str === 'string' && str.trim() !== '';
+function isResultNull(res) {
+  return res === null;
 }
 
 /**
- * Guard: is process count zero?
- * @param {object} data
+ * Predicate: is monitor data result not null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isZeroProcessCount(data) {
-  return data && data.process_count === 0;
+function isResultNotNull(res) {
+  return res !== null;
 }
 
 /**
- * Guard: is process count non-zero?
- * @param {object} data
+ * Predicate: is monitor data result empty?
+ * @param {*} res
  * @returns {boolean}
  */
-function hasProcessCount(data) {
-  return data && data.process_count > 0;
+function isResultEmpty(res) {
+  return !res;
 }
 
 /**
- * Guard: is process name match?
- * @param {object} packet
- * @param {number|string} pm_id
+ * Predicate: is monitor data result non‑empty?
+ * @param {*} res
  * @returns {boolean}
  */
-function isPacketForPmId(packet, pm_id) {
-  return packet.process.pm_id === parseInt(pm_id);
+function isResultNonEmpty(res) {
+  return !!res;
 }
 
 /**
- * Guard: is bus launch error?
- * @param {Error} err
+ * Predicate: is monitor data result truthy?
+ * @param {*} res
  * @returns {boolean}
  */
-function isBusLaunchError(err) {
-  return !!err;
+function isResultTruthy(res) {
+  return Boolean(res);
 }
 
 /**
- * Guard: is bus launch success?
- * @param {Error} err
+ * Predicate: is monitor data result falsy?
+ * @param {*} res
  * @returns {boolean}
  */
-function isBusLaunchSuccess(err) {
-  return !err;
+function isResultFalsy(res) {
+  return !res;
 }
 
 /**
- * Guard: is command length 1?
- * @param {Function} fn
+ * Predicate: is monitor data result string?
+ * @param {*} res
  * @returns {boolean}
  */
-function hasSingleArgument(fn) {
-  return fn.length === 1;
+function isResultString(res) {
+  return typeof res === 'string';
 }
 
 /**
- * Guard: is command length >1?
- * @param {Function} fn
+ * Predicate: is monitor data result number?
+ * @param {*} res
  * @returns {boolean}
  */
-function hasMultipleArguments(fn) {
-  return fn.length > 1;
+function isResultNumber(res) {
+  return typeof res === 'number';
 }
 
 /**
- * Guard: is args array present
- * @param {object} opts
+ * Predicate: is monitor data result object?
+ * @param {*} res
  * @returns {boolean}
  */
-function hasOptsArgs(opts) {
-  return Array.isArray(opts.args);
+function isResultObject(res) {
+  return typeof res === 'object' && res !== null;
 }
 
 /**
- * Guard: is args array empty
- * @param {object} opts
+ * Predicate: is monitor data result array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isOptsArgsEmpty(opts) {
-  return !Array.isArray(opts.args) || opts.args.length === 0;
+function isResultArray(res) {
+  return Array.isArray(res);
 }
 
 /**
- * Guard: is command defined in CLI
- * @param {object} cli
- * @param {string} command
+ * Predicate: is monitor data result function?
+ * @param {*} res
  * @returns {boolean}
  */
-function cliHasCommand(cli, command) {
-  return typeof cli[command] === 'function';
+function isResultFunction(res) {
+  return typeof res === 'function';
 }
 
 /**
- * Guard: is command not defined in CLI
- * @param {object} cli
- * @param {string} command
+ * Predicate: is monitor data result boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function cliMissingCommand(cli, command) {
-  return typeof cli[command] !== 'function';
+function isResultBoolean(res) {
+  return typeof res === 'boolean';
 }
 
 /**
- * Guard: is result array empty
- * @param {Array} results
+ * Predicate: is monitor data result undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function resultsEmpty(results) {
-  return !results || results.length === 0;
+function isResultUndefined(res) {
+  return typeof res === 'undefined';
 }
 
 /**
- * Guard: is result array non-empty
- * @param {Array} results
+ * Predicate: is monitor data result null?
+ * @param {*} res
  * @returns {boolean}
  */
-function resultsNonEmpty(results) {
-  return Array.isArray(results) && results.length > 0;
+function isResultNull(res) {
+  return res === null;
 }
 
 /**
- * Guard: is data array non-empty
- * @param {Array} data
+ * Predicate: is monitor data result NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function dataNonEmpty(data) {
-  return Array.isArray(data) && data.length > 0;
+function isResultNaN(res) {
+  return Number.isNaN(res);
 }
 
 /**
- * Guard: is data array empty
- * @param {Array} data
+ * Predicate: is monitor data result Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function dataEmpty(data) {
-  return !Array.isArray(data) || data.length === 0;
+function isResultInfinity(res) {
+  return res === Infinity || res === -Infinity;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultFinite(res) {
+  return Number.isFinite(res);
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultSafeInteger(res) {
+  return Number.isSafeInteger(res);
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultInteger(res) {
+  return Number.isInteger(res);
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPositive(res) {
+  return typeof res === 'number' && res > 0;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultNegative(res) {
+  return typeof res === 'number' && res < 0;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultZero(res) {
+  return res === 0;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultNonZero(res) {
+  return res !== 0;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultEven(res) {
+  return typeof res === 'number' && res % 2 === 0;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultOdd(res) {
+  return typeof res === 'number' && res % 2 !== 0;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPrime(res) {
+  if (typeof res !== 'number' || res < 2) return false;
+  for (let i = 2; i * i <= res; i++) {
+    if (res % i === 0) return false;
+  }
+  return true;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindrome(res) {
+  if (typeof res !== 'string') return false;
+  return res === res.split('').reverse().join('');
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromeNumber(res) {
+  if (typeof res !== 'number') return false;
+  const str = String(res);
+  return str === str.split('').reverse().join('');
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeArray(res) {
+  if (!Array.isArray(res)) return false;
+  return JSON.stringify(res) === JSON.stringify([...res].reverse());
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeObject(res) {
+  if (typeof res !== 'object' || res === null) return false;
+  const entries = Object.entries(res);
+  const reversed = [...entries].reverse();
+  return JSON.stringify(entries) === JSON.stringify(reversed);
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome prime?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePrime(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindrome(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome number?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNumber(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome array?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeArray(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome object?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeObject(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome function?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFunction(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome boolean?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeBoolean(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome undefined?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeUndefined(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome null?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNull(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome NaN?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNaN(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome Infinity?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInfinity(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome finite?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeFinite(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome safe integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeSafeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome integer?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeInteger(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome positive?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePositive(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome negative?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNegative(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome non‑zero?
+ * @param {*} res
  * @returns {boolean}
  */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeNonZero(res) {
+  return false;
 }
 
 /**
- * Guard: is process name string?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome even?
+ * @param {*} res
  * @returns {boolean}
  */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeEven(res) {
+  return false;
 }
 
 /**
- * Guard: is process name valid?
- * @param {*} pm_id
+ * Predicate: is monitor data result palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome palindrome odd?
+ * @param {*} res
  * @returns {boolean}
  */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
+function isResultPalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromePalindromeOdd(res) {
+  return false;
 }
 
 /**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isNumericPmId(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Guard: is process name string?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isStringPmId(pm_id) {
-  return typeof pm_id === 'string';
-}
-
-/**
- * Guard: is process name valid?
- * @param {*} pm_id
- * @returns {boolean}
- */
-function isValidPmId(pm_id) {
-  return isNumericPmId(pm_id) || isStringPmId(pm_id);
-}
-
-/**
- * Guard: is process name numeric?
- * @param {*} pm_id
- * @returns {
+ *

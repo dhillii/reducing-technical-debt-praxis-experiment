@@ -9,14 +9,8 @@ import {type Tier, useAddTier, useBrowseTiers, useEditTier} from '@tryghost/admi
 import {currencies, currencySelectGroups, validateCurrencyAmount} from '../../../../utils/currency';
 import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api/settings';
 
-export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
-    trial_days: string;
-};
-
 /**
- * Returns the appropriate modal title based on the tier state.
- * @param tier - The tier being edited, or undefined for a new tier.
- * @returns The modal title string.
+ * Returns the modal title based on tier state.
  */
 function getModalTitle(tier?: Tier): string {
     if (!tier) {
@@ -26,12 +20,9 @@ function getModalTitle(tier?: Tier): string {
 }
 
 /**
- * Returns the left button properties based on the tier state.
- * @param tier - The tier being edited, or undefined.
- * @param confirmCallback - Callback to confirm tier status change.
- * @returns ButtonProps for the left button.
+ * Returns left button properties based on tier state.
  */
-function getLeftButtonProps(tier: Tier | undefined, confirmCallback: () => void): ButtonProps {
+function getLeftButtonProps(tier: Tier | undefined, onClick: () => void): ButtonProps {
     if (!tier) {
         return {};
     }
@@ -40,7 +31,7 @@ function getLeftButtonProps(tier: Tier | undefined, confirmCallback: () => void)
             label: 'Archive tier',
             color: 'red',
             link: true,
-            onClick: confirmCallback
+            onClick
         };
     }
     if (!tier.active) {
@@ -48,11 +39,40 @@ function getLeftButtonProps(tier: Tier | undefined, confirmCallback: () => void)
             label: 'Reactivate tier',
             color: 'green',
             link: true,
-            onClick: confirmCallback
+            onClick
         };
     }
     return {};
 }
+
+/**
+ * Generates configuration for the confirmation modal when changing tier status.
+ */
+function getConfirmationConfig(tier: Tier, onConfirm: (modal: any) => void) {
+    const isActive = tier.active;
+    const title = isActive ? 'Archive tier' : 'Reactivate tier';
+    const prompt = isActive ? (
+        <>
+            <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+            <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+        </>
+    ) : (
+        <>
+            <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+            <div>Existing members will remain unchanged.</div>
+        </>
+    );
+    const okLabel = isActive ? 'Archive' : 'Reactivate';
+    const okColor = isActive ? 'red' : 'black';
+    const onOk = (confirmModal: any) => {
+        onConfirm(confirmModal);
+    };
+    return {title, prompt, okLabel, okColor, onOk};
+}
+
+export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
+    trial_days: string;
+};
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
@@ -163,35 +183,31 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     }, [formState.currency]);
 
     const confirmTierStatusChange = () => {
-        if (tier) {
-            const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
-            const prompt = tier.active ? <>
-                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
-                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-            </> : <>
-                <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
-                <div>Existing members will remain unchanged.</div>
-            </>;
-            const okLabel = tier.active ? 'Archive' : 'Reactivate';
-            NiceModal.show(ConfirmationModal, {
-                title: promptTitle,
-                prompt: prompt,
-                okLabel: okLabel,
-                cancelLabel: 'Cancel',
-                okColor: tier.active ? 'red' : 'black',
-                onOk: (confirmModal) => {
-                    updateTier({...tier, active: !tier.active});
-                    confirmModal?.remove();
-                    showToast({
-                        type: 'success',
-                        title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
-                    });
-                }
-            });
+        if (!tier) {
+            return;
         }
+        const onConfirm = (confirmModal: any) => {
+            updateTier({...tier, active: !tier.active});
+            confirmModal?.remove();
+            showToast({
+                type: 'success',
+                title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
+            });
+        };
+        const config = getConfirmationConfig(tier, onConfirm);
+        NiceModal.show(ConfirmationModal, {
+            title: config.title,
+            prompt: config.prompt,
+            okLabel: config.okLabel,
+            cancelLabel: 'Cancel',
+            okColor: config.okColor,
+            onOk: config.onOk
+        });
     };
 
     const leftButtonProps: ButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
+
+    const modalTitle = getModalTitle(tier);
 
     return <Modal
         afterClose={() => {
@@ -205,7 +221,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={getModalTitle(tier)}
+        title={modalTitle}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

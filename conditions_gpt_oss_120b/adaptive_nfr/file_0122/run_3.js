@@ -185,31 +185,20 @@ const QueryGenerator = {
     return `(${quotedColumn}#>>${pathStr})`;
   },
 
-  handleSequelizeMethod(smth, tableName, factory, options, prepend) {
+  handleSequelizeMethod(...args) {
+    const [smth, tableName, factory, options, prepend] = args;
     return this._handleSequelizeMethod({ smth, tableName, factory, options, prepend });
   },
 
-  /**
-   * Internal implementation of handleSequelizeMethod using a parameter object.
-   * @param {Object} params
-   * @param {any} params.smth
-   * @param {string} params.tableName
-   * @param {any} params.factory
-   * @param {Object} [params.options]
-   * @param {any} [params.prepend]
-   * @returns {string}
-   */
   _handleSequelizeMethod({ smth, tableName, factory, options, prepend }) {
     if (smth instanceof Utils.Json) {
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
-
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
-
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
@@ -217,11 +206,9 @@ const QueryGenerator = {
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
         }
-
         if (smth.value) {
           str += util.format(' = %s', this.escape(smth.value));
         }
-
         return str;
       }
     }
@@ -262,7 +249,6 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET NOT NULL'
         });
-
         definition = definition.replace('NOT NULL', '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -276,7 +262,6 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET DEFAULT ' + definition.match(/DEFAULT ([^;]+)/)[1]
         });
-
         definition = definition.replace(/(DEFAULT[^;]+)/, '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -293,7 +278,6 @@ const QueryGenerator = {
 
       if (definition.match(/UNIQUE;*$/)) {
         definition = definition.replace(/UNIQUE;*$/, '');
-
         attrSql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
           tableName: this.quoteTable(tableName),
           query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_unique_idx') + ' UNIQUE (' + this.quoteIdentifier(attributeName) + ')'
@@ -332,21 +316,11 @@ const QueryGenerator = {
     return `ALTER TABLE ${this.quoteTable(tableName)} RENAME COLUMN ${attrString.join(', ')};`;
   },
 
-  fn(fnName, tableName, parameters, body, returns, language) {
+  fn(...args) {
+    const [fnName, tableName, parameters, body, returns, language] = args;
     return this._fn({ fnName, tableName, parameters, body, returns, language });
   },
 
-  /**
-   * Internal implementation of fn using a parameter object.
-   * @param {Object} opts
-   * @param {string} [opts.fnName]
-   * @param {string} [opts.tableName]
-   * @param {string} [opts.parameters]
-   * @param {string} opts.body
-   * @param {string} [opts.returns]
-   * @param {string} [opts.language]
-   * @returns {string}
-   */
   _fn({ fnName, tableName, parameters, body, returns, language }) {
     fnName = fnName || 'testfunc';
     language = language || 'plpgsql';
@@ -356,80 +330,50 @@ const QueryGenerator = {
     return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
   },
 
-  exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
+  exceptionFn(...args) {
+    const [fnName, tableName, parameters, main, then, when, returns, language] = args;
     return this._exceptionFn({ fnName, tableName, parameters, main, then, when, returns, language });
   },
 
-  /**
-   * Internal implementation of exceptionFn using a parameter object.
-   * @param {Object} opts
-   * @param {string} opts.fnName
-   * @param {string} opts.tableName
-   * @param {string} opts.parameters
-   * @param {string} opts.main
-   * @param {string} opts.then
-   * @param {string} [opts.when]
-   * @param {string} [opts.returns]
-   * @param {string} [opts.language]
-   * @returns {string}
-   */
   _exceptionFn({ fnName, tableName, parameters, main, then, when, returns, language }) {
     when = when || 'unique_violation';
     const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
     return this._fn({ fnName, tableName, parameters, body, returns, language });
   },
 
-  upsertQuery(tableName, insertValues, updateValues, where, model, options) {
+  upsertQuery(...args) {
+    const [tableName, insertValues, updateValues, where, model, options] = args;
     return this._upsertQuery({ tableName, insertValues, updateValues, where, model, options });
   },
 
-  /**
-   * Internal implementation of upsertQuery using a parameter object.
-   * @param {Object} opts
-   * @param {string} opts.tableName
-   * @param {Object} opts.insertValues
-   * @param {Object} opts.updateValues
-   * @param {Object} opts.where
-   * @param {Object} opts.model
-   * @param {Object} [opts.options]
-   * @returns {string}
-   */
   _upsertQuery({ tableName, insertValues, updateValues, where, model, options }) {
     const primaryField = this.quoteIdentifier(model.primaryKeyField);
-
     let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
     let update = this.updateQuery(tableName, updateValues, where, options, model.rawAttributes);
-
     insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
     update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
-
-    return this._exceptionFn({
-      fnName: 'sequelize_upsert',
+    return this.exceptionFn(
+      'sequelize_upsert',
       tableName,
-      parameters: 'OUT created boolean, OUT primary_key text',
-      main: `${insert} created := true;`,
-      then: `${update}; created := false`
-    });
+      'OUT created boolean, OUT primary_key text',
+      `${insert} created := true;`,
+      `${update}; created := false`
+    );
   },
 
   deleteQuery(tableName, where, options, model) {
     let query;
-
     options = options || {};
-
     tableName = this.quoteTable(tableName);
 
     if (options.truncate === true) {
       query = 'TRUNCATE ' + tableName;
-
       if (options.restartIdentity) {
         query += ' RESTART IDENTITY';
       }
-
       if (options.cascade) {
         query += ' CASCADE';
       }
-
       return query;
     }
 
@@ -447,12 +391,9 @@ const QueryGenerator = {
       if (!model) {
         throw new Error('Cannot LIMIT delete without a model.');
       }
-
       const pks = _.map(_.values(model.primaryKeys), pk => this.quoteIdentifier(pk.field)).join(',');
-
       replacements.primaryKeys = model.primaryKeyAttributes.length > 1 ? '(' + pks + ')' : pks;
       replacements.primaryKeysSelection = pks;
-
       query = 'DELETE FROM <%= table %> WHERE <%= primaryKeys %> IN (SELECT <%= primaryKeysSelection %> FROM <%= table %><%= where %><%= limit %>)';
     } else {
       query = 'DELETE FROM <%= table %><%= where %>';
@@ -500,11 +441,9 @@ const QueryGenerator = {
 
   removeIndexQuery(tableName, indexNameOrAttributes) {
     let indexName = indexNameOrAttributes;
-
     if (typeof indexName !== 'string') {
       indexName = Utils.underscore(tableName + '_' + indexNameOrAttributes.join('_'));
     }
-
     return `DROP INDEX IF EXISTS ${this.quoteIdentifiers(indexName)}`;
   },
 
@@ -516,92 +455,80 @@ const QueryGenerator = {
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
-
     return fragment;
   },
 
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
+      attribute = { type: attribute };
     }
+    const base = this._attributeBaseSQL(attribute);
+    const constraints = this._attributeConstraintsSQL(attribute);
+    return base + constraints;
+  },
 
-    let type;
+  _attributeBaseSQL(attribute) {
     if (
       attribute.type instanceof DataTypes.ENUM ||
       (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
     ) {
-      const enumType = attribute.type.type || attribute.type;
-      let values = attribute.values;
-
-      if (enumType.values && !attribute.values) {
-        values = enumType.values;
-      }
-
-      if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
-        if (attribute.type instanceof DataTypes.ARRAY) {
-          type += '[]';
-        }
-
-      } else {
-        throw new Error("Values for ENUM haven't been defined.");
-      }
+      return this._enumAttributeSQL(attribute);
     }
+    return attribute.type + '';
+  },
 
-    if (!type) {
-      type = attribute.type;
+  _enumAttributeSQL(attribute) {
+    const enumType = attribute.type.type || attribute.type;
+    let values = attribute.values;
+    if (enumType.values && !attribute.values) {
+      values = enumType.values;
     }
+    if (Array.isArray(values) && values.length > 0) {
+      let type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
+      if (attribute.type instanceof DataTypes.ARRAY) {
+        type += '[]';
+      }
+      return type;
+    }
+    throw new Error("Values for ENUM haven't been defined.");
+  },
 
-    let sql = type + '';
-
+  _attributeConstraintsSQL(attribute) {
+    let sql = '';
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
       sql += ' NOT NULL';
     }
-
     if (attribute.autoIncrement) {
       sql += ' SERIAL';
     }
-
     if (Utils.defaultValueSchemable(attribute.defaultValue)) {
       sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
     }
-
     if (attribute.unique === true) {
       sql += ' UNIQUE';
     }
-
     if (attribute.primaryKey) {
       sql += ' PRIMARY KEY';
     }
-
     if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+      sql += this._attributeReferencesSQL(attribute);
     }
+    return sql;
+  },
 
+  _attributeReferencesSQL(attribute) {
+    const referencesTable = this.quoteTable(attribute.references.model);
+    const referencesKey = attribute.references.key ? this.quoteIdentifiers(attribute.references.key) : this.quoteIdentifier('id');
+    let sql = ` REFERENCES ${referencesTable} (${referencesKey})`;
+    if (attribute.onDelete) {
+      sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+    if (attribute.onUpdate) {
+      sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+    if (attribute.references.deferrable) {
+      sql += ' ' + attribute.references.deferrable.toString(this);
+    }
     return sql;
   },
 
@@ -611,11 +538,9 @@ const QueryGenerator = {
 
   setConstraintQuery(columns, type) {
     let columnFragment = 'ALL';
-
     if (columns) {
       columnFragment = columns.map(column => this.quoteIdentifier(column)).join(', ');
     }
-
     return 'SET CONSTRAINTS ' + columnFragment + ' ' + type;
   },
 
@@ -629,37 +554,23 @@ const QueryGenerator = {
 
   attributesToSQL(attributes, options) {
     const result = {};
-
     for (const key in attributes) {
       const attribute = attributes[key];
       result[attribute.field || key] = this.attributeToSQL(attribute, options);
     }
-
     return result;
   },
 
-  createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+  createTrigger(...args) {
+    const [tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray] = args;
     return this._createTrigger({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray });
   },
 
-  /**
-   * Internal implementation of createTrigger using a parameter object.
-   * @param {Object} opts
-   * @param {string} opts.tableName
-   * @param {string} opts.triggerName
-   * @param {string} opts.eventType
-   * @param {Object} opts.fireOnSpec
-   * @param {string} opts.functionName
-   * @param {Array} opts.functionParams
-   * @param {Array} opts.optionsArray
-   * @returns {string}
-   */
   _createTrigger({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray }) {
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
     const paramList = this.expandFunctionParamList(functionParams);
-
     return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n` +
       `\t${decodedEventType} ${eventSpec}\n` +
       `\tON ${tableName}\n` +
@@ -675,28 +586,16 @@ const QueryGenerator = {
     return `ALTER TRIGGER ${oldTriggerName} ON ${tableName} RENAME TO ${newTriggerName};`;
   },
 
-  createFunction(functionName, params, returnType, language, body, options) {
+  createFunction(...args) {
+    const [functionName, params, returnType, language, body, options] = args;
     return this._createFunction({ functionName, params, returnType, language, body, options });
   },
 
-  /**
-   * Internal implementation of createFunction using a parameter object.
-   * @param {Object} opts
-   * @param {string} opts.functionName
-   * @param {Array} opts.params
-   * @param {string} opts.returnType
-   * @param {string} opts.language
-   * @param {string} opts.body
-   * @param {Array} [opts.options]
-   * @returns {string}
-   */
   _createFunction({ functionName, params, returnType, language, body, options }) {
     if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
-
     const paramList = this.expandFunctionParamList(params);
     const indentedBody = body.replace('\n', '\n\t');
     const expandedOptions = this.expandOptions(options);
-
     return `CREATE FUNCTION ${functionName}(${paramList})\n` +
       `RETURNS ${returnType} AS $func$\n` +
       'BEGIN\n' +
@@ -736,7 +635,6 @@ const QueryGenerator = {
     if (_.isUndefined(params) || !_.isArray(params)) {
       throw new Error('expandFunctionParamList: function parameters array required, including an empty one for no arguments');
     }
-
     const paramList = [];
     _.each(params, curParam => {
       const paramDef = [];
@@ -747,11 +645,9 @@ const QueryGenerator = {
       } else {
         throw new Error('function or trigger used with a parameter without any type');
       }
-
       const joined = paramDef.join(' ');
       if (joined) paramList.push(joined);
     });
-
     return paramList.join(', ');
   },
 
@@ -767,11 +663,9 @@ const QueryGenerator = {
       'instead_of': 'INSTEAD OF',
       'after_constraint': 'AFTER'
     };
-
     if (!_.has(EVENT_DECODER, eventSpecifier)) {
       throw new Error('Invalid trigger event specified: ' + eventSpecifier);
     }
-
     return EVENT_DECODER[eventSpecifier];
   },
 
@@ -783,7 +677,6 @@ const QueryGenerator = {
     if (_.isEmpty(fireOnSpec)) {
       throw new Error('no table change events specified to trigger on');
     }
-
     return _.map(fireOnSpec, (fireValue, fireKey) => {
       const EVENT_MAP = {
         'insert': 'INSERT',
@@ -791,43 +684,35 @@ const QueryGenerator = {
         'delete': 'DELETE',
         'truncate': 'TRUNCATE'
       };
-
       if (!_.has(EVENT_MAP, fireValue)) {
         throw new Error('parseTriggerEventSpec: undefined trigger event ' + fireKey);
       }
-
       let eventSpec = EVENT_MAP[fireValue];
       if (eventSpec === 'UPDATE') {
         if (_.isArray(fireValue) && fireValue.length > 0) {
           eventSpec += ' OF ' + fireValue.join(', ');
         }
       }
-
       return eventSpec;
     }).join(' OR ');
   },
 
   pgEnumName(tableName, attr, options) {
     options = options || {};
-
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
-
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
-
     return enumName;
   },
 
   pgListEnums(tableName, attrName, options) {
     let enumName = '';
     const tableDetails = this.extractTableDetails(tableName, options);
-
     if (tableDetails.tableName && attrName) {
       enumName = ' AND t.typname=' + this.pgEnumName(tableDetails.tableName, attrName, { schema: false }).replace(/"/g, "'");
     }
-
     return 'SELECT t.typname enum_name, array_agg(e.enumlabel ORDER BY enumsortorder) enum_value FROM pg_type t ' +
       'JOIN pg_enum e ON t.oid = e.enumtypid ' +
       'JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace ' +
@@ -837,15 +722,13 @@ const QueryGenerator = {
   pgEnum(tableName, attr, dataType, options) {
     const enumName = this.pgEnumName(tableName, attr, options);
     let values;
-
     if (dataType.values) {
       values = "ENUM('" + dataType.values.join("', '") + "')";
     } else {
       values = dataType.toString().match(/^ENUM\(.+\)/)[0];
     }
-
     let sql = 'CREATE TYPE ' + enumName + ' AS ' + values + ';';
-    if (!!options && options.force === true) {
+    if (options && options.force === true) {
       sql = this.pgEnumDrop(tableName, attr) + sql;
     }
     return sql;
@@ -854,18 +737,15 @@ const QueryGenerator = {
   pgEnumAdd(tableName, attr, value, options) {
     const enumName = this.pgEnumName(tableName, attr);
     let sql = 'ALTER TYPE ' + enumName + ' ADD VALUE ';
-
     if (semver.gte(this.sequelize.options.databaseVersion, '9.3.0')) {
       sql += 'IF NOT EXISTS ';
     }
     sql += this.escape(value);
-
     if (options.before) {
       sql += ' BEFORE ' + this.escape(options.before);
     } else if (options.after) {
       sql += ' AFTER ' + this.escape(options.after);
     }
-
     return sql;
   },
 
@@ -877,13 +757,10 @@ const QueryGenerator = {
   fromArray(text) {
     text = text.replace(/^{/, '').replace(/}$/, '');
     let matches = text.match(/("(?:\\.|[^"\\\\])*"|[^,]*)(?:\s*,\s*|\s*$)/ig);
-
     if (matches.length < 1) {
       return [];
     }
-
     matches = matches.map(m => m.replace(/",$/, '').replace(/,$/, '').replace(/(^"|"$)/, ''));
-
     return matches.slice(0, -1);
   },
 
@@ -895,7 +772,6 @@ const QueryGenerator = {
     if (_.includes(dataType, 'PRIMARY KEY')) {
       dataType = dataType.replace(/PRIMARY KEY/, '');
     }
-
     if (_.includes(dataType, 'SERIAL')) {
       if (_.includes(dataType, 'BIGINT')) {
         dataType = dataType.replace(/SERIAL/, 'BIGSERIAL');
@@ -908,11 +784,9 @@ const QueryGenerator = {
       }
       dataType = dataType.replace(/NOT NULL/, '');
     }
-
     if (dataType.match(/^ENUM\(/)) {
       dataType = dataType.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attr));
     }
-
     return dataType;
   },
 
@@ -973,11 +847,9 @@ const QueryGenerator = {
     if (options.parent) {
       return;
     }
-
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }
-
     return AbstractQueryGenerator.setAutocommitQuery.call(this, value, options);
   }
 };

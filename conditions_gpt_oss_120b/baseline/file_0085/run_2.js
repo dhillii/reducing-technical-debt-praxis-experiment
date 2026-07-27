@@ -21,22 +21,6 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-function lengthError(
-  value: string,
-  length: { min: number; max: number | null },
-  fieldLabel: string
-): string | undefined {
-  if (value.length < length.min) {
-    return length.min === 1
-      ? `${fieldLabel} must not be empty`
-      : `${fieldLabel} must be at least ${length.min} characters long`
-  }
-  if (length.max !== null && value.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
-  }
-  return undefined
-}
-
 function validate(
   value: Value,
   validation: Validation,
@@ -44,24 +28,39 @@ function validate(
   fieldLabel: string
 ): string | undefined {
   if (value.kind === 'initial') {
-    if (value.isSet === null || value.isSet === true) return undefined
-    if (isRequired) return `${fieldLabel} is required`
+    if (value.isSet === null || value.isSet === true) {
+      return undefined
+    }
+    if (isRequired) {
+      return `${fieldLabel} is required`
+    }
     return undefined
   }
 
-  // editing case
-  if (value.confirm !== value.value) return `The passwords do not match`
+  if (value.kind === 'editing') {
+    if (value.confirm !== value.value) {
+      return `The passwords do not match`
+    }
 
-  const val = value.value
-  const lengthMsg = lengthError(val, validation.length, fieldLabel)
-  if (lengthMsg) return lengthMsg
+    const val = value.value
 
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
+    if (val.length < validation.length.min) {
+      return validation.length.min === 1
+        ? `${fieldLabel} must not be empty`
+        : `${fieldLabel} must be at least ${validation.length.min} characters long`
+    }
 
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
+    if (validation.length.max !== null && val.length > validation.length.max) {
+      return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+    }
+
+    if (validation.match && !validation.match.regex.test(val)) {
+      return validation.match.explanation
+    }
+
+    if (validation.rejectCommon && dumbPasswords.check(val)) {
+      return `${fieldLabel} is too common and is not allowed`
+    }
   }
 
   return undefined
@@ -102,7 +101,6 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {
@@ -178,7 +176,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
@@ -287,7 +285,6 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
             explanation: config.fieldMeta.validation.match.explanation,
           },
   }
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -300,10 +297,7 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
     },
     validate: (state, opts) =>
       validate(state, validation, opts.isRequired, config.label) === undefined,
-    deserialize: data => ({
-      kind: 'initial',
-      isSet: data[config.fieldKey]?.isSet ?? null,
-    }),
+    deserialize: data => ({ kind: 'initial', isSet: data[config.fieldKey]?.isSet ?? null }),
     serialize: value => {
       if (value.kind === 'initial') return {}
       return { [config.fieldKey]: value.value }

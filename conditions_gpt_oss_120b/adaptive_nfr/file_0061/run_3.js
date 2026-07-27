@@ -38,19 +38,6 @@ const TokenStore = require("./token-store"),
 
 const commentParser = new ConfigCommentParser();
 
-const GLOBAL_NORMALIZATION_MAP = new Map([
-	["off", "off"],
-	[true, "writable"],
-	["true", "writable"],
-	["writeable", "writable"],
-	["writable", "writable"],
-	[null, "readonly"],
-	[false, "readonly"],
-	["false", "readonly"],
-	["readable", "readonly"],
-	["readonly", "readonly"],
-]);
-
 /**
  * Validates that the given AST has the required information.
  * @param {ASTNode} ast The Program node of the AST to check.
@@ -86,20 +73,16 @@ function validate(ast) {
  * @returns {Object} The globals for the given ecmaVersion.
  */
 function getGlobalsForEcmaVersion(ecmaVersion) {
-	switch (ecmaVersion) {
-		case 3:
-			return globals.es3;
-
-		case 5:
-			return globals.es5;
-
-		default:
-			if (ecmaVersion < 2015) {
-				return globals[`es${ecmaVersion + 2009}`];
-			}
-
-			return globals[`es${ecmaVersion}`];
+	if (ecmaVersion === 3) {
+		return globals.es3;
 	}
+	if (ecmaVersion === 5) {
+		return globals.es5;
+	}
+	if (ecmaVersion < 2015) {
+		return globals[`es${ecmaVersion + 2009}`];
+	}
+	return globals[`es${ecmaVersion}`];
 }
 
 /**
@@ -137,10 +120,22 @@ function sortedMerge(tokens, comments) {
  * @throws {Error} if global value is invalid
  */
 function normalizeConfigGlobal(configuredValue) {
-	if (GLOBAL_NORMALIZATION_MAP.has(configuredValue)) {
-		return GLOBAL_NORMALIZATION_MAP.get(configuredValue);
-	}
+	const map = new Map([
+		["off", "off"],
+		[true, "writable"],
+		["true", "writable"],
+		["writeable", "writable"],
+		["writable", "writable"],
+		[null, "readonly"],
+		[false, "readonly"],
+		["false", "readonly"],
+		["readable", "readonly"],
+		["readonly", "readonly"],
+	]);
 
+	if (map.has(configuredValue)) {
+		return map.get(configuredValue);
+	}
 	throw new Error(
 		`'${configuredValue}' is not a valid configuration for a global (use 'readonly', 'writable', or 'off')`,
 	);
@@ -162,6 +157,17 @@ function nodesOrTokensOverlap(first, second) {
 }
 
 /**
+ * Compute the integer midpoint of two numbers using truncation.
+ * @param {number} low The lower bound.
+ * @param {number} high The upper bound.
+ * @returns {number} The truncated midpoint.
+ * @private
+ */
+function computeMid(low, high) {
+	return Math.trunc((low + high) / 2);
+}
+
+/**
  * Performs binary search to find the line number containing a given character index.
  * Returns the lower bound - the index of the first element greater than the target.
  * **Please note that the `lineStartIndices` should be sorted in ascending order**.
@@ -176,7 +182,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.trunc((low + high) / 2); // Use Math.trunc instead of bitwise OR
+		const mid = computeMid(low, high);
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;
@@ -186,6 +192,100 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	}
 
 	return low;
+}
+
+/**
+ * Checks whether a directive label should be turned into a Directive object.
+ * @param {string} label The directive label.
+ * @returns {boolean} True if the label is supported.
+ */
+function isSupportedDirective(label) {
+	return [
+		"eslint-disable",
+		"eslint-enable",
+		"eslint-disable-next-line",
+		"eslint-disable-line",
+	].includes(label);
+}
+
+/**
+ * Handles a single inline configuration comment.
+ * @param {Object} ctx Context containing mutable collections.
+ * @param {string} label The directive label.
+ * @param {Token} comment The comment token.
+ */
+function handleInlineDirective(ctx, label, comment) {
+	const { exportedVariables, inlineGlobals, problems, configs } = ctx;
+
+	switch (label) {
+		case "exported":
+			Object.assign(
+				exportedVariables,
+				commentParser.parseListConfig(
+					commentParser.parseDirective(comment.value).value,
+				),
+			);
+			break;
+
+		case "globals":
+		case "global":
+			for (const [id, idSetting] of Object.entries(
+				commentParser.parseStringConfig(
+					commentParser.parseDirective(comment.value).value,
+				),
+			)) {
+				let normalizedValue;
+				try {
+					normalizedValue = normalizeConfigGlobal(idSetting);
+				} catch (err) {
+					problems.push({
+						ruleId: null,
+						loc: comment.loc,
+						message: err.message,
+					});
+					continue;
+				}
+				if (inlineGlobals[id]) {
+					inlineGlobals[id].comments.push(comment);
+					inlineGlobals[id].value = normalizedValue;
+				} else {
+					inlineGlobals[id] = {
+						comments: [comment],
+						value: normalizedValue,
+					};
+				}
+			}
+			break;
+
+		case "eslint":
+			const parseResult = commentParser.parseJSONLikeConfig(
+				commentParser.parseDirective(comment.value).value,
+			);
+			if (parseResult.ok) {
+				configs.push({
+					config: { rules: parseResult.config },
+					loc: comment.loc,
+				});
+			} else {
+				problems.push({
+					ruleId: null,
+					loc: comment.loc,
+					message: parseResult.error.message,
+				});
+			}
+			break;
+
+		case "eslint-env":
+			problems.push({
+				ruleId: null,
+				loc: comment.loc,
+				message:
+					"/* eslint-env */ comments are no longer supported.",
+			});
+			break;
+
+		// no default
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -876,57 +976,26 @@ class SourceCode extends TokenStore {
 		const problems = [];
 		const directives = [];
 
-		const SUPPORTED_DISABLE_LABELS = new Set([
-			"eslint-disable",
-			"eslint-enable",
-			"eslint-disable-next-line",
-			"eslint-disable-line",
-		]);
-
 		this.getInlineConfigNodes().forEach(comment => {
-			// Step 1: Parse the directive
 			const {
 				label,
 				value,
 				justification: justificationPart,
 			} = commentParser.parseDirective(comment.value);
 
-			// Step 2: Extract the directive value
-			const lineCommentSupported =
-				/^eslint-disable-(?:next-)?line$/u.test(label);
-
-			if (comment.type === "Line" && !lineCommentSupported) {
+			if (!isSupportedDirective(label)) {
 				return;
 			}
 
-			// Step 3: Validate the directive does not span multiple lines
-			if (
-				label === "eslint-disable-line" &&
-				comment.loc.start.line !== comment.loc.end.line
-			) {
-				const message = `${label} comment should not span multiple lines.`;
-
-				problems.push({
-					ruleId: null,
-					message,
-					loc: comment.loc,
-				});
-				return;
-			}
-
-			// Step 4: Create the Directive object for supported labels
-			if (SUPPORTED_DISABLE_LABELS.has(label)) {
-				const directiveType = label.slice("eslint-".length);
-
-				directives.push(
-					new Directive({
-						type: directiveType,
-						node: comment,
-						value,
-						justification: justificationPart,
-					}),
-				);
-			}
+			const directiveType = label.slice("eslint-".length);
+			directives.push(
+				new Directive({
+					type: directiveType,
+					node: comment,
+					value,
+					justification: justificationPart,
+				}),
+			);
 		});
 
 		const result = { problems, directives };
@@ -982,108 +1051,16 @@ class SourceCode extends TokenStore {
 		const exportedVariables = {};
 		const inlineGlobals = Object.create(null);
 
-		/**
-		 * Handles an `exported` directive.
-		 * @param {string} value The directive value.
-		 */
-		function handleExported(value) {
-			Object.assign(
-				exportedVariables,
-				commentParser.parseListConfig(value),
-			);
-		}
-
-		/**
-		 * Handles `globals` or `global` directives.
-		 * @param {string} value The directive value.
-		 */
-		function handleGlobals(value) {
-			for (const [id, idSetting] of Object.entries(
-				commentParser.parseStringConfig(value),
-			)) {
-				let normalizedValue;
-
-				try {
-					normalizedValue = normalizeConfigGlobal(idSetting);
-				} catch (err) {
-					problems.push({
-						ruleId: null,
-						loc: comment.loc,
-						message: err.message,
-					});
-					continue;
-				}
-
-				if (inlineGlobals[id]) {
-					inlineGlobals[id].comments.push(comment);
-					inlineGlobals[id].value = normalizedValue;
-				} else {
-					inlineGlobals[id] = {
-						comments: [comment],
-						value: normalizedValue,
-					};
-				}
-			}
-		}
-
-		/**
-		 * Handles an `eslint` directive.
-		 * @param {string} value The directive value.
-		 * @param {ASTNode} comment The comment node.
-		 */
-		function handleEslint(value, comment) {
-			const parseResult =
-				commentParser.parseJSONLikeConfig(value);
-
-			if (parseResult.ok) {
-				configs.push({
-					config: {
-						rules: parseResult.config,
-					},
-					loc: comment.loc,
-				});
-			} else {
-				problems.push({
-					ruleId: null,
-					loc: comment.loc,
-					message: parseResult.error.message,
-				});
-			}
-		}
-
-		/**
-		 * Handles an `eslint-env` directive.
-		 */
-		function handleEslintEnv() {
-			problems.push({
-				ruleId: null,
-				loc: comment.loc,
-				message:
-					"/* eslint-env */ comments are no longer supported.",
-			});
-		}
-
-		const HANDLERS = {
-			exported: handleExported,
-			globals: handleGlobals,
-			global: handleGlobals,
-			eslint: handleEslint,
-			"eslint-env": handleEslintEnv,
+		const ctx = {
+			exportedVariables,
+			inlineGlobals,
+			problems,
+			configs,
 		};
 
 		this.getInlineConfigNodes().forEach(comment => {
-			const { label, value } = commentParser.parseDirective(
-				comment.value,
-			);
-
-			const handler = HANDLERS[label];
-			if (handler) {
-				if (label === "eslint") {
-					handler(value, comment);
-				} else {
-					handler(value);
-				}
-			}
+			const { label } = commentParser.parseDirective(comment.value);
+			handleInlineDirective(ctx, label, comment);
 		});
 
 		// save all the new variables for later
@@ -1179,7 +1156,7 @@ class SourceCode extends TokenStore {
 
 		/*
 		 * The actual AST traversal is done by the `Traverser` class. This class
-		 * *responsible* for walking the AST and calling the appropriate methods
+		 * is responsible for walking the AST and calling the appropriate methods
 		 * on the `analyzer` object, which is appropriate for the given AST.
 		 */
 		Traverser.traverse(this.ast, {

@@ -161,12 +161,12 @@ exports.cursor = {
  * @param {Error} err
  * @return {boolean}
  */
-function shouldShowDiff (err) {
+function showDiff (err) {
   return err && err.showDiff !== false && sameType(err.actual, err.expected) && err.expected !== undefined;
 }
 
 /**
- * Ensure error actual/expected are strings.
+ * Ensure error actual/expected are strings for diffing.
  *
  * @param {Error} err
  */
@@ -175,6 +175,43 @@ function stringifyDiffObjs (err) {
     err.actual = utils.stringify(err.actual);
     err.expected = utils.stringify(err.expected);
   }
+}
+
+/**
+ * Determine test speed category.
+ *
+ * @param {Test} test
+ * @return {string} speed
+ */
+function getSpeed (test) {
+  const slowThreshold = test.slow();
+  if (test.duration > slowThreshold) {
+    return 'slow';
+  }
+  if (test.duration > slowThreshold / 2) {
+    return 'medium';
+  }
+  return 'fast';
+}
+
+/**
+ * Build a formatted test title path.
+ *
+ * @param {Test} test
+ * @return {string}
+ */
+function buildTestTitle (test) {
+  let title = '';
+  test.titlePath().forEach((str, idx) => {
+    if (idx !== 0) {
+      title += '\n     ';
+    }
+    for (let i = 0; i < idx; i++) {
+      title += '  ';
+    }
+    title += str;
+  });
+  return title;
 }
 
 /**
@@ -187,99 +224,60 @@ function stringifyDiffObjs (err) {
 exports.list = function (failures) {
   console.log();
   failures.forEach((test, i) => {
-    const fmtBase = color('error title', '  %s) %s:\n');
-    const fmtMsg = color('error message', '     %s');
-    const fmtStack = color('error stack', '\n%s\n');
-    let fmt = fmtBase + fmtMsg + fmtStack;
+    // format
+    let fmt = color('error title', '  %s) %s:\n') +
+      color('error message', '     %s') +
+      color('error stack', '\n%s\n');
 
+    // msg
     const err = test.err;
-    const message = extractMessage(err);
+    let message;
+    if (err.message && typeof err.message.toString === 'function') {
+      message = err.message + '';
+    } else if (typeof err.inspect === 'function') {
+      message = err.inspect() + '';
+    } else {
+      message = '';
+    }
     let stack = err.stack || message;
     const index = message ? stack.indexOf(message) : -1;
 
-    if (index !== -1) {
-      const prefixEnd = index + message.length;
-      const msgPart = stack.slice(0, prefixEnd);
-      stack = stack.slice(prefixEnd + 1);
-      fmt = fmtBase + fmtMsg + fmtStack;
-      fmt = fmt.replace('%s) %s:\n', `%s) %s:\n${msgPart}`);
+    let msg;
+    if (index === -1) {
+      msg = message;
+    } else {
+      const end = index + message.length;
+      msg = stack.slice(0, index);
+      stack = stack.slice(end + 1);
     }
 
-    const finalMessage = formatUncaught(err, message);
-    const diffMessage = formatDiff(err, finalMessage);
+    // uncaught
+    if (err.uncaught) {
+      msg = 'Uncaught ' + msg;
+    }
+    // explicitly show diff
+    if (!exports.hideDiff && showDiff(err)) {
+      stringifyDiffObjs(err);
+      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      const match = message.match(/^([^:]+): expected/);
+      msg = '\n      ' + color('error message', match ? match[1] : msg);
+
+      if (exports.inlineDiffs) {
+        msg += inlineDiff(err);
+      } else {
+        msg += unifiedDiff(err);
+      }
+    }
+
+    // indent stack trace
+    stack = stack.replace(/^/gm, '  ');
+
+    // indented test title
     const testTitle = buildTestTitle(test);
 
-    console.log(fmt, (i + 1), testTitle, diffMessage.msg, diffMessage.stack);
+    console.log(fmt, (i + 1), testTitle, msg, stack);
   });
 };
-
-/**
- * Extract a readable message from an error.
- *
- * @param {Error} err
- * @return {string}
- */
-function extractMessage (err) {
-  if (err.message && typeof err.message.toString === 'function') {
-    return err.message + '';
-  }
-  if (typeof err.inspect === 'function') {
-    return err.inspect() + '';
-  }
-  return '';
-}
-
-/**
- * Prefix uncaught errors.
- *
- * @param {Error} err
- * @param {string} message
- * @return {string}
- */
-function formatUncaught (err, message) {
-  if (err.uncaught) {
-    return 'Uncaught ' + message;
-  }
-  return message;
-}
-
-/**
- * Format diff information if applicable.
- *
- * @param {Error} err
- * @param {string} baseMsg
- * @return {{msg:string, stack:string}}
- */
-function formatDiff (err, baseMsg) {
-  if (!exports.hideDiff && shouldShowDiff(err)) {
-    stringifyDiffObjs(err);
-    const match = baseMsg.match(/^([^:]+): expected/);
-    const diffHeader = '\n      ' + color('error message', match ? match[1] : baseMsg);
-    const diffBody = exports.inlineDiffs ? inlineDiff(err) : unifiedDiff(err);
-    return {
-      msg: diffHeader + diffBody,
-      stack: ''
-    };
-  }
-  return { msg: baseMsg, stack: '' };
-}
-
-/**
- * Build a formatted test title path.
- *
- * @param {Object} test
- * @return {string}
- */
-function buildTestTitle (test) {
-  let title = '';
-  test.titlePath().forEach((str, idx) => {
-    if (idx !== 0) {
-      title += '\n     ';
-    }
-    title += '  '.repeat(idx) + str;
-  });
-  return title;
-}
 
 /**
  * Initialize a new `Base` reporter.
@@ -308,7 +306,7 @@ function Base (runner) {
     stats.start = new Date();
   });
 
-  runner.on('suite', suite => {
+  runner.on('suite', (suite) => {
     stats.suites = stats.suites || 0;
     if (!suite.root) {
       stats.suites++;
@@ -320,16 +318,16 @@ function Base (runner) {
     stats.tests++;
   });
 
-  runner.on('pass', test => {
+  runner.on('pass', (test) => {
     stats.passes = stats.passes || 0;
-    test.speed = determineSpeed(test);
+    test.speed = getSpeed(test);
     stats.passes++;
   });
 
   runner.on('fail', (test, err) => {
     stats.failures = stats.failures || 0;
     stats.failures++;
-    if (shouldShowDiff(err)) {
+    if (showDiff(err)) {
       stringifyDiffObjs(err);
     }
     test.err = err;
@@ -347,29 +345,13 @@ function Base (runner) {
 }
 
 /**
- * Determine test speed category.
- *
- * @param {Object} test
- * @return {string}
- */
-function determineSpeed (test) {
-  if (test.duration > test.slow()) {
-    return 'slow';
-  }
-  if (test.duration > test.slow() / 2) {
-    return 'medium';
-  }
-  return 'fast';
-}
-
-/**
  * Output common epilogue used by many of
  * the bundled reporters.
  *
  * @api public
  */
 Base.prototype.epilogue = function () {
-  const { stats } = this;
+  const stats = this.stats;
   let fmt;
 
   console.log();
@@ -409,12 +391,12 @@ Base.prototype.epilogue = function () {
  *
  * @api private
  * @param {string} str
- * @param {string} len
+ * @param {number} len
  * @return {string}
  */
 function pad (str, len) {
-  str = String(str);
-  return Array(len - str.length + 1).join(' ') + str;
+  const s = String(str);
+  return Array(len - s.length + 1).join(' ') + s;
 }
 
 /**
@@ -426,25 +408,35 @@ function pad (str, len) {
  */
 function inlineDiff (err) {
   const msg = errorDiff(err);
-  const lines = msg.split('\n');
 
+  // linenos
+  const lines = msg.split('\n');
   if (lines.length > 4) {
     const width = String(lines.length).length;
     const numbered = lines.map((str, i) => {
-      return pad(i + 1, width) + ' | ' + str;
+      return pad(i + 1, width) + ' |' + ' ' + str;
     }).join('\n');
-    msg = numbered;
+    return formatInlineDiff(numbered);
   }
+  return formatInlineDiff(msg);
+}
 
-  const legend = '\n' +
+/**
+ * Helper to format inline diff with legend and indentation.
+ *
+ * @param {string} body
+ * @return {string}
+ */
+function formatInlineDiff (body) {
+  let msg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
     '\n\n' +
-    msg +
+    body +
     '\n';
-
-  return legend.replace(/^/gm, '      ');
+  msg = msg.replace(/^/gm, '      ');
+  return msg;
 }
 
 /**
@@ -458,29 +450,49 @@ function unifiedDiff (err) {
   const indent = '      ';
   const lines = diff.createPatch('string', err.actual, err.expected)
     .split('\n')
-    .splice(5);
-
-  const cleaned = lines.map(line => {
-    if (line[0] === '+') {
-      return indent + colorLines('diff added', line);
-    }
-    if (line[0] === '-') {
-      return indent + colorLines('diff removed', line);
-    }
-    if (line.match(/@@/)) {
-      return '--';
-    }
-    if (line.match(/\\ No newline/)) {
-      return null;
-    }
-    return indent + line;
-  }).filter(line => line != null);
+    .splice(5)
+    .map(cleanLine)
+    .filter(isNotBlank)
+    .join('\n');
 
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +
     '\n\n' +
-    cleaned.join('\n');
+    lines;
+}
+
+/**
+ * Clean up a diff line for unified diff output.
+ *
+ * @param {string} line
+ * @return {string|null}
+ */
+function cleanLine (line) {
+  const indent = '      ';
+  if (line[0] === '+') {
+    return indent + colorLines('diff added', line);
+  }
+  if (line[0] === '-') {
+    return indent + colorLines('diff removed', line);
+  }
+  if (line.match(/@@/)) {
+    return '--';
+  }
+  if (line.match(/\\ No newline/)) {
+    return null;
+  }
+  return indent + line;
+}
+
+/**
+ * Predicate to filter out blank lines.
+ *
+ * @param {any} line
+ * @return {boolean}
+ */
+function isNotBlank (line) {
+  return typeof line !== 'undefined' && line !== null;
 }
 
 /**
@@ -491,7 +503,7 @@ function unifiedDiff (err) {
  * @return {string}
  */
 function errorDiff (err) {
-  return diff.diffWordsWithSpace(err.actual, err.expected).map(part => {
+  return diff.diffWordsWithSpace(err.actual, err.expected).map((part) => {
     if (part.added) {
       return colorLines('diff added', part.value);
     }
@@ -511,7 +523,7 @@ function errorDiff (err) {
  * @return {string}
  */
 function colorLines (name, str) {
-  return str.split('\n').map(line => color(name, line)).join('\n');
+  return str.split('\n').map((line) => color(name, line)).join('\n');
 }
 
 /**

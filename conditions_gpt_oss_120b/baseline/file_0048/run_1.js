@@ -13,15 +13,21 @@ module.exports = class Tier {
 
     /** @type {ObjectID} */
     #id;
-    get id() { return this.#id; }
+    get id() {
+        return this.#id;
+    }
 
     /** @type {string} */
     #slug;
-    get slug() { return this.#slug; }
+    get slug() {
+        return this.#slug;
+    }
 
     /** @type {string} */
     #name;
-    get name() { return this.#name; }
+    get name() {
+        return this.#name;
+    }
     set name(value) {
         const newName = validateName(value);
         if (newName !== this.#name) {
@@ -32,22 +38,36 @@ module.exports = class Tier {
 
     /** @type {string[]} */
     #benefits;
-    get benefits() { return this.#benefits; }
-    set benefits(value) { this.#benefits = validateBenefits(value); }
+    get benefits() {
+        return this.#benefits;
+    }
+    set benefits(value) {
+        this.#benefits = validateBenefits(value);
+    }
 
     /** @type {string} */
     #description;
-    get description() { return this.#description; }
-    set description(value) { this.#description = validateDescription(value); }
+    get description() {
+        return this.#description;
+    }
+    set description(value) {
+        this.#description = validateDescription(value);
+    }
 
     /** @type {string} */
     #welcomePageURL;
-    get welcomePageURL() { return this.#welcomePageURL; }
-    set welcomePageURL(value) { this.#welcomePageURL = validateWelcomePageURL(value); }
+    get welcomePageURL() {
+        return this.#welcomePageURL;
+    }
+    set welcomePageURL(value) {
+        this.#welcomePageURL = validateWelcomePageURL(value);
+    }
 
     /** @type {'active'|'archived'} */
     #status;
-    get status() { return this.#status; }
+    get status() {
+        return this.#status;
+    }
     set status(value) {
         const newStatus = validateStatus(value);
         if (newStatus !== this.#status) {
@@ -62,40 +82,36 @@ module.exports = class Tier {
 
     /** @type {'public'|'none'} */
     #visibility;
-    get visibility() { return this.#visibility; }
-    set visibility(value) { this.#visibility = validateVisibility(value); }
+    get visibility() {
+        return this.#visibility;
+    }
+    set visibility(value) {
+        this.#visibility = validateVisibility(value);
+    }
 
     /** @type {'paid'|'free'} */
     #type;
-    get type() { return this.#type; }
+    get type() {
+        return this.#type;
+    }
 
     /** @type {number|null} */
     #trialDays;
-    get trialDays() { return this.#trialDays; }
-    set trialDays(value) { this.#trialDays = validateTrialDays(value, this.#type); }
+    get trialDays() {
+        return this.#trialDays;
+    }
+    set trialDays(value) {
+        this.#trialDays = validateTrialDays(value, this.#type);
+    }
 
     /** @type {string|null} */
     #currency;
-    get currency() { return this.#currency; }
-    set currency(value) { this.#currency = validateCurrency(value, this.#type); }
-
-    /** @type {number|null} */
-    #monthlyPrice;
-    get monthlyPrice() { return this.#monthlyPrice; }
-    set monthlyPrice(value) { this.#monthlyPrice = validateMonthlyPrice(value, this.#type); }
-
-    /** @type {number|null} */
-    #yearlyPrice;
-    get yearlyPrice() { return this.#yearlyPrice; }
-    set yearlyPrice(value) { this.#yearlyPrice = validateYearlyPrice(value, this.#type); }
-
-    /** @type {Date} */
-    #createdAt;
-    get createdAt() { return this.#createdAt; }
-
-    /** @type {Date|null} */
-    #updatedAt;
-    get updatedAt() { return this.#updatedAt; }
+    get currency() {
+        return this.#currency;
+    }
+    set currency(value) {
+        this.#currency = validateCurrency(value, this.#type);
+    }
 
     /**
      * @param {'month'|'year'} cadence
@@ -106,25 +122,57 @@ module.exports = class Tier {
         throw new ValidationError({message: 'Invalid cadence'});
     }
 
+    /** @type {number|null} */
+    #monthlyPrice;
+    get monthlyPrice() {
+        return this.#monthlyPrice;
+    }
+    set monthlyPrice(value) {
+        this.#monthlyPrice = validateMonthlyPrice(value, this.#type);
+    }
+
+    /** @type {number|null} */
+    #yearlyPrice;
+    get yearlyPrice() {
+        return this.#yearlyPrice;
+    }
+    set yearlyPrice(value) {
+        this.#yearlyPrice = validateYearlyPrice(value, this.#type);
+    }
+
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
             throw new ValidationError({message: 'Cannot set pricing for free tiers'});
         }
 
         const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthly = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearly = validateYearlyPrice(yearlyPrice, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        const unchanged = newCurrency === this.#currency &&
-                          newMonthly === this.#monthlyPrice &&
-                          newYearly === this.#yearlyPrice;
-
-        if (!unchanged) {
-            this.#currency = newCurrency;
-            this.#monthlyPrice = newMonthly;
-            this.#yearlyPrice = newYearly;
-            this.events.push(TierPriceChangeEvent.create({tier: this}));
+        if (
+            newCurrency === this.#currency &&
+            newMonthlyPrice === this.#monthlyPrice &&
+            newYearlyPrice === this.#yearlyPrice
+        ) {
+            return;
         }
+
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+        this.events.push(TierPriceChangeEvent.create({tier: this}));
+    }
+
+    /** @type {Date} */
+    #createdAt;
+    get createdAt() {
+        return this.#createdAt;
+    }
+
+    /** @type {Date|null} */
+    #updatedAt;
+    get updatedAt() {
+        return this.#updatedAt;
     }
 
     toJSON() {
@@ -173,9 +221,7 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = resolveId(data.id);
-        const isNew = !data.id;
-
+        const id = parseId(data.id);
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
@@ -183,7 +229,6 @@ module.exports = class Tier {
         const status = validateStatus(data.status ?? 'active');
         const visibility = validateVisibility(data.visibility ?? 'public');
         const type = validateType(data.type ?? 'paid');
-
         const currency = validateCurrency(data.currency ?? null, type);
         const trialDays = validateTrialDays(data.trialDays ?? 0, type);
         const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
@@ -210,84 +255,97 @@ module.exports = class Tier {
             benefits
         });
 
-        if (isNew) tier.events.push(TierCreatedEvent.create({tier}));
+        if (!data.id) {
+            tier.events.push(TierCreatedEvent.create({tier}));
+        }
+
         return tier;
     }
 };
 
-/* ---------- Helper Functions ---------- */
+/* Validation Helpers */
 
-function resolveId(id) {
-    if (!id) return new ObjectID();
-    if (typeof id === 'string') return ObjectID.createFromHexString(id);
-    if (id instanceof ObjectID) return id;
+function parseId(value) {
+    if (!value) return new ObjectID();
+    if (typeof value === 'string') return ObjectID.createFromHexString(value);
+    if (value instanceof ObjectID) return value;
     throw new ValidationError({message: 'Invalid ID provided for Tier'});
 }
 
-function validateSlug(value) {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 191) {
-        throw new ValidationError({message: 'Tier slug must be a string with a maximum of 191 characters'});
+function assertString(value, name, maxLength) {
+    if (typeof value !== 'string' || value.length > maxLength) {
+        throw new ValidationError({message: `${name} must be a string with a maximum of ${maxLength} characters`});
     }
     return value;
 }
 
-function validateName(value) {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 191) {
-        throw new ValidationError({message: 'Tier name must be a string with a maximum of 191 characters'});
+function assertOptionalString(value, name, maxLength) {
+    if (value == null) return null;
+    return assertString(value, name, maxLength);
+}
+
+function assertEnum(value, allowed, name) {
+    if (!allowed.includes(value)) {
+        throw new ValidationError({message: `${name} must be one of ${allowed.map(v => `"${v}"`).join(', ')}`});
     }
     return value;
+}
+
+function assertPositiveInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw new ValidationError({message: `${name} must be a non‑negative integer`});
+    }
+    return value;
+}
+
+function validateSlug(value) {
+    return assertString(value, 'Tier slug', 191);
+}
+
+function validateName(value) {
+    return assertString(value, 'Tier name', 191);
 }
 
 function validateWelcomePageURL(value) {
     if (value == null) return null;
-    if (typeof value === 'string') return value;
-    throw new ValidationError({message: 'Tier Welcome Page URL must be a string'});
+    if (typeof value !== 'string') {
+        throw new ValidationError({message: 'Tier Welcome Page URL must be a string'});
+    }
+    return value;
 }
 
 function validateDescription(value) {
-    if (value == null) return null;
-    if (typeof value !== 'string' || value.length > 191) {
-        throw new ValidationError({message: 'Tier description must be a string with a maximum of 191 characters'});
-    }
-    return value;
+    return assertOptionalString(value, 'Tier description', 191);
 }
 
 function validateStatus(value) {
-    if (value !== 'active' && value !== 'archived') {
-        throw new ValidationError({message: 'Tier status must be either "active" or "archived"'});
-    }
-    return value;
+    return assertEnum(value, ['active', 'archived'], 'Tier status');
 }
 
 function validateVisibility(value) {
-    if (value !== 'public' && value !== 'none') {
-        throw new ValidationError({message: 'Tier visibility must be either "public" or "none"'});
-    }
-    return value;
+    return assertEnum(value, ['public', 'none'], 'Tier visibility');
 }
 
 function validateType(value) {
-    if (value !== 'paid' && value !== 'free') {
-        throw new ValidationError({message: 'Tier type must be either "paid" or "free"'});
-    }
-    return value;
+    return assertEnum(value, ['paid', 'free'], 'Tier type');
 }
 
 function validateTrialDays(value, type) {
     if (type === 'free') {
-        if (value) throw new ValidationError({message: 'Free Tiers cannot have a trial'});
+        if (value) {
+            throw new ValidationError({message: 'Free Tiers cannot have a trial'});
+        }
         return 0;
     }
-    if (!value) return 0;
-    if (!Number.isSafeInteger(value) || value < 0) {
-        throw new ValidationError({message: 'Tier trials must be an integer greater than 0'});
-    }
-    return value;
+    if (value == null) return 0;
+    return assertPositiveInteger(value, 'Tier trials');
 }
 
 function validateCurrency(value, type) {
     if (type === 'free') {
-        if (value !== null) throw new ValidationError({message: 'Free Tiers cannot have a currency'});
+        if (value !== null) {
+            throw new ValidationError({message: 'Free Tiers cannot have a currency'});
+        }
         return null;
     }
     if (typeof value !== 'string' || value.length !== 3) {
@@ -296,44 +354,48 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-function validateMonthlyPrice(value, type) {
+function validatePrice(value, type, defaultValue, priceName) {
     if (type === 'free') {
-        if (value !== null) throw new ValidationError({message: 'Free Tiers cannot have a monthly price'});
+        if (value !== null) {
+            throw new ValidationError({message: `Free Tiers cannot have a ${priceName}`});
+        }
         return null;
     }
-    if (!value) return 500;
-    if (!Number.isSafeInteger(value) || value < 0 || value > 9999999999) {
-        throw new ValidationError({message: 'Tier monthly price must be an integer between 0 and 9999999999'});
+    if (value == null) return defaultValue;
+    if (!Number.isSafeInteger(value)) {
+        throw new ValidationError({message: 'Tier prices must be an integer.'});
+    }
+    if (value < 0) {
+        throw new ValidationError({message: 'Tier prices must not be negative'});
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({message: 'Tier prices may not exceed 999999.99'});
     }
     return value;
+}
+
+function validateMonthlyPrice(value, type) {
+    return validatePrice(value, type, 500, 'monthly price');
 }
 
 function validateYearlyPrice(value, type) {
-    if (type === 'free') {
-        if (value !== null) throw new ValidationError({message: 'Free Tiers cannot have a yearly price'});
-        return null;
-    }
-    if (!value) return 5000;
-    if (!Number.isSafeInteger(value) || value < 0 || value > 9999999999) {
-        throw new ValidationError({message: 'Tier yearly price must be an integer between 0 and 9999999999'});
-    }
-    return value;
+    return validatePrice(value, type, 5000, 'yearly price');
 }
 
 function validateCreatedAt(value) {
-    if (!value) return new Date();
+    if (value == null) return new Date();
     if (value instanceof Date) return value;
     throw new ValidationError({message: 'Tier created_at must be a date'});
 }
 
 function validateUpdatedAt(value) {
-    if (!value) return null;
+    if (value == null) return null;
     if (value instanceof Date) return value;
     throw new ValidationError({message: 'Tier updated_at must be a date'});
 }
 
 function validateBenefits(value) {
-    if (!value) return [];
+    if (value == null) return [];
     if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
         throw new ValidationError({message: 'Tier benefits must be a list of strings'});
     }

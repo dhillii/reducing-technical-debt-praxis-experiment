@@ -179,10 +179,9 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileToEdit]);
 
   const handleClickNextButton = async () => {
@@ -440,7 +439,6 @@ const ModalStepper = ({
   const goNext = () => {
     if (next === null) {
       onToggle();
-
       return;
     }
 

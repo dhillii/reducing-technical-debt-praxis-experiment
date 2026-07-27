@@ -101,9 +101,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send',
-            label: 'Publish and email',
-            display: 'Publish and email',
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -281,25 +281,21 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
+        if (this.user.isAdmin) {
+            this.membersCountCache.count({}).then((res) => {
+                this.totalMemberCount = res;
+            });
+        } else {
             this.totalMemberCount = 1;
         }
 
-        const memberCountPromise = this.user.isAdmin
-            ? this.membersCountCache.count({}).then(res => {
-                this.totalMemberCount = res;
-            })
-            : Promise.resolve();
-
-        const newsletterPromise = !this.user.isContributor
-            ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-            : null;
-
         const promises = [
-            memberCountPromise,
             this._checkSendingLimit(),
             this._checkPublishingLimit(),
-            ...(newsletterPromise ? [newsletterPromise] : [])
+            ...(this.user.isContributor ? [] : [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})])
         ];
 
         yield Promise.all(promises);

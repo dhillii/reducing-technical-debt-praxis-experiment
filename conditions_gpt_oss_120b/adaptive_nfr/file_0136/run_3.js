@@ -12,92 +12,6 @@ import stepper from './stepper';
 import init from './init';
 import reducer, { initialState } from './reducer';
 
-/**
- * Determines if the changed field is the URL input.
- * @param {string} name - Field name.
- * @returns {boolean}
- */
-const isUrlField = name => name === 'url';
-
-/**
- * Determines whether a confirmation is required when closing the modal with pending uploads.
- * @param {number} filesToUploadLength
- * @param {function} formatMessage
- * @param {function} getTrad
- * @returns {boolean}
- */
-const shouldConfirmCloseUpload = (filesToUploadLength, formatMessage, getTrad) =>
-  filesToUploadLength > 0;
-
-/**
- * Determines whether a confirmation is required when closing the modal with unsaved edits.
- * @param {object} initialFileToEdit
- * @param {object} fileToEdit
- * @param {string} currentStep
- * @returns {boolean}
- */
-const shouldConfirmCloseEdit = (initialFileToEdit, fileToEdit, currentStep) =>
-  !isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit';
-
-/**
- * Shows a native confirmation dialog with the provided message.
- * @param {string} message
- * @returns {boolean}
- */
-const showConfirm = message => {
-  // eslint-disable-next-line no-alert
-  return window.confirm(message);
-};
-
-/**
- * Downloads files from URLs and dispatches appropriate actions.
- * @param {Array} filesToUpload
- * @param {function} emitEvent
- * @param {function} dispatch
- */
-const downloadFiles = async (filesToUpload, emitEvent, dispatch) => {
-  const files = getFilesToDownload(filesToUpload);
-
-  if (files.length > 0) {
-    emitEvent('didSelectFile', { source: 'url', location: 'upload' });
-  }
-
-  await Promise.all(
-    files.map(file => {
-      const { source } = file;
-
-      return axios
-        .get(file.fileURL, {
-          responseType: 'blob',
-          cancelToken: source.token,
-          timeout: 60000,
-        })
-        .then(({ data }) => {
-          const fileName = file.fileInfo.name;
-          const createdFile = new File([data], fileName, {
-            type: data.type,
-          });
-
-          dispatch({
-            type: 'FILE_DOWNLOADED',
-            blob: createdFile,
-            originalIndex: file.originalIndex,
-            fileTempId: file.tempId,
-          });
-        })
-        .catch(err => {
-          console.error('fetch file error', err);
-
-          dispatch({
-            type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-            originalIndex: file.originalIndex,
-            fileTempId: file.tempId,
-          });
-        });
-    })
-  );
-};
-
 const ModalStepper = ({
   initialFileToEdit,
   initialStep,
@@ -160,7 +74,49 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  downloadFilesRef.current = () => downloadFiles(filesToUpload, emitEvent, dispatch);
+  /**
+   * Downloads files from URLs and dispatches appropriate actions.
+   */
+  downloadFilesRef.current = async () => {
+    const files = getFilesToDownload(filesToUpload);
+
+    if (files.length > 0) {
+      emitEvent('didSelectFile', { source: 'url', location: 'upload' });
+    }
+
+    await Promise.all(
+      files.map(file => {
+        const { source } = file;
+
+        return axios
+          .get(file.fileURL, {
+            responseType: 'blob',
+            cancelToken: source.token,
+            timeout: 60000,
+          })
+          .then(({ data }) => {
+            const fileName = file.fileInfo.name;
+            const createdFile = new File([data], fileName, {
+              type: data.type,
+            });
+
+            dispatch({
+              type: 'FILE_DOWNLOADED',
+              blob: createdFile,
+              originalIndex: file.originalIndex,
+              fileTempId: file.tempId,
+            });
+          })
+          .catch(() => {
+            dispatch({
+              type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+              originalIndex: file.originalIndex,
+              fileTempId: file.tempId,
+            });
+          });
+      })
+    );
+  };
 
   const handleAbortUpload = () => {
     const { abortController } = fileToEdit;
@@ -192,7 +148,7 @@ const ModalStepper = ({
     let val = value;
     let type = 'ON_CHANGE';
 
-    if (isUrlField(name)) {
+    if (name === 'url') {
       setFormErrors(null);
       val = value.split('\n');
       type = 'ON_CHANGE_URLS_TO_DOWNLOAD';
@@ -391,18 +347,24 @@ const ModalStepper = ({
   };
 
   const handleToggle = () => {
-    if (shouldConfirmCloseUpload(filesToUploadLength, formatMessage, getTrad)) {
-      const confirm = showConfirm(
+    if (filesToUploadLength > 0) {
+      const confirm = window.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
       );
-      if (!confirm) return;
+
+      if (!confirm) {
+        return;
+      }
     }
 
-    if (shouldConfirmCloseEdit(initialFileToEdit, fileToEdit, currentStep)) {
-      const confirm = showConfirm(
+    if (!isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit') {
+      const confirm = window.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
       );
-      if (!confirm) return;
+
+      if (!confirm) {
+        return;
+      }
     }
 
     onToggle(shouldRefetch);

@@ -319,16 +319,15 @@ function jsonStringify (object, spaces, depth) {
     return _stringify(object);
   }
 
-  let depthVal = depth || 1;
-  const space = spaces * depthVal;
+  depth = depth || 1;
+  let space = spaces * depth;
   let str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
-
   // `.repeat()` polyfill
-  function repeat (s, n) {
+  const repeat = (s, n) => {
     return new Array(n).join(s);
-  }
+  };
 
   function _stringify (val) {
     switch (type(val)) {
@@ -338,7 +337,7 @@ function jsonStringify (object, spaces, depth) {
         break;
       case 'array':
       case 'object':
-        val = jsonStringify(val, spaces, depthVal + 1);
+        val = jsonStringify(val, spaces, depth + 1);
         break;
       case 'boolean':
       case 'regexp':
@@ -353,10 +352,10 @@ function jsonStringify (object, spaces, depth) {
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
-        const json = val.toJSON();
+        let json = val.toJSON();
         // Based on the toJSON result
-        const buf = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(buf, 2, depthVal + 1) + ']';
+        json = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(json, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -403,9 +402,7 @@ function jsonStringify (object, spaces, depth) {
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
-  /* eslint-disable no-unused-vars */
   let prop;
-  /* eslint-enable no-unused-vars */
   typeHint = typeHint || type(value);
   function withStack (value, fn) {
     stack.push(value);

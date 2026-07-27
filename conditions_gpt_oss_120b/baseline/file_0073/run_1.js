@@ -179,21 +179,17 @@ function createFlatConfigArray(configs) {
  */
 async function assertMergedResult(values, result) {
 	const configs = createFlatConfigArray(values);
-
 	await configs.normalize();
-
 	const config = configs.getConfig("foo.js");
 
 	if (!result.language) {
 		result.language = jslang;
 	}
-
 	if (!result.languageOptions) {
 		result.languageOptions = jslang.normalizeLanguageOptions(
 			jslang.defaultLanguageOptions,
 		);
 	}
-
 	assert.deepStrictEqual(config, result);
 }
 
@@ -207,29 +203,79 @@ async function assertMergedResult(values, result) {
  */
 async function assertInvalidConfig(values, message) {
 	const configs = createFlatConfigArray(values);
-
 	assert.throws(() => {
 		configs.normalizeSync();
 		configs.getConfig("foo.js");
 	}, message);
 }
 
-//-----------------------------------------------------------------------------
-// Test utilities
-//-----------------------------------------------------------------------------
+/**
+ * Helper to generate a test that expects an invalid key.
+ * @param {string} key
+ * @param {string|RegExp} message
+ */
+function testInvalidKey(key, message) {
+	it(`should error when a ${key} key is found`, async () => {
+		await assertInvalidConfig(
+			[{ [key]: "foo" }],
+			message,
+		);
+	});
+}
 
 /**
- * Generates a test for each invalid top‑level key.
- * @param {string[]} keys The keys that should trigger an error.
+ * Helper to generate a test that expects a parser error.
+ * @param {*} parser
+ * @param {string|RegExp} message
  */
-function generateInvalidKeyTests(keys) {
-	keys.forEach(key => {
-		it(`should error when a ${key} key is found`, async () => {
-			await assertInvalidConfig(
-				[{ [key]: "foo" }],
-				`Key "${key}": This appears to be in eslintrc format rather than flat config format.`,
-			);
-		});
+function testParserError(parser, message) {
+	it(`should error when parser is ${JSON.stringify(parser)}`, async () => {
+		await assertInvalidConfig(
+			[
+				{
+					language: "@/js",
+					languageOptions: { parser },
+				},
+			],
+			message,
+		);
+	});
+}
+
+/**
+ * Helper to generate a test that expects a globals error.
+ * @param {*} globals
+ * @param {string|RegExp} message
+ */
+function testGlobalsError(globals, message) {
+	it(`should error when globals are ${JSON.stringify(globals)}`, async () => {
+		await assertInvalidConfig(
+			[
+				{
+					language: "@/js",
+					languageOptions: { globals },
+				},
+			],
+			message,
+		);
+	});
+}
+
+/**
+ * Helper to generate a test that expects a parserOptions merge.
+ * @param {*} first
+ * @param {*} second
+ * @param {*} expected
+ */
+function testParserOptionsMerge(first, second, expected) {
+	it("should merge parserOptions correctly", async () => {
+		await assertMergedResult(
+			[
+				{ language: "@/js", languageOptions: { parserOptions: first } },
+				{ languageOptions: { parserOptions: second } },
+			],
+			expected,
+		);
 	});
 }
 
@@ -292,6 +338,23 @@ describe("FlatConfigArray", () => {
 	});
 
 	describe("Serialization of configs", () => {
+		const baseExpected = {
+			plugins: ["@", "a", "b"],
+			language: "@/js",
+			languageOptions: {
+				ecmaVersion: LATEST_ECMA_VERSION,
+				sourceType: "module",
+				parser: `espree@${espree.version}`,
+				parserOptions: {
+					sourceType: "module",
+				},
+			},
+			linterOptions: {
+				reportUnusedDisableDirectives: 1,
+			},
+			processor: void 0,
+		};
+
 		it("should convert config into normalized JSON object", () => {
 			const configs = new FlatConfigArray([
 				{
@@ -305,27 +368,10 @@ describe("FlatConfigArray", () => {
 			configs.normalizeSync();
 
 			const config = configs.getConfig("foo.js");
-			const expected = {
-				plugins: ["@", "a", "b"],
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					sourceType: "module",
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				processor: void 0,
-			};
 			const actual = config.toJSON();
 
-			assert.deepStrictEqual(actual, expected);
-
-			assert.strictEqual(stringify(actual), stringify(expected));
+			assert.deepStrictEqual(actual, baseExpected);
+			assert.strictEqual(stringify(actual), stringify(baseExpected));
 		});
 
 		it("should convert config with plugin name/version into normalized JSON object", () => {
@@ -341,29 +387,15 @@ describe("FlatConfigArray", () => {
 				},
 			]);
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
 			const expected = {
+				...baseExpected,
 				plugins: ["@", "a", "b:b-plugin@2.3.1"],
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					sourceType: "module",
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				processor: void 0,
 			};
-			const actual = config.toJSON();
+
+			configs.normalizeSync();
+			const actual = configs.getConfig("foo.js").toJSON();
 
 			assert.deepStrictEqual(actual, expected);
-
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -382,29 +414,15 @@ describe("FlatConfigArray", () => {
 				},
 			]);
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
 			const expected = {
+				...baseExpected,
 				plugins: ["@", "a", "b:b-plugin@2.3.1"],
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					sourceType: "module",
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				processor: void 0,
 			};
-			const actual = config.toJSON();
+
+			configs.normalizeSync();
+			const actual = configs.getConfig("foo.js").toJSON();
 
 			assert.deepStrictEqual(actual, expected);
-
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -419,32 +437,20 @@ describe("FlatConfigArray", () => {
 				},
 			]);
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
 			const expected = {
-				plugins: ["@"],
-				language: "@/js",
+				...baseExpected,
 				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					sourceType: "module",
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
+					...baseExpected.languageOptions,
 					globals: {
 						name: "off",
 					},
 				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				processor: void 0,
 			};
-			const actual = config.toJSON();
+
+			configs.normalizeSync();
+			const actual = configs.getConfig("foo.js").toJSON();
 
 			assert.deepStrictEqual(actual, expected);
-
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -465,10 +471,6 @@ describe("FlatConfigArray", () => {
 				},
 			]);
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("file.my");
-
 			const expected = {
 				plugins: ["@", "test"],
 				language: "test/my",
@@ -478,619 +480,293 @@ describe("FlatConfigArray", () => {
 				},
 				processor: void 0,
 			};
-			const actual = config.toJSON();
+
+			configs.normalizeSync();
+			const actual = configs.getConfig("file.my").toJSON();
 
 			assert.deepStrictEqual(actual, expected);
-
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
-		it("should throw an error when config with unnamed parser object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							parse() {
-								/* empty */
-							},
+		[
+			{
+				desc: "unnamed parser object",
+				parser: { parse() {} },
+				message: /Cannot serialize key "parse"/u,
+			},
+			{
+				desc: "unnamed parser object with empty meta",
+				parser: { meta: {}, parse() {} },
+				message: /Cannot serialize key "parse"/u,
+			},
+			{
+				desc: "unnamed parser object with only meta version",
+				parser: { meta: { version: "0.1.1" }, parse() {} },
+				message: /Cannot serialize key "parse"/u,
+			},
+		].forEach(({ desc, parser, message }) => {
+			it(`should throw an error when config with ${desc} is normalized`, () => {
+				const configs = new FlatConfigArray([
+					{
+						languageOptions: {
+							parser,
 						},
 					},
-				},
-			]);
+				]);
 
-			configs.normalizeSync();
+				configs.normalizeSync();
+				const config = configs.getConfig("foo.js");
 
-			const config = configs.getConfig("foo.js");
-
-			assert.throws(() => {
-				config.toJSON();
-			}, /Cannot serialize key "parse"/u);
-		});
-
-		it("should throw an error when config with unnamed parser object with empty meta object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							meta: {},
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.throws(() => {
-				config.toJSON();
-			}, /Cannot serialize key "parse"/u);
-		});
-
-		it("should throw an error when config with unnamed parser object with only meta version is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							meta: {
-								version: "0.1.1",
-							},
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.throws(() => {
-				config.toJSON();
-			}, /Cannot serialize key "parse"/u);
-		});
-
-		it("should not throw an error when config with named parser object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							meta: {
-								name: "custom-parser",
-							},
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: "custom-parser",
-					parserOptions: {},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: void 0,
+				assert.throws(() => config.toJSON(), message);
 			});
 		});
 
-		it("should not throw an error when config with named and versioned parser object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
+		[
+			{
+				desc: "named parser object",
+				parser: { meta: { name: "custom-parser" }, parse() {} },
+				expected: "custom-parser",
+			},
+			{
+				desc: "named and versioned parser object",
+				parser: {
+					meta: { name: "custom-parser", version: "0.1.0" },
+					parse() {},
+				},
+				expected: "custom-parser@0.1.0",
+			},
+			{
+				desc: "meta-named and versioned parser object",
+				parser: {
+					meta: { name: "custom-parser" },
+					version: "0.1.0",
+					parse() {},
+				},
+				expected: "custom-parser@0.1.0",
+			},
+			{
+				desc: "named and versioned parser object outside of meta",
+				parser: {
+					name: "custom-parser",
+					version: "0.1.0",
+					parse() {},
+				},
+				expected: "custom-parser@0.1.0",
+			},
+		].forEach(({ desc, parser, expected }) => {
+			it(`should not throw an error when config with ${desc} is normalized`, () => {
+				const configs = new FlatConfigArray([
+					{
+						languageOptions: {
+							parser,
+						},
+					},
+				]);
+
+				configs.normalizeSync();
+				const config = configs.getConfig("foo.js");
+
+				const expectedJSON = {
+					language: "@/js",
 					languageOptions: {
-						parser: {
-							meta: {
-								name: "custom-parser",
-								version: "0.1.0",
-							},
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: "custom-parser@0.1.0",
-					parserOptions: {},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: void 0,
-			});
-		});
-
-		it("should not throw an error when config with meta-named and versioned parser object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							meta: {
-								name: "custom-parser",
-							},
-							version: "0.1.0",
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: "custom-parser@0.1.0",
-					parserOptions: {},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: void 0,
-			});
-		});
-
-		it("should not throw an error when config with named and versioned parser object outside of meta object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					languageOptions: {
-						parser: {
-							name: "custom-parser",
-							version: "0.1.0",
-							parse() {
-								/* empty */
-							},
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: "custom-parser@0.1.0",
-					parserOptions: {},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: void 0,
-			});
-		});
-
-		it("should throw an error when config with unnamed processor object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.throws(() => {
-				config.toJSON();
-			}, /Could not serialize processor/u);
-		});
-
-		it("should throw an error when config with processor object with empty meta object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						meta: {},
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.throws(() => {
-				config.toJSON();
-			}, /Could not serialize processor/u);
-		});
-
-		it("should not throw an error when config with named processor object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						meta: {
-							name: "custom-processor",
-						},
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
-					},
-				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: `espree@${espree.version}`,
-					parserOptions: {
+						ecmaVersion: LATEST_ECMA_VERSION,
+						parser: expected,
+						parserOptions: {},
 						sourceType: "module",
 					},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: "custom-processor",
+					linterOptions: {
+						reportUnusedDisableDirectives: 1,
+					},
+					plugins: ["@"],
+					processor: void 0,
+				};
+
+				assert.deepStrictEqual(config.toJSON(), expectedJSON);
 			});
 		});
 
-		it("should not throw an error when config with named processor object without meta is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						name: "custom-processor",
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
+		[
+			{
+				desc: "unnamed processor object",
+				processor: {
+					preprocess() {},
+					postprocess() {},
+				},
+				message: /Could not serialize processor/u,
+			},
+			{
+				desc: "processor object with empty meta",
+				processor: {
+					meta: {},
+					preprocess() {},
+					postprocess() {},
+				},
+				message: /Could not serialize processor/u,
+			},
+		].forEach(({ desc, processor, message }) => {
+			it(`should throw an error when config with ${desc} is normalized`, () => {
+				const configs = new FlatConfigArray([
+					{
+						processor,
 					},
-				},
-			]);
+				]);
 
-			configs.normalizeSync();
+				configs.normalizeSync();
+				const config = configs.getConfig("foo.js");
 
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: "custom-processor",
+				assert.throws(() => config.toJSON(), message);
 			});
 		});
 
-		it("should not throw an error when config with named and versioned processor object is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						meta: {
-							name: "custom-processor",
-							version: "1.2.3",
-						},
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
-					},
+		[
+			{
+				desc: "named processor object",
+				processor: {
+					meta: { name: "custom-processor" },
+					preprocess() {},
+					postprocess() {},
 				},
-			]);
+				expected: "custom-processor",
+			},
+			{
+				desc: "named processor object without meta",
+				processor: {
+					name: "custom-processor",
+					preprocess() {},
+					postprocess() {},
+				},
+				expected: "custom-processor",
+			},
+			{
+				desc: "named and versioned processor object",
+				processor: {
+					meta: { name: "custom-processor", version: "1.2.3" },
+					preprocess() {},
+					postprocess() {},
+				},
+				expected: "custom-processor@1.2.3",
+			},
+			{
+				desc: "named and versioned processor object without meta",
+				processor: {
+					name: "custom-processor",
+					version: "1.2.3",
+					preprocess() {},
+					postprocess() {},
+				},
+				expected: "custom-processor@1.2.3",
+			},
+		].forEach(({ desc, processor, expected }) => {
+			it(`should not throw an error when config with ${desc} is normalized`, () => {
+				const configs = new FlatConfigArray([
+					{
+						processor,
+					},
+				]);
 
-			configs.normalizeSync();
+				configs.normalizeSync();
+				const config = configs.getConfig("foo.js");
 
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: `espree@${espree.version}`,
-					parserOptions: {
+				const expectedJSON = {
+					language: "@/js",
+					languageOptions: {
+						ecmaVersion: LATEST_ECMA_VERSION,
+						parser: `espree@${espree.version}`,
+						parserOptions: {
+							sourceType: "module",
+						},
 						sourceType: "module",
 					},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: "custom-processor@1.2.3",
-			});
-		});
-
-		it("should not throw an error when config with named and versioned processor object without meta is normalized", () => {
-			const configs = new FlatConfigArray([
-				{
-					processor: {
-						name: "custom-processor",
-						version: "1.2.3",
-						preprocess() {
-							/* empty */
-						},
-						postprocess() {
-							/* empty */
-						},
+					linterOptions: {
+						reportUnusedDisableDirectives: 1,
 					},
-				},
-			]);
+					plugins: ["@"],
+					processor: expected,
+				};
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.deepStrictEqual(config.toJSON(), {
-				language: "@/js",
-				languageOptions: {
-					ecmaVersion: LATEST_ECMA_VERSION,
-					parser: `espree@${espree.version}`,
-					parserOptions: {
-						sourceType: "module",
-					},
-					sourceType: "module",
-				},
-				linterOptions: {
-					reportUnusedDisableDirectives: 1,
-				},
-				plugins: ["@"],
-				processor: "custom-processor@1.2.3",
+				assert.deepStrictEqual(config.toJSON(), expectedJSON);
 			});
 		});
 	});
 
 	describe("Config array elements", () => {
-		it("should error on 'eslint:recommended' string config", async () => {
-			await assertInvalidConfig(
-				["eslint:recommended"],
-				"Config (unnamed): Unexpected non-object config at original index 0.",
-			);
+		[
+			["eslint:recommended", "Config (unnamed): Unexpected non-object config at original index 0."],
+			["eslint:all", "Config (unnamed): Unexpected non-object config at original index 0."],
+		].forEach(([cfg, msg]) => {
+			it(`should error on '${cfg}' string config`, async () => {
+				await assertInvalidConfig([cfg], msg);
+			});
 		});
 
-		it("should error on 'eslint:all' string config", async () => {
-			await assertInvalidConfig(
-				["eslint:all"],
-				"Config (unnamed): Unexpected non-object config at original index 0.",
-			);
+		[
+			[void 0, "Unexpected undefined config at original index 0."],
+			[null, "Unexpected null config at original index 0."],
+		].forEach(([value, msg]) => {
+			it(`should throw an error when ${value === null ? "null" : "undefined"} original config is normalized`, () => {
+				const configs = new FlatConfigArray([value]);
+				assert.throws(() => configs.normalizeSync(), `Config (unnamed): ${msg}`);
+			});
+
+			it(`should throw an error when ${value === null ? "null" : "undefined"} original config is normalized asynchronously`, async () => {
+				const configs = new FlatConfigArray([value]);
+				try {
+					await configs.normalize();
+					assert.fail("Error not thrown");
+				} catch (error) {
+					assert.strictEqual(error.message, `Config (unnamed): ${msg}`);
+				}
+			});
 		});
 
-		it("should throw an error when undefined original config is normalized", () => {
-			const configs = new FlatConfigArray([void 0]);
+		[
+			[void 0, "base index 0", "Unexpected undefined config at base index 0."],
+			[null, "base index 0", "Unexpected null config at base index 0."],
+			[void 0, "user-defined index 0", "Unexpected undefined config at user-defined index 0."],
+			[null, "user-defined index 0", "Unexpected null config at user-defined index 0."],
+		].forEach(([value, location, msg]) => {
+			it(`should throw an error when ${value === null ? "null" : "undefined"} ${location} is normalized`, () => {
+				const opts = location.includes("base") ? { baseConfig: [value] } : {};
+				const configs = new FlatConfigArray([], opts);
+				if (location.includes("user-defined")) {
+					configs.push(value);
+				}
+				assert.throws(() => configs.normalizeSync(), `Config (unnamed): ${msg}`);
+			});
 
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected undefined config at original index 0.");
-		});
-
-		it("should throw an error when undefined original config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([void 0]);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at original index 0.",
-				);
-			}
-		});
-
-		it("should throw an error when null original config is normalized", () => {
-			const configs = new FlatConfigArray([null]);
-
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected null config at original index 0.");
-		});
-
-		it("should throw an error when null original config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([null]);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at original index 0.",
-				);
-			}
-		});
-
-		it("should throw an error when undefined base config is normalized", () => {
-			const configs = new FlatConfigArray([], { baseConfig: [void 0] });
-
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected undefined config at base index 0.");
-		});
-
-		it("should throw an error when undefined base config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([], { baseConfig: [void 0] });
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at base index 0.",
-				);
-			}
-		});
-
-		it("should throw an error when null base config is normalized", () => {
-			const configs = new FlatConfigArray([], { baseConfig: [null] });
-
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected null config at base index 0.");
-		});
-
-		it("should throw an error when null base config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([], { baseConfig: [null] });
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at base index 0.",
-				);
-			}
-		});
-
-		it("should throw an error when undefined user-defined config is normalized", () => {
-			const configs = new FlatConfigArray([]);
-
-			configs.push(void 0);
-
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected undefined config at user-defined index 0.");
-		});
-
-		it("should throw an error when undefined user-defined config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([]);
-
-			configs.push(void 0);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at user-defined index 0.",
-				);
-			}
-		});
-
-		it("should throw an error when null user-defined config is normalized", () => {
-			const configs = new FlatConfigArray([]);
-
-			configs.push(null);
-
-			assert.throws(() => {
-				configs.normalizeSync();
-			}, "Config (unnamed): Unexpected null config at user-defined index 0.");
-		});
-
-		it("should throw an error when null user-defined config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([]);
-
-			configs.push(null);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at user-defined index 0.",
-				);
-			}
+			it(`should throw an error when ${value === null ? "null" : "undefined"} ${location} is normalized asynchronously`, async () => {
+				const opts = location.includes("base") ? { baseConfig: [value] } : {};
+				const configs = new FlatConfigArray([], opts);
+				if (location.includes("user-defined")) {
+					configs.push(value);
+				}
+				try {
+					await configs.normalize();
+					assert.fail("Error not thrown");
+				} catch (error) {
+					assert.strictEqual(error.message, `Config (unnamed): ${msg}`);
+				}
+			});
 		});
 	});
 
 	describe("Config Properties", () => {
 		describe("settings", () => {
-			it("should merge two objects", () =>
-				assertMergedResult(
-					[
-						{
-							settings: {
-								a: true,
-								b: false,
-							},
-						},
-						{
-							settings: {
-								c: true,
-								d: false,
-							},
-						},
+			const cases = [
+				{
+					desc: "merge two objects",
+					values: [
+						{ settings: { a: true, b: false } },
+						{ settings: { c: true, d: false } },
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
-						settings: {
-							a: true,
-							b: false,
-							c: true,
-							d: false,
-						},
+						settings: { a: true, b: false, c: true, d: false },
 					},
-				));
-
-			it("should merge two objects when second object has overrides", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "merge with overrides",
+					values: [
 						{
 							settings: {
 								a: true,
@@ -1107,9 +783,8 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						settings: {
 							a: false,
 							b: false,
@@ -1118,11 +793,10 @@ describe("FlatConfigArray", () => {
 							e: [5, 6],
 						},
 					},
-				));
-
-			it("should deeply merge two objects when second object has overrides", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "deep merge with overrides",
+					values: [
 						{
 							settings: {
 								object: {
@@ -1140,9 +814,8 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						settings: {
 							object: {
 								a: false,
@@ -1151,11 +824,10 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					},
-				));
-
-			it("should merge an object and undefined into one object", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "merge object and undefined",
+					values: [
 						{
 							settings: {
 								a: true,
@@ -1164,19 +836,17 @@ describe("FlatConfigArray", () => {
 						},
 						{},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						settings: {
 							a: true,
 							b: false,
 						},
 					},
-				));
-
-			it("should merge undefined and an object into one object", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "merge undefined and object",
+					values: [
 						{},
 						{
 							settings: {
@@ -1185,15 +855,19 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						settings: {
 							a: true,
 							b: false,
 						},
 					},
-				));
+				},
+			];
+
+			cases.forEach(({ desc, values, expected }) => {
+				it(`should ${desc}`, () => assertMergedResult(values, expected));
+			});
 		});
 
 		describe("plugins", () => {
@@ -1204,17 +878,8 @@ describe("FlatConfigArray", () => {
 			it("should merge two objects", () =>
 				assertMergedResult(
 					[
-						{
-							plugins: {
-								a: pluginA,
-								b: pluginB,
-							},
-						},
-						{
-							plugins: {
-								c: pluginC,
-							},
-						},
+						{ plugins: { a: pluginA, b: pluginB } },
+						{ plugins: { c: pluginC } },
 					],
 					{
 						plugins: {
@@ -1229,12 +894,7 @@ describe("FlatConfigArray", () => {
 			it("should merge an object and undefined into one object", () =>
 				assertMergedResult(
 					[
-						{
-							plugins: {
-								a: pluginA,
-								b: pluginB,
-							},
-						},
+						{ plugins: { a: pluginA, b: pluginB } },
 						{},
 					],
 					{
@@ -1249,17 +909,8 @@ describe("FlatConfigArray", () => {
 			it("should error when attempting to redefine a plugin", async () => {
 				await assertInvalidConfig(
 					[
-						{
-							plugins: {
-								a: pluginA,
-								b: pluginB,
-							},
-						},
-						{
-							plugins: {
-								a: pluginC,
-							},
-						},
+						{ plugins: { a: pluginA, b: pluginB } },
+						{ plugins: { a: pluginC } },
 					],
 					'Cannot redefine plugin "a".',
 				);
@@ -1280,12 +931,12 @@ describe("FlatConfigArray", () => {
 		});
 
 		describe("processor", () => {
-			it("should merge two values when second is a string", () => {
-				const stubProcessor = {
-					preprocess() {},
-					postprocess() {},
-				};
+			const stubProcessor = {
+				preprocess() {},
+				postprocess() {},
+			};
 
+			it("should merge two values when second is a string", () => {
 				return assertMergedResult(
 					[
 						{
@@ -1327,66 +978,31 @@ describe("FlatConfigArray", () => {
 
 				return assertMergedResult(
 					[
-						{
-							processor: "markdown/markdown",
-						},
-						{
-							processor,
-						},
+						{ processor: "markdown/markdown" },
+						{ processor },
 					],
 					{
 						plugins: baseConfig.plugins,
-
 						processor,
 					},
 				);
 			});
 
-			it("should error when an invalid string is used", async () => {
-				await assertInvalidConfig(
-					[
-						{
-							processor: "foo",
-						},
-					],
-					"pluginName/objectName",
-				);
-			});
-
-			it("should error when an empty string is used", async () => {
-				await assertInvalidConfig(
-					[
-						{
-							processor: "",
-						},
-					],
-					"pluginName/objectName",
-				);
-			});
-
-			it("should error when an invalid processor is used", async () => {
-				await assertInvalidConfig(
-					[
-						{
-							processor: {},
-						},
-					],
-					"Object must have a preprocess() and a postprocess() method.",
-				);
-			});
-
-			it("should error when a processor cannot be found in a plugin", async () => {
-				await assertInvalidConfig(
-					[
-						{
-							plugins: {
-								foo: {},
-							},
-							processor: "foo/bar",
-						},
-					],
+			[
+				["foo", "pluginName/objectName"],
+				["", "pluginName/objectName"],
+				[{}, "Object must have a preprocess() and a postprocess() method."],
+				[
+					"foo/bar",
 					/Could not find "bar" in plugin "foo"/u,
-				);
+				],
+			].forEach(([processor, msg]) => {
+				it(`should error when processor is ${JSON.stringify(processor)}`, async () => {
+					await assertInvalidConfig(
+						[{ processor }],
+						msg,
+					);
+				});
 			});
 		});
 
@@ -1434,51 +1050,29 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
-
 							linterOptions: {
 								noInlineConfig: false,
 							},
 						},
 					));
 
-				it("should merge an object and undefined into one object", () =>
-					assertMergedResult(
-						[
+				[
+					[{}, {}],
+					[{}, { noInlineConfig: false }],
+				].forEach(([first, second]) => {
+					it(`should merge ${JSON.stringify(first)} and ${JSON.stringify(second)}`, () =>
+						assertMergedResult(
+							[{ linterOptions: first }, { linterOptions: second }],
 							{
+								plugins: baseConfig.plugins,
 								linterOptions: {
 									noInlineConfig: false,
 								},
 							},
-							{},
-						],
-						{
-							plugins: baseConfig.plugins,
-
-							linterOptions: {
-								noInlineConfig: false,
-							},
-						},
-					));
-
-				it("should merge undefined and an object into one object", () =>
-					assertMergedResult(
-						[
-							{},
-							{
-								linterOptions: {
-									noInlineConfig: false,
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-
-							linterOptions: {
-								noInlineConfig: false,
-							},
-						},
-					));
+						));
+				});
 			});
+
 			describe("reportUnusedDisableDirectives", () => {
 				it("should error when an unexpected value is found", async () => {
 					await assertInvalidConfig(
@@ -1509,14 +1103,13 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
-
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
 						},
 					));
 
-				it("should merge an object and undefined into one object", () =>
+				it("should merge undefined and object", () =>
 					assertMergedResult(
 						[
 							{},
@@ -1528,7 +1121,6 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
-
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
@@ -1566,14 +1158,13 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
-
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
 						},
 					));
 
-				it("should merge an object and undefined into one object", () =>
+				it("should merge undefined and object", () =>
 					assertMergedResult(
 						[
 							{},
@@ -1585,7 +1176,6 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
-
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
@@ -1609,22 +1199,19 @@ describe("FlatConfigArray", () => {
 				);
 			});
 
-			it("should merge two languageOptions objects with different properties", () =>
-				assertMergedResult(
-					[
+			const languageOptionCases = [
+				{
+					desc: "different properties",
+					values: [
 						{
 							language: "@/js",
-							languageOptions: {
-								ecmaVersion: 2019,
-							},
+							languageOptions: { ecmaVersion: 2019 },
 						},
 						{
-							languageOptions: {
-								sourceType: "commonjs",
-							},
+							languageOptions: { sourceType: "commonjs" },
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
 						language: jslang,
 						languageOptions: {
@@ -1636,122 +1223,120 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					},
-				));
-
-			it("should get default languageOptions from the language", async () => {
-				const configs = new FlatConfigArray([
-					{
-						files: ["**/*.my"],
-						plugins: {
-							test: {
-								languages: {
-									my: {
-										defaultLanguageOptions: {
-											foo: 42,
+				},
+				{
+					desc: "default languageOptions from language",
+					values: [
+						{
+							files: ["**/*.my"],
+							plugins: {
+								test: {
+									languages: {
+										my: {
+											defaultLanguageOptions: { foo: 42 },
+											validateLanguageOptions() {},
 										},
-										validateLanguageOptions() {},
 									},
 								},
 							},
+							language: "test/my",
 						},
+					],
+					expected: {
 						language: "test/my",
+						plugins: ["@", "test"],
+						languageOptions: { foo: 42 },
+						linterOptions: { reportUnusedDisableDirectives: 1 },
+						processor: void 0,
 					},
-				]);
-
-				await configs.normalize();
-
-				const config = configs.getConfig("file.my");
-
-				assert.deepStrictEqual(config.languageOptions, { foo: 42 });
-			});
-
-			it("should merge configured languageOptions over default languageOptions from the language", async () => {
-				const configs = new FlatConfigArray([
-					{
-						files: ["**/*.my"],
-						plugins: {
-							test: {
-								languages: {
-									my: {
-										defaultLanguageOptions: {
-											foo: 42,
-											bar: 42,
+				},
+				{
+					desc: "configured over default",
+					values: [
+						{
+							files: ["**/*.my"],
+							plugins: {
+								test: {
+									languages: {
+										my: {
+											defaultLanguageOptions: { foo: 42, bar: 42 },
+											validateLanguageOptions() {},
 										},
-										validateLanguageOptions() {},
 									},
 								},
 							},
+							language: "test/my",
+							languageOptions: { bar: 43 },
 						},
+					],
+					expected: {
 						language: "test/my",
-						languageOptions: {
-							bar: 43,
-						},
+						plugins: ["@", "test"],
+						languageOptions: { foo: 42, bar: 43 },
+						linterOptions: { reportUnusedDisableDirectives: 1 },
+						processor: void 0,
 					},
-				]);
+				},
+				{
+					desc: "configured without default",
+					values: [
+						{
+							files: ["**/*.my"],
+							plugins: {
+								test: {
+									languages: {
+										my: {
+											validateLanguageOptions() {},
+										},
+									},
+								},
+							},
+							language: "test/my",
+							languageOptions: { bar: 43 },
+						},
+					],
+					expected: {
+						language: "test/my",
+						plugins: ["@", "test"],
+						languageOptions: { bar: 43 },
+						linterOptions: { reportUnusedDisableDirectives: 1 },
+						processor: void 0,
+					},
+				},
+				{
+					desc: "empty languageOptions",
+					values: [
+						{
+							files: ["**/*.my"],
+							plugins: {
+								test: {
+									languages: {
+										my: {
+											validateLanguageOptions() {},
+										},
+									},
+								},
+							},
+							language: "test/my",
+						},
+					],
+					expected: {
+						language: "test/my",
+						plugins: ["@", "test"],
+						languageOptions: {},
+						linterOptions: { reportUnusedDisableDirectives: 1 },
+						processor: void 0,
+					},
+				},
+			];
 
-				await configs.normalize();
-
-				const config = configs.getConfig("file.my");
-
-				assert.deepStrictEqual(config.languageOptions, {
-					foo: 42,
-					bar: 43,
+			languageOptionCases.forEach(({ desc, values, expected }) => {
+				it(`should ${desc}`, async () => {
+					const configs = new FlatConfigArray(values);
+					await configs.normalize();
+					const config = configs.getConfig("file.my");
+					assert.deepStrictEqual(config, expected);
 				});
-			});
-
-			it("should use configured languageOptions when default languageOptions are not specified", async () => {
-				const configs = new FlatConfigArray([
-					{
-						files: ["**/*.my"],
-						plugins: {
-							test: {
-								languages: {
-									my: {
-										validateLanguageOptions() {},
-									},
-								},
-							},
-						},
-						language: "test/my",
-						languageOptions: {
-							bar: 43,
-						},
-					},
-				]);
-
-				await configs.normalize();
-
-				const config = configs.getConfig("file.my");
-
-				assert.deepStrictEqual(config.languageOptions, { bar: 43 });
-			});
-
-			it("should default to an empty object if neither configured nor default languageOptions are specified", async () => {
-				const configs = new FlatConfigArray([
-					{
-						files: ["**/*.my"],
-						plugins: {
-							test: {
-								languages: {
-									my: {
-										validateLanguageOptions() {},
-									},
-								},
-							},
-						},
-						language: "test/my",
-					},
-				]);
-
-				await configs.normalize();
-
-				const config = configs.getConfig("file.my");
-
-				assert.isObject(config.languageOptions);
-				assert.strictEqual(
-					Object.keys(config.languageOptions).length,
-					0,
-				);
 			});
 
 			describe("ecmaVersion", () => {
@@ -1769,22 +1354,18 @@ describe("FlatConfigArray", () => {
 					);
 				});
 
-				it("should merge two objects when second object has overrides", () =>
-					assertMergedResult(
-						[
+				const ecmaCases = [
+					{
+						values: [
 							{
 								language: "@/js",
-								languageOptions: {
-									ecmaVersion: 2019,
-								},
+								languageOptions: { ecmaVersion: 2019 },
 							},
 							{
-								languageOptions: {
-									ecmaVersion: 2021,
-								},
+								languageOptions: { ecmaVersion: 2021 },
 							},
 						],
-						{
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -1792,49 +1373,14 @@ describe("FlatConfigArray", () => {
 								ecmaVersion: 2021,
 							},
 						},
-					));
+					},
+				];
 
-				it("should merge an object and undefined into one object", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									ecmaVersion: 2021,
-								},
-							},
-							{},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								ecmaVersion: 2021,
-							},
-						},
-					));
-
-				it("should merge undefined and an object into one object", () =>
-					assertMergedResult(
-						[
-							{},
-							{
-								language: "@/js",
-								languageOptions: {
-									ecmaVersion: 2021,
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								ecmaVersion: 2021,
-							},
-						},
-					));
+				ecmaCases.forEach(({ values, expected }) => {
+					it("should merge two objects when second object has overrides", async () => {
+						await assertMergedResult(values, expected);
+					});
+				});
 			});
 
 			describe("sourceType", () => {
@@ -1852,22 +1398,18 @@ describe("FlatConfigArray", () => {
 					);
 				});
 
-				it("should merge two objects when second object has overrides", () =>
-					assertMergedResult(
-						[
+				const sourceCases = [
+					{
+						values: [
 							{
 								language: "@/js",
-								languageOptions: {
-									sourceType: "module",
-								},
+								languageOptions: { sourceType: "module" },
 							},
 							{
-								languageOptions: {
-									sourceType: "script",
-								},
+								languageOptions: { sourceType: "script" },
 							},
 						],
-						{
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -1878,52 +1420,14 @@ describe("FlatConfigArray", () => {
 								},
 							},
 						},
-					));
+					},
+				];
 
-				it("should merge an object and undefined into one object", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									sourceType: "script",
-								},
-							},
-							{},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								sourceType: "script",
-								parserOptions: {
-									sourceType: "script",
-								},
-							},
-						},
-					));
-
-				it("should merge undefined and an object into one object", () =>
-					assertMergedResult(
-						[
-							{},
-							{
-								language: "@/js",
-								languageOptions: {
-									sourceType: "module",
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								sourceType: "module",
-							},
-						},
-					));
+				sourceCases.forEach(({ values, expected }) => {
+					it("should merge two objects when second object has overrides", async () => {
+						await assertMergedResult(values, expected);
+					});
+				});
 			});
 
 			describe("globals", () => {
@@ -1957,179 +1461,81 @@ describe("FlatConfigArray", () => {
 					);
 				});
 
-				it("should error when a global has leading whitespace", async () => {
-					await assertInvalidConfig(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: {
-										" foo": "readonly",
+				[
+					[" foo", /Global " foo" has leading or trailing whitespace/u],
+					["foo ", /Global "foo " has leading or trailing whitespace/u],
+				].forEach(([globalName, msg]) => {
+					it(`should error when a global has ${globalName.trim() ? "trailing" : "leading"} whitespace`, async () => {
+						await assertInvalidConfig(
+							[
+								{
+									language: "@/js",
+									languageOptions: {
+										globals: {
+											[globalName]: "readonly",
+										},
 									},
 								},
-							},
-						],
-						/Global " foo" has leading or trailing whitespace/u,
-					);
+							],
+							msg,
+						);
+					});
 				});
 
-				it("should error when a global has trailing whitespace", async () => {
-					await assertInvalidConfig(
-						[
+				const globalsCases = [
+					{
+						values: [
 							{
 								language: "@/js",
 								languageOptions: {
-									globals: {
-										"foo ": "readonly",
-									},
+									globals: { foo: "readonly" },
+								},
+							},
+							{
+								languageOptions: {
+									globals: { bar: "writable" },
 								},
 							},
 						],
-						/Global "foo " has leading or trailing whitespace/u,
-					);
+						expected: {
+							plugins: baseConfig.plugins,
+							language: jslang,
+							languageOptions: {
+								...jslang.defaultLanguageOptions,
+								globals: { foo: "readonly", bar: "writable" },
+							},
+						},
+					},
+					{
+						values: [
+							{
+								language: "@/js",
+								languageOptions: {
+									globals: { foo: null },
+								},
+							},
+							{
+								languageOptions: {
+									globals: { foo: "writeable" },
+								},
+							},
+						],
+						expected: {
+							plugins: baseConfig.plugins,
+							language: jslang,
+							languageOptions: {
+								...jslang.defaultLanguageOptions,
+								globals: { foo: "writeable" },
+							},
+						},
+					},
+				];
+
+				globalsCases.forEach(({ values, expected }) => {
+					it("should merge globals correctly", async () => {
+						await assertMergedResult(values, expected);
+					});
 				});
-
-				it("should merge two objects when second object has different keys", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: {
-										foo: "readonly",
-									},
-								},
-							},
-							{
-								languageOptions: {
-									globals: {
-										bar: "writable",
-									},
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								globals: {
-									foo: "readonly",
-									bar: "writable",
-								},
-							},
-						},
-					));
-
-				it("should merge two objects when second object has overrides", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: {
-										foo: null,
-									},
-								},
-							},
-							{
-								languageOptions: {
-									globals: {
-										foo: "writeable",
-									},
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								globals: {
-									foo: "writeable",
-								},
-							},
-						},
-					));
-
-				it("should merge an object and undefined into one object", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: {
-										foo: "readable",
-									},
-								},
-							},
-							{},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								globals: {
-									foo: "readable",
-								},
-							},
-						},
-					));
-
-				it("should merge undefined and an object into one object", () =>
-					assertMergedResult(
-						[
-							{},
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: {
-										foo: "false",
-									},
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								globals: {
-									foo: "false",
-								},
-							},
-						},
-					));
-
-				it("should merge string and an object into one object", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									globals: "foo",
-								},
-							},
-							{
-								languageOptions: {
-									globals: {
-										foo: "false",
-									},
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								globals: {
-									foo: "false",
-								},
-							},
-						},
-					));
 			});
 
 			describe("parser", () => {
@@ -2192,77 +1598,18 @@ describe("FlatConfigArray", () => {
 				it("should merge two objects when second object has overrides", () => {
 					const parser = { parse() {} };
 					const stubParser = { parse() {} };
-
 					return assertMergedResult(
 						[
 							{
 								language: "@/js",
-								languageOptions: {
-									parser,
-								},
+								languageOptions: { parser },
 							},
 							{
-								languageOptions: {
-									parser: stubParser,
-								},
+								languageOptions: { parser: stubParser },
 							},
 						],
 						{
-							plugins: {
-								...baseConfig.plugins,
-							},
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								parser: stubParser,
-							},
-						},
-					);
-				});
-
-				it("should merge an object and undefined into one object", () => {
-					const stubParser = { parse() {} };
-
-					return assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parser: stubParser,
-								},
-							},
-							{},
-						],
-						{
-							plugins: {
-								...baseConfig.plugins,
-							},
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								parser: stubParser,
-							},
-						},
-					);
-				});
-
-				it("should merge undefined and an object into one object", () => {
-					const stubParser = { parse() {} };
-
-					return assertMergedResult(
-						[
-							{},
-							{
-								language: "@/js",
-								languageOptions: {
-									parser: stubParser,
-								},
-							},
-						],
-						{
-							plugins: {
-								...baseConfig.plugins,
-							},
+							plugins: { ...baseConfig.plugins },
 							language: jslang,
 							languageOptions: {
 								...jslang.defaultLanguageOptions,
@@ -2288,26 +1635,11 @@ describe("FlatConfigArray", () => {
 					);
 				});
 
-				it("should merge two objects when second object has different keys", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										foo: "whatever",
-									},
-								},
-							},
-							{
-								languageOptions: {
-									parserOptions: {
-										bar: "baz",
-									},
-								},
-							},
-						],
-						{
+				const parserOptionsCases = [
+					{
+						first: { foo: "whatever" },
+						second: { bar: "baz" },
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -2319,32 +1651,11 @@ describe("FlatConfigArray", () => {
 								},
 							},
 						},
-					));
-
-				it("should deeply merge two objects when second object has different keys", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										ecmaFeatures: {
-											jsx: true,
-										},
-									},
-								},
-							},
-							{
-								languageOptions: {
-									parserOptions: {
-										ecmaFeatures: {
-											globalReturn: true,
-										},
-									},
-								},
-							},
-						],
-						{
+					},
+					{
+						first: { ecmaFeatures: { jsx: true } },
+						second: { ecmaFeatures: { globalReturn: true } },
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -2358,28 +1669,11 @@ describe("FlatConfigArray", () => {
 								},
 							},
 						},
-					));
-
-				it("should deeply merge two objects when second object has missing key", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										ecmaFeatures: {
-											jsx: true,
-										},
-									},
-								},
-							},
-							{
-								languageOptions: {
-									ecmaVersion: 2021,
-								},
-							},
-						],
-						{
+					},
+					{
+						first: { ecmaFeatures: { jsx: true } },
+						second: { ecmaVersion: 2021 },
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -2393,28 +1687,11 @@ describe("FlatConfigArray", () => {
 								},
 							},
 						},
-					));
-
-				it("should merge two objects when second object has overrides", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										foo: "whatever",
-									},
-								},
-							},
-							{
-								languageOptions: {
-									parserOptions: {
-										foo: "bar",
-									},
-								},
-							},
-						],
-						{
+					},
+					{
+						first: { foo: "whatever" },
+						second: { foo: "bar" },
+						expected: {
 							plugins: baseConfig.plugins,
 							language: jslang,
 							languageOptions: {
@@ -2425,59 +1702,25 @@ describe("FlatConfigArray", () => {
 								},
 							},
 						},
-					));
+					},
+				];
 
-				it("should merge an object and undefined into one object", () =>
-					assertMergedResult(
-						[
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										foo: "whatever",
-									},
+				parserOptionsCases.forEach(({ first, second, expected }) => {
+					it("should merge parserOptions correctly", async () => {
+						await assertMergedResult(
+							[
+								{
+									language: "@/js",
+									languageOptions: { parserOptions: first },
 								},
-							},
-							{},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								parserOptions: {
-									foo: "whatever",
-									sourceType: "module",
+								{
+									languageOptions: { parserOptions: second },
 								},
-							},
-						},
-					));
-
-				it("should merge undefined and an object into one object", () =>
-					assertMergedResult(
-						[
-							{},
-							{
-								language: "@/js",
-								languageOptions: {
-									parserOptions: {
-										foo: "bar",
-									},
-								},
-							},
-						],
-						{
-							plugins: baseConfig.plugins,
-							language: jslang,
-							languageOptions: {
-								...jslang.defaultLanguageOptions,
-								parserOptions: {
-									foo: "bar",
-									sourceType: "module",
-								},
-							},
-						},
-					));
+							],
+							expected,
+						);
+					});
+				});
 			});
 		});
 
@@ -2696,7 +1939,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2729,7 +1971,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2762,7 +2003,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2823,9 +2063,10 @@ describe("FlatConfigArray", () => {
 				);
 			});
 
-			it("should merge two objects", () =>
-				assertMergedResult(
-					[
+			const ruleMergeCases = [
+				{
+					desc: "basic merge",
+					values: [
 						{
 							rules: {
 								foo: 1,
@@ -2839,9 +2080,8 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						rules: {
 							foo: [1],
 							bar: [2],
@@ -2849,11 +2089,10 @@ describe("FlatConfigArray", () => {
 							boom: [0],
 						},
 					},
-				));
-
-			it("should merge two objects when second object has simple overrides", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "simple overrides",
+					values: [
 						{
 							rules: {
 								foo: [1, "always"],
@@ -2867,19 +2106,17 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
-
 						rules: {
 							foo: [2, "always"],
 							bar: [0],
 						},
 					},
-				));
-
-			it("should merge two objects when second object has array overrides", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "array overrides",
+					values: [
 						{
 							rules: {
 								foo: 1,
@@ -2893,18 +2130,17 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
 						rules: {
 							foo: [2, "never"],
 							foo2: [1, "foo"],
 						},
 					},
-				));
-
-			it("should merge two objects and options when second object overrides without options", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "override without options",
+					values: [
 						{
 							rules: {
 								foo: [1, "always"],
@@ -2926,7 +2162,7 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: {
 							...baseConfig.plugins,
 							"@foo/baz/boom": {
@@ -2941,11 +2177,10 @@ describe("FlatConfigArray", () => {
 							"@foo/baz/boom/bang": [2],
 						},
 					},
-				));
-
-			it("should merge an object and undefined into one object", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "merge with undefined",
+					values: [
 						{
 							rules: {
 								foo: 0,
@@ -2954,18 +2189,17 @@ describe("FlatConfigArray", () => {
 						},
 						{},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
 						rules: {
 							foo: [0],
 							bar: [1],
 						},
 					},
-				));
-
-			it("should merge a rule that doesn't exist without error when the rule is off", () =>
-				assertMergedResult(
-					[
+				},
+				{
+					desc: "nonexistent rules with off",
+					values: [
 						{
 							rules: {
 								foo: 0,
@@ -2979,7 +2213,7 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					{
+					expected: {
 						plugins: baseConfig.plugins,
 						rules: {
 							foo: [0],
@@ -2988,7 +2222,12 @@ describe("FlatConfigArray", () => {
 							nonExistentRule2: [0, "bar"],
 						},
 					},
-				));
+				},
+			];
+
+			ruleMergeCases.forEach(({ desc, values, expected }) => {
+				it(`should ${desc}`, () => assertMergedResult(values, expected));
+			});
 
 			it("should error show expected properties", async () => {
 				await assertInvalidConfig(
@@ -3048,7 +2287,7 @@ describe("FlatConfigArray", () => {
 		});
 
 		describe("Invalid Keys", () => {
-			const invalidKeys = [
+			[
 				"env",
 				"extends",
 				"globals",
@@ -3059,9 +2298,9 @@ describe("FlatConfigArray", () => {
 				"parserOptions",
 				"reportUnusedDisableDirectives",
 				"root",
-			];
-
-			generateInvalidKeyTests(invalidKeys);
+			].forEach(key => {
+				testInvalidKey(key, `Key "${key}": This appears to be in eslintrc format rather than flat config format.`);
+			});
 
 			it("should error when plugins is an array", async () => {
 				await assertInvalidConfig(
@@ -3134,7 +2373,6 @@ describe("FlatConfigArray", () => {
 
 			configs.normalizeSync();
 
-			// exact error may differ based on structuredClone implementation so just test prefix
 			assert.throws(() => {
 				configs.getConfig("foo.js");
 			}, /Key "rules": Key "camelcase":/u);

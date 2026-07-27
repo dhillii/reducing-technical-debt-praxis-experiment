@@ -241,7 +241,7 @@
     try {
       // Get the current task and run it, setting `this` inside the task
       // function to be something useful.
-      const success = fn.call(context);
+      let success = fn.call(context);
       // If the async flag wasn't set, process the next task in the queue.
       if (!async) {
         complete(success);

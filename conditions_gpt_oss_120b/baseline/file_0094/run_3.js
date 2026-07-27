@@ -84,7 +84,7 @@ define([
         },
 
         checkPasswords: function(data) {
-            const self = this;
+            const self     = this;
             const promises = [];
 
             /*
@@ -122,8 +122,8 @@ define([
          */
         initEncrypt: function() {
             const promises = [];
-            const profile = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
-            const self = this;
+            const profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
+            const self     = this;
 
             this.rawData = {};
             this.rawData[profile] = {configs: _.map(this.configs, function(item, key) {
@@ -169,18 +169,18 @@ define([
          */
         encryptProfile: function(options) {
             const promises = [];
-            const self = this;
+            const self     = this;
 
             // Fetch options
-            let opts = options || this.options;
-            opts.pageSize = 0;
+            options          = options || this.options;
+            options.pageSize = 0;
 
-            this.rawData[opts.profile] = this.rawData[opts.profile] || {};
+            this.rawData[options.profile] = this.rawData[options.profile] || {};
 
             // Fetch all collections in a profile
             _.each(this.collectionNames, function(name) {
                 promises.push(
-                    new Q(Radio.request(name, 'fetch', opts))
+                    new Q(Radio.request(name, 'fetch', options))
                 );
             });
 
@@ -191,7 +191,7 @@ define([
             .spread(function() {
                 // Re-encrypt the collections that are not empty
                 self.collections = _.filter(arguments, function(collection) {
-                    self.rawData[opts.profile][collection.storeName] = collection.toJSON();
+                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
                     return collection.length > 0;
                 });
                 self.view.trigger('encrypt:init', self.collections.length);
@@ -216,7 +216,7 @@ define([
             }
 
             const promises = [];
-            const self = this;
+            const self     = this;
 
             // Use new encryption configs
             this.vent.request('change:configs', this.configs);

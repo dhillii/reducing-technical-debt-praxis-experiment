@@ -177,7 +177,7 @@ exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
     // format
-    const fmt = color('error title', '  %s) %s:\n') +
+    let fmt = color('error title', '  %s) %s:\n') +
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
@@ -198,10 +198,10 @@ exports.list = function (failures) {
     if (index === -1) {
       msg = message;
     } else {
-      const endIdx = index + message.length;
+      const newIndex = index + message.length;
       msg = stack.slice(0, index);
       // remove msg from stack
-      stack = stack.slice(endIdx + 1);
+      stack = stack.slice(newIndex + 1);
     }
 
     // uncaught
@@ -211,7 +211,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      const diffFmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -220,8 +220,6 @@ exports.list = function (failures) {
       } else {
         msg += unifiedDiff(err);
       }
-      // replace fmt with diffFmt
-      fmt = diffFmt;
     }
 
     // indent stack trace
@@ -229,11 +227,11 @@ exports.list = function (failures) {
 
     // indented test title
     let testTitle = '';
-    test.titlePath().forEach(function (str, idx) {
-      if (idx !== 0) {
+    test.titlePath().forEach(function (str, index) {
+      if (index !== 0) {
         testTitle += '\n     ';
       }
-      for (let j = 0; j < idx; j++) {
+      for (let i = 0; i < index; i++) {
         testTitle += '  ';
       }
       testTitle += str;

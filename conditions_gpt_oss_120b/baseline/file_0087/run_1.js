@@ -24,7 +24,7 @@ import type {
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
-  const [preNullValue, setPreNullValue] = useState(
+  const [preNullValue, setPreNullValue] = useState<string | null>(
     value.value ?? (value.kind === 'update' ? value.initial : null)
   )
   const longestLabelLength = useMemo(() => {
@@ -41,7 +41,7 @@ export function Field(props: FieldProps<typeof controller>) {
 
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
-    const newValue = (key as string) ?? null
+    const newValue = (key === null ? null : String(key)) as string | null
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
@@ -206,11 +206,11 @@ export function controller(config: Config): FieldController<
     deserialize: data => {
       for (const option of config.fieldMeta.options) {
         if (option.value === data[config.fieldKey]) {
-          const stringified = option.value.toString()
+          const stringValue = option.value.toString()
           return {
             kind: 'update',
-            initial: stringified,
-            value: stringified,
+            initial: stringValue,
+            value: stringValue,
           }
         }
       }
@@ -236,6 +236,7 @@ export function controller(config: Config): FieldController<
             selectionMode="multiple"
             onSelectionChange={selection => {
               if (selection === 'all') return
+
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
             selectedKeys={value}

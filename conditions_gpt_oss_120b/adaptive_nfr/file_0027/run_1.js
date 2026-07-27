@@ -128,17 +128,15 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // invalid URL – ignore
+            const parsed = this._parseUrl(this.post.canonicalUrl);
+            if (parsed) {
+                urlParts.push(parsed.host);
+                urlParts.push(...parsed.pathname.split('/').filter(p => p));
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
             urlParts.push(this.post.slug);
         }
 
@@ -202,7 +200,7 @@ export default class GhPostSettingsMenu extends Component {
         if (this.post.isNew) {
             return;
         }
-        this._savePostWithRollback();
+        this._saveWithRollback();
     }
 
     @action
@@ -211,7 +209,7 @@ export default class GhPostSettingsMenu extends Component {
         if (this.post.isNew) {
             return;
         }
-        this._savePostWithRollback();
+        this._saveWithRollback();
     }
 
     @action
@@ -224,14 +222,11 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
-    /**
-     * Update the slug via the dedicated task.
-     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask
             .perform(newSlug)
-            .catch(error => {
+            .catch((error) => {
                 this.showError(error);
                 this.post.rollbackAttributes();
             });
@@ -255,10 +250,17 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.post.validate({property: 'visibility'});
-        await this.post.validate({property: 'tiers'});
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.savePostTask.perform();
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                return;
+            }
+            throw e;
         }
     }
 
@@ -278,122 +280,101 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        const post = this.post;
-        if (excerpt === post.get('customExcerpt')) {
-            return;
-        }
-        post.set('customExcerpt', excerpt);
-        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
+        return this._updateField('customExcerpt', excerpt, 'customExcerpt');
     }
 
     @action
     setHeaderInjection(code) {
-        const post = this.post;
-        if (code === post.get('codeinjectionHead')) {
-            return;
-        }
-        post.set('codeinjectionHead', code);
-        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
+        return this._updateField('codeinjectionHead', code, 'codeinjectionHead');
     }
 
     @action
     setFooterInjection(code) {
-        const post = this.post;
-        if (code === post.get('codeinjectionFoot')) {
-            return;
-        }
-        post.set('codeinjectionFoot', code);
-        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
+        return this._updateField('codeinjectionFoot', code, 'codeinjectionFoot');
     }
 
     @action
     setMetaTitle(metaTitle) {
-        this._updateProperty('metaTitle', metaTitle, 'metaTitle');
+        return this._updateField('metaTitle', metaTitle, 'metaTitle');
     }
 
     @action
     setMetaDescription(metaDescription) {
-        this._updateProperty('metaDescription', metaDescription, 'metaDescription');
+        return this._updateField('metaDescription', metaDescription, 'metaDescription');
     }
 
     @action
     setCanonicalUrl(value) {
-        this._updateProperty('canonicalUrl', value, 'canonicalUrl');
+        return this._updateField('canonicalUrl', value, 'canonicalUrl');
     }
 
     @action
     setOgTitle(ogTitle) {
-        this._updateProperty('ogTitle', ogTitle, 'ogTitle');
+        return this._updateField('ogTitle', ogTitle, 'ogTitle');
     }
 
     @action
     setOgDescription(ogDescription) {
-        this._updateProperty('ogDescription', ogDescription, 'ogDescription');
+        return this._updateField('ogDescription', ogDescription, 'ogDescription');
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        this._updateProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        return this._updateField('twitterTitle', twitterTitle, 'twitterTitle');
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        this._updateProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        return this._updateField('twitterDescription', twitterDescription, 'twitterDescription');
     }
 
     @action
     setCoverImage(image) {
-        this._setImage('featureImage', image);
+        return this._setImage('featureImage', image);
     }
 
     @action
     clearCoverImage() {
-        this._clearImage('featureImage');
+        return this._setImage('featureImage', '');
     }
 
     @action
     setOgImage(image) {
-        this._setImage('ogImage', image);
+        return this._setImage('ogImage', image);
     }
 
     @action
     clearOgImage() {
-        this._clearImage('ogImage');
+        return this._setImage('ogImage', '');
     }
 
     @action
     setTwitterImage(image) {
-        this._setImage('twitterImage', image);
+        return this._setImage('twitterImage', image);
     }
 
     @action
     clearTwitterImage() {
-        this._clearImage('twitterImage');
+        return this._setImage('twitterImage', '');
     }
 
     @action
     changeAuthors(newAuthors) {
         const post = this.post;
-        const currentIds = post.get('authors').mapBy('id').join();
-        const newIds = newAuthors.mapBy('id').join();
-
-        if (currentIds === newIds) {
+        if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
-
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
-
         if (post.get('isNew')) {
             return;
         }
-
-        this._savePostWithRollback();
+        this._saveWithRollback();
     }
 
     @action
     savePost() {
-        this._savePostWithRollback();
+        this._saveWithRollback();
     }
 
     @action
@@ -421,60 +402,62 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Generic property updater that validates and saves if needed.
-     *
-     * @param {string} prop - The property name on the post.
-     * @param {*} value - New value to set.
-     * @param {string} validationProp - Property name used for validation.
+     * Safely parse a URL string.
+     * Returns a URL object if valid, otherwise null.
+     * @private
+     * @param {string} urlString
+     * @returns {URL|null}
      */
-    _updateProperty(prop, value, validationProp) {
+    _parseUrl(urlString) {
+        try {
+            return new URL(urlString);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Generic field updater with validation and optional save.
+     * @private
+     * @param {string} fieldKey Ember data attribute key
+     * @param {*} newValue New value to set
+     * @param {string} validationProp Property name for validation
+     * @returns {Promise|undefined}
+     */
+    _updateField(fieldKey, newValue, validationProp) {
         const post = this.post;
-        if (post.get(prop) === value) {
+        if (post.get(fieldKey) === newValue) {
             return;
         }
-        post.set(prop, value);
-        post.validate({property: validationProp}).then(() => {
-            if (!post.get('isNew')) {
-                this.savePostTask.perform().catch(error => {
-                    this.showError(error);
-                    post.rollbackAttributes();
-                });
+        post.set(fieldKey, newValue);
+        return post.validate({property: validationProp}).then(() => {
+            if (post.get('isNew')) {
+                return;
             }
+            return this.savePostTask.perform();
         });
     }
 
     /**
-     * Set an image property and persist changes.
-     *
-     * @param {string} prop - Image property on the post.
-     * @param {string} image - Image URL.
+     * Update image property and handle save for existing posts.
+     * @private
+     * @param {string} property Image property name on post
+     * @param {string} value Image URL or empty string
      */
-    _setImage(prop, image) {
-        this.set(`post.${prop}`, image);
-        if (this.post.get('isNew')) {
+    _setImage(property, value) {
+        this.set(`post.${property}`, value);
+        if (this.get('post.isNew')) {
             return;
         }
-        this._savePostWithRollback();
+        this._saveWithRollback();
     }
 
     /**
-     * Clear an image property and persist changes.
-     *
-     * @param {string} prop - Image property on the post.
+     * Perform savePostTask with error handling and rollback.
+     * @private
      */
-    _clearImage(prop) {
-        this.set(`post.${prop}`, '');
-        if (this.post.get('isNew')) {
-            return;
-        }
-        this._savePostWithRollback();
-    }
-
-    /**
-     * Save the post using the task and handle errors uniformly.
-     */
-    _savePostWithRollback() {
-        this.savePostTask.perform().catch(error => {
+    _saveWithRollback() {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });

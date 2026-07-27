@@ -415,7 +415,7 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(buttons.length, 'context menu buttons').to.equal(6);
                         expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
                         expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
-                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unpublish
                         expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
                         expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
                         expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');

@@ -1,21 +1,18 @@
 'use strict';
 
-let ngModule = angular.module('woEmail');
+var ngModule = angular.module('woEmail');
 ngModule.service('email', Email);
 module.exports = Email;
 
-let config = require('../app-config').config,
+var config = require('../app-config').config,
     str = require('../app-config').string,
     axe = require('axe-logger'),
     PgpMailer = require('pgpmailer'),
     ImapClient = require('imap-client');
 
 //
-//
 // Constants
 //
-//
-
 const FOLDER_DB_TYPE = 'folders';
 
 const SYNC_TYPE_NEW = 'new';
@@ -38,12 +35,6 @@ const MSG_PART_TYPE_SIGNED = 'signed';
 const MSG_PART_TYPE_TEXT = 'text';
 const MSG_PART_TYPE_HTML = 'html';
 
-//
-//
-// Email Service
-//
-//
-
 /**
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
@@ -64,14 +55,6 @@ function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appC
     this._appConfig = appConfig;
     this._auth = auth;
 }
-
-
-//
-//
-// Public API
-//
-//
-
 
 /**
  * Initializes the email dao:
@@ -107,11 +90,9 @@ Email.prototype.unlock = function (options) {
         generatedKeypair = undefined;
 
     if (options.keypair) {
-        // import existing key pair into crypto module
         return handleExistingKeypair(options.keypair);
     }
 
-    // no keypair for is stored for the user... generate a new one
     return self._pgp.generateKeys({
         emailAddress: self._account.emailAddress,
         realname: options.realname,
@@ -119,15 +100,12 @@ Email.prototype.unlock = function (options) {
         passphrase: options.passphrase
     }).then(function (keypair) {
         generatedKeypair = keypair;
-        // import the new key pair into crypto module
         return self._pgp.importKeys({
             passphrase: options.passphrase,
             privateKeyArmored: generatedKeypair.privateKeyArmored,
             publicKeyArmored: generatedKeypair.publicKeyArmored
         });
-
     }).then(function () {
-        // persist newly generated keypair
         return {
             publicKey: {
                 _id: generatedKeypair.keyId,
@@ -140,7 +118,6 @@ Email.prototype.unlock = function (options) {
                 encryptedKey: generatedKeypair.privateKeyArmored
             }
         };
-
     }).then(setPrivateKey);
 
     function handleExistingKeypair(keypair) {
@@ -148,12 +125,13 @@ Email.prototype.unlock = function (options) {
             const privKeyParams = self._pgp.getKeyParams(keypair.privateKey.encryptedKey);
             const pubKeyParams = self._pgp.getKeyParams(keypair.publicKey.publicKey);
 
-            // check if key IDs match
-            if (!keypair.privateKey._id || keypair.privateKey._id !== keypair.publicKey._id || keypair.privateKey._id !== privKeyParams._id || keypair.publicKey._id !== pubKeyParams._id) {
+            if (!keypair.privateKey._id ||
+                keypair.privateKey._id !== keypair.publicKey._id ||
+                keypair.privateKey._id !== privKeyParams._id ||
+                keypair.publicKey._id !== pubKeyParams._id) {
                 throw new Error('Key IDs dont match!');
             }
 
-            // check that key userIds contain email address of user account
             const matchingPrivUserId = _.findWhere(privKeyParams.userIds, {
                 emailAddress: self._account.emailAddress
             });
@@ -161,14 +139,15 @@ Email.prototype.unlock = function (options) {
                 emailAddress: self._account.emailAddress
             });
 
-            if (!matchingPrivUserId || !matchingPubUserId || keypair.privateKey.userId !== self._account.emailAddress || keypair.publicKey.userId !== self._account.emailAddress) {
+            if (!matchingPrivUserId ||
+                !matchingPubUserId ||
+                keypair.privateKey.userId !== self._account.emailAddress ||
+                keypair.publicKey.userId !== self._account.emailAddress) {
                 throw new Error('User IDs dont match!');
             }
 
             resolve();
-
         }).then(function () {
-            // import existing key pair into crypto module
             return self._pgp.importKeys({
                 passphrase: options.passphrase,
                 privateKeyArmored: keypair.privateKey.encryptedKey,
@@ -176,12 +155,10 @@ Email.prototype.unlock = function (options) {
             }).then(function () {
                 return keypair;
             });
-
         }).then(setPrivateKey);
     }
 
     function setPrivateKey(keypair) {
-        // set decrypted privateKey to pgpMailer
         self._pgpbuilder._privateKey = self._pgp._privateKey;
         return keypair;
     }
@@ -199,7 +176,6 @@ Email.prototype.openFolder = function (options) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
         if (options.folder.path !== config.outboxMailboxPath) {
             return self._imapClient.selectMailbox({
@@ -229,7 +205,6 @@ Email.prototype.deleteMessage = function (options) {
 
     folder.messages.splice(folder.messages.indexOf(message), 1);
 
-    // delete only locally
     if (options.localOnly || options.folder.path === config.outboxMailboxPath) {
         return deleteLocal().then(done).catch(done);
     }
@@ -237,20 +212,16 @@ Email.prototype.deleteMessage = function (options) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
-        // delete from IMAP
         return self._imapDeleteMessage({
             folder: folder,
             uid: message.uid
         });
-
     }).then(function () {
         return deleteLocal();
     }).then(done).catch(done);
 
     function deleteLocal() {
-        // delete from indexed db
         return self._localDeleteMessage({
             folder: folder,
             uid: message.uid
@@ -258,11 +229,10 @@ Email.prototype.deleteMessage = function (options) {
     }
 
     function done(err) {
-        self.done(); // stop the spinner
-        updateUnreadCount(folder); // update the unread count, if necessary
-
+        self.done();
+        updateUnreadCount(folder);
         if (err) {
-            folder.messages.unshift(message); // re-add the message to the folder in case of an error
+            folder.messages.unshift(message);
             throw err;
         }
     }
@@ -283,17 +253,12 @@ Email.prototype.setFlags = function (options) {
         folder = options.folder,
         message = options.message;
 
-    // no-op if the message if not present anymore (for whatever reason)
     if (folder.messages.indexOf(message) < 0) {
-        return new Promise(function (resolve) {
-            resolve();
-        });
+        return Promise.resolve();
     }
 
-    self.busy(); // start the spinner
+    self.busy();
 
-    // don't do a roundtrip to IMAP,
-    // especially if you want to mark outbox messages
     if (options.localOnly || options.folder.path === config.outboxMailboxPath) {
         return markStorage().then(done).catch(done);
     }
@@ -301,9 +266,7 @@ Email.prototype.setFlags = function (options) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
-        // mark a message unread/answered on IMAP
         return self._imapMark({
             folder: folder,
             uid: options.message.uid,
@@ -311,34 +274,23 @@ Email.prototype.setFlags = function (options) {
             answered: options.message.answered,
             flagged: options.message.flagged
         });
-
     }).then(function () {
         return markStorage();
-
     }).then(done).catch(done);
 
     function markStorage() {
-        // angular pollutes that data transfer objects with helper properties (e.g. $$hashKey),
-        // which we do not want to persist to disk. in order to avoid that, we load the pristine
-        // message from disk, change the flags and re-persist it to disk
         return self._localListMessages({
             folder: folder,
             uid: options.message.uid,
         }).then(function (storedMessages) {
-            // set the flags
             const storedMessage = storedMessages[0];
-
             if (!storedMessage) {
-                // the message has been deleted in the meantime
                 return;
             }
-
             storedMessage.unread = options.message.unread;
             storedMessage.flagged = options.message.flagged;
             storedMessage.answered = options.message.answered;
             storedMessage.modseq = options.message.modseq || storedMessage.modseq;
-
-            // store
             return self._localStoreMessages({
                 folder: folder,
                 emails: [storedMessage]
@@ -347,8 +299,8 @@ Email.prototype.setFlags = function (options) {
     }
 
     function done(err) {
-        self.done(); // stop the spinner
-        updateUnreadCount(folder); // update the unread count
+        self.done();
+        updateUnreadCount(folder);
         if (err) {
             throw err;
         }
@@ -373,33 +325,26 @@ Email.prototype.moveMessage = function (options) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
         folder.messages.splice(folder.messages.indexOf(message), 1);
-
-        // delete from IMAP
         return self._imapMoveMessage({
             folder: folder,
             destination: destination,
             uid: message.uid
         }).catch(function (err) {
-            // re-add the message to the folder in case of an error, only makes sense if IMAP errors
             folder.messages.unshift(message);
             done(err);
         });
-
     }).then(function () {
-        // delete from local indexed db, will be synced when new folder is opened
         return self._localDeleteMessage({
             folder: folder,
             uid: message.uid
         });
-
     }).then(done).catch(done);
 
     function done(err) {
-        self.done(); // stop the spinner
-        updateUnreadCount(folder); // update the unread count, if necessary
+        self.done();
+        updateUnreadCount(folder);
         if (err) {
             throw err;
         }
@@ -415,119 +360,123 @@ Email.prototype.moveMessage = function (options) {
  */
 Email.prototype.getBody = function (options) {
     const self = this,
-        messages = options.messages,
-        folder = options.folder;
+        folder = options.folder,
+        notifyNew = options.notifyNew;
 
-    let filteredMessages = messages.filter(function (message) {
-        // the message either already has a body or is fetching it right now, so no need to become active here
+    const messagesToLoad = this._filterMessages(options.messages);
+    if (!messagesToLoad.length) {
+        return Promise.resolve();
+    }
+
+    this._markMessagesLoading(messagesToLoad);
+    this.busy();
+
+    return this._loadLocalMessages(messagesToLoad, folder)
+        .then(local => this._handleMissingMessages(messagesToLoad, local, folder))
+        .then(() => this._enhanceMessages(messagesToLoad, folder))
+        .then(() => this._extractMessageBodies(messagesToLoad))
+        .then(() => this._finalizeGetBody(messagesToLoad, folder, notifyNew))
+        .catch(err => {
+            this._resetLoading(messagesToLoad);
+            throw err;
+        });
+};
+
+Email.prototype._filterMessages = function (messages) {
+    return messages.filter(function (message) {
         return !(message.loadingBody || typeof message.body !== 'undefined');
     });
+};
 
-    if (!filteredMessages.length) {
-        return new Promise(function (resolve) {
-            resolve();
-        });
-    }
-
-    filteredMessages.forEach(function (message) {
+Email.prototype._markMessagesLoading = function (messages) {
+    messages.forEach(function (message) {
         message.loadingBody = true;
     });
+};
 
-    self.busy();
+Email.prototype._resetLoading = function (messages) {
+    messages.forEach(function (message) {
+        message.loadingBody = false;
+    });
+    this.done();
+};
 
-    let loadedMessages;
-
-    // load the message from disk
-    return self._localListMessages({
+Email.prototype._loadLocalMessages = function (messages, folder) {
+    const uids = _.pluck(messages, MSG_ATTR_UID);
+    return this._localListMessages({
         folder: folder,
-        uid: _.pluck(filteredMessages, MSG_ATTR_UID)
-    }).then(function (localMessages) {
-        loadedMessages = localMessages;
+        uid: uids
+    });
+};
 
-        // find out which messages are not available on disk (uids not included in disk roundtrip)
-        const localUids = _.pluck(localMessages, MSG_ATTR_UID);
-        const needsImapFetch = filteredMessages.filter(function (msg) {
-            return !_.contains(localUids, msg.uid);
-        });
-        return needsImapFetch;
-
-    }).then(function (needsImapFetch) {
-        // get the missing messages from imap
-
-        if (!needsImapFetch.length) {
-            // no imap roundtrip needed, we're done
-            return loadedMessages;
-        }
-
-        // do the imap roundtrip
-        return self._fetchMessages({
-            messages: needsImapFetch,
-            folder: folder
-        }).then(function (imapMessages) {
-            // add the messages from imap to the loaded messages
-            loadedMessages = loadedMessages.concat(imapMessages);
-
-        }).catch(function (err) {
-            axe.error('Can not fetch messages from IMAP. Reason: ' + err.message + (err.stack ? ('\n' + err.stack) : ''));
-
-            // stop the loading spinner for those messages we can't fetch
-            needsImapFetch.forEach(function (message) {
-                message.loadingBody = false;
-            });
-
-            // we can't fetch from imap, just continue with what we have
-            filteredMessages = _.difference(filteredMessages, needsImapFetch);
-        });
-
-    }).then(function () {
-        // enhance dummy messages with content
-        filteredMessages.forEach(function (message) {
-            const loadedMessage = _.findWhere(loadedMessages, {
-                uid: message.uid
-            });
-
-            // enhance the dummy message with the loaded content
-            _.extend(message, loadedMessage);
-        });
-
-    }).then(function () {
-        // extract the message body
-        const jobs = [];
-
-        filteredMessages.forEach(function (message) {
-            const job = self._extractBody(message).catch(function (err) {
-                axe.error('Can extract body for message uid ' + message.uid + ' . Reason: ' + err.message + (err.stack ? ('\n' + err.stack) : ''));
-            });
-            jobs.push(job);
-        });
-
-        return Promise.all(jobs);
-    }).then(function () {
-        done();
-
-        if (options.notifyNew && filteredMessages.length) {
-            // notify for incoming mail
-            self.onIncomingMessage(filteredMessages);
-        }
-
-        return filteredMessages;
-    }).catch(function (err) {
-        done();
-        throw err;
+Email.prototype._handleMissingMessages = function (messages, localMessages, folder) {
+    const self = this;
+    const localUids = _.pluck(localMessages, MSG_ATTR_UID);
+    const missing = messages.filter(function (msg) {
+        return !_.contains(localUids, msg.uid);
     });
 
-    function done() {
-        filteredMessages.forEach(function (message) {
+    if (!missing.length) {
+        return Promise.resolve();
+    }
+
+    return self._fetchMessages({
+        messages: missing,
+        folder: folder
+    }).then(function (imapMessages) {
+        localMessages.push.apply(localMessages, imapMessages);
+    }).catch(function (err) {
+        axe.error('Can not fetch messages from IMAP. Reason: ' + err.message + (err.stack ? ('\n' + err.stack) : ''));
+        missing.forEach(function (message) {
             message.loadingBody = false;
         });
-        self.done();
+        const remaining = _.difference(messages, missing);
+        messages.length = 0;
+        messages.push.apply(messages, remaining);
+    });
+};
+
+Email.prototype._enhanceMessages = function (messages, folder) {
+    const self = this;
+    const loaded = messages.map(function (msg) {
+        return _.findWhere(self._localListMessages({
+            folder: folder,
+            uid: [msg.uid]
+        }), { uid: msg.uid });
+    });
+
+    messages.forEach(function (message) {
+        const loadedMessage = _.findWhere(loaded, { uid: message.uid });
+        _.extend(message, loadedMessage);
+    });
+};
+
+Email.prototype._extractMessageBodies = function (messages) {
+    const self = this;
+    const jobs = messages.map(function (message) {
+        return self._extractBody(message).catch(function (err) {
+            axe.error('Can extract body for message uid ' + message.uid + ' . Reason: ' + err.message + (err.stack ? ('\n' + err.stack) : ''));
+        });
+    });
+    return Promise.all(jobs);
+};
+
+Email.prototype._finalizeGetBody = function (messages, folder, notifyNew) {
+    const self = this;
+    messages.forEach(function (message) {
+        message.loadingBody = false;
+    });
+    self.done();
+
+    if (notifyNew && messages.length) {
+        self.onIncomingMessage(messages);
     }
+    return messages;
 };
 
 Email.prototype._checkSignatures = function (message) {
     const self = this;
     return self._keychain.getReceiverPublicKey(message.from[0].address).then(function (senderPublicKey) {
-        // get the receiver's public key to check the message signature
         const senderKey = senderPublicKey ? senderPublicKey.publicKey : undefined;
         if (message.clearSignedMessage) {
             return self._pgp.verifyClearSignedMessage(message.clearSignedMessage, senderKey);
@@ -557,10 +506,8 @@ Email.prototype.getAttachment = function (options) {
         bodyParts: [attachment]
     }).then(function (parsedBodyParts) {
         attachment.busy = false;
-        // add the content to the original object
         attachment.content = parsedBodyParts[0].content;
         return attachment;
-
     }).catch(function (err) {
         attachment.busy = false;
         throw err;
@@ -578,83 +525,61 @@ Email.prototype.getAttachment = function (options) {
 Email.prototype.decryptBody = function (options) {
     const self = this,
         message = options.message,
-        encryptedNode = undefined;
+        encryptedNode = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED)[0];
 
-    // the message is decrypting has no body, is not encrypted or has already been decrypted
     if (!message.bodyParts || message.decryptingBody || !message.body || !message.encrypted || message.decrypted) {
-        return new Promise(function (resolve) {
-            resolve(message);
-        });
+        return Promise.resolve(message);
     }
 
     message.decryptingBody = true;
     self.busy();
 
-    // get the sender's public key for signature checking
     return self._keychain.getReceiverPublicKey(message.from[0].address).then(function (senderPublicKey) {
-        // get the receiver's public key to check the message signature
-        const encryptedNode = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED)[0];
         const senderKey = senderPublicKey ? senderPublicKey.publicKey : undefined;
         return self._pgp.decrypt(encryptedNode.content, senderKey);
-
     }).then(function (pt) {
         if (!pt.decrypted) {
             throw new Error('Error decrypting message.');
         }
-
-        // if the decryption worked and signatures are present, everything's fine.
-        // no error is thrown if signatures are not present
         message.signed = typeof pt.signaturesValid !== 'undefined';
         message.signaturesValid = pt.signaturesValid;
 
-        // if the encrypted node contains pgp/inline, we must not parse it
-        // with the mailreader as it is not well-formed MIME
         if (encryptedNode._isPgpInline) {
             message.body = pt.decrypted;
             message.decrypted = true;
             return;
         }
 
-        // the mailparser works on the .raw property
         encryptedNode.raw = pt.decrypted;
-        // parse the decrypted raw content in the mailparser
         return self._parse({
             bodyParts: [encryptedNode]
         }).then(handleRaw);
-
     }).then(function () {
-        self.done(); // stop the spinner
+        self.done();
         message.decryptingBody = false;
         return message;
-
     }).catch(function (err) {
-        self.done(); // stop the spinner
+        self.done();
         message.decryptingBody = false;
-        message.body = err.message; // display error msg in body
+        message.body = err.message;
         message.decrypted = true;
         return message;
     });
 
     function handleRaw(root) {
         if (message.signed) {
-            // message had a signature in the ciphertext, so we're done here
             return setBody(root);
         }
 
-        // message had no signature in the ciphertext, so there's a little extra effort to be done here
-        // is there a signed MIME node?
         const signedRoot = filterBodyParts(root, MSG_PART_TYPE_SIGNED)[0];
         if (!signedRoot) {
-            // no signed MIME node, obviously an unsigned PGP/MIME message
             return setBody(root);
         }
 
-        // if there is something signed in here, we're only interested in the signed content
         message.signedMessage = signedRoot.signedMessage;
         message.signature = signedRoot.signature;
         root = signedRoot.content;
 
-        // check the signatures for encrypted messages
         return self._checkSignatures(message).then(function (signaturesValid) {
             message.signed = typeof signaturesValid !== 'undefined';
             message.signaturesValid = signaturesValid;
@@ -663,12 +588,9 @@ Email.prototype.decryptBody = function (options) {
     }
 
     function setBody(root) {
-        // we have successfully interpreted the descrypted message,
-        // so let's update the views on the message parts
         message.body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
         message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
         message.attachments = _.reject(filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT), function (attmt) {
-            // remove the pgp-signature from the attachments
             return attmt.mimeType === "application/pgp-signature";
         });
         inlineExternalImages(message);
@@ -684,10 +606,9 @@ Email.prototype.decryptBody = function (options) {
  * @param {Object} mailer an instance of the pgpmailer to be used for testing purposes only
  */
 Email.prototype.sendEncrypted = function (options, mailer) {
-    // mime encode, sign, encrypt and send email via smtp
     return this._sendGeneric({
         encrypt: true,
-        smtpclient: options.smtpclient, // filled solely in the integration test, undefined in normal usage
+        smtpclient: options.smtpclient,
         mail: options.email,
         publicKeysArmored: options.email.publicKeysArmored
     }, mailer);
@@ -700,11 +621,9 @@ Email.prototype.sendEncrypted = function (options, mailer) {
  * @param {Object} mailer an instance of the pgpmailer to be used for testing purposes only
  */
 Email.prototype.sendPlaintext = function (options, mailer) {
-    // add suffix to plaintext mail
     options.email.body += str.signature + config.keyServerUrl + '/' + this._account.emailAddress;
-    // mime encode, sign and send email via smtp
     return this._sendGeneric({
-        smtpclient: options.smtpclient, // filled solely in the integration test, undefined in normal usage
+        smtpclient: options.smtpclient,
         mail: options.email
     }, mailer);
 };
@@ -720,38 +639,23 @@ Email.prototype._sendGeneric = function (options, mailer) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
-        // get the smtp credentials
         return self._auth.getCredentials();
-
     }).then(function (credentials) {
-        // gmail does not require you to upload to the sent items folder after successful sending, whereas most other providers do
         self.ignoreUploadOnSent = self.checkIgnoreUploadOnSent(credentials.smtp.host);
-
-        // tls socket worker path for multithreaded tls in non-native tls environments
         credentials.smtp.tlsWorkerPath = config.workerPath + '/tcp-socket-tls-worker.min.js';
-
-        // create a new pgpmailer
         self._pgpMailer = (mailer || new PgpMailer(credentials.smtp, self._pgpbuilder));
-
-        // certificate update retriggers sending after cert update is persisted
         self._pgpMailer.onCert = self._auth.handleCertificateUpdate.bind(self._auth, 'smtp', self._sendGeneric.bind(self, options), self._dialog.error);
     }).then(function () {
-
-        // send the email
         return self._pgpMailer.send(options);
     }).then(function (rfcText) {
-        // try to upload to sent, but we don't actually care if the upload failed or not
-        // this should not negatively impact the process of sending
         return self._uploadToSent({
             message: rfcText
         }).catch(function () { });
-
     }).then(done).catch(done);
 
     function done(err) {
-        self.done(); // stop the spinner
+        self.done();
         if (err) {
             throw err;
         }
@@ -775,8 +679,6 @@ Email.prototype.encrypt = function (options) {
 
 /**
  * Synchronizes the outbox's contents from disk to memory.
- * If a message has disappeared from the disk, this method will remove
- * it from folder.messages, and it adds any messages from disk to memory the are not yet in folder.messages
  *
  * @param {Object} options.folder The folder to synchronize
  */
@@ -791,17 +693,15 @@ Email.prototype.refreshOutbox = function () {
     }).then(function (storedMessages) {
         const storedUids = _.pluck(storedMessages, MSG_ATTR_UID),
             memoryUids = _.pluck(outbox.messages, MSG_ATTR_UID),
-            newUids = _.difference(storedUids, memoryUids), // uids of messages that are not yet in memory
-            removedUids = _.difference(memoryUids, storedUids); // uids of messages that are no longer stored on the disk
+            newUids = _.difference(storedUids, memoryUids),
+            removedUids = _.difference(memoryUids, storedUids);
 
-        // add new messages that are not yet in memory
         _.filter(storedMessages, function (msg) {
             return _.contains(newUids, msg.uid);
         }).forEach(function (newMessage) {
             outbox.messages.push(newMessage);
         });
 
-        // remove messages that are no longer on disk, i.e. have been removed/sent/...
         _.filter(outbox.messages, function (msg) {
             return _.contains(removedUids, msg.uid);
         }).forEach(function (removedMessage) {
@@ -809,23 +709,12 @@ Email.prototype.refreshOutbox = function () {
             outbox.messages.splice(index, 1);
         });
 
-        updateUnreadCount(outbox, true); // update the unread count, count all messages
+        updateUnreadCount(outbox, true);
     });
 };
 
-
-
-//
-//
-// Event Handlers
-//
-//
-
-
 /**
- * This handler should be invoked when navigator.onLine === true. It will try to connect a
- * given instance of the imap client. If the connection attempt was successful, it will
- * update the locally available folders with the newly received IMAP folder listing.
+ * This handler should be invoked when navigator.onLine === true.
  *
  * @param {Object} imap an instance of the imap-client to be used for testing purposes only
  */
@@ -833,53 +722,33 @@ Email.prototype.onConnect = function (imap) {
     const self = this;
 
     if (!self.isOnline()) {
-        // don't try to connect when navigator is offline
-        return new Promise(function (resolve) {
-            resolve();
-        });
+        return Promise.resolve();
     }
 
     self._account.loggingIn = true;
 
-    // init imap/smtp clients
     return self._auth.getCredentials().then(function (credentials) {
-        // add the maximum update batch size for imap folders to the imap configuration
         credentials.imap.maxUpdateSize = config.imapUpdateBatchSize;
-
-        // tls socket worker path for multithreaded tls in non-native tls environments
         credentials.imap.tlsWorkerPath = config.workerPath + '/tcp-socket-tls-worker.min.js';
-        // enable multithreaded compression handling
         credentials.imap.compressionWorkerPath = config.workerPath + '/browserbox-compression-worker.min.js';
 
         self._imapClient = (imap || new ImapClient(credentials.imap));
 
-        self._imapClient.onError = onConnectionError; // connection error handling
-        self._imapClient.onCert = self._auth.handleCertificateUpdate.bind(self._auth, 'imap', self.onConnect.bind(self), self._dialog.error); // certificate update handling
-        self._imapClient.onSyncUpdate = self._onSyncUpdate.bind(self); // attach sync update handler
-
+        self._imapClient.onError = onConnectionError;
+        self._imapClient.onCert = self._auth.handleCertificateUpdate.bind(self._auth, 'imap', self.onConnect.bind(self), self._dialog.error);
+        self._imapClient.onSyncUpdate = self._onSyncUpdate.bind(self);
     }).then(function () {
-        // imap login
         return self._imapClient.login();
-
     }).then(function () {
         self._account.loggingIn = false;
-        // init folders
         return self._updateFolders();
-
     }).then(function () {
-        // fill the imap mailboxCache with information we have locally available:
-        // - highest locally available moseq (NB! JavaScript can't handle 64 bit uints, so modseq values are strings)
-        // - list of locally available uids
-        // - highest locally available uid
-        // - next expected uid
         const mailboxCache = {};
         self._account.folders.forEach(function (folder) {
             const uids = folder.uids.sort(function (a, b) {
                 return a - b;
             });
             const lastUid = uids[uids.length - 1];
-
-
             mailboxCache[folder.path] = {
                 exists: lastUid,
                 uidNext: lastUid + 1,
@@ -888,26 +757,17 @@ Email.prototype.onConnect = function (imap) {
             };
         });
         self._imapClient.mailboxCache = mailboxCache;
-
-        // set status to online after setting cache to prevent race condition
         self._account.online = true;
-
     }).then(function () {
-        // by default, select the inbox (if there is one) after connecting the imap client.
-        // this avoids race conditions between the listening imap connection and the one where the work is done
         const inbox = _.findWhere(self._account.folders, {
             type: FOLDER_TYPE_INBOX
         });
-
         if (!inbox) {
-            // if there is no inbox, that's ok, too
             return;
         }
-
         return self.openFolder({
             folder: inbox
         }).then(function () {
-            // set up the imap client to listen for changes in the inbox
             self._imapClient.listenForChanges({
                 path: inbox.path
             }, function () { });
@@ -925,7 +785,6 @@ Email.prototype.onConnect = function (imap) {
 
         setTimeout(function () {
             axe.debug('Reconnecting the IMAP stack');
-            // re-init client modules on error
             self.onConnect().catch(self._dialog.error);
         }, config.reconnectInterval);
     }
@@ -933,143 +792,117 @@ Email.prototype.onConnect = function (imap) {
 
 /**
  * This handler should be invoked when navigator.onLine === false.
- * It will discard the imap client and pgp mailer
  */
 Email.prototype.onDisconnect = function () {
-    // logout of imap-client
-    // ignore error, because it's not problem if logout fails
     if (this._imapClient) {
         this._imapClient.stopListeningForChanges(function () { });
         this._imapClient.logout(function () { });
     }
 
-    // discard clients
     this._account.online = false;
     this._imapClient = undefined;
     this._pgpMailer = undefined;
 
-    return new Promise(function (resolve) {
-        resolve(); // ASYNC ALL THE THINGS!!!
-    });
+    return Promise.resolve();
 };
 
 /**
- * The are updates in the IMAP folder of the following type
- * - 'new': a list of uids that are newly available
- * - 'deleted': a list of uids that were deleted from IMAP available
- * - 'messages': a list of messages (uid + flags) that where changes are available
+ * Handles IMAP sync updates.
  *
- * @param {String} options.type The type of the update
+ * @param {Object} options.type The type of the update
  * @param {String} options.path The mailbox for which updates are available
- * @param {Array} options.list Array containing update information. Number (uid) or mail with Object (uid and flags), respectively
+ * @param {Array} options.list Array containing update information.
  */
 Email.prototype._onSyncUpdate = function (options) {
     const self = this,
-        uids = options.list;
-
-    const folder = _.findWhere(self._account.folders, {
-        path: options.path
-    });
+        uids = options.list,
+        folder = _.findWhere(self._account.folders, {
+            path: options.path
+        });
 
     if (!folder) {
-        return; // ignore updates for an unknown folder
+        return;
     }
 
     if (options.type === SYNC_TYPE_NEW) {
-        // new messages available on imap, add the new uids to the folder
-
-        let newUids = _.difference(uids, folder.uids); // eliminate duplicates
-        const maxUid = folder.uids.length ? Math.max.apply(null, folder.uids) : 0; // find highest uid prior to update
-
-        // add to folder's uids, persist folder
-        Array.prototype.push.apply(folder.uids, newUids);
-        self._localStoreFolders();
-
-        // add dummy messages to the message list
-        Array.prototype.push.apply(folder.messages, newUids.map(function (uid) {
-            return {
-                uid: uid
-            };
-        }));
-
-        if (maxUid) {
-            // folder not empty, find and download the 20 newest bodies. Notify for the inbox
-            const fetch = _.filter(folder.messages, function (msg) {
-                return msg.uid > maxUid;
-            }).sort(function (a, b) {
-                return a.uid - b.uid;
-            }).slice(-20);
-
-            self.getBody({
-                folder: folder,
-                messages: fetch,
-                notifyNew: folder.type === FOLDER_TYPE_INBOX
-            }).catch(self._dialog.error);
-        }
-
+        this._handleNewMessages(folder, uids);
     } else if (options.type === SYNC_TYPE_DELETED) {
-        // messages have been deleted
-
-        folder.uids = _.difference(folder.uids, uids); // remove the uids from the uid list
-        uids.forEach(function (uid) {
-            const message = _.findWhere(folder.messages, {
-                uid: uid
-            });
-
-            if (!message) {
-                return;
-            }
-
-            self.deleteMessage({
-                folder: folder,
-                message: message,
-                localOnly: true
-            }).catch(self._dialog.error);
-        });
+        this._handleDeletedMessages(folder, uids);
     } else if (options.type === SYNC_TYPE_MSGS) {
-        // NB! several possible reasons why this could be called.
-        // if a message in the array has uid value and flag array, it had a possible flag update
-        uids.forEach(function (changedMsg) {
-            if (!changedMsg.uid || !changedMsg.flags) {
-                return;
-            }
-
-            const message = _.findWhere(folder.messages, {
-                uid: changedMsg.uid
-            });
-
-            if (!message || !message.bodyParts) {
-                return;
-            }
-
-            // update unread, answered, modseq to the latest info
-            message.answered = changedMsg.flags.indexOf('\\Answered') > -1;
-            message.unread = changedMsg.flags.indexOf('\\Seen') === -1;
-            message.modseq = changedMsg.modseq;
-
-            self.setFlags({
-                folder: folder,
-                message: message,
-                localOnly: true
-            }).then(function () {
-                // update the folder's last known modseq if necessary
-                const modseq = parseInt(changedMsg.modseq, 10);
-                if (modseq > folder.modseq) {
-                    folder.modseq = modseq;
-                    return self._localStoreFolders();
-                }
-            }).catch(self._dialog.error);
-        });
+        this._handleFlagUpdates(folder, uids);
     }
 };
 
+Email.prototype._handleNewMessages = function (folder, uids) {
+    const self = this;
+    const newUids = _.difference(uids, folder.uids);
+    const maxUid = folder.uids.length ? Math.max.apply(null, folder.uids) : 0;
 
-//
-//
-// Internal API
-//
-//
+    Array.prototype.push.apply(folder.uids, newUids);
+    self._localStoreFolders();
 
+    Array.prototype.push.apply(folder.messages, newUids.map(function (uid) {
+        return { uid: uid };
+    }));
+
+    if (maxUid) {
+        const fetch = _.filter(folder.messages, function (msg) {
+            return msg.uid > maxUid;
+        }).sort(function (a, b) {
+            return a.uid - b.uid;
+        }).slice(-20);
+
+        self.getBody({
+            folder: folder,
+            messages: fetch,
+            notifyNew: folder.type === FOLDER_TYPE_INBOX
+        }).catch(self._dialog.error);
+    }
+};
+
+Email.prototype._handleDeletedMessages = function (folder, uids) {
+    const self = this;
+    folder.uids = _.difference(folder.uids, uids);
+    uids.forEach(function (uid) {
+        const message = _.findWhere(folder.messages, { uid: uid });
+        if (!message) {
+            return;
+        }
+        self.deleteMessage({
+            folder: folder,
+            message: message,
+            localOnly: true
+        }).catch(self._dialog.error);
+    });
+};
+
+Email.prototype._handleFlagUpdates = function (folder, changedMsgs) {
+    const self = this;
+    changedMsgs.forEach(function (changedMsg) {
+        if (!changedMsg.uid || !changedMsg.flags) {
+            return;
+        }
+        const message = _.findWhere(folder.messages, { uid: changedMsg.uid });
+        if (!message || !message.bodyParts) {
+            return;
+        }
+        message.answered = changedMsg.flags.indexOf('\\Answered') > -1;
+        message.unread = changedMsg.flags.indexOf('\\Seen') === -1;
+        message.modseq = changedMsg.modseq;
+
+        self.setFlags({
+            folder: folder,
+            message: message,
+            localOnly: true
+        }).then(function () {
+            const modseq = parseInt(changedMsg.modseq, 10);
+            if (modseq > folder.modseq) {
+                folder.modseq = modseq;
+                return self._localStoreFolders();
+            }
+        }).catch(self._dialog.error);
+    });
+};
 
 /**
  * Updates the folder information from imap (if we're online). Adds/removes folders in account.folders,
@@ -1079,59 +912,47 @@ Email.prototype._onSyncUpdate = function (options) {
 Email.prototype._updateFolders = function () {
     const self = this;
 
-    self.busy(); // start the spinner
+    self.busy();
 
-    // fetch list from imap server
     return self._imapClient.listWellKnownFolders().then(function (wellKnownFolders) {
-        let foldersChanged = false, // indicates if we need to persist anything to disk
-            imapFolders = []; // aggregate all the imap folders
+        let foldersChanged = false,
+            imapFolders = [];
 
-        // initialize the folders to something meaningful if that hasn't already happened
         self._account.folders = self._account.folders || [];
 
-        // smuggle the outbox into the well known folders, which is obv not present on imap
         wellKnownFolders[config.outboxMailboxType] = [{
             name: config.outboxMailboxName,
             type: config.outboxMailboxType,
             path: config.outboxMailboxPath
         }];
 
-        // aggregate all of the imap folders in one place
-        for (let folderType in wellKnownFolders) {
-            if (wellKnownFolders.hasOwnProperty(folderType) && Array.isArray(wellKnownFolders[folderType])) {
+        for (const folderType in wellKnownFolders) {
+            if (Object.prototype.hasOwnProperty.call(wellKnownFolders, folderType) && Array.isArray(wellKnownFolders[folderType])) {
                 imapFolders = imapFolders.concat(wellKnownFolders[folderType]);
             }
         }
 
-        // find out all the imap paths that are new/removed
         const imapFolderPaths = _.pluck(imapFolders, 'path'),
             localFolderPaths = _.pluck(self._account.folders, 'path'),
             newFolderPaths = _.difference(imapFolderPaths, localFolderPaths),
             removedFolderPaths = _.difference(localFolderPaths, imapFolderPaths);
 
-        // folders need updating if there are new/removed folders
         foldersChanged = !!newFolderPaths.length || !!removedFolderPaths.length;
 
-        // remove all the remotely deleted folders
         removedFolderPaths.forEach(function (removedPath) {
-            self._account.folders.splice(self._account.folders.indexOf(_.findWhere(self._account.folders, {
-                path: removedPath
-            })), 1);
+            const idx = self._account.folders.findIndex(f => f.path === removedPath);
+            if (idx !== -1) {
+                self._account.folders.splice(idx, 1);
+            }
         });
 
-        // add all the new imap folders
         newFolderPaths.forEach(function (newPath) {
-            self._account.folders.push(_.findWhere(imapFolders, {
-                path: newPath
-            }));
+            const folder = _.findWhere(imapFolders, { path: newPath });
+            if (folder) {
+                self._account.folders.push(folder);
+            }
         });
 
-        //
-        // by now, all the folders are up to date. now we need to find all the well known folders
-        //
-
-        // check for the well known folders to be displayed in the uppermost ui part
-        // in that order
         const wellknownTypes = [
             FOLDER_TYPE_INBOX,
             FOLDER_TYPE_SENT,
@@ -1141,28 +962,18 @@ Email.prototype._updateFolders = function () {
             FOLDER_TYPE_FLAGGED
         ];
 
-        // make sure the well known folders are detected
         wellknownTypes.forEach(function (mbxType) {
-            // check if there is a well known folder of this type
             let wellknownFolder = _.findWhere(self._account.folders, {
                 type: mbxType,
                 wellknown: true
             });
 
             if (wellknownFolder) {
-                // well known folder found, no need to find a replacement
                 return;
             }
 
-            // we have no folder of the respective type marked as wellknown, so find the
-            // next best folder of the respective type and flag it as wellknown so that
-            // we can display it properly
-            wellknownFolder = _.findWhere(self._account.folders, {
-                type: mbxType
-            });
-
+            wellknownFolder = _.findWhere(self._account.folders, { type: mbxType });
             if (!wellknownFolder) {
-                // no folder of that type, to mark as well known, nothing to do here
                 return;
             }
 
@@ -1170,36 +981,27 @@ Email.prototype._updateFolders = function () {
             foldersChanged = true;
         });
 
-        // order folders
         self._account.folders.sort(function (a, b) {
             if (a.wellknown && b.wellknown) {
-                // well known folders should be ordered like the types in the wellknownTypes array
                 return wellknownTypes.indexOf(a.type) - wellknownTypes.indexOf(b.type);
             } else if (a.wellknown && !b.wellknown) {
-                // wellknown folders should always appear BEFORE the other folders
                 return -1;
             } else if (!a.wellknown && b.wellknown) {
-                // non-wellknown folders should always appear AFTER wellknown folders
                 return 1;
             } else {
-                // non-wellknown folders should be sorted case-insensitive
                 return a.path.toLowerCase().localeCompare(b.path.toLowerCase());
             }
         });
 
-        // if folders have not changed, can fill them with messages directly
         if (foldersChanged) {
             return self._localStoreFolders();
         }
-
     }).then(function () {
         return self._initFolders();
-
     }).then(function () {
         self.done();
-
     }).catch(function (err) {
-        self.done(); // stop the spinner
+        self.done();
         throw err;
     });
 };
@@ -1210,21 +1012,16 @@ Email.prototype._initFolders = function () {
     self._account.folders.forEach(function (folder) {
         folder.modseq = folder.modseq || 0;
         folder.count = folder.count || 0;
-        folder.uids = folder.uids || []; // attach an empty uids array to the folder
+        folder.uids = folder.uids || [];
         folder.uids.sort(function (a, b) {
             return a - b;
         });
         folder.messages = folder.messages || folder.uids.map(function (uid) {
-            // fill the messages array with dummy messages, messages will be fetched later
-            return {
-                uid: uid
-            };
+            return { uid: uid };
         });
     });
 
-    const inbox = _.findWhere(self._account.folders, {
-        type: FOLDER_TYPE_INBOX
-    });
+    const inbox = _.findWhere(self._account.folders, { type: FOLDER_TYPE_INBOX });
     if (inbox && inbox.messages.length) {
         return self.getBody({
             folder: inbox,
@@ -1243,14 +1040,6 @@ Email.prototype.done = function () {
     }
 };
 
-
-
-//
-//
-// IMAP API
-//
-//
-
 /**
  * Mark messages as un-/read or un-/answered on IMAP
  *
@@ -1261,7 +1050,6 @@ Email.prototype.done = function () {
  */
 Email.prototype._imapMark = function (options) {
     const self = this;
-
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
@@ -1284,20 +1072,14 @@ Email.prototype._imapDeleteMessage = function (options) {
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
-        const trash = _.findWhere(self._account.folders, {
-            type: FOLDER_TYPE_TRASH
-        });
-
-        // there's no known trash folder to move the mail to or we're in the trash folder, so we can purge the message
+        const trash = _.findWhere(self._account.folders, { type: FOLDER_TYPE_TRASH });
         if (!trash || options.folder === trash) {
             return self._imapClient.deleteMessage({
                 path: options.folder.path,
                 uid: options.uid
             });
         }
-
         return self._imapMoveMessage({
             folder: options.folder,
             destination: trash,
@@ -1336,7 +1118,6 @@ Email.prototype._imapMoveMessage = function (options) {
  */
 Email.prototype._imapUploadMessage = function (options) {
     const self = this;
-
     return self._imapClient.uploadMessage({
         path: options.folder.path,
         message: options.message
@@ -1348,34 +1129,27 @@ Email.prototype._imapUploadMessage = function (options) {
  */
 Email.prototype._fetchMessages = function (options) {
     const self = this,
-        messages = options.messages,
         folder = options.folder;
 
     return new Promise(function (resolve) {
         self.checkOnline();
         resolve();
-
     }).then(function () {
-        // fetch all the metadata at once
         return self._imapClient.listMessages({
             path: folder.path,
-            uids: _.pluck(messages, MSG_ATTR_UID)
+            uids: _.pluck(options.messages, MSG_ATTR_UID)
         });
-
     }).then(function (msgs) {
-        let messages = msgs;
-        // displays the clip in the UI if the message contains attachments
+        const messages = msgs;
         messages.forEach(function (message) {
             message.attachments = message.bodyParts.filter(function (bodyPart) {
                 return bodyPart.type === MSG_PART_TYPE_ATTACHMENT;
             });
         });
 
-        // get the bodies from imap (individual roundtrips per msg)
         const jobs = [];
 
         messages.forEach(function (message) {
-            // fetch only the content for non-attachment body parts (encrypted, signed, text, html, resources referenced from the html)
             const contentParts = message.bodyParts.filter(function (bodyPart) {
                 return bodyPart.type !== MSG_PART_TYPE_ATTACHMENT || (bodyPart.type === MSG_PART_TYPE_ATTACHMENT && bodyPart.id);
             });
@@ -1387,22 +1161,17 @@ Email.prototype._fetchMessages = function (options) {
                 return;
             }
 
-            // do the imap roundtrip
             const job = self._getBodyParts({
                 folder: folder,
                 uid: message.uid,
                 bodyParts: contentParts
             }).then(function (parsedBodyParts) {
-                // concat parsed bodyparts and the empty attachment parts
                 message.bodyParts = parsedBodyParts.concat(attachmentParts);
-
-                // store fetched message
                 return self._localStoreMessages({
                     folder: folder,
                     emails: [message]
                 });
             }).catch(function (err) {
-                // ignore errors with err.hide, throw otherwise
                 if (err.hide) {
                     return;
                 } else {
@@ -1413,9 +1182,8 @@ Email.prototype._fetchMessages = function (options) {
             jobs.push(job);
         });
 
-        return Promise.all(jobs);
-    }).then(function () {
-        // update the folder's last known modseq if necessary
+        return Promise.all(jobs).then(() => messages);
+    }).then(function (messages) {
         const highestModseq = Math.max.apply(null, _.pluck(messages, MSG_ATTR_MODSEQ).map(function (modseq) {
             return parseInt(modseq, 10);
         }));
@@ -1423,9 +1191,8 @@ Email.prototype._fetchMessages = function (options) {
             folder.modseq = highestModseq;
             return self._localStoreFolders();
         }
-
     }).then(function () {
-        updateUnreadCount(folder); // update the unread count
+        updateUnreadCount(folder);
         return messages;
     });
 };
@@ -1452,21 +1219,12 @@ Email.prototype._getBodyParts = function (options) {
             error.hide = true;
             throw error;
         }
-
         return self._parse(options);
     });
 };
 
-
-//
-//
-// Local Storage API
-//
-//
-
 /**
  * persist encrypted list in device storage
- * note: the folders in the ui also include the messages array, so let's create a clean array here
  */
 Email.prototype._localStoreFolders = function () {
     const folders = this._account.folders.map(function (folder) {
@@ -1484,24 +1242,18 @@ Email.prototype._localStoreFolders = function () {
 };
 
 /**
- * List the locally available items form the indexed db stored under "email_[FOLDER PATH]_[MESSAGE UID]" (if a message was provided),
- * or "email_[FOLDER PATH]", respectively
+ * List the locally available items from the indexed db
  *
  * @param {Object} options.folder The folder for which to list the content
  * @param {Object} options.uid A specific uid to look up locally in the folder
  */
 Email.prototype._localListMessages = function (options) {
+    const needsExactMatch = typeof options.exactmatch === 'undefined' ? true : options.exactmatch;
     let query;
 
-    const needsExactMatch = typeof options.exactmatch === 'undefined' ? true : options.exactmatch;
-
     if (Array.isArray(options.uid)) {
-        // batch list
-        query = options.uid.map(function (uid) {
-            return 'email_' + options.folder.path + (uid ? '_' + uid : '');
-        });
+        query = options.uid.map(uid => 'email_' + options.folder.path + (uid ? '_' + uid : ''));
     } else {
-        // single list
         query = 'email_' + options.folder.path + (options.uid ? '_' + options.uid : '');
     }
 
@@ -1509,10 +1261,10 @@ Email.prototype._localListMessages = function (options) {
 };
 
 /**
- * Stores a bunch of messages to the indexed db. The messages are stored under "email_[FOLDER PATH]_[MESSAGE UID]"
+ * Stores a bunch of messages to the indexed db.
  *
  * @param {Object} options.folder The folder for which to list the content
- * @param {Array} options.messages The messages to store
+ * @param {Array} options.emails The messages to store
  */
 Email.prototype._localStoreMessages = function (options) {
     const dbType = 'email_' + options.folder.path;
@@ -1520,10 +1272,10 @@ Email.prototype._localStoreMessages = function (options) {
 };
 
 /**
- * Stores a bunch of messages to the indexed db. The messages are stored under "email_[FOLDER PATH]_[MESSAGE UID]"
+ * Deletes a message from the indexed db.
  *
  * @param {Object} options.folder The folder for which to list the content
- * @param {Array} options.messages The messages to store
+ * @param {Object} options.uid The uid of the message
  */
 Email.prototype._localDeleteMessage = function (options) {
     const path = options.folder.path,
@@ -1531,22 +1283,12 @@ Email.prototype._localDeleteMessage = function (options) {
         id = options.id;
 
     if (!path || !(uid || id)) {
-        return new Promise(function () {
-            throw new Error('Invalid options!');
-        });
+        return Promise.reject(new Error('Invalid options!'));
     }
 
     const dbType = 'email_' + path + '_' + (uid || id);
     return this._devicestorage.removeList(dbType);
 };
-
-
-//
-//
-// Internal Helper Methods
-//
-//
-
 
 /**
  * Helper method that extracts a message body from the body parts
@@ -1555,14 +1297,8 @@ Email.prototype._localDeleteMessage = function (options) {
  */
 Email.prototype._extractBody = function (message) {
     const self = this;
-
-    return new Promise(function (resolve) {
-        resolve();
-
-    }).then(function () {
-        // extract the content
+    return Promise.resolve().then(function () {
         if (message.encrypted) {
-            // show the encrypted message
             message.body = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED)[0].content;
             return;
         }
@@ -1570,45 +1306,42 @@ Email.prototype._extractBody = function (message) {
         let root = message.bodyParts;
 
         if (message.signed) {
-            // PGP/MIME signed
-            const signedRoot = filterBodyParts(message.bodyParts, MSG_PART_TYPE_SIGNED)[0]; // in case of a signed message, you only want to show the signed content and ignore the rest
+            const signedRoot = filterBodyParts(message.bodyParts, MSG_PART_TYPE_SIGNED)[0];
             message.signedMessage = signedRoot.signedMessage;
             message.signature = signedRoot.signature;
             root = signedRoot.content;
         }
 
         const body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
-
-        // if the message is plain text and contains pgp/inline, we are only interested in the encrypted content, the rest (corporate mail footer, attachments, etc.) is discarded.
         const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\s\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
         if (pgpInlineMatch) {
-            message.body = pgpInlineMatch[0]; // show the plain text content
-            message.encrypted = true; // signal the ui that we're handling encrypted content
-
-            // replace the bodyParts info with an artificial bodyPart of type "encrypted"
+            message.body = pgpInlineMatch[0];
+            message.encrypted = true;
             message.bodyParts = [{
                 type: MSG_PART_TYPE_ENCRYPTED,
                 content: pgpInlineMatch[0],
-                _isPgpInline: true // used internally to avoid trying to parse non-MIME text with the mailreader
+                _isPgpInline: true
             }];
             return;
         }
 
-        // any content before/after the PGP block will be discarded, untrusted attachments and html is ignored
         const clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\nHash:[ ][^\n]+\n(?:[A-Za-z]+:[ ][^\n]+\n)*\n([\s\S]*?)\n-{5}BEGIN PGP SIGNATURE-{5}[\S\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
         if (clearSignedMatch) {
-            // PGP/INLINE signed
             message.signed = true;
             message.clearSignedMessage = clearSignedMatch[0];
-            const body = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
+            const cleaned = (clearSignedMatch[1] || '').replace(/^- /gm, '');
+            return self._checkSignatures(message).then(function (signaturesValid) {
+                message.signed = typeof signaturesValid !== 'undefined';
+                message.signaturesValid = signaturesValid;
+                setBody(cleaned, root);
+            });
         }
 
         if (!message.signed) {
-            // message is not signed, so we're done here
-            return setBody(body, root);
+            setBody(body, root);
+            return;
         }
 
-        // check the signatures for signed messages
         return self._checkSignatures(message).then(function (signaturesValid) {
             message.signed = typeof signaturesValid !== 'undefined';
             message.signaturesValid = signaturesValid;
@@ -1646,33 +1379,21 @@ Email.prototype._parse = function (options) {
 
 /**
  * Uploads a message to the sent folder, if necessary.
- * Calls back immediately if ignoreUploadOnSent == true or not sent folder was found.
  *
- * @param {String} options.message The rfc2822 compatible raw ASCII e-mail source
+ * @param {Object} options.message The rfc2822 compatible raw ASCII e-mail source
  */
 Email.prototype._uploadToSent = function (options) {
     const self = this;
     self.busy();
-    return new Promise(function (resolve) {
-        resolve();
-
-    }).then(function () {
-        // upload the sent message to the sent folder if necessary
-        const sentFolder = _.findWhere(self._account.folders, {
-            type: FOLDER_TYPE_SENT
-        });
-
-        // return for wrong usage
+    return Promise.resolve().then(function () {
+        const sentFolder = _.findWhere(self._account.folders, { type: FOLDER_TYPE_SENT });
         if (self.ignoreUploadOnSent || !sentFolder || !options.message) {
             return;
         }
-
-        // upload
         return self._imapUploadMessage({
             folder: sentFolder,
             message: options.message
         });
-
     }).then(function () {
         self.done();
     }).catch(function (err) {
@@ -1692,14 +1413,6 @@ Email.prototype.checkOnline = function () {
     }
 };
 
-
-//
-//
-// External Heler Methods
-//
-//
-
-
 /**
  * Checks whether we need to upload to the sent folder after sending an email.
  *
@@ -1707,15 +1420,13 @@ Email.prototype.checkOnline = function () {
  * @return {Boolean} true if upload can be ignored, otherwise false
  */
 Email.prototype.checkIgnoreUploadOnSent = function (hostname) {
-    for (let i = 0; i < config.ignoreUploadOnSentDomains.length; i++) {
-        if (config.ignoreUploadOnSentDomains[i].test(hostname)) {
+    for (const domain of config.ignoreUploadOnSentDomains) {
+        if (domain.test(hostname)) {
             return true;
         }
     }
-
     return false;
 };
-
 
 /**
  * Check if the user agent is online.
@@ -1724,18 +1435,8 @@ Email.prototype.isOnline = function () {
     return navigator.onLine;
 };
 
-
-//
-//
-// Helper Functions
-//
-//
-
-
 /**
- * Updates a folder's unread count:
- * - For the outbox, that's the total number of messages (countAllMessages === true),
- * - For every other folder, it's the number of unread messages (countAllMessages === falsy)
+ * Updates a folder's unread count.
  */
 function updateUnreadCount(folder, countAllMessages) {
     folder.count = countAllMessages ? folder.messages.length : _.filter(folder.messages, function (msg) {
@@ -1744,11 +1445,7 @@ function updateUnreadCount(folder, countAllMessages) {
 }
 
 /**
- * Helper function that recursively traverses the body parts tree. Looks for bodyParts that match the provided type and aggregates them
- *
- * @param {Array} bodyParts The bodyParts array
- * @param {String} type The type to look up
- * @param {undefined} result Leave undefined, only used for recursion
+ * Recursively traverses the body parts tree.
  */
 function filterBodyParts(bodyParts, type, result) {
     result = result || [];
@@ -1763,21 +1460,14 @@ function filterBodyParts(bodyParts, type, result) {
 }
 
 /**
- * Helper function that looks through the HTML content for <img src="cid:..."> and
- * inlines the images linked internally. Manipulates message.html as a side-effect.
- * If no attachment matching the internal reference is found, or constructing a data
- * uri fails, just remove the source.
- *
- * @param {Object} message DTO
+ * Inlines images referenced by cid: in HTML.
  */
 function inlineExternalImages(message) {
     message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function (match, prefix, src, suffix) {
         let localSource = '',
             payload = '';
 
-        const internalReference = _.findWhere(message.attachments, {
-            id: src
-        });
+        const internalReference = _.findWhere(message.attachments, { id: src });
 
         if (internalReference) {
             for (let i = 0; i < internalReference.content.byteLength; i++) {
@@ -1785,7 +1475,7 @@ function inlineExternalImages(message) {
             }
 
             try {
-                localSource = 'data:application/octet-stream;base64,' + btoa(payload); // try to replace the source
+                localSource = 'data:application/octet-stream;base64,' + btoa(payload);
             } catch (e) { }
         }
 

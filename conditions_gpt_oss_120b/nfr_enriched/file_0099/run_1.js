@@ -5,7 +5,7 @@ const util = require('crypto-lib').util;
 //
 // Controller
 //
-const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     const str = appConfig.string;
     const cfg = appConfig.config;
@@ -17,7 +17,7 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
     // Init
     //
     $scope.state.writer = {
-        write: function (replyTo, replyAll, forward) {
+        write: function(replyTo, replyAll, forward) {
             $scope.state.lightbox = 'write';
             $scope.replyTo = replyTo;
 
@@ -25,13 +25,13 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
             fillFields(replyTo, replyAll, forward);
             $scope.verify($scope.to[0]);
         },
-        reportBug: function () {
+        reportBug: function() {
             $scope.state.lightbox = 'write';
             resetFields();
-            prepareBugReport();
+            generateBugReport();
             $scope.verify($scope.to[0]);
         },
-        close: function () {
+        close: function() {
             $scope.state.lightbox = undefined;
         }
     };
@@ -51,26 +51,33 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
         $scope.invited = [];
     }
 
-    /** Prepare bug report email */
-    function prepareBugReport() {
+    // Generates a bug report email with a dump of the log
+    function generateBugReport() {
         let dump = '';
         const appender = {
-            log: function (level, date, component, log) {
-                const levelTag = {
-                    [axe.DEBUG]: '[DEBUG]',
-                    [axe.INFO]: '[INFO]',
-                    [axe.WARN]: '[WARN]',
-                    [axe.ERROR]: '[ERROR]'
-                }[level] || '';
-                dump += levelTag;
+            log: function(level, date, component, log) {
+                if (level === axe.DEBUG) {
+                    dump += '[DEBUG]';
+                } else if (level === axe.INFO) {
+                    dump += '[INFO]';
+                } else if (level === axe.WARN) {
+                    dump += '[WARN]';
+                } else if (level === axe.ERROR) {
+                    dump += '[ERROR]';
+                }
+
                 dump += '[' + date.toISOString() + ']';
+
                 if (component) {
                     dump += '[' + component + ']';
                 }
+
                 dump += ' ' + (log || '').toString();
+
                 if (log && log.stack) {
                     dump += ' . Stack: ' + log.stack;
                 }
+
                 dump += '\n';
             }
         };
@@ -82,121 +89,119 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
         $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
     }
 
-    /** Orchestrate field population for reply/forward */
-    function fillFields(replyToMessage, replyAll, forward) {
-        if (!replyToMessage) {
+    function fillFields(re, replyAll, forward) {
+        if (!re) {
             return;
         }
 
-        setWriterTitle(forward);
-        const replyAddress = determineReplyAddress(replyToMessage);
+        $scope.writerTitle = forward ? 'Forward' : 'Reply';
+        const replyTo = (re.replyTo && re.replyTo[0] && re.replyTo[0].address) || re.from[0].address;
+
         if (!forward) {
-            populateToField(replyAddress);
-            populateReferences(replyToMessage);
+            prependRecipient($scope.to, replyTo);
+            $scope.to.forEach($scope.verify);
+            populateReferences(re);
         }
+
         if (replyAll) {
-            populateCcField(replyToMessage, replyAddress);
+            addReplyAllRecipients(re, replyTo);
         }
+
         if (forward) {
-            populateForwardAttachments(replyToMessage);
+            $scope.attachments = [].concat(re.attachments);
+            if (re.id) {
+                $scope.references = [re.id];
+            }
         }
-        setSubject(replyToMessage, forward);
-        buildBody(replyToMessage, forward);
+
+        setSubjectAndBody(re, forward, replyTo);
     }
 
-    /** Set writer title based on forward flag */
-    function setWriterTitle(isForward) {
-        $scope.writerTitle = isForward ? 'Forward' : 'Reply';
+    // Adds a recipient to the beginning of a list
+    function prependRecipient(list, address) {
+        list.unshift({ address });
     }
 
-    /** Determine the address to reply to */
-    function determineReplyAddress(message) {
-        return (message.replyTo && message.replyTo[0] && message.replyTo[0].address) || message.from[0].address;
-    }
-
-    /** Populate the primary recipient field */
-    function populateToField(address) {
-        $scope.to.unshift({ address });
-        $scope.to.forEach($scope.verify);
-    }
-
-    /** Populate references and in-reply-to headers */
-    function populateReferences(message) {
-        $scope.references = (message.references || []).slice();
-        if (message.id && $scope.references.indexOf(message.id) < 0) {
-            $scope.references.push(message.id);
+    // Populates reference fields for a reply
+    function populateReferences(re) {
+        $scope.references = (re.references || []);
+        if (re.id && $scope.references.indexOf(re.id) < 0) {
+            $scope.references = $scope.references.concat(re.id);
         }
-        if (message.id) {
-            $scope.inReplyTo = message.id;
+        if (re.id) {
+            $scope.inReplyTo = re.id;
         }
     }
 
-    /** Populate CC field when replying to all */
-    function populateCcField(message, originalReplyTo) {
+    // Handles reply-all logic
+    function addReplyAllRecipients(re, originalReplyTo) {
         const me = auth.emailAddress;
-        const ccCandidates = message.to.concat(message.cc);
-        ccCandidates.forEach(recipient => {
+        re.to.concat(re.cc).forEach(function(recipient) {
             if (recipient.address === me && originalReplyTo !== me) {
                 return;
             }
-            $scope.cc.unshift({ address: recipient.address });
+            prependRecipient($scope.cc, recipient.address);
         });
-        $scope.cc = _.uniq($scope.cc, r => r.address);
+
+        $scope.cc = _.uniq($scope.cc, function(recipient) {
+            return recipient.address;
+        });
         $scope.showCC = true;
         $scope.cc.forEach($scope.verify);
     }
 
-    /** Copy attachments for a forwarded message */
-    function populateForwardAttachments(message) {
-        $scope.attachments = (message.attachments || []).slice();
-        if (message.id) {
-            $scope.references = [message.id];
+    // Sets subject line and body content based on forward/reply
+    function setSubjectAndBody(re, forward, replyTo) {
+        $scope.subject = forward ? 'Fwd: ' + re.subject : (re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '');
+
+        const fromName = re.from[0].name || replyTo;
+        const sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+
+        const body = forward ? buildForwardBody(re, sentDate) : buildReplyBody(re, sentDate, fromName);
+        if (re.body) {
+            $scope.body = body + formatOriginalBody(re.body);
         }
     }
 
-    /** Set email subject based on forward/reply */
-    function setSubject(message, isForward) {
-        if (isForward) {
-            $scope.subject = 'Fwd: ' + message.subject;
-        } else {
-            $scope.subject = message.subject ? 'Re: ' + message.subject.replace('Re: ', '') : '';
+    function buildForwardBody(re, sentDate) {
+        const headerLines = [
+            '---------- Forwarded message ----------',
+            'From: ' + re.from[0].name + ' <' + re.from[0].address + '>',
+            'Date: ' + sentDate,
+            'Subject: ' + re.subject,
+            'To: ' + addressListToString(re.to)
+        ];
+        if (re.cc && re.cc.length > 0) {
+            headerLines.push('Cc: ' + addressListToString(re.cc));
         }
+        return '\n\n' + headerLines.join('\n') + '\n\n';
     }
 
-    /** Build email body for forward or reply */
-    function buildBody(message, isForward) {
-        const fromName = message.from[0].name || determineReplyAddress(message);
-        const sentDate = $filter('date')(message.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+    function buildReplyBody(re, sentDate, from) {
+        return '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
+    }
 
-        const formatAddressList = list => list.map(to => `${to.name || to.address} <${to.address}>`).join(', ');
+    function formatOriginalBody(body) {
+        return body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
+    }
 
-        let bodyHeader;
-        if (isForward) {
-            bodyHeader = '\n\n---------- Forwarded message ----------\n' +
-                `From: ${message.from[0].name} <${message.from[0].address}>\n` +
-                `Date: ${sentDate}\n` +
-                `Subject: ${message.subject}\n` +
-                `To: ${formatAddressList(message.to)}\n` +
-                (message.cc && message.cc.length ? `Cc: ${formatAddressList(message.cc)}\n` : '') +
-                '\n\n';
-        } else {
-            bodyHeader = `\n\n${sentDate} ${fromName} wrote:\n> `;
-        }
-
-        if (message.body) {
-            const quotedBody = message.body.trim().split('\n').map(line => line.replace(/^ >/, '>')).join('\n> ');
-            $scope.body = bodyHeader + quotedBody;
-        } else {
-            $scope.body = bodyHeader;
-        }
+    function addressListToString(list) {
+        let result = '';
+        list.forEach(function(to) {
+            result += (result ? ', ' : '');
+            result += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
+        });
+        return result;
     }
 
     //
     // Editing headers
     //
 
-    /** Warn users when using BCC */
-    $scope.toggleShowBCC = function () {
+    /**
+     * Warn users when using BCC
+     */
+    $scope.toggleShowBCC = function() {
         $scope.showBCC = true;
         return dialog.info({
             title: 'Warning',
@@ -204,18 +209,15 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
         });
     };
 
-    /** Verify email address and fetch its public key */
-    $scope.verify = function (recipient) {
+    /**
+     * Verify email address and fetch its public key
+     */
+    $scope.verify = function(recipient) {
         if (!recipient) {
             return;
         }
 
-        if (recipient.address) {
-            recipient.displayId = recipient.address;
-        } else {
-            recipient.address = recipient.displayId;
-        }
-
+        normalizeRecipient(recipient);
         recipient.key = undefined;
         recipient.secure = false;
         $scope.checkSendStatus();
@@ -228,132 +230,169 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
 
         return $q.resolve()
             .then(() => keychain.refreshKeyForUserId({ userId: recipient.address }))
-            .then(key => {
-                if (key) {
-                    const userIds = pgp.getKeyParams(key.publicKey).userIds;
-                    const matching = _.findWhere(userIds, { emailAddress: recipient.address });
-                    if (matching) {
-                        recipient.key = key;
-                        recipient.secure = true;
-                    }
-                } else {
-                    $scope.showInvite = true;
-                }
-                $scope.checkSendStatus();
-            })
+            .then(key => handleKeyResult(key, recipient))
             .catch(dialog.error);
     };
 
-    /** Check if it is ok to send an email depending on the invitation state of the addresses */
-    $scope.checkSendStatus = function () {
+    // Normalizes recipient fields for display and address
+    function normalizeRecipient(recipient) {
+        if (recipient.address) {
+            recipient.displayId = recipient.address;
+        } else {
+            recipient.address = recipient.displayId;
+        }
+    }
+
+    // Handles the result of a key lookup
+    function handleKeyResult(key, recipient) {
+        if (key) {
+            const userIds = pgp.getKeyParams(key.publicKey).userIds;
+            const matchingUserId = _.findWhere(userIds, { emailAddress: recipient.address });
+            if (matchingUserId) {
+                recipient.key = key;
+                recipient.secure = true;
+            }
+        } else {
+            $scope.showInvite = true;
+        }
+        $scope.checkSendStatus();
+    }
+
+    /**
+     * Check if it is ok to send an email depending on the invitation state of the addresses
+     */
+    $scope.checkSendStatus = function() {
         $scope.okToSend = false;
         $scope.sendBtnText = undefined;
         $scope.sendBtnSecure = undefined;
 
-        let allSecure = true;
-        let receiverCount = 0;
+        const { allSecure, numReceivers } = evaluateRecipients();
 
-        const validateRecipient = recipient => {
-            if (!util.validateEmailAddress(recipient.address)) {
-                dialog.info({ title: 'Warning', message: 'Invalid recipient address!' });
-                return;
-            }
-            receiverCount++;
-            if (!recipient.secure) {
-                allSecure = false;
-            }
-        };
-
-        $scope.to.forEach(validateRecipient);
-        $scope.cc.forEach(validateRecipient);
-        $scope.bcc.forEach(validateRecipient);
-
-        if (receiverCount < 1) {
+        if (numReceivers < 1) {
             $scope.showInvite = false;
             return;
         }
 
         if ($scope.bcc.filter(filterEmptyAddresses).length > 0) {
-            allSecure = false;
+            // BCC disables secure sending
+            setPlaintextSendState();
+            return;
         }
 
         if (allSecure) {
-            $scope.okToSend = true;
-            $scope.sendBtnText = str.sendBtnSecure;
-            $scope.sendBtnSecure = true;
-            $scope.showInvite = false;
+            setSecureSendState();
         } else {
-            $scope.okToSend = true;
-            $scope.sendBtnText = str.sendBtnClear;
-            $scope.sendBtnSecure = false;
+            setPlaintextSendState();
         }
     };
+
+    // Evaluates all recipients for validity and security
+    function evaluateRecipients() {
+        let allSecure = true;
+        let numReceivers = 0;
+
+        const check = function(recipient) {
+            if (!util.validateEmailAddress(recipient.address)) {
+                dialog.info({
+                    title: 'Warning',
+                    message: 'Invalid recipient address!'
+                });
+                return;
+            }
+            numReceivers++;
+            if (!recipient.secure) {
+                allSecure = false;
+            }
+        };
+
+        $scope.to.forEach(check);
+        $scope.cc.forEach(check);
+        $scope.bcc.forEach(check);
+
+        return { allSecure, numReceivers };
+    }
+
+    function setSecureSendState() {
+        $scope.okToSend = true;
+        $scope.sendBtnText = str.sendBtnSecure;
+        $scope.sendBtnSecure = true;
+        $scope.showInvite = false;
+    }
+
+    function setPlaintextSendState() {
+        $scope.okToSend = true;
+        $scope.sendBtnText = str.sendBtnClear;
+        $scope.sendBtnSecure = false;
+    }
 
     //
     // Editing attachments
     //
-    $scope.remove = function (attachment) {
+    $scope.remove = function(attachment) {
         $scope.attachments.splice($scope.attachments.indexOf(attachment), 1);
     };
 
-    /** Invite all users without a public key */
-    $scope.invite = function () {
+    /**
+     * Invite all users without a public key
+     */
+    $scope.invite = function() {
         const sender = auth.emailAddress;
-        const sendJobs = [];
-        const invitees = [];
+        const invitees = collectInvitees();
 
         $scope.showInvite = false;
 
-        const collectInvitees = recipient => {
-            if (util.validateEmailAddress(recipient.address) && !recipient.secure && $scope.invited.indexOf(recipient.address) === -1) {
-                invitees.push(recipient.address);
-            }
-        };
-
-        $scope.to.forEach(collectInvitees);
-        $scope.cc.forEach(collectInvitees);
-        $scope.bcc.forEach(collectInvitees);
-
         return $q.resolve()
-            .then(() => {
-                invitees.forEach(recipientAddress => {
-                    const invitationMail = invitation.createMail({ sender, recipient: recipientAddress });
-                    const promise = outbox.put(invitationMail)
-                        .then(() => invitation.invite({ recipient: recipientAddress, sender }));
-                    sendJobs.push(promise);
-                    $scope.invited.push(recipientAddress);
-                });
-                return Promise.all(sendJobs);
-            })
+            .then(() => sendInvitations(sender, invitees))
             .catch(err => {
                 $scope.showInvite = true;
                 return dialog.error(err);
             });
     };
 
+    // Collects addresses that need an invitation
+    function collectInvitees() {
+        const invitees = [];
+
+        const check = function(recipient) {
+            if (util.validateEmailAddress(recipient.address) && !recipient.secure && $scope.invited.indexOf(recipient.address) === -1) {
+                invitees.push(recipient.address);
+            }
+        };
+
+        $scope.to.forEach(check);
+        $scope.cc.forEach(check);
+        $scope.bcc.forEach(check);
+
+        return invitees;
+    }
+
+    // Sends invitation emails and records invited addresses
+    function sendInvitations(sender, invitees) {
+        const sendJobs = [];
+
+        invitees.forEach(function(recipientAddress) {
+            const invitationMail = invitation.createMail({
+                sender,
+                recipient: recipientAddress
+            });
+
+            const promise = outbox.put(invitationMail).then(() => invitation.invite({
+                recipient: recipientAddress,
+                sender
+            }));
+
+            sendJobs.push(promise);
+            $scope.invited.push(recipientAddress);
+        });
+
+        return Promise.all(sendJobs);
+    }
+
     //
     // Editing email body
     //
-    $scope.sendToOutbox = function () {
-        const message = {
-            from: [{ name: auth.realname, address: auth.emailAddress }],
-            to: $scope.to.filter(filterEmptyAddresses),
-            cc: $scope.cc.filter(filterEmptyAddresses),
-            bcc: $scope.bcc.filter(filterEmptyAddresses),
-            subject: $scope.subject.trim() || str.fallbackSubject,
-            body: $scope.body.trim(),
-            attachments: $scope.attachments,
-            sentDate: new Date(),
-            headers: {}
-        };
-
-        if ($scope.inReplyTo) {
-            message.headers['in-reply-to'] = `<${$scope.inReplyTo}>`;
-        }
-
-        if ($scope.references && $scope.references.length) {
-            message.headers.references = $scope.references.map(ref => `<${ref}>`).join(' ');
-        }
+    $scope.sendToOutbox = function() {
+        const message = buildMessage();
 
         $scope.state.writer.close();
         if ($scope.replyTo) {
@@ -362,13 +401,7 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
 
         return $q.resolve()
             .then(() => outbox.put(message))
-            .then(() => {
-                if (!$scope.replyTo || $scope.replyTo.answered) {
-                    return;
-                }
-                $scope.replyTo.answered = true;
-                return email.setFlags({ folder: currentFolder(), message: $scope.replyTo });
-            })
+            .then(() => syncReplyFlag())
             .catch(err => {
                 if (err.code !== 42) {
                     dialog.error(err);
@@ -376,10 +409,49 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
             });
     };
 
+    // Constructs the email model for outbox storage
+    function buildMessage() {
+        return {
+            from: [{ name: auth.realname, address: auth.emailAddress }],
+            to: $scope.to.filter(filterEmptyAddresses),
+            cc: $scope.cc.filter(filterEmptyAddresses),
+            bcc: $scope.bcc.filter(filterEmptyAddresses),
+            subject: $scope.subject.trim() || str.fallbackSubject,
+            body: $scope.body.trim(),
+            attachments: $scope.attachments,
+            sentDate: new Date(),
+            headers: buildHeaders()
+        };
+    }
+
+    // Builds email headers for reply handling
+    function buildHeaders() {
+        const headers = {};
+        if ($scope.inReplyTo) {
+            headers['in-reply-to'] = '<' + $scope.inReplyTo + '>';
+        }
+        if ($scope.references && $scope.references.length) {
+            headers.references = $scope.references.map(ref => '<' + ref + '>').join(' ');
+        }
+        return headers;
+    }
+
+    // Synchronizes the replied flag on the original message if needed
+    function syncReplyFlag() {
+        if (!$scope.replyTo || $scope.replyTo.answered) {
+            return;
+        }
+        $scope.replyTo.answered = true;
+        return email.setFlags({
+            folder: currentFolder(),
+            message: $scope.replyTo
+        });
+    }
+
     //
     // Tag input & Autocomplete
     //
-    $scope.tagStyle = function (recipient) {
+    $scope.tagStyle = function(recipient) {
         const classes = ['label'];
         if (recipient.secure === false) {
             classes.push('label--invalid');
@@ -387,23 +459,34 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
         return classes;
     };
 
-    $scope.lookupAddressBook = function (query) {
+    $scope.lookupAddressBook = function(query) {
         return $q.resolve()
-            .then(() => {
-                if ($scope.addressBookCache) {
-                    return;
-                }
-                return keychain.listLocalPublicKeys()
-                    .then(keys => {
-                        $scope.addressBookCache = keys.map(key => {
-                            const name = pgp.getKeyParams(key.publicKey).userIds[0].name;
-                            return { address: key.userId, displayId: `${name} - ${key.userId}` };
-                        });
-                    });
-            })
-            .then(() => $scope.addressBookCache.filter(i => i.displayId.toLowerCase().includes(query.toLowerCase())))
+            .then(() => ensureAddressBookCache())
+            .then(() => filterAddressBook(query))
             .catch(dialog.error);
     };
+
+    // Loads address book cache if not already loaded
+    function ensureAddressBookCache() {
+        if ($scope.addressBookCache) {
+            return;
+        }
+        return keychain.listLocalPublicKeys().then(keys => {
+            $scope.addressBookCache = keys.map(key => {
+                const name = pgp.getKeyParams(key.publicKey).userIds[0].name;
+                return {
+                    address: key.userId,
+                    displayId: name + ' - ' + key.userId
+                };
+            });
+        });
+    }
+
+    // Filters cached address book entries based on query
+    function filterAddressBook(query) {
+        const lower = query.toLowerCase();
+        return $scope.addressBookCache.filter(i => i.displayId.toLowerCase().indexOf(lower) !== -1);
+    }
 
     //
     // Helpers
@@ -412,7 +495,7 @@ const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keych
         return $scope.state.nav.currentFolder;
     }
 
-    /**
+    /*
      * Visitor to filter out objects without an address property, i.e. empty addresses
      */
     function filterEmptyAddresses(addr) {

@@ -187,19 +187,19 @@ Runner.prototype.checkGlobals = function (test) {
   }
   let ok = this._globals;
 
-  const globalsList = this.globalProps();
+  const globals = this.globalProps();
   let leaks;
 
   if (test) {
     ok = ok.concat(test._allowedGlobals || []);
   }
 
-  if (this.prevGlobalsLength === globalsList.length) {
+  if (this.prevGlobalsLength === globals.length) {
     return;
   }
-  this.prevGlobalsLength = globalsList.length;
+  this.prevGlobalsLength = globals.length;
 
-  leaks = filterLeaks(ok, globalsList);
+  leaks = filterLeaks(ok, globals);
   this._globals = this._globals.concat(leaks);
 
   if (leaks.length > 1) {
@@ -599,6 +599,11 @@ Runner.prototype.runTests = function (suite, fn) {
   next();
 };
 
+/**
+ * Helper that always returns false.
+ *
+ * @returns {boolean}
+ */
 function alwaysFalse () {
   return false;
 }

@@ -21,104 +21,93 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-/**
- * Validate the initial state of the password field.
- */
-function validateInitial(
-  value: Value,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (value.kind !== 'initial') return undefined
-  if (value.isSet === null || value.isSet === true) return undefined
-  if (isRequired) return `${fieldLabel} is required`
-  return undefined
-}
-
-/**
- * Validate the editing state of the password field.
- */
-function validateEditing(
-  value: Value,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (value.kind !== 'editing') return undefined
-  if (value.confirm !== value.value) return `The passwords do not match`
-
-  const lengthError = checkLength(value.value, validation.length, fieldLabel)
-  if (lengthError) return lengthError
-
-  const matchError = checkMatch(value.value, validation.match)
-  if (matchError) return matchError
-
-  const commonError = checkCommon(value.value, validation.rejectCommon, fieldLabel)
-  if (commonError) return commonError
-
-  return undefined
-}
-
-/**
- * Check length constraints.
- */
-function checkLength(
-  val: string,
-  length: { min: number; max: number | null },
-  fieldLabel: string
-): string | undefined {
-  if (val.length < length.min) {
-    return length.min === 1
-      ? `${fieldLabel} must not be empty`
-      : `${fieldLabel} must be at least ${length.min} characters long`
-  }
-  if (length.max !== null && val.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
-  }
-  return undefined
-}
-
-/**
- * Check regex match constraint.
- */
-function checkMatch(
-  val: string,
-  match: { regex: RegExp; explanation: string } | null
-): string | undefined {
-  if (match && !match.regex.test(val)) {
-    return match.explanation
-  }
-  return undefined
-}
-
-/**
- * Check for common passwords if rejection is enabled.
- */
-function checkCommon(
-  val: string,
-  rejectCommon: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
-  }
-  return undefined
-}
-
-/**
- * Aggregate validation for the password field.
- */
 function validate(
   value: Value,
   validation: Validation,
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  const initialError = validateInitial(value, isRequired, fieldLabel)
-  if (initialError) return initialError
+  if (value.kind === 'initial') {
+    return validateInitial(value, isRequired, fieldLabel)
+  }
+  return validateEditing(value, validation, fieldLabel)
+}
 
-  const editingError = validateEditing(value, validation, fieldLabel)
-  if (editingError) return editingError
+/** Validate initial (non‑editing) state */
+function validateInitial(
+  value: Extract<Value, { kind: 'initial' }>,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (value.isSet === null || value.isSet === true) {
+    return undefined
+  }
+  if (isRequired) {
+    return `${fieldLabel} is required`
+  }
+  return undefined
+}
 
+/** Validate editing state */
+function validateEditing(
+  value: Extract<Value, { kind: 'editing' }>,
+  validation: Validation,
+  fieldLabel: string
+): string | undefined {
+  if (value.confirm !== value.value) {
+    return `The passwords do not match`
+  }
+
+  const minError = validateMinLength(value.value, validation.length.min, fieldLabel)
+  if (minError) return minError
+
+  const maxError = validateMaxLength(value.value, validation.length.max, fieldLabel)
+  if (maxError) return maxError
+
+  const matchError = validateMatch(value.value, validation.match)
+  if (matchError) return matchError
+
+  if (validation.rejectCommon && dumbPasswords.check(value.value)) {
+    return `${fieldLabel} is too common and is not allowed`
+  }
+
+  return undefined
+}
+
+/** Ensure value meets minimum length requirement */
+function validateMinLength(
+  val: string,
+  min: number,
+  fieldLabel: string
+): string | undefined {
+  if (val.length < min) {
+    return min === 1
+      ? `${fieldLabel} must not be empty`
+      : `${fieldLabel} must be at least ${min} characters long`
+  }
+  return undefined
+}
+
+/** Ensure value does not exceed maximum length, if defined */
+function validateMaxLength(
+  val: string,
+  max: number | null,
+  fieldLabel: string
+): string | undefined {
+  if (max !== null && val.length > max) {
+    return `${fieldLabel} must be no longer than ${max} characters`
+  }
+  return undefined
+}
+
+/** Validate value against a custom regex, if provided */
+function validateMatch(
+  val: string,
+  match: Validation['match']
+): string | undefined {
+  if (match && !match.regex.test(val)) {
+    return match.explanation
+  }
   return undefined
 }
 
@@ -157,7 +146,6 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {
@@ -233,7 +221,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
@@ -322,9 +310,11 @@ type Value =
       confirm: string
     }
 
-export function controller(
-  config: FieldControllerConfig<PasswordFieldMeta>
-): FieldController<Value, boolean | null, { isSet?: boolean | null | undefined }> & {
+export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
+  Value,
+  boolean | null,
+  { isSet?: boolean | null | undefined }
+> & {
   validation: Validation
 } {
   const validation: Validation = {
@@ -340,7 +330,6 @@ export function controller(
             explanation: config.fieldMeta.validation.match.explanation,
           },
   }
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -353,10 +342,7 @@ export function controller(
     },
     validate: (state, opts) =>
       validate(state, validation, opts.isRequired, config.label) === undefined,
-    deserialize: data => ({
-      kind: 'initial',
-      isSet: data[config.fieldKey]?.isSet ?? null,
-    }),
+    deserialize: data => ({ kind: 'initial', isSet: data[config.fieldKey]?.isSet ?? null }),
     serialize: value => {
       if (value.kind === 'initial') return {}
       return { [config.fieldKey]: value.value }

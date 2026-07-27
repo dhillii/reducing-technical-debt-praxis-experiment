@@ -58,9 +58,10 @@ function SearchBox() {
     const {searchValue, dispatch, inputRef, t} = useContext(AppContext);
     const containerRef = useRef(null);
     useEffect(() => {
-        const timer = setTimeout(() => {
+        const focusTimeout = setTimeout(() => {
             inputRef?.current?.focus();
         }, 150);
+
         const keyUphandler = (event) => {
             if (event.key === 'Escape') {
                 dispatch('update', {
@@ -69,9 +70,10 @@ function SearchBox() {
             }
         };
         const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
         return () => {
-            clearTimeout(timer);
+            clearTimeout(focusTimeout);
             containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         };
     }, [dispatch, inputRef]);
@@ -113,11 +115,15 @@ function SearchClearIcon() {
         return <SearchIcon className='text-neutral-900' alt='Search' />;
     }
     return (
-        <button alt='Clear' className='-mb-[1px]' onClick={() => {
-            dispatch('update', {
-                searchValue: ''
-            });
-        }}>
+        <button
+            alt='Clear'
+            className='-mb-[1px]'
+            onClick={() => {
+                dispatch('update', {
+                    searchValue: ''
+                });
+            }}
+        >
             <ClearIcon className='text-neutral-900 hover:text-neutral-500 h-[1.1rem] w-[1.1rem]' />
         </button>
     );
@@ -125,14 +131,15 @@ function SearchClearIcon() {
 
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-    return (!indexComplete && searchValue) ? <CircleAnimated className='shrink-0' /> : null;
+    return !indexComplete && searchValue ? <CircleAnimated className='shrink-0' /> : null;
 }
 
 function CancelButton() {
     const {dispatch, t} = useContext(AppContext);
     return (
         <button
-            className='ms-3 text-sm text-neutral-500 sm:hidden' alt='Cancel'
+            className='ms-3 text-sm text-neutral-500 sm:hidden'
+            alt='Cancel'
             onClick={() => {
                 dispatch('update', {
                     showPopup: false
@@ -170,12 +177,7 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
         <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Tags')}</h1>
             {tags.map((d) => (
-                <TagListItem
-                    key={d.name}
-                    tag={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+                <TagListItem key={d.name} tag={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
         </div>
     );
@@ -212,7 +214,7 @@ function getMatchIndexes({text, highlight}) {
         highlightRegexText += idx > 0 ? `|^${e}|\\s${e}` : `^${e}|\\s${e}`;
     });
     const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
-    const matches = text?.matchAll(matchRegex) || [];
+    const matches = text?.matchAll(matchRegex);
     const indexes = [];
     for (const match of matches) {
         indexes.push({
@@ -254,18 +256,24 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     }
     return (
         <>
-            {parts.map((d, idx) => (
-                <React.Fragment key={idx}>
-                    {d.type === 'highlight' ? <HighlightWord word={d.text} isExcerpt={isExcerpt} /> : d.text}
-                </React.Fragment>
-            ))}
+            {parts.map((d, idx) =>
+                d.type === 'highlight' ? (
+                    <React.Fragment key={idx}>
+                        <HighlightWord word={d.text} isExcerpt={isExcerpt} />
+                    </React.Fragment>
+                ) : (
+                    <React.Fragment key={idx}>{d.text}</React.Fragment>
+                )
+            )}
         </>
     );
 }
 
 function HighlightWord({word, isExcerpt}) {
-    return (
-        <span className={isExcerpt ? 'font-bold' : 'font-bold text-neutral-900'}>{word}</span>
+    return isExcerpt ? (
+        <span className='font-bold'>{word}</span>
+    ) : (
+        <span className='font-bold text-neutral-900'>{word}</span>
     );
 }
 
@@ -296,13 +304,8 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
-            {paginatedPosts.map(d => (
-                <PostListItem
-                    key={d.title}
-                    post={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+            {paginatedPosts.map((d) => (
+                <PostListItem key={d.title} post={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
         </div>
@@ -329,13 +332,13 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 function AuthorAvatar({name, avatar}) {
-    if (avatar?.length) {
-        return <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />;
-    }
+    const hasAvatar = !!avatar?.length;
     const character = name.charAt(0);
-    return (
+    return hasAvatar ? (
+        <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />
+    ) : (
         <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{character}</span>
+            <span className='text-neutral-400'>{character}</span>
         </div>
     );
 }
@@ -346,13 +349,8 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
-            {authors.map(d => (
-                <AuthorListItem
-                    key={d.name}
-                    author={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+            {authors.map((d) => (
+                <AuthorListItem key={d.name} author={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
         </div>
     );
@@ -371,15 +369,8 @@ function SearchResultBox() {
         filteredTags = searchResults?.tags || [];
     }
 
-    filteredAuthors = filteredAuthors.filter(author => {
-        const invalidUrlRegex = /\/404\/$/;
-        return !(author?.url && invalidUrlRegex.test(author?.url));
-    });
-
-    filteredTags = filteredTags.filter(tag => {
-        const invalidUrlRegex = /\/404\/$/;
-        return !(tag?.url && invalidUrlRegex.test(tag?.url));
-    });
+    filteredAuthors = filteredAuthors.filter((author) => !(author?.url && /\/404\/$/.test(author?.url)));
+    filteredTags = filteredTags.filter((tag) => !(tag?.url && /\/404\/$/.test(tag?.url)));
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -405,7 +396,7 @@ function Results({posts, authors, tags}) {
 
     useEffect(() => {
         const keyUphandler = (event) => {
-            const selectedResultIdx = allResults.findIndex(d => d.id === selectedResult);
+            const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
             const nextResult = allResults[selectedResultIdx + 1];
             const prevResult = allResults[selectedResultIdx - 1];
             if (event.key === 'ArrowUp' && prevResult) {
@@ -413,14 +404,15 @@ function Results({posts, authors, tags}) {
             } else if (event.key === 'ArrowDown' && nextResult) {
                 setSelectedResult(nextResult.id);
             } else if (event.key === 'Enter') {
-                const selectedResultData = allResults.find(d => d.id === selectedResult);
+                const selectedResultData = allResults.find((d) => d.id === selectedResult);
                 window.location.href = selectedResultData?.url;
             }
         };
         const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
         return () => {
-            containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
         };
     }, [allResults, selectedResult]);
 
@@ -499,16 +491,13 @@ export default class PopupModal extends React.Component {
             }
         `;
         const stylesUrl = this.context.stylesUrl;
-        if (stylesUrl) {
-            return (
-                <>
-                    <link rel='stylesheet' href={stylesUrl} />
-                    <style dangerouslySetInnerHTML={{__html: styles}} />
-                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
-                </>
-            );
-        }
-        return (
+        return stylesUrl ? (
+            <>
+                <link rel='stylesheet' href={stylesUrl} />
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+            </>
+        ) : (
             <>
                 <style dangerouslySetInnerHTML={{__html: styles}} />
                 <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
@@ -523,7 +512,7 @@ export default class PopupModal extends React.Component {
             <div style={Styles.modalContainer} className='gh-root-frame'>
                 <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
                     <div
-                        onClick={e => this.handlePopupClose(e)}
+                        onClick={this.handlePopupClose}
                         className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]'
                     />
                     <PopupContent />
@@ -533,7 +522,6 @@ export default class PopupModal extends React.Component {
     }
 
     render() {
-        const {showPopup} = this.context;
-        return showPopup ? this.renderFrameContainer() : null;
+        return this.context.showPopup ? this.renderFrameContainer() : null;
     }
 }

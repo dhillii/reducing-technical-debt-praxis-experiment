@@ -459,20 +459,46 @@ FastClick.prototype.touchHasMoved = function(event) {
 
 
 /**
+ * Determine whether the target element for the current touchmove differs from the original target.
+ *
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype._hasTargetChanged = function(event) {
+	'use strict';
+	return this.targetElement !== this.getTargetElementFromEventTarget(event.target);
+};
+
+/**
+ * Determine whether the touchmove event should cancel click tracking.
+ *
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype._shouldCancelTracking = function(event) {
+	'use strict';
+	return this._hasTargetChanged(event) || this.touchHasMoved(event);
+};
+
+/**
  * Update the last position.
  *
  * @param {Event} event
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
 	if (!this.trackingClick) {
-		return;
+		return true;
 	}
 
-	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
+	if (this._shouldCancelTracking(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
+		return false;
 	}
+
+	return true;
 };
 
 

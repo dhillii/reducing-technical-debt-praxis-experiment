@@ -12,7 +12,8 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 function ABSTRACT() {
-  return;
+  // Base abstract data type constructor
+  this._abstract = true;
 }
 
 ABSTRACT.prototype.dialectTypes = '';
@@ -821,7 +822,7 @@ for (const helper of Object.keys(helpers)) {
  *
  * Three of the values provided here (`NOW`, `UUIDV1` and `UUIDV4`) are special default values, that should not be used to define types. Instead they are used as shorthands for
  * defining default values. For example, to get a uuid field with a default value generated following v1 of the UUID standard:
- * ```js`
+ * ```js
  * sequelize.define('model',` {
  *   uuid: {
  *     type: DataTypes.UUID,
@@ -919,17 +920,35 @@ for (const helper of Object.keys(helpers)) {
  *   password: {
  *     type: DataTypes.VIRTUAL,
  *     set: function (val) {
- *        // Remember to set the data value, otherwise it won't be validated
- *        this.setDataValue('password', val);
- *        this.setDataValue('password_hash', this.salt + val);
- *      },
- *      validate: {
- *         isLongEnough: function (val) {
- *           if (val.length < 7) {
- *             throw new Error("Please
+ *       // Remember to set the data value, otherwise it won't be validated
+ *       this.setDataValue('password', val);
+ *       this.setDataValue('password_hash', this.salt + val);
+ *     },
+ *     validate: {
+ *       isLongEnough: function (val) {
+ *         if (val.length < 7) {
+ *           throw new Error("Please choose a longer password")
+ *         }
+ *       }
+ *     }
+ *   }
+ * })
+ * ```
+ * In the above code the password is stored plainly in the password field so it can be validated, but is never stored in the DB.
+ *
+ * VIRTUAL also takes a return type and dependency fields as arguments
+ * If a virtual attribute is present in `attributes` it will automatically pull in the extra fields as well.
+ * Return type is mostly useful for setups that rely
 
- * ... (truncated for brevity) ...
- */
+ * @property {function(type: string, srid: string)} GEOGRAPHY A geography datatype represents two dimensional spacial objects in an elliptic coord system.
+ * @property {function(returnType: DataTypes, fields: string[])} VIRTUAL A virtual value that is not
+
+ * @property {function(type: string, srid: string)} GEOGRAPHY A
+
+ * @property {function(returnType: DataTypes, fields: string[])} VIRTUAL
+
+ * @property {function(type: string, srid: string)}
+
 const DataTypes = module.exports = {
   ABSTRACT,
   STRING,

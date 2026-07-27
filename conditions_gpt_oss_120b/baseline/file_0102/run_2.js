@@ -219,7 +219,7 @@ FastClick.prototype.needsClick = function(target) {
 	case 'select':
 	case 'textarea':
 		if (target.disabled) {
-			return true;
+			...
 		}
 
 		break;
@@ -462,18 +462,22 @@ FastClick.prototype.touchHasMoved = function(event) {
  * Update the last position.
  *
  * @param {Event} event
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
 	if (!this.trackingClick) {
-		return;
+		return true;
 	}
 
 	// If the touch has moved, cancel the click tracking
 	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
+		return false;
 	}
+
+	return true;
 };
 
 

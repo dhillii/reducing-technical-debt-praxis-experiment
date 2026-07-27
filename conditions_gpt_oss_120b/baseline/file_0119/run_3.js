@@ -11,35 +11,33 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-class ABSTRACT {
-  constructor() {}
-
-  toString(options) {
-    return this.toSql(options);
-  }
-
-  toSql() {
-    return this.key;
-  }
-
-  stringify(value, options) {
-    if (this._stringify) {
-      return this._stringify(value, options);
-    }
-    return value;
-  }
-
-  static warn(link, text) {
-    if (!warnings[text]) {
-      warnings[text] = true;
-      Utils.warn(`${text}, '\n>> Check:', ${link}`);
-    }
-  }
+function ABSTRACT() {
+  // Base abstract constructor
+  return;
 }
 ABSTRACT.prototype.dialectTypes = '';
 
+ABSTRACT.prototype.toString = function toString(options) {
+  return this.toSql(options);
+};
+ABSTRACT.prototype.toSql = function toSql() {
+  return this.key;
+};
+ABSTRACT.warn = function warn(link, text) {
+  if (!warnings[text]) {
+    warnings[text] = true;
+    Utils.warn(`${text}, '\n>> Check:', ${link}`);
+  }
+};
+ABSTRACT.prototype.stringify = function stringify(value, options) {
+  if (this._stringify) {
+    return this._stringify(value, options);
+  }
+  return value;
+};
+
 function STRING(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof STRING)) return new STRING(options);
 
@@ -50,10 +48,10 @@ function STRING(length, binary) {
 inherits(STRING, ABSTRACT);
 
 STRING.prototype.key = STRING.key = 'STRING';
-STRING.prototype.toSql = function () {
+STRING.prototype.toSql = function toSql() {
   return 'VARCHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
-STRING.prototype.validate = function (value) {
+STRING.prototype.validate = function validate(value) {
   if (Object.prototype.toString.call(value) !== '[object String]') {
     if (this.options.binary && Buffer.isBuffer(value) || _.isNumber(value)) {
       return true;
@@ -72,7 +70,7 @@ Object.defineProperty(STRING.prototype, 'BINARY', {
 });
 
 function CHAR(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof CHAR)) return new CHAR(options);
   STRING.apply(this, arguments);
@@ -80,12 +78,12 @@ function CHAR(length, binary) {
 inherits(CHAR, STRING);
 
 CHAR.prototype.key = CHAR.key = 'CHAR';
-CHAR.prototype.toSql = function () {
+CHAR.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
 function TEXT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TEXT)) return new TEXT(options);
   this.options = options;
   this._length = options.length || '';
@@ -93,7 +91,7 @@ function TEXT(length) {
 inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
-TEXT.prototype.toSql = function () {
+TEXT.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYTEXT';
@@ -105,7 +103,7 @@ TEXT.prototype.toSql = function () {
       return this.key;
   }
 };
-TEXT.prototype.validate = function (value) {
+TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid string', value));
   }
@@ -125,7 +123,7 @@ function NUMBER(options) {
 inherits(NUMBER, ABSTRACT);
 
 NUMBER.prototype.key = NUMBER.key = 'NUMBER';
-NUMBER.prototype.toSql = function () {
+NUMBER.prototype.toSql = function toSql() {
   let result = this.key;
   if (this._length) {
     result += '(' + this._length;
@@ -143,14 +141,14 @@ NUMBER.prototype.toSql = function () {
   return result;
 };
 
-NUMBER.prototype.validate = function (value) {
+NUMBER.prototype.validate = function(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
 
   return true;
 };
-NUMBER.prototype._stringify = function (number) {
+NUMBER.prototype._stringify = function _stringify(number) {
   if (typeof number === 'number' || typeof number === 'boolean' || number === null || number === undefined) {
     return number;
   }
@@ -177,14 +175,14 @@ Object.defineProperty(NUMBER.prototype, 'ZEROFILL', {
 });
 
 function INTEGER(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof INTEGER)) return new INTEGER(options);
   NUMBER.call(this, options);
 }
 inherits(INTEGER, NUMBER);
 
 INTEGER.prototype.key = INTEGER.key = 'INTEGER';
-INTEGER.prototype.validate = function (value) {
+INTEGER.prototype.validate = function validate(value) {
   if (!Validator.isInt(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
@@ -193,7 +191,7 @@ INTEGER.prototype.validate = function (value) {
 };
 
 function TINYINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TINYINT)) return new TINYINT(options);
   NUMBER.call(this, options);
 }
@@ -202,7 +200,7 @@ inherits(TINYINT, INTEGER);
 TINYINT.prototype.key = TINYINT.key = 'TINYINT';
 
 function SMALLINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof SMALLINT)) return new SMALLINT(options);
   NUMBER.call(this, options);
 }
@@ -211,7 +209,7 @@ inherits(SMALLINT, INTEGER);
 SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
 
 function MEDIUMINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof MEDIUMINT)) return new MEDIUMINT(options);
   NUMBER.call(this, options);
 }
@@ -220,7 +218,7 @@ inherits(MEDIUMINT, INTEGER);
 MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
 
 function BIGINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BIGINT)) return new BIGINT(options);
   NUMBER.call(this, options);
 }
@@ -229,14 +227,14 @@ inherits(BIGINT, INTEGER);
 BIGINT.prototype.key = BIGINT.key = 'BIGINT';
 
 function FLOAT(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof FLOAT)) return new FLOAT(options);
   NUMBER.call(this, options);
 }
 inherits(FLOAT, NUMBER);
 
 FLOAT.prototype.key = FLOAT.key = 'FLOAT';
-FLOAT.prototype.validate = function (value) {
+FLOAT.prototype.validate = function validate(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid float', value));
   }
@@ -245,7 +243,7 @@ FLOAT.prototype.validate = function (value) {
 };
 
 function REAL(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof REAL)) return new REAL(options);
   NUMBER.call(this, options);
 }
@@ -254,7 +252,7 @@ inherits(REAL, NUMBER);
 REAL.prototype.key = REAL.key = 'REAL';
 
 function DOUBLE(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof DOUBLE)) return new DOUBLE(options);
   NUMBER.call(this, options);
 }
@@ -263,21 +261,22 @@ inherits(DOUBLE, NUMBER);
 DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
 
 function DECIMAL(precision, scale) {
-  const options = typeof precision === 'object' && precision || { precision, scale };
+  const options = typeof precision === 'object' && precision || {precision, scale};
   if (!(this instanceof DECIMAL)) return new DECIMAL(options);
   NUMBER.call(this, options);
 }
 inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
-DECIMAL.prototype.toSql = function () {
+DECIMAL.prototype.toSql = function toSql() {
+
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
 
   return 'DECIMAL';
 };
-DECIMAL.prototype.validate = function (value) {
+DECIMAL.prototype.validate = function validate(value) {
   if (!Validator.isDecimal(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid decimal', value));
   }
@@ -287,7 +286,7 @@ DECIMAL.prototype.validate = function (value) {
 
 for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype.escape = false;
-  floating.prototype._stringify = function (value) {
+  floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
       return "'NaN'";
     } else if (!isFinite(value)) {
@@ -305,10 +304,10 @@ function BOOLEAN() {
 inherits(BOOLEAN, ABSTRACT);
 
 BOOLEAN.prototype.key = BOOLEAN.key = 'BOOLEAN';
-BOOLEAN.prototype.toSql = function () {
+BOOLEAN.prototype.toSql = function toSql() {
   return 'TINYINT(1)';
 };
-BOOLEAN.prototype.validate = function (value) {
+BOOLEAN.prototype.validate = function validate(value) {
   if (!Validator.isBoolean(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid boolean', value));
   }
@@ -316,15 +315,19 @@ BOOLEAN.prototype.validate = function (value) {
   return true;
 };
 
-BOOLEAN.prototype._sanitize = function (value) {
+BOOLEAN.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
+      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
+      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
+
     } else if (_.isNumber(value)) {
+      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
@@ -339,12 +342,12 @@ function TIME() {
 inherits(TIME, ABSTRACT);
 
 TIME.prototype.key = TIME.key = 'TIME';
-TIME.prototype.toSql = function () {
+TIME.prototype.toSql = function toSql() {
   return 'TIME';
 };
 
 function DATE(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
 
   if (!(this instanceof DATE)) return new DATE(options);
 
@@ -354,10 +357,10 @@ function DATE(length) {
 inherits(DATE, ABSTRACT);
 
 DATE.prototype.key = DATE.key = 'DATE';
-DATE.prototype.toSql = function () {
+DATE.prototype.toSql = function toSql() {
   return 'DATETIME';
 };
-DATE.prototype.validate = function (value) {
+DATE.prototype.validate = function validate(value) {
   if (!Validator.isDate(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid date', value));
   }
@@ -365,7 +368,7 @@ DATE.prototype.validate = function (value) {
   return true;
 };
 
-DATE.prototype._sanitize = function (value, options) {
+DATE.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
     return new Date(value);
   }
@@ -373,7 +376,7 @@ DATE.prototype._sanitize = function (value, options) {
   return value;
 };
 
-DATE.prototype._isChanged = function (value, originalValue) {
+DATE.prototype._isChanged = function _isChanged(value, originalValue) {
   if (
     originalValue && !!value &&
     (
@@ -384,6 +387,7 @@ DATE.prototype._isChanged = function (value, originalValue) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -391,7 +395,7 @@ DATE.prototype._isChanged = function (value, originalValue) {
   return true;
 };
 
-DATE.prototype._applyTimezone = function (date, options) {
+DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
     if (momentTz.tz.zone(options.timezone)) {
       date = momentTz(date).tz(options.timezone);
@@ -405,8 +409,10 @@ DATE.prototype._applyTimezone = function (date, options) {
   return date;
 };
 
-DATE.prototype._stringify = function (date, options) {
+DATE.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
+
+  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
@@ -416,15 +422,15 @@ function DATEONLY() {
 util.inherits(DATEONLY, ABSTRACT);
 
 DATEONLY.prototype.key = DATEONLY.key = 'DATEONLY';
-DATEONLY.prototype.toSql = function () {
+DATEONLY.prototype.toSql = function() {
   return 'DATE';
 };
 
-DATEONLY.prototype._stringify = function (date) {
+DATEONLY.prototype._stringify = function _stringify(date) {
   return moment(date).format('YYYY-MM-DD');
 };
 
-DATEONLY.prototype._sanitize = function (value, options) {
+DATEONLY.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !!value) {
     return moment(value).format('YYYY-MM-DD');
   }
@@ -432,11 +438,12 @@ DATEONLY.prototype._sanitize = function (value, options) {
   return value;
 };
 
-DATEONLY.prototype._isChanged = function (value, originalValue) {
+DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -450,7 +457,7 @@ function HSTORE() {
 inherits(HSTORE, ABSTRACT);
 
 HSTORE.prototype.key = HSTORE.key = 'HSTORE';
-HSTORE.prototype.validate = function (value) {
+HSTORE.prototype.validate = function validate(value) {
   if (!_.isPlainObject(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid hstore', value));
   }
@@ -464,11 +471,11 @@ function JSONTYPE() {
 inherits(JSONTYPE, ABSTRACT);
 
 JSONTYPE.prototype.key = JSONTYPE.key = 'JSON';
-JSONTYPE.prototype.validate = function () {
+JSONTYPE.prototype.validate = function validate() {
   return true;
 };
 
-JSONTYPE.prototype._stringify = function (value) {
+JSONTYPE.prototype._stringify = function _stringify(value) {
   return JSON.stringify(value);
 };
 
@@ -488,7 +495,7 @@ inherits(NOW, ABSTRACT);
 NOW.prototype.key = NOW.key = 'NOW';
 
 function BLOB(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BLOB)) return new BLOB(options);
   this.options = options;
   this._length = options.length || '';
@@ -496,7 +503,7 @@ function BLOB(length) {
 inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
-BLOB.prototype.toSql = function () {
+BLOB.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYBLOB';
@@ -508,7 +515,7 @@ BLOB.prototype.toSql = function () {
       return this.key;
   }
 };
-BLOB.prototype.validate = function (value) {
+BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid blob', value));
   }
@@ -517,12 +524,12 @@ BLOB.prototype.validate = function (value) {
 };
 
 BLOB.prototype.escape = false;
-BLOB.prototype._stringify = function (value) {
+BLOB.prototype._stringify = function _stringify(value) {
   if (!Buffer.isBuffer(value)) {
     if (Array.isArray(value)) {
-      value = Buffer.from(value);
+      value = new Buffer(value);
     } else {
-      value = Buffer.from(value.toString());
+      value = new Buffer(value.toString());
     }
   }
   const hex = value.toString('hex');
@@ -530,12 +537,12 @@ BLOB.prototype._stringify = function (value) {
   return this._hexify(hex);
 };
 
-BLOB.prototype._hexify = function (hex) {
+BLOB.prototype._hexify = function _hexify(hex) {
   return "X'" + hex + "'";
 };
 
 function RANGE(subtype) {
-  const options = _.isPlainObject(subtype) ? subtype : { subtype };
+  const options = _.isPlainObject(subtype) ? subtype : {subtype};
 
   if (!options.subtype) options.subtype = new INTEGER();
 
@@ -569,13 +576,13 @@ const pgRangeCastTypes = {
 };
 
 RANGE.prototype.key = RANGE.key = 'RANGE';
-RANGE.prototype.toSql = function () {
+RANGE.prototype.toSql = function toSql() {
   return pgRangeSubtypes[this._subtype.toLowerCase()];
 };
-RANGE.prototype.toCastType = function () {
+RANGE.prototype.toCastType = function toCastType() {
   return pgRangeCastTypes[this._subtype.toLowerCase()];
 };
-RANGE.prototype.validate = function (value) {
+RANGE.prototype.validate = function validate(value) {
   if (_.isPlainObject(value) && value.inclusive) {
     value = value.inclusive;
   }
@@ -597,7 +604,7 @@ function UUID() {
 inherits(UUID, ABSTRACT);
 
 UUID.prototype.key = UUID.key = 'UUID';
-UUID.prototype.validate = function (value, options) {
+UUID.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
@@ -611,7 +618,7 @@ function UUIDV1() {
 inherits(UUIDV1, ABSTRACT);
 
 UUIDV1.prototype.key = UUIDV1.key = 'UUIDV1';
-UUIDV1.prototype.validate = function (value, options) {
+UUIDV1.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
@@ -625,7 +632,7 @@ function UUIDV4() {
 inherits(UUIDV4, ABSTRACT);
 
 UUIDV4.prototype.key = UUIDV4.key = 'UUIDV4';
-UUIDV4.prototype.validate = function (value, options) {
+UUIDV4.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value, 4) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuidv4', value));
   }
@@ -657,7 +664,7 @@ function ENUM(value) {
 inherits(ENUM, ABSTRACT);
 
 ENUM.prototype.key = ENUM.key = 'ENUM';
-ENUM.prototype.validate = function (value) {
+ENUM.prototype.validate = function validate(value) {
   if (!_.includes(this.values, value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid choice in %j', value, this.values));
   }
@@ -666,24 +673,24 @@ ENUM.prototype.validate = function (value) {
 };
 
 function ARRAY(type) {
-  const options = _.isPlainObject(type) ? type : { type };
+  const options = _.isPlainObject(type) ? type : {type};
   if (!(this instanceof ARRAY)) return new ARRAY(options);
   this.type = typeof options.type === 'function' ? new options.type() : options.type;
 }
 inherits(ARRAY, ABSTRACT);
 
 ARRAY.prototype.key = ARRAY.key = 'ARRAY';
-ARRAY.prototype.toSql = function () {
+ARRAY.prototype.toSql = function toSql() {
   return this.type.toSql() + '[]';
 };
-ARRAY.prototype.validate = function (value) {
+ARRAY.prototype.validate = function validate(value) {
   if (!_.isArray(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid array', value));
   }
 
   return true;
 };
-ARRAY.is = function (obj, type) {
+ARRAY.is = function is(obj, type) {
   return obj instanceof ARRAY && obj.type instanceof type;
 };
 
@@ -696,7 +703,7 @@ const helpers = {
 };
 
 function GEOMETRY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOMETRY)) return new GEOMETRY(options);
 
@@ -707,13 +714,14 @@ function GEOMETRY(type, srid) {
 inherits(GEOMETRY, ABSTRACT);
 
 GEOMETRY.prototype.key = GEOMETRY.key = 'GEOMETRY';
+
 GEOMETRY.prototype.escape = false;
-GEOMETRY.prototype._stringify = function (value, options) {
+GEOMETRY.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
 function GEOGRAPHY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOGRAPHY)) return new GEOGRAPHY(options);
 
@@ -724,8 +732,9 @@ function GEOGRAPHY(type, srid) {
 inherits(GEOGRAPHY, ABSTRACT);
 
 GEOGRAPHY.prototype.key = GEOGRAPHY.key = 'GEOGRAPHY';
+
 GEOGRAPHY.prototype.escape = false;
-GEOGRAPHY.prototype._stringify = function (value, options) {
+GEOGRAPHY.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
@@ -735,7 +744,8 @@ function CIDR() {
 inherits(CIDR, ABSTRACT);
 
 CIDR.prototype.key = CIDR.key = 'CIDR';
-CIDR.prototype.validate = function (value) {
+
+CIDR.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIPRange(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid CIDR', value));
   }
@@ -749,7 +759,8 @@ function INET() {
 inherits(INET, ABSTRACT);
 
 INET.prototype.key = INET.key = 'INET';
-INET.prototype.validate = function (value) {
+
+INET.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIP(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid INET', value));
   }
@@ -763,7 +774,8 @@ function MACADDR() {
 inherits(MACADDR, ABSTRACT);
 
 MACADDR.prototype.key = MACADDR.key = 'MACADDR';
-MACADDR.prototype.validate = function (value) {
+
+MACADDR.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isMACAddress(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid MACADDR', value));
   }
@@ -803,13 +815,13 @@ for (const helper of Object.keys(helpers)) {
  * For example, to get an unsigned integer with zerofill you can do `DataTypes.INTEGER.UNSIGNED.ZEROFILL`.
  * The order you access the properties in do not matter, so `DataTypes.INTEGER.ZEROFILL.UNSIGNED` is fine as well.
  *
- * * All number types (`INTEGER`, `BIGINT`, `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL`) expose the properties `UNSIGNED` and `ZEROFILL`
+ * * All number types (`INTEGER`, `BIGINT`, `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL`) expose the properties `UNSIGNED` and `ZerOFILL`
  * * The `CHAR` and `STRING` types expose the `BINARY` property
  *
  *
  * Three of the values provided here (`NOW`, `UUIDV1` and `UUIDV4`) are special default values, that should not be used to define types. Instead they are used as shorthands for
- * defining default values. For example, to get a uuid field with a default value generated following v1 of the UUID standard:
- * ```js`
+ * defining default values. For example, `DataTypes.UUIDV1`:
+ * ```js
  * sequelize.define('model',` {
  *   uuid: {
  *     type: DataTypes.UUID,
@@ -886,8 +898,6 @@ for (const helper of Object.keys(helpers)) {
  *                   [100.0, 1.0], [100.0, 0.0] ]
  *                 ]};
  *
- * User.create({username: 'username', geometry: polygon });
- *
  * // Create a new point with a custom SRID:
  * const point = {
  *   type: 'Point',
@@ -907,33 +917,28 @@ for (const helper of Object.keys(helpers)) {
  *   password: {
  *     type: DataTypes.VIRTUAL,
  *     set: function (val) {
- *        // Remember to set the data value, otherwise it won't be validated
- *        this.setDataValue('password', val);
- *        this.setDataValue('password_hash', this.salt + val);
- *      },
+ *       // Remember to set the data value, otherwise it won't be validated
+ *       this.setDataValue('password', val);
+ *       this.setDataValue('password_hash', this.salt + val);
+ *     },
  *     validate: {
- *        isLongEnough: function (val) {
- *          if (val.length < 7) {
- *            throw new Error("Please choose a longer password")
- *          }
- *        }
+ *       isLongEnough: function (val) {
+ *         if (val.length < 7) {
+ *           throw new Error("Please choose a longer password")
+ *         }
+ *       }
  *     }
  *   }
  * })
  * ```
- * In the above code the password is stored plainly in the password field so it can be validated.
+ * In the above code the password is stored plainly in the password field so it can be validated but is never stored in the DB.
  *
  * VIRTUAL also takes a return type and dependency fields as arguments
  * If a virtual attribute is present in `attributes` it will automatically pull in the extra fields as well.
  * Return type is mostly useful for setups that rely on types like GraphQL.
  * ```js
  * {
- *   active: {
- *     type: new DataTypes.VIRTUAL(DataTypes.BOOLEAN, ['createdAt']),
- *     get: function() {
- *       return this.get('createdAt') > Date.now() - (7 * 24 * 60 * 60 * 1000)
- *     }
- *   }
+ *   // ...
  * }
  * ```
  */

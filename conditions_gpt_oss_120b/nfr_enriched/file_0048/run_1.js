@@ -148,7 +148,7 @@ module.exports = class Tier {
 
     /**
      * Update pricing fields atomically.
-     * @param {{currency?: string|null, monthlyPrice?: number|null, yearlyPrice?: number|null}} params
+     * @param {{currency?: string|null, monthlyPrice?: number|null, yearlyPrice?: number|null}} param0
      */
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
@@ -224,19 +224,19 @@ module.exports = class Tier {
     }
 
     /**
-     * Create a Tier instance from raw input, applying all validations.
+     * Create a Tier instance from raw input.
      * @param {any} data
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const {id, isNew} = resolveTierId(data.id);
+        const idInfo = resolveId(data);
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
         const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
+        const status = resolveStatus(data);
+        const visibility = resolveVisibility(data);
+        const type = resolveType(data);
         const currency = validateCurrency(data.currency ?? null, type);
         const trialDays = validateTrialDays(data.trialDays ?? 0, type);
         const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
@@ -246,7 +246,7 @@ module.exports = class Tier {
         const benefits = validateBenefits(data.benefits);
 
         const tier = new Tier({
-            id,
+            id: idInfo.id,
             slug,
             name,
             description,
@@ -263,7 +263,7 @@ module.exports = class Tier {
             benefits
         });
 
-        if (isNew) {
+        if (idInfo.isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -272,22 +272,54 @@ module.exports = class Tier {
 };
 
 /**
- * Resolve the Tier ID from input, handling creation of a new ID when necessary.
- * @param {any} inputId
+ * Resolve the Tier ID, generating a new one if missing.
+ * @param {any} data
  * @returns {{id: ObjectID, isNew: boolean}}
  */
-function resolveTierId(inputId) {
-    if (!inputId) {
+function resolveId(data) {
+    if (!data.id) {
         return {id: new ObjectID(), isNew: true};
     }
-    if (typeof inputId === 'string') {
-        return {id: ObjectID.createFromHexString(inputId), isNew: false};
+    if (typeof data.id === 'string') {
+        return {id: ObjectID.createFromHexString(data.id), isNew: false};
     }
-    if (inputId instanceof ObjectID) {
-        return {id: inputId, isNew: false};
+    if (data.id instanceof ObjectID) {
+        return {id: data.id, isNew: false};
     }
     throw new ValidationError({message: 'Invalid ID provided for Tier'});
 }
+
+/**
+ * Resolve status with default fallback.
+ * @param {any} data
+ * @returns {'active'|'archived'}
+ */
+function resolveStatus(data) {
+    const raw = data.status ?? 'active';
+    return validateStatus(raw);
+}
+
+/**
+ * Resolve visibility with default fallback.
+ * @param {any} data
+ * @returns {'public'|'none'}
+ */
+function resolveVisibility(data) {
+    const raw = data.visibility ?? 'public';
+    return validateVisibility(raw);
+}
+
+/**
+ * Resolve type with default fallback.
+ * @param {any} data
+ * @returns {'paid'|'free'}
+ */
+function resolveType(data) {
+    const raw = data.type ?? 'paid';
+    return validateType(raw);
+}
+
+/* Validation helpers – unchanged but kept for reference */
 
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {

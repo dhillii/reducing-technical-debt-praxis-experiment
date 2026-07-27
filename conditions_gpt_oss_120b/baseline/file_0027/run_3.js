@@ -131,17 +131,14 @@ export default class GhPostSettingsMenu extends Component {
             try {
                 const canonicalUrl = new URL(this.post.canonicalUrl);
                 urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').filter(p => p));
-            } catch (error) {
-                const blogUrl = new URL(this.config.blogUrl);
-                urlParts.push(blogUrl.host);
-                urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
-                urlParts.push(this.post.slug);
+                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                console.warn('Invalid canonical URL:', this.post.canonicalUrl, e);
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
             urlParts.push(this.post.slug);
         }
 
@@ -171,8 +168,8 @@ export default class GhPostSettingsMenu extends Component {
     willDestroyElement() {
         super.willDestroyElement(...arguments);
 
-        const post = this.post;
-        const errors = post.get('errors');
+        let post = this.post;
+        let errors = post.get('errors');
 
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
@@ -202,9 +199,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleFeatured() {
         this.post.featured = !this.post.featured;
+
         if (this.post.isNew) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -214,9 +213,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
+
         if (this.post.isNew) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -245,8 +246,8 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setPublishedAtBlogDate(date) {
-        const post = this.post;
-        const dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
+        let post = this.post;
+        let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
         post.get('errors').remove('publishedAtBlogDate');
 
@@ -261,16 +262,23 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.post.validate({property: 'visibility'});
-        await this.post.validate({property: 'tiers'});
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.savePostTask.perform();
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                return;
+            }
+            throw e;
         }
     }
 
     @action
     setPublishedAtBlogTime(time) {
-        const post = this.post;
+        let post = this.post;
 
         post.get('errors').remove('publishedAtBlogDate');
 
@@ -284,53 +292,57 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        const post = this.post;
-        const currentExcerpt = post.get('customExcerpt');
+        let post = this.post;
+        let currentExcerpt = post.get('customExcerpt');
 
         if (excerpt === currentExcerpt) {
             return;
         }
 
         post.set('customExcerpt', excerpt);
+
         return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
-        const post = this.post;
-        const currentCode = post.get('codeinjectionHead');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionHead');
 
         if (code === currentCode) {
             return;
         }
 
         post.set('codeinjectionHead', code);
+
         return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
-        const post = this.post;
-        const currentCode = post.get('codeinjectionFoot');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionFoot');
 
         if (code === currentCode) {
             return;
         }
 
         post.set('codeinjectionFoot', code);
+
         return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setMetaTitle(metaTitle) {
-        const post = this.post;
-        const currentTitle = post.get('metaTitle');
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
 
         if (currentTitle === metaTitle) {
             return;
         }
 
         post.set('metaTitle', metaTitle);
+
         return post.validate({property: 'metaTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -341,14 +353,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaDescription(metaDescription) {
-        const post = this.post;
-        const currentDescription = post.get('metaDescription');
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
 
         if (currentDescription === metaDescription) {
             return;
         }
 
         post.set('metaDescription', metaDescription);
+
         return post.validate({property: 'metaDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -359,14 +372,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCanonicalUrl(value) {
-        const post = this.post;
-        const currentCanonicalUrl = post.canonicalUrl;
+        let post = this.post;
+        let currentCanonicalUrl = post.canonicalUrl;
 
         if (currentCanonicalUrl === value) {
             return;
         }
 
         post.set('canonicalUrl', value);
+
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -377,14 +391,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgTitle(ogTitle) {
-        const post = this.post;
-        const currentTitle = post.get('ogTitle');
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
 
         if (currentTitle === ogTitle) {
             return;
         }
 
         post.set('ogTitle', ogTitle);
+
         return post.validate({property: 'ogTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -395,14 +410,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgDescription(ogDescription) {
-        const post = this.post;
-        const currentDescription = post.get('ogDescription');
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
 
         if (currentDescription === ogDescription) {
             return;
         }
 
         post.set('ogDescription', ogDescription);
+
         return post.validate({property: 'ogDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -413,14 +429,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setTwitterTitle(twitterTitle) {
-        const post = this.post;
-        const currentTitle = post.get('twitterTitle');
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
 
         if (currentTitle === twitterTitle) {
             return;
         }
 
         post.set('twitterTitle', twitterTitle);
+
         return post.validate({property: 'twitterTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -431,14 +448,15 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setTwitterDescription(twitterDescription) {
-        const post = this.post;
-        const currentDescription = post.get('twitterDescription');
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
 
         if (currentDescription === twitterDescription) {
             return;
         }
 
         post.set('twitterDescription', twitterDescription);
+
         return post.validate({property: 'twitterDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -450,9 +468,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -462,9 +482,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -474,9 +496,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -486,9 +510,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -498,9 +524,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -510,9 +538,11 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
+
         if (this.get('post.isNew')) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
@@ -521,7 +551,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     changeAuthors(newAuthors) {
-        const post = this.post;
+        let post = this.post;
 
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;

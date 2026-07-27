@@ -267,7 +267,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     }
 
     if (typeof onHotUpdateSuccess === 'function') {
-      // Maybe we want to do something.
+      // Maybe we want to something.
       onHotUpdateSuccess();
     }
 

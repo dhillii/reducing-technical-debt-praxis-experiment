@@ -26,13 +26,11 @@ class PostsExporter {
     }
 
     /**
-     * Export posts with optional filtering.
      *
      * @param {object} options
      * @param {string} [options.filter]
      * @param {string} [options.order]
      * @param {string|number} [options.limit]
-     * @returns {Promise<Array<Object>>}
      */
     async export({filter, order, limit}) {
         const posts = await this.#models.Post.findPage({
@@ -63,89 +61,66 @@ class PostsExporter {
         const trackClicks = this.#settingsCache.get('email_track_clicks');
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
-        const mapped = posts.data.map(post => this._mapPostToRow(
-            post,
-            newsletters,
-            labels,
-            tiers,
+        const flags = {
             membersEnabled,
             membersTrackSources,
             paidMembersEnabled,
             trackOpens,
             trackClicks,
             hasNewslettersWithFeedback
-        ));
+        };
+
+        const mapped = posts.data.map(post => this.#mapPost(post, newsletters, labels, tiers, flags));
 
         if (mapped.length) {
-            const removeableColumns = this._computeRemoveableColumns({
+            const columnsToRemove = this.#determineRemovableColumns({
                 newsletters,
                 membersEnabled,
-                hasNewslettersWithFeedback,
+                membersTrackSources,
+                paidMembersEnabled,
                 trackClicks,
                 trackOpens,
-                membersTrackSources,
-                paidMembersEnabled
+                hasNewslettersWithFeedback
             });
-
-            for (const column of removeableColumns) {
-                for (const row of mapped) {
-                    delete row[column];
-                }
-            }
+            this.#removeColumns(mapped, columnsToRemove);
         }
 
         return mapped;
     }
 
     /**
-     * Convert a post model into a plain object for export.
+     * Map a single post to the export format.
      *
      * @private
      * @param {*} post
      * @param {Array} newsletters
      * @param {Array} labels
      * @param {Array} tiers
-     * @param {boolean} membersEnabled
-     * @param {boolean} membersTrackSources
-     * @param {boolean} paidMembersEnabled
-     * @param {boolean} trackOpens
-     * @param {boolean} trackClicks
-     * @param {boolean} hasNewslettersWithFeedback
+     * @param {Object} flags
      * @returns {Object}
      */
-    _mapPostToRow(
-        post,
-        newsletters,
-        labels,
-        tiers,
-        membersEnabled,
-        membersTrackSources,
-        paidMembersEnabled,
-        trackOpens,
-        trackClicks,
-        hasNewslettersWithFeedback
-    ) {
+    #mapPost(post, newsletters, labels, tiers, flags) {
         let email = post.related('email');
-
-        if (!this._isValidEmail(email)) {
+        if (!email.id) {
             email = null;
         }
 
-        const isDraftOrScheduled = this._isDraftOrScheduled(post.get('status'));
-        if (isDraftOrScheduled) {
+        const status = post.get('status');
+        let published = true;
+        if (status === 'draft' || status === 'scheduled') {
             email = null;
+            published = false;
         }
 
-        const published = !isDraftOrScheduled;
-        const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
-        const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
+        const feedbackEnabled = email && email.get('feedback_enabled') && flags.hasNewslettersWithFeedback;
+        const showEmailClickAnalytics = flags.trackClicks && email && email.get('track_clicks');
 
-        const row = {
+        const result = {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
             author: post.related('authors').map(author => author.get('name')).join(', '),
-            status: this.mapPostStatus(post.get('status'), !!email),
+            status: this.mapPostStatus(status, !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
             published_at: published ? post.get('published_at') : null,
@@ -153,62 +128,64 @@ class PostsExporter {
             tags: post.related('tags').map(tag => tag.get('name')).join(', '),
             post_access: this.postAccessToString(post),
             email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
-            newsletter_name: this._resolveNewsletterName(newsletters, post, email),
-            sends: email ? email.get('email_count') : null,
-            opens: trackOpens && email ? email.get('opened_count') : null,
-            clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-            signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
-            feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
-            feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
+            newsletter_name: null,
+            sends: null,
+            opens: null,
+            clicks: null,
+            signups: null,
+            paid_conversions: null,
+            feedback_more_like_this: null,
+            feedback_less_like_this: null
         };
 
-        return row;
+        if (newsletters.length > 1 && post.get('newsletter_id') && email) {
+            const nl = newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'));
+            result.newsletter_name = nl ? nl.get('name') : null;
+        }
+
+        if (email) {
+            result.sends = email.get('email_count') ?? null;
+        }
+
+        if (flags.trackOpens && email) {
+            result.opens = email.get('opened_count') ?? null;
+        }
+
+        if (showEmailClickAnalytics) {
+            result.clicks = post.get('count__clicks') ?? 0;
+        }
+
+        if (flags.membersTrackSources && published) {
+            result.signups = post.get('count__signups') ?? 0;
+        }
+
+        if (flags.membersTrackSources && flags.paidMembersEnabled && published) {
+            result.paid_conversions = post.get('count__paid_conversions') ?? 0;
+        }
+
+        if (feedbackEnabled) {
+            result.feedback_more_like_this = post.get('count__positive_feedback') ?? 0;
+            result.feedback_less_like_this = post.get('count__negative_feedback') ?? 0;
+        }
+
+        return result;
     }
 
     /**
-     * Determine the newsletter name for a post when applicable.
-     *
-     * @private
-     * @param {Array} newsletters
-     * @param {*} post
-     * @param {*} email
-     * @returns {string|null}
-     */
-    _resolveNewsletterName(newsletters, post, email) {
-        if (newsletters.length <= 1) {
-            return null;
-        }
-        if (!post.get('newsletter_id') || !email) {
-            return null;
-        }
-        const newsletter = newsletters.find(nl => nl.get('id') === post.get('newsletter_id'));
-        return newsletter ? newsletter.get('name') : null;
-    }
-
-    /**
-     * Compute which columns should be removed based on settings.
+     * Determine which columns should be removed based on settings.
      *
      * @private
      * @param {Object} params
      * @param {Array} params.newsletters
      * @param {boolean} params.membersEnabled
-     * @param {boolean} params.hasNewslettersWithFeedback
-     * @param {boolean} params.trackClicks
-     * @param {boolean} params.trackOpens
      * @param {boolean} params.membersTrackSources
      * @param {boolean} params.paidMembersEnabled
+     * @param {boolean} params.trackClicks
+     * @param {boolean} params.trackOpens
+     * @param {boolean} params.hasNewslettersWithFeedback
      * @returns {Array<string>}
      */
-    _computeRemoveableColumns({
-        newsletters,
-        membersEnabled,
-        hasNewslettersWithFeedback,
-        trackClicks,
-        trackOpens,
-        membersTrackSources,
-        paidMembersEnabled
-    }) {
+    #determineRemovableColumns({newsletters, membersEnabled, membersTrackSources, paidMembersEnabled, trackClicks, trackOpens, hasNewslettersWithFeedback}) {
         const columns = [];
 
         if (newsletters.length <= 1) {
@@ -217,19 +194,22 @@ class PostsExporter {
 
         if (!membersEnabled) {
             columns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!hasNewslettersWithFeedback) {
+            return columns;
+        }
+
+        if (!hasNewslettersWithFeedback) {
             columns.push('feedback_more_like_this', 'feedback_less_like_this');
         }
 
-        if (membersEnabled && !trackClicks) {
+        if (!trackClicks) {
             columns.push('clicks');
         }
 
-        if (membersEnabled && !trackOpens) {
+        if (!trackOpens) {
             columns.push('opens');
         }
 
-        if (!membersTrackSources || !membersEnabled) {
+        if (!membersTrackSources) {
             columns.push('signups', 'paid_conversions');
         } else if (!paidMembersEnabled) {
             columns.push('paid_conversions');
@@ -239,33 +219,33 @@ class PostsExporter {
     }
 
     /**
+     * Remove specified columns from each row.
+     *
      * @private
-     * @param {*} email
-     * @returns {boolean}
+     * @param {Array<Object>} rows
+     * @param {Array<string>} columns
      */
-    _isValidEmail(email) {
-        return email && email.id;
-    }
-
-    /**
-     * @private
-     * @param {string} status
-     * @returns {boolean}
-     */
-    _isDraftOrScheduled(status) {
-        return status === 'draft' || status === 'scheduled';
+    #removeColumns(rows, columns) {
+        for (const column of columns) {
+            for (const row of rows) {
+                delete row[column];
+            }
+        }
     }
 
     mapPostStatus(status, hasEmail) {
         if (status === 'draft') {
             return 'draft';
         }
+
         if (status === 'scheduled') {
             return 'scheduled';
         }
+
         if (status === 'sent') {
             return 'emailed only';
         }
+
         if (status === 'published') {
             if (hasEmail) {
                 return 'published and emailed';
@@ -280,32 +260,36 @@ class PostsExporter {
         if (visibility === 'public') {
             return 'Public';
         }
+
         if (visibility === 'members') {
             return 'Members-only';
         }
+
         if (visibility === 'paid') {
             return 'Paid members-only';
         }
+
         if (visibility === 'tiers') {
             const tiers = post.related('tiers');
             if (tiers.length === 0) {
                 return 'Specific tiers: none';
             }
+
             return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
         }
+
         return visibility;
     }
 
     /**
-     * Convert an email filter to a human readable string.
-     *
-     * @private
+     * @private Convert an email filter to a human readable string
      * @param {string} recipientFilter
      * @param {*} allLabels
      * @param {*} allTiers
      * @returns {string}
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -321,9 +305,7 @@ class PostsExporter {
     }
 
     /**
-     * Convert a parsed NQL filter to a list of human readable strings.
-     *
-     * @private
+     * @private Convert an email filter to a human readable string
      * @param {*} filter Parsed NQL filter
      * @param {*} allLabels All available member labels
      * @param {*} allTiers All available member tiers
@@ -331,71 +313,59 @@ class PostsExporter {
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
-
-        if (filter.$or) {
+        if (filter.$and) {
+            // Not supported
+        } else if (filter.$or) {
             for (const subfilter of filter.$or) {
                 strings.push(...this.filterToString(subfilter, allLabels, allTiers));
             }
-            return strings;
-        }
+        } else {
+            for (const key of Object.keys(filter)) {
+                if (key === 'label') {
+                    if (typeof filter.label === 'string') {
+                        const labelSlug = filter.label;
+                        const label = allLabels.find(l => l.get('slug') === labelSlug);
+                        if (label) {
+                            strings.push(label.get('name'));
+                        } else {
+                            strings.push(labelSlug);
+                        }
+                    }
+                }
+                if (key === 'tier') {
+                    if (typeof filter.tier === 'string') {
+                        const tierSlug = filter.tier;
+                        const tier = allTiers.find(l => l.get('slug') === tierSlug);
+                        if (tier) {
+                            strings.push(tier.get('name'));
+                        } else {
+                            strings.push(tierSlug);
+                        }
+                    }
+                }
+                if (key === 'status') {
+                    if (typeof filter.status === 'string') {
+                        if (filter.status === 'free') {
+                            strings.push('Free subscribers');
+                        } else if (filter.status === 'paid') {
+                            strings.push('Paid subscribers');
+                        } else if (filter.status === 'comped') {
+                            strings.push('Complimentary subscribers');
+                        }
+                    } else {
+                        if (filter.status.$ne === 'free') {
+                            strings.push('Paid subscribers');
+                        }
 
-        for (const key of Object.keys(filter)) {
-            if (key === 'label') {
-                this._processLabelFilter(filter, allLabels, strings);
-            } else if (key === 'tier') {
-                this._processTierFilter(filter, allTiers, strings);
-            } else if (key === 'status') {
-                this._processStatusFilter(filter, strings);
+                        if (filter.status.$ne === 'paid') {
+                            strings.push('Free subscribers');
+                        }
+                    }
+                }
             }
         }
 
         return strings;
-    }
-
-    /**
-     * @private
-     */
-    _processLabelFilter(filter, allLabels, strings) {
-        if (typeof filter.label !== 'string') {
-            return;
-        }
-        const labelSlug = filter.label;
-        const label = allLabels.find(l => l.get('slug') === labelSlug);
-        strings.push(label ? label.get('name') : labelSlug);
-    }
-
-    /**
-     * @private
-     */
-    _processTierFilter(filter, allTiers, strings) {
-        if (typeof filter.tier !== 'string') {
-            return;
-        }
-        const tierSlug = filter.tier;
-        const tier = allTiers.find(t => t.get('slug') === tierSlug);
-        strings.push(tier ? tier.get('name') : tierSlug);
-    }
-
-    /**
-     * @private
-     */
-    _processStatusFilter(filter, strings) {
-        if (typeof filter.status === 'string') {
-            if (filter.status === 'free') {
-                strings.push('Free subscribers');
-            } else if (filter.status === 'paid') {
-                strings.push('Paid subscribers');
-            } else if (filter.status === 'comped') {
-                strings.push('Complimentary subscribers');
-            }
-        } else if (filter.status && filter.status.$ne) {
-            if (filter.status.$ne === 'free') {
-                strings.push('Paid subscribers');
-            }
-            if (filter.status.$ne === 'paid') {
-                strings.push('Free subscribers');
-            }
-        }
     }
 }
 

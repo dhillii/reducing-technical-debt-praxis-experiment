@@ -14,7 +14,9 @@ const Cors = require('./cors');
 const Response = require('./response');
 const Security = require('./security');
 
+
 const internals = {};
+
 
 exports.send = function (request, callback) {
 
@@ -30,7 +32,7 @@ exports.send = function (request, callback) {
             return internals.fail(request, err, callback);
         }
 
-        internals.transmit(response, (err) => {
+        return internals.transmit(response, (err) => {
 
             if (err) {
                 request._setResponse(err);
@@ -42,9 +44,7 @@ exports.send = function (request, callback) {
     });
 };
 
-/**
- * Orchestrates response preparation before transmission.
- */
+
 internals.marshal = function (request, next) {
 
     const response = request.response;
@@ -58,74 +58,54 @@ internals.marshal = function (request, next) {
 
         if (err) {
             request._log(['state', 'response', 'error'], err);
-            request._states = {}; // Clear broken state
+            request._states = {};                                           // Clear broken state
             return next(err);
         }
 
         internals.cache(response);
-        internals._preparePayload(request, response, next);
-    });
-};
 
-/**
- * Handles payload support checks and marshaling.
- */
-internals._preparePayload = function (request, response, next) {
+        if (!response._isPayloadSupported() &&
+            request.method !== 'head') {
 
-    if (!response._isPayloadSupported() && request.method !== 'head') {
-        response._close();
-        response._payload = new internals.Empty();
-        delete response.headers['content-length'];
-        return Auth.response(request, next);
-    }
+            // Set empty stream
 
-    response._marshal((err) => {
-
-        if (err) {
-            return next(Boom.boomify(err));
+            response._close();                                  // Close unused file streams
+            response._payload = new internals.Empty();
+            delete response.headers['content-length'];
+            return Auth.response(request, next);                // Must be last in case requires access to headers
         }
 
-        internals._applyJsonp(request, response);
-        internals._applyContentLength(response);
-        internals._finalizePayload(request, response, next);
+        response._marshal((err) => {
+
+            if (err) {
+                return next(Boom.boomify(err));
+            }
+
+            if (request.jsonp &&
+                response._payload.jsonp) {
+
+                response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
+                response._header('x-content-type-options', 'nosniff');
+                response._payload.jsonp(request.jsonp);
+            }
+
+            if (response._payload.size &&
+                typeof response._payload.size === 'function') {
+
+                response._header('content-length', response._payload.size(), { override: false });
+            }
+
+            if (!response._isPayloadSupported()) {
+                response._close();                              // Close unused file streams
+                response._payload = new internals.Empty();      // Set empty stream
+            }
+
+            internals.content(response, true);
+            return Auth.response(request, next);               // Must be last in case requires access to headers
+        });
     });
 };
 
-/**
- * Applies JSONP handling if required.
- */
-internals._applyJsonp = function (request, response) {
-
-    if (request.jsonp && response._payload.jsonp) {
-        response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
-        response._header('x-content-type-options', 'nosniff');
-        response._payload.jsonp(request.jsonp);
-    }
-};
-
-/**
- * Sets content-length header when payload provides size().
- */
-internals._applyContentLength = function (response) {
-
-    if (response._payload.size && typeof response._payload.size === 'function') {
-        response._header('content-length', response._payload.size(), { override: false });
-    }
-};
-
-/**
- * Final steps after payload marshaling.
- */
-internals._finalizePayload = function (request, response, next) {
-
-    if (!response._isPayloadSupported()) {
-        response._close();
-        response._payload = new internals.Empty();
-    }
-
-    internals.content(response, true);
-    Auth.response(request, next);
-};
 
 internals.fail = function (request, boom, callback) {
 
@@ -133,17 +113,21 @@ internals.fail = function (request, boom, callback) {
     const response = new Response(error.payload, request);
     response._error = boom;
     response.code(error.statusCode);
-    response.headers = Hoek.clone(error.headers);
-    request.response = response; // Avoid double log
+    response.headers = Hoek.clone(error.headers);           // Prevent source from being modified
+    request.response = response;                            // Not using request._setResponse() to avoid double log
 
     internals.marshal(request, (err) => {
 
         if (err) {
+
+            // Failed to marshal an error - replace with minimal representation of original error
+
             const minimal = {
                 statusCode: error.statusCode,
                 error: Http.STATUS_CODES[error.statusCode],
                 message: boom.message
             };
+
             response._payload = new Response.Payload(JSON.stringify(minimal), {});
         }
 
@@ -152,35 +136,9 @@ internals.fail = function (request, boom, callback) {
 };
 
 /**
- * Sends the response to the client, handling compression, ranges, etc.
+ * Handles empty response status adjustments.
  */
-internals.transmit = function (response, callback) {
-
-    const request = response.request;
-    const source = response._payload;
-    const length = parseInt(response.headers['content-length'], 10) || 0;
-
-    internals._handleEmptyResponse(request, response, length);
-    const encoding = request.connection._compression.encoding(response);
-    const ranger = internals._handleRange(request, response, length, encoding);
-    const compressor = internals._handleCompression(request, response, length, encoding);
-    internals._adjustVaryEtag(response, encoding);
-    internals._setConnectionHeader(request, response);
-
-    const headerError = internals.writeHead(response);
-    if (headerError) {
-        return Hoek.nextTick(callback)(headerError);
-    }
-
-    internals._handleInjection(request, response);
-    internals._pipeResponse(source, request, response, ranger, compressor, callback);
-};
-
-/**
- * Adjusts status code for empty payloads when configured.
- */
-internals._handleEmptyResponse = function (request, response, length) {
-
+function handleEmptyResponse(response, request, length) {
     if (length === 0 &&
         response.statusCode === 200 &&
         request.route.settings.response.emptyStatusCode === 204) {
@@ -188,105 +146,107 @@ internals._handleEmptyResponse = function (request, response, length) {
         response.code(204);
         delete response.headers['content-length'];
     }
-};
+}
 
 /**
- * Determines and prepares range handling if applicable.
+ * Determines range handling and returns a ranger stream if applicable.
  */
-internals._handleRange = function (request, response, length, encoding) {
+function handleRange(request, response, length, encoding) {
+    let ranger = null;
 
-    if (!request.route.settings.response.ranges ||
-        request.method !== 'get' ||
-        response.statusCode !== 200 ||
-        length <= 0 ||
-        encoding) {
+    if (request.route.settings.response.ranges &&
+        request.method === 'get' &&
+        response.statusCode === 200 &&
+        length > 0 &&
+        !encoding) {
+
+        if (request.headers.range) {
+
+            // Check If-Range
+            if (!request.headers['if-range'] ||
+                request.headers['if-range'] === response.headers.etag) {
+
+                const ranges = Ammo.header(request.headers.range, length);
+                if (!ranges) {
+                    const error = Boom.rangeNotSatisfiable();
+                    error.output.headers['content-range'] = 'bytes */' + length;
+                    return { error };
+                }
+
+                if (ranges.length === 1) { // single range only
+                    const range = ranges[0];
+                    ranger = new Ammo.Stream(range);
+                    response.code(206);
+                    response.bytes(range.to - range.from + 1);
+                    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+                }
+            }
+        }
 
         response._header('accept-ranges', 'bytes');
-        return null;
     }
 
-    const rangeHeader = request.headers.range;
-    if (!rangeHeader) {
-        response._header('accept-ranges', 'bytes');
-        return null;
-    }
-
-    if (request.headers['if-range'] && request.headers['if-range'] !== response.headers.etag) {
-        response._header('accept-ranges', 'bytes');
-        return null;
-    }
-
-    const ranges = Ammo.header(rangeHeader, length);
-    if (!ranges) {
-        const error = Boom.rangeNotSatisfiable();
-        error.output.headers['content-range'] = 'bytes */' + length;
-        internals.fail(request, error, () => { });
-        return null;
-    }
-
-    if (ranges.length === 1) {
-        const range = ranges[0];
-        const ranger = new Ammo.Stream(range);
-        response.code(206);
-        response.bytes(range.to - range.from + 1);
-        response._header('content-range', `bytes ${range.from}-${range.to}/${length}`);
-        response._header('accept-ranges', 'bytes');
-        return ranger;
-    }
-
-    response._header('accept-ranges', 'bytes');
-    return null;
-};
+    return { ranger };
+}
 
 /**
- * Sets up compression if supported.
+ * Configures compression if applicable and returns a compressor stream.
  */
-internals._handleCompression = function (request, response, length, encoding) {
+function handleCompression(request, response, length, encoding) {
+    if (encoding &&
+        length !== 0 &&
+        response.statusCode !== 206 &&
+        response._isPayloadSupported()) {
 
-    if (!encoding ||
-        length === 0 ||
-        response.statusCode === 206 ||
-        !response._isPayloadSupported()) {
+        delete response.headers['content-length'];
+        response._header('content-encoding', encoding);
 
-        return null;
+        const compressor = request.connection._compression.encoder(request, encoding);
+        return { compressor };
     }
 
-    delete response.headers['content-length'];
-    response._header('content-encoding', encoding);
-    return request.connection._compression.encoder(request, encoding);
-};
+    return { compressor: null };
+}
 
 /**
  * Adjusts ETag when content-encoding varies.
  */
-internals._adjustVaryEtag = function (response, encoding) {
-
+function adjustVaryEtag(response, encoding) {
     if ((response.headers['content-encoding'] || encoding) &&
         response.headers.etag &&
         response.settings.varyEtag) {
 
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }
-};
+}
 
 /**
- * Sets Connection: close when appropriate.
+ * Determines if a Connection: close header is needed.
  */
-internals._setConnectionHeader = function (request, response) {
-
+function maybeAddConnectionClose(request) {
     const isInjection = Shot.isInjection(request.raw.req);
     if (!(isInjection || request.connection._started) ||
         (request._isPayloadPending && !request.raw.req._readableState.ended)) {
 
-        response._header('connection', 'close');
+        request.response._header('connection', 'close');
     }
-};
+}
 
 /**
- * Adds hapi injection helpers when request is injection.
+ * Writes response headers and returns any error.
  */
-internals._handleInjection = function (request, response) {
+function writeResponseHeaders(response) {
+    const error = internals.writeHead(response);
+    if (error) {
+        return error;
+    }
+    return null;
+}
 
+/**
+ * Sets up injection-specific response properties.
+ */
+function setupInjection(request, response) {
     const isInjection = Shot.isInjection(request.raw.req);
     if (!isInjection) {
         return;
@@ -297,18 +257,19 @@ internals._handleInjection = function (request, response) {
     if (response.variety === 'plain') {
         request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
     }
-};
+}
 
 /**
- * Pipes the payload through optional transforms and sends it.
+ * Attaches lifecycle listeners to request/response streams.
  */
-internals._pipeResponse = function (source, request, response, ranger, compressor, callback) {
-
+function attachListeners(source, request, callback) {
     const end = Hoek.once((err, event) => {
 
         source.removeListener('error', end);
+
         request.raw.req.removeListener('aborted', onAborted);
         request.raw.req.removeListener('close', onClose);
+
         request.raw.res.removeListener('close', onClose);
         request.raw.res.removeListener('error', end);
         request.raw.res.removeListener('finish', end);
@@ -318,7 +279,7 @@ internals._pipeResponse = function (source, request, response, ranger, compresso
 
             if (request.raw.res._hapi) {
                 request.raw.res.statusCode = 500;
-                request.raw.res._hapi.result = Boom.boomify(err).output.payload;
+                request.raw.res._hapi.result = Boom.boomify(err).output.payload; // Force injected response to error
             }
 
             source.unpipe();
@@ -333,7 +294,7 @@ internals._pipeResponse = function (source, request, response, ranger, compresso
             request.emit('disconnect');
         }
 
-        const tags = err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']);
+        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
         request._log(tags, err);
         return callback();
     });
@@ -348,12 +309,65 @@ internals._pipeResponse = function (source, request, response, ranger, compresso
     request.raw.res.once('error', end);
     request.raw.res.once('finish', end);
 
+    return end;
+}
+
+/**
+ * Pipes source through optional tap, compression, and range streams.
+ */
+function pipeResponse(source, response, request, compressor, ranger) {
     const tap = response._tap();
     const preview = tap ? source.pipe(tap) : source;
     const compressed = compressor ? preview.pipe(compressor) : preview;
     const ranged = ranger ? compressed.pipe(ranger) : compressed;
     ranged.pipe(request.raw.res);
+}
+
+/**
+ * Main transmit function – orchestrates response transmission.
+ */
+internals.transmit = function (response, callback) {
+
+    const request = response.request;
+    const source = response._payload;
+    const length = parseInt(response.headers['content-length'], 10); // May be string
+
+    // Empty response handling
+    handleEmptyResponse(response, request, length);
+
+    // Determine encoding for compression
+    const encoding = request.connection._compression.encoding(response);
+
+    // Range handling
+    const rangeResult = handleRange(request, response, length, encoding);
+    if (rangeResult.error) {
+        return internals.fail(request, rangeResult.error, callback);
+    }
+    const ranger = rangeResult.ranger;
+
+    // Compression handling
+    const { compressor } = handleCompression(request, response, length, encoding);
+
+    // Adjust ETag for varying content-encoding
+    adjustVaryEtag(response, encoding);
+
+    // Connection close header
+    maybeAddConnectionClose(request);
+
+    // Write headers
+    const headerError = writeResponseHeaders(response);
+    if (headerError) {
+        return Hoek.nextTick(callback)(headerError);
+    }
+
+    // Injection handling
+    setupInjection(request, response);
+
+    // Attach listeners and pipe streams
+    attachListeners(source, request, callback);
+    pipeResponse(source, response, request, compressor, ranger);
 };
+
 
 internals.writeHead = function (response) {
 
@@ -371,9 +385,11 @@ internals.writeHead = function (response) {
         }
     }
     catch (err) {
+
         for (--i; i >= 0; --i) {
-            res.setHeader(headers[i], null);
+            res.setHeader(headers[i], null);        // Undo headers
         }
+
         return Boom.boomify(err);
     }
 
@@ -391,15 +407,20 @@ internals.writeHead = function (response) {
     return null;
 };
 
+
 internals.Empty = function () {
+
     Stream.Readable.call(this);
 };
 
 Hoek.inherits(internals.Empty, Stream.Readable);
 
-internals.Empty.prototype._read = function () {
+
+internals.Empty.prototype._read = function (/* size */) {
+
     this.push(null);
 };
+
 
 internals.cache = function (response) {
 
@@ -411,10 +432,11 @@ internals.cache = function (response) {
 
     const policy = request.route.settings.cache &&
         request._route._cache &&
-        (request.route.settings.cache._statuses[response.statusCode] ||
-            (response.statusCode === 304 && request.route.settings.cache._statuses['200']));
+        (request.route.settings.cache._statuses[response.statusCode] || (response.statusCode === 304 && request.route.settings.cache._statuses['200']));
 
-    if (policy || response.settings.ttl) {
+    if (policy ||
+        response.settings.ttl) {
+
         const ttl = (response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl());
         const privacy = (request.auth.isAuthenticated || response.headers['set-cookie'] ? 'private' : request.route.settings.cache.privacy || 'default');
         response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + (privacy !== 'default' ? ', ' + privacy : ''));
@@ -423,6 +445,7 @@ internals.cache = function (response) {
         response._header('cache-control', request.route.settings.cache.otherwise);
     }
 };
+
 
 internals.content = function (response, postMarshal) {
 
@@ -447,9 +470,11 @@ internals.content = function (response, postMarshal) {
     }
 };
 
+
 internals.state = function (response, next) {
 
     const request = response.request;
+
     const names = {};
     const states = [];
 
@@ -513,15 +538,22 @@ internals.state = function (response, next) {
     });
 };
 
+
 internals.unmodified = function (response) {
 
     const request = response.request;
 
-    if (request._entity.etag && !response.headers.etag) {
+    // Set headers from reply.entity()
+
+    if (request._entity.etag &&
+        !response.headers.etag) {
+
         response.etag(request._entity.etag, { vary: request._entity.vary });
     }
 
-    if (request._entity.modified && !response.headers['last-modified']) {
+    if (request._entity.modified &&
+        !response.headers['last-modified']) {
+
         response.header('last-modified', request._entity.modified);
     }
 

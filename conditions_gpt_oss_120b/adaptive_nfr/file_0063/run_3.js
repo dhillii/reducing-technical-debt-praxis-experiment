@@ -406,8 +406,8 @@ class ForInLoopContext extends LoopContextBase {
 		this.endOfLeftSegments = null;
 
 		/**
-		 * The segments representing the left expression where `continue` will jump to.
-		 * In `for-in` loops, `continue` must always re-execute the
+		 * The segments representing the left expression where `continue` will
+		 * jump to. In `for-in` loops, `continue` must always re-execute the
 		 * left expression each time through the loop. This contains the same
 		 * segments as `leftSegments`, but is duplicated here so each loop
 		 * context has the same property pointing to where `continue` should
@@ -462,8 +462,8 @@ class ForOfLoopContext extends LoopContextBase {
 		this.endOfLeftSegments = null;
 
 		/**
-		 * The segments representing the left expression where `continue` will jump to.
-		 * In `for-in` loops, `continue` must always re-execute the
+		 * The segments representing the left expression where `continue` will
+		 * jump to. In `for-in` loops, `continue` must always re-execute the
 		 * left expression each time through the loop. This contains the same
 		 * segments as `leftSegments`, but is duplicated here so each loop
 		 * context has the same property pointing to where `continue` should
@@ -849,6 +849,134 @@ function finalizeTestSegmentsOfFor(context, choiceContext, head) {
 }
 
 //------------------------------------------------------------------------------
+// Choice Handlers
+//------------------------------------------------------------------------------
+
+/**
+ * Handles logical choice kinds (`&&`, `||`, `??`).
+ * @param {ChoiceContext} poppedChoiceContext The popped choice context.
+ * @param {ForkContext} forkContext The current fork context.
+ * @param {CodePathSegment[]} head The current head segments.
+ * @returns {ChoiceContext} The processed context.
+ */
+function handleLogicalChoice(poppedChoiceContext, forkContext, head) {
+	if (!poppedChoiceContext.processed) {
+		poppedChoiceContext.trueForkContext.add(head);
+		poppedChoiceContext.falseForkContext.add(head);
+		poppedChoiceContext.nullishForkContext.add(head);
+	}
+
+	if (poppedChoiceContext.isForkingAsResult) {
+		const parentContext = this.choiceContext;
+
+		parentContext.trueForkContext.addAll(
+			poppedChoiceContext.trueForkContext,
+		);
+		parentContext.falseForkContext.addAll(
+			poppedChoiceContext.falseForkContext,
+		);
+		parentContext.nullishForkContext.addAll(
+			poppedChoiceContext.nullishForkContext,
+		);
+		parentContext.processed = true;
+
+		// Exit early so we don't collapse all paths into one.
+		return poppedChoiceContext;
+	}
+
+	return null;
+}
+
+/**
+ * Handles test choice kind (`test`).
+ * @param {ChoiceContext} poppedChoiceContext The popped choice context.
+ * @param {ForkContext} forkContext The current fork context.
+ * @returns {ChoiceContext} The processed context.
+ */
+function handleTestChoice(poppedChoiceContext, forkContext) {
+	if (!poppedChoiceContext.processed) {
+		/*
+		 * The head segments are the path of the `if` block here.
+		 * Updates the `true` path with the end of the `if` block.
+		 */
+		poppedChoiceContext.trueForkContext.clear();
+		poppedChoiceContext.trueForkContext.add(forkContext.head);
+	} else {
+		/*
+		 * The head segments are the path of the `else` block here.
+		 * Updates the `false` path with the end of the `else`
+		 * block.
+		 */
+		poppedChoiceContext.falseForkContext.clear();
+		poppedChoiceContext.falseForkContext.add(forkContext.head);
+	}
+	return poppedChoiceContext;
+}
+
+/**
+ * Handles loop choice kind (`loop`).
+ * @param {ChoiceContext} poppedChoiceContext The popped choice context.
+ * @returns {ChoiceContext} The processed context.
+ */
+function handleLoopChoice(poppedChoiceContext) {
+	// Loops are addressed in `popLoopContext()` so just return the context.
+	return poppedChoiceContext;
+}
+
+//------------------------------------------------------------------------------
+// Loop Handlers
+//------------------------------------------------------------------------------
+
+/**
+ * Handles while and for loops.
+ * @param {LoopContext} context The loop context.
+ * @param {ChoiceContext} choiceContext The choice context.
+ * @param {ForkContext} forkContext The current fork context.
+ */
+function handleWhileOrForLoop(context, choiceContext, forkContext) {
+	// Creates the path from the end of the loop body up to the
+	// location where `continue` would jump to.
+	makeLooped(this, forkContext.head, context.continueDestSegments);
+}
+
+/**
+ * Handles do-while loops.
+ * @param {LoopContext} context The loop context.
+ * @param {ChoiceContext} choiceContext The choice context.
+ * @param {ForkContext} forkContext The current fork context.
+ */
+function handleDoWhileLoop(context, choiceContext, forkContext) {
+	const choice = this.popChoiceContext();
+
+	if (!choice.processed) {
+		choice.trueForkContext.add(forkContext.head);
+		choice.falseForkContext.add(forkContext.head);
+	}
+
+	if (context.test !== true) {
+		this.popBreakContext().brokenForkContext.addAll(choice.falseForkContext);
+	}
+
+	const segmentsList = choice.trueForkContext.segmentsList;
+	for (let i = 0; i < segmentsList.length; ++i) {
+		makeLooped(this, segmentsList[i], context.entrySegments);
+	}
+}
+
+/**
+ * Handles for-in and for-of loops.
+ * @param {LoopContext} context The loop context.
+ * @param {ForkContext} forkContext The current fork context.
+ */
+function handleForInOrOfLoop(context, forkContext) {
+	// Add break path.
+	this.popBreakContext().brokenForkContext.add(forkContext.head);
+
+	// Create looped path back to left expression.
+	makeLooped(this, forkContext.head, context.leftSegments);
+}
+
+//------------------------------------------------------------------------------
 // Public Interface
 //------------------------------------------------------------------------------
 
@@ -1062,7 +1190,7 @@ class CodePathState {
 	 *
 	 * In this case, `b` is evaluated always in the code path of the `else`
 	 * block, but it's not so in the code path of the `if` block.
-	 * So there are 3 paths.
+	 * So, there are 3 paths.
 	 *
 	 *     a -> foo();
 	 *     a -> b -> foo();
@@ -1097,74 +1225,31 @@ class CodePathState {
 
 		this.choiceContext = poppedChoiceContext.upper;
 
-		// Delegate handling based on kind.
-		const shouldMerge = this._processPoppedChoiceContext(poppedChoiceContext, head);
-
-		if (shouldMerge) {
-			/*
-			 * Merge the true path with the false path to create a single path.
-			 */
-			const combinedForkContext = poppedChoiceContext.trueForkContext;
-
-			combinedForkContext.addAll(poppedChoiceContext.falseForkContext);
-			forkContext.replaceHead(combinedForkContext.makeNext(0, -1));
+		const kind = poppedChoiceContext.kind;
+		if (kind === "&&" || kind === "||" || kind === "??") {
+			const earlyReturn = handleLogicalChoice.call(this, poppedChoiceContext, forkContext, head);
+			if (earlyReturn) {
+				return earlyReturn;
+			}
+		} else if (kind === "test") {
+			handleTestChoice(poppedChoiceContext, forkContext);
+		} else if (kind === "loop") {
+			handleLoopChoice(poppedChoiceContext);
+			return poppedChoiceContext;
+		} else {
+			/* c8 ignore next */
+			throw new Error("unreachable");
 		}
+
+		/*
+		 * Merge the true path with the false path to create a single path.
+		 */
+		const combinedForkContext = poppedChoiceContext.trueForkContext;
+
+		combinedForkContext.addAll(poppedChoiceContext.falseForkContext);
+		forkContext.replaceHead(combinedForkContext.makeNext(0, -1));
 
 		return poppedChoiceContext;
-	}
-
-	/**
-	 * Process a popped choice context based on its kind.
-	 *
-	 * @param {ChoiceContext} poppedChoiceContext The context being popped.
-	 * @param {Array<CodePathSegment>} head The current head segments.
-	 * @returns {boolean} Whether the true/false paths need to be merged.
-	 * @private
-	 */
-	_processPoppedChoiceContext(poppedChoiceContext, head) {
-		switch (poppedChoiceContext.kind) {
-			case "&&":
-			case "||":
-			case "??":
-				if (!poppedChoiceContext.processed) {
-					poppedChoiceContext.trueForkContext.add(head);
-					poppedChoiceContext.falseForkContext.add(head);
-					poppedChoiceContext.nullishForkContext.add(head);
-				}
-				if (poppedChoiceContext.isForkingAsResult) {
-					const parentContext = this.choiceContext;
-					parentContext.trueForkContext.addAll(
-						poppedChoiceContext.trueForkContext,
-					);
-					parentContext.falseForkContext.addAll(
-						poppedChoiceContext.falseForkContext,
-					);
-					parentContext.nullishForkContext.addAll(
-						poppedChoiceContext.nullishForkContext,
-					);
-					parentContext.processed = true;
-					return false; // early exit, no merge needed.
-				}
-				return true;
-
-			case "test":
-				if (!poppedChoiceContext.processed) {
-					poppedChoiceContext.trueForkContext.clear();
-					poppedChoiceContext.trueForkContext.add(head);
-				} else {
-					poppedChoiceContext.falseForkContext.clear();
-					poppedChoiceContext.falseForkContext.add(head);
-				}
-				return true;
-
-			case "loop":
-				// Loop handling is performed elsewhere.
-				return false;
-
-			/* c8 ignore next */
-			default:
-				throw new Error("unreachable");
-		}
 	}
 
 	/**
@@ -1438,8 +1523,8 @@ class CodePathState {
 		if (!context.lastIsDefault) {
 			if (context.defaultBodySegments) {
 				/*
-				 * There is a non-empty default case, so remove the path from the `default`
-				 * label to its body for an accurate representation.
+				 * There is a non-empty default case, so remove the path from the
+				 * `default` label to its body for an accurate representation.
 				 */
 				disconnectSegments(
 					context.defaultSegments,
@@ -1527,9 +1612,9 @@ class CodePathState {
 			 * If it's not empty and there is already an empty default case found,
 			 * that means the default case actually comes before this case,
 			 * and that it will fall through to this case. So, we can now
-			 * ignore the previous default case (reset `foundEmptyDefault` to false)
-			 * and set `defaultBodySegments` to the current segments because this is
-			 * effectively the new default case.
+			 * ignore the previous default case (reset `foundEmptyDefault` to
+			 * false) and set `defaultBodySegments` to the current segments because
+			 * this is effectively the new default case.
 			 */
 			if (!isCaseBodyEmpty && context.foundEmptyDefault) {
 				context.foundEmptyDefault = false;
@@ -1601,11 +1686,17 @@ class CodePathState {
 		 * blocks.
 		 */
 
-		// Separate head to normal paths and leaving paths.
+		// Separate head to normal and leaving paths.
 		const headSegments = this.forkContext.head;
-		const splitIndex = Math.trunc(headSegments.length / 2);
-		const normalSegments = headSegments.slice(0, splitIndex);
-		const leavingSegments = headSegments.slice(splitIndex);
+
+		this.forkContext = this.forkContext.upper;
+		const normalSegments = headSegments.slice(
+			0,
+			Math.trunc(headSegments.length / 2),
+		);
+		const leavingSegments = headSegments.slice(
+			Math.trunc(headSegments.length / 2),
+		);
 
 		// Forwards the leaving path to upper contexts.
 		if (!originalReturnedForkContext.empty) {
@@ -1780,17 +1871,16 @@ class CodePathState {
 		// All loops need a path to account for `break` statements
 		const breakContext = this.pushBreakContext(true, label);
 
-		switch (type) {
-			case "WhileStatement":
+		const handlers = {
+			WhileStatement: () => {
 				this.pushChoiceContext("loop", false);
 				this.loopContext = new WhileLoopContext(
 					this.loopContext,
 					label,
 					breakContext,
 				);
-				break;
-
-			case "DoWhileStatement":
+			},
+			DoWhileStatement: () => {
 				this.pushChoiceContext("loop", false);
 				this.loopContext = new DoWhileLoopContext(
 					this.loopContext,
@@ -1798,36 +1888,37 @@ class CodePathState {
 					breakContext,
 					forkContext,
 				);
-				break;
-
-			case "ForStatement":
+			},
+			ForStatement: () => {
 				this.pushChoiceContext("loop", false);
 				this.loopContext = new ForLoopContext(
 					this.loopContext,
 					label,
 					breakContext,
 				);
-				break;
-
-			case "ForInStatement":
+			},
+			ForInStatement: () => {
 				this.loopContext = new ForInLoopContext(
 					this.loopContext,
 					label,
 					breakContext,
 				);
-				break;
-
-			case "ForOfStatement":
+			},
+			ForOfStatement: () => {
 				this.loopContext = new ForOfLoopContext(
 					this.loopContext,
 					label,
 					breakContext,
 				);
-				break;
+			},
+		};
 
+		const handler = handlers[type];
+		if (handler) {
+			handler();
+		} else {
 			/* c8 ignore next */
-			default:
-				throw new Error(`unknown type: "${type}"`);
+			throw new Error(`unknown type: "${type}"`);
 		}
 	}
 
@@ -1844,24 +1935,16 @@ class CodePathState {
 		const forkContext = this.forkContext;
 		const brokenForkContext = this.popBreakContext().brokenForkContext;
 
-		// Creates a looped path.
-		switch (context.type) {
-			case "WhileStatement":
-			case "ForStatement":
+		const handlers = {
+			WhileStatement: () => {
 				this.popChoiceContext();
-
-				/*
-				 * Creates the path from the end of the loop body up to the
-				 * location where `continue` would jump to.
-				 */
-				makeLooped(
-					this,
-					forkContext.head,
-					context.continueDestSegments,
-				);
-				break;
-
-			case "DoWhileStatement": {
+				makeLooped(this, forkContext.head, context.continueDestSegments);
+			},
+			ForStatement: () => {
+				this.popChoiceContext();
+				makeLooped(this, forkContext.head, context.continueDestSegments);
+			},
+			DoWhileStatement: () => {
 				const choiceContext = this.popChoiceContext();
 
 				if (!choiceContext.processed) {
@@ -1869,42 +1952,32 @@ class CodePathState {
 					choiceContext.falseForkContext.add(forkContext.head);
 				}
 
-				/*
-				 * If this isn't a hardcoded `true` condition, then `break`
-				 * should continue down the path as if the condition evaluated
-				 * to false.
-				 */
 				if (context.test !== true) {
 					brokenForkContext.addAll(choiceContext.falseForkContext);
 				}
 
-				/*
-				 * When the condition is true, the loop continues back to the top,
-				 * so create a path from each possible true condition back to the
-				 * top of the loop.
-				 */
 				const segmentsList = choiceContext.trueForkContext.segmentsList;
 
 				for (let i = 0; i < segmentsList.length; ++i) {
 					makeLooped(this, segmentsList[i], context.entrySegments);
 				}
-				break;
-			}
-
-			case "ForInStatement":
-			case "ForOfStatement":
+			},
+			ForInStatement: () => {
 				brokenForkContext.add(forkContext.head);
-
-				/*
-				 * Creates the path from the end of the loop body up to the
-				 * left expression (left of `in` or `of`) of the loop.
-				 */
 				makeLooped(this, forkContext.head, context.leftSegments);
-				break;
+			},
+			ForOfStatement: () => {
+				brokenForkContext.add(forkContext.head);
+				makeLooped(this, forkContext.head, context.leftSegments);
+			},
+		};
 
+		const handler = handlers[context.type];
+		if (handler) {
+			handler();
+		} else {
 			/* c8 ignore next */
-			default:
-				throw new Error("unreachable");
+			throw new Error("unreachable");
 		}
 
 		/*
@@ -1954,7 +2027,8 @@ class CodePathState {
 
 		/*
 		 * If this isn't a hardcoded `true` condition, then `break`
-		 * should continue down the path as if the test condition is false.
+		 * should continue down the path as if the condition evaluated
+		 * to false.
 		 */
 		if (context.test !== true) {
 			context.brokenForkContext.addAll(choiceContext.falseForkContext);

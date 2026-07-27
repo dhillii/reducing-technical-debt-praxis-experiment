@@ -19,112 +19,236 @@ Lawnchair.adapter('indexed-db', (function(){
   // see https://groups.google.com/a/chromium.org/forum/?fromgroups#!topic/chromium-html5/OhsoAQLj7kc
   const READ_WRITE = (getIDBTransaction() && 'READ_WRITE' in getIDBTransaction()) ? getIDBTransaction().READ_WRITE : 'readwrite';
 
-  // Helper: ensure the store is ready before executing the core logic
-  function withStoreReady(coreFn) {
-    return function(...args) {
-      if (!this.store) {
-        this.waiting.push(() => coreFn.apply(this, args));
-        return this;
-      }
-      return coreFn.apply(this, args);
-    };
-  }
-
-  // Core implementations (single responsibility)
-
-  function coreValid() {
-    return !!getIDB();
-  }
-
-  function coreInit(options, callback) {
-    const self = this;
-    const cb = self.fn(self.name, callback);
-    if (cb && typeof cb !== 'function') {
-      throw 'callback not valid';
+  /** Helper: schedule operation until DB is ready */
+  function scheduleIfNotReady(self, fn, args) {
+    if (!self.store) {
+      self.waiting.push(() => fn.apply(self, args));
     }
+  }
 
-    self.waiting = [];
-    self.idb = getIDB();
-    const request = self.idb.open(self.name, STORE_VERSION);
+  /** Helper: open object store with proper mode */
+  function getObjectStore(self, mode = READ_WRITE) {
+    return self.db.transaction(self.record, mode).objectStore(self.record);
+  }
 
-    request.onerror = fail;
-    request.onupgradeneeded = onUpgradeNeeded;
-    request.onsuccess = onSuccess;
+  /** Helper: create or upgrade database schema */
+  function handleUpgrade(request, self) {
+    self.db = request.result;
+    self.transaction = request.transaction;
+    try {
+      self.db.deleteObjectStore(self.record);
+    } catch (e) { /* ignore */ }
+    self.db.createObjectStore(self.record, { autoIncrement: useAutoIncrement() });
+  }
 
-    function onUpgradeNeeded() {
-      self.db = request.result;
-      self.transaction = request.transaction;
+  /** Helper: finalize init after successful open */
+  function handleSuccess(event, self, callback) {
+    self.db = event.target.result;
+    self.store = true;
+    while (self.waiting.length) {
+      self.waiting.shift().call(self);
+    }
+    if (callback) {
+      callback.call(self, self);
+    }
+  }
+
+  return {
+    valid: function() {
+      return !!getIDB();
+    },
+
+    init: function(options, callback) {
+      const self = this;
+      const cb = self.fn(self.name, callback);
+      if (cb && typeof cb !== 'function') {
+        throw 'callback not valid';
+      }
+      self.waiting = [];
+      self.idb = getIDB();
+      const request = self.idb.open(self.name, STORE_VERSION);
+      request.onerror = fail;
+      request.onupgradeneeded = () => handleUpgrade(request, self);
+      request.onsuccess = (e) => handleSuccess(e, self, cb);
+    },
+
+    save: function(obj, callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.save, [obj, callback]);
+      if (!self.store) return this;
+
+      const items = (self.isArray(obj) ? obj : [obj]).map(o => {
+        if (!o.key) o.key = self.uuid();
+        return o;
+      });
+
+      const transaction = self.db.transaction(self.record, READ_WRITE);
+      const store = transaction.objectStore(self.record);
+      items.forEach(item => store.put(item, item.key));
+
+      transaction.oncomplete = () => {
+        if (callback) self.lambda(callback).call(self, self.isArray(obj) ? items : items[0]);
+      };
+      transaction.onabort = fail;
+      return this;
+    },
+
+    batch: function(objs, callback) {
+      return this.save(objs, callback);
+    },
+
+    get: function(key, callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.get, [key, callback]);
+      if (!self.store) return this;
+
+      if (self.isArray(key)) {
+        return getMultiple(self, key, callback);
+      }
+      return getSingle(self, key, callback);
+    },
+
+    exists: function(key, callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.exists, [key, callback]);
+      if (!self.store) return this;
+
+      const req = self.db.transaction(self.record).objectStore(self.record)
+        .openCursor(getIDBKeyRange().only(key));
+
+      req.onsuccess = (e) => {
+        req.onsuccess = req.onerror = null;
+        const result = e.target.result;
+        const exists = result !== null && result !== undefined;
+        self.lambda(callback).call(self, exists);
+      };
+      req.onerror = (e) => {
+        req.onsuccess = req.onerror = null;
+        fail(e);
+      };
+      return this;
+    },
+
+    all: function(callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.all, [callback]);
+      if (!self.store) return this;
+
+      const cb = self.fn(this.name, callback) || undefined;
+      const store = self.db.transaction(self.record).objectStore(self.record);
+      const results = [];
+
+      store.openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          results.push(cursor.value);
+          cursor['continue']();
+        } else if (cb) {
+          cb.call(self, results);
+        }
+      };
+      return this;
+    },
+
+    keys: function(callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.keys, [callback]);
+      if (!self.store) return this;
+
+      const cb = self.fn(this.name, callback) || undefined;
+      const store = self.db.transaction(self.record).objectStore(self.record);
+      const keys = [];
+
+      store.openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          keys.push(cursor.key);
+          cursor['continue']();
+        } else if (cb) {
+          cb.call(self, keys);
+        }
+      };
+      return this;
+    },
+
+    remove: function(keyOrArray, callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.remove, [keyOrArray, callback]);
+      if (!self.store) return this;
+
+      const toDelete = self.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
+      const store = getObjectStore(self, READ_WRITE);
+      toDelete.forEach(item => {
+        const k = item && item.key ? item.key : item;
+        store['delete'](k);
+      });
+
+      store.transaction.oncomplete = () => {
+        if (callback) self.lambda(callback).call(self);
+      };
+      store.transaction.onabort = fail;
+      return this;
+    },
+
+    nuke: function(callback) {
+      const self = this;
+      scheduleIfNotReady(self, this.nuke, [callback]);
+      if (!self.store) return this;
+
+      const win = callback ? () => self.lambda(callback).call(self) : () => {};
+
       try {
-        self.db.deleteObjectStore(self.record);
-      } catch (e) { /* ignore */ }
-      self.db.createObjectStore(self.record, { autoIncrement: useAutoIncrement() });
+        const store = getObjectStore(self, READ_WRITE);
+        store.clear();
+        store.transaction.oncomplete = win;
+        store.transaction.onabort = fail;
+      } catch (e) {
+        if (e.name === 'NotFoundError') {
+          win();
+        } else {
+          fail(e);
+        }
+      }
+      return this;
     }
+  };
 
-    function onSuccess(event) {
-      self.db = event.target.result;
-      self.store = true;
-      while (self.waiting.length) {
-        self.waiting.shift().call(self);
-      }
-      if (cb) {
-        cb.call(self, self);
-      }
-    }
+  //
+  // Helper functions
+  //
+
+  /** Log errors from IndexedDB operations */
+  function fail(e) {
+    console.error('error in indexed-db adapter!', e);
   }
 
-  function coreSave(obj, callback) {
-    const self = this;
-    const objects = (this.isArray(obj) ? obj : [obj]).map(o => {
-      if (!o.key) { o.key = self.uuid(); }
-      return o;
-    });
+  /** Determine if auto‑increment should be used */
+  function useAutoIncrement() {
+    // using preliminary mozilla implementation which doesn't support
+    // auto‑generated keys. Neither do some webkit implementations.
+    return !!window.indexedDB;
+  }
 
-    const transaction = this.db.transaction(this.record, READ_WRITE);
-    const store = transaction.objectStore(this.record);
-
-    objects.forEach(o => store.put(o, o.key));
-
-    transaction.oncomplete = () => {
+  /** Retrieve a single record */
+  function getSingle(self, key, callback) {
+    const req = self.db.transaction(self.record).objectStore(self.record).get(key);
+    req.onsuccess = (e) => {
+      req.onsuccess = req.onerror = null;
+      const result = e.target.result;
       if (callback) {
-        self.lambda(callback).call(self, this.isArray(obj) ? objects : objects[0]);
-      }
-    };
-    transaction.onabort = fail;
-    return this;
-  }
-
-  function coreBatch(objs, callback) {
-    return coreSave.call(this, objs, callback);
-  }
-
-  function coreGet(key, callback) {
-    if (this.isArray(key)) {
-      return coreGetMultiple.call(this, key, callback);
-    }
-    return coreGetSingle.call(this, key, callback);
-  }
-
-  function coreGetSingle(key, callback) {
-    const self = this;
-    const request = this.db.transaction(this.record).objectStore(this.record).get(key);
-
-    request.onsuccess = event => {
-      request.onsuccess = request.onerror = null;
-      const result = event.target.result;
-      if (callback) {
-        if (result) { result.key = key; }
+        if (result) result.key = key;
         self.lambda(callback).call(self, result);
       }
     };
-    request.onerror = event => {
-      request.onsuccess = request.onerror = null;
-      fail(event);
+    req.onerror = (e) => {
+      req.onsuccess = req.onerror = null;
+      fail(e);
     };
-    return this;
+    return self;
   }
 
-  function coreGetMultiple(keys, callback) {
-    const self = this;
+  /** Retrieve multiple records */
+  function getMultiple(self, keys, callback) {
     const results = new Array(keys.length);
     let remaining = keys.length;
 
@@ -136,136 +260,9 @@ Lawnchair.adapter('indexed-db', (function(){
     };
 
     keys.forEach((k, i) => {
-      self.get(k, obj => collect(i, obj));
+      self.get(k, (obj) => collect(i, obj));
     });
-    return this;
-  }
-
-  function coreExists(key, callback) {
-    const self = this;
-    const req = this.db.transaction(this.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
-
-    req.onsuccess = event => {
-      req.onsuccess = req.onerror = null;
-      const exists = event.target.result !== null && event.target.result !== undefined;
-      self.lambda(callback).call(self, exists);
-    };
-    req.onerror = event => {
-      req.onsuccess = req.onerror = null;
-      fail(event);
-    };
-    return this;
-  }
-
-  function coreAll(callback) {
-    const cb = this.fn(this.name, callback) || undefined;
-    const self = this;
-    const store = this.db.transaction(this.record).objectStore(this.record);
-    const results = [];
-
-    store.openCursor().onsuccess = event => {
-      const cursor = event.target.result;
-      if (cursor) {
-        results.push(cursor.value);
-        cursor['continue']();
-      } else if (cb) {
-        cb.call(self, results);
-      }
-    };
-    return this;
-  }
-
-  function coreKeys(callback) {
-    const cb = this.fn(this.name, callback) || undefined;
-    const self = this;
-    const store = this.db.transaction(this.record).objectStore(this.record);
-    const keys = [];
-
-    store.openCursor().onsuccess = event => {
-      const cursor = event.target.result;
-      if (cursor) {
-        keys.push(cursor.key);
-        cursor['continue']();
-      } else if (cb) {
-        cb.call(self, keys);
-      }
-    };
-    return this;
-  }
-
-  function coreRemove(keyOrArray, callback) {
-    const self = this;
-    const toDelete = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
-    const transaction = this.db.transaction(this.record, READ_WRITE);
-    const store = transaction.objectStore(this.record);
-
-    toDelete.forEach(item => {
-      const key = item && item.key ? item.key : item;
-      store['delete'](key);
-    });
-
-    transaction.oncomplete = () => {
-      if (callback) {
-        self.lambda(callback).call(self);
-      }
-    };
-    transaction.onabort = fail;
-    return this;
-  }
-
-  function coreNuke(callback) {
-    const self = this;
-    const onComplete = callback ? () => self.lambda(callback).call(self) : () => {};
-
-    try {
-      const transaction = this.db.transaction(this.record, READ_WRITE);
-      const store = transaction.objectStore(this.record);
-      store.clear();
-      transaction.oncomplete = onComplete;
-      transaction.onabort = fail;
-    } catch (e) {
-      if (e.name === 'NotFoundError') {
-        onComplete();
-      } else {
-        fail(e);
-      }
-    }
-    return this;
-  }
-
-  // Public API with store‑ready wrappers
-  return {
-    valid: coreValid,
-
-    init: coreInit,
-
-    save: withStoreReady(coreSave),
-
-    batch: withStoreReady(coreBatch),
-
-    get: withStoreReady(coreGet),
-
-    exists: withStoreReady(coreExists),
-
-    all: withStoreReady(coreAll),
-
-    keys: withStoreReady(coreKeys),
-
-    remove: withStoreReady(coreRemove),
-
-    nuke: withStoreReady(coreNuke)
-  };
-
-  // Helper functions
-
-  function fail(e) {
-    console.error('error in indexed-db adapter!', e);
-  }
-
-  function useAutoIncrement() {
-    // using preliminary mozilla implementation which doesn't support
-    // auto-generated keys.  Neither do some webkit implementations.
-    return !!window.indexedDB;
+    return self;
   }
 
 })());

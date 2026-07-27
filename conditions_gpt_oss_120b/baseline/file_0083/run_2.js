@@ -105,8 +105,7 @@ function DeleteButton({
           }}
         >
           <Text>
-            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This
-            action cannot be undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -353,6 +352,7 @@ function ItemPage({ listKey }: ItemPageProps) {
       actionModes[action.key] = action.itemView.actionMode
     }
 
+    // actions within context of an item
     const actionsInContext = list.actions
       .map(action => ({
         ...action,

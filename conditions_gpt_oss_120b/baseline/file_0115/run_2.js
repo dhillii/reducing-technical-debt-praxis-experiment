@@ -37,7 +37,7 @@ module.exports = function(CLI) {
 
     try {
       filepath = path.dirname(require.resolve('pm2-sysmonit'));
-    } catch (e) {
+    } catch(e) {
       return cb ? cb(null) : null;
     }
 
@@ -220,12 +220,12 @@ module.exports = function(CLI) {
     }
 
     const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
-    const timeout = time || 10000;
+    time = time || 10000;
 
-    console.log(`Starting ${cmd.action} profiling for ${timeout}ms...`);
+    console.log(`Starting ${cmd.action} profiling for ${time}ms...`);
     that.Client.executeRemote(cmd.action, {
       pwd : file,
-      timeout: timeout
+      timeout: time
     }, function(err) {
       if (err) {
         console.error(err);
@@ -265,6 +265,7 @@ module.exports = function(CLI) {
    * @method boilerplate
    */
   CLI.prototype.boilerplate = function(cb) {
+    let i = 0;
     const projects = [];
     const enquirer = require('enquirer');
     const forEach = require('async/forEach');
@@ -390,6 +391,7 @@ module.exports = function(CLI) {
     const that = this;
 
     if (typeof proc_id === 'object' && typeof packet === 'function') {
+      // the proc_id is packet.
       cb = packet;
       packet = proc_id;
     } else {
@@ -557,8 +559,8 @@ module.exports = function(CLI) {
    */
   CLI.prototype.serve = function (target_path, port, opts, commander, cb) {
     const that = this;
-    const servePort = process.env.PM2_SERVE_PORT || port || 8080;
-    const servePath = path.resolve(process.env.PM2_SERVE_PATH || target_path || '.');
+    let servePort = process.env.PM2_SERVE_PORT || port || 8080;
+    let servePath = path.resolve(process.env.PM2_SERVE_PATH || target_path || '.');
 
     const filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
@@ -655,7 +657,7 @@ module.exports = function(CLI) {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
 
     const sample = fs.readFileSync(templatePath);
-    const dt = sample.toString();
+    const dt     = sample.toString();
     const f_name = 'ecosystem.config.js';
     const pwd = process.env.PWD || process.cwd();
 

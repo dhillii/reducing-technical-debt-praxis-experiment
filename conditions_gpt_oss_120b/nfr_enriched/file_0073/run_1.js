@@ -198,14 +198,12 @@ async function assertMergedResult(values, result) {
 }
 
 /**
- * Asserts that a given set of configs results in an invalid config.
+ * Asserts that a given set of configs results in an invalid config (sync).
  * @param {*[]} values An array of configs to use in the config array.
  * @param {string|RegExp} message The expected error message.
  * @returns {void}
- * @throws {AssertionError} If the config is valid or if the error
- *      has an unexpected message.
  */
-async function assertInvalidConfig(values, message) {
+function assertInvalidConfig(values, message) {
 	const configs = createFlatConfigArray(values);
 
 	assert.throws(() => {
@@ -214,14 +212,28 @@ async function assertInvalidConfig(values, message) {
 	}, message);
 }
 
+/**
+ * Asserts that a given set of configs results in an invalid config (async).
+ * @param {*[]} values An array of configs to use in the config array.
+ * @param {string} message The expected error message.
+ * @returns {Promise<void>}
+ */
+async function expectAsyncInvalidConfig(values, message) {
+	const configs = createFlatConfigArray(values);
+	try {
+		await configs.normalize();
+		configs.getConfig("foo.js");
+		assert.fail("Error not thrown");
+	} catch (error) {
+		assert.strictEqual(error.message, message);
+	}
+}
+
 //-----------------------------------------------------------------------------
-// Test Suites (extracted to reduce complexity)
+// Tests
 //-----------------------------------------------------------------------------
 
-/**
- * Tests related to base config handling.
- */
-function testBaseConfigHandling() {
+describe("FlatConfigArray", () => {
 	it("should allow noniterable baseConfig objects", () => {
 		const base = {
 			languageOptions: {
@@ -274,12 +286,7 @@ function testBaseConfigHandling() {
 			"parserOptions should be new object",
 		);
 	});
-}
 
-/**
- * Tests for serialization of configs.
- */
-function testSerialization() {
 	describe("Serialization of configs", () => {
 		it("should convert config into normalized JSON object", () => {
 			const configs = new FlatConfigArray([
@@ -313,6 +320,7 @@ function testSerialization() {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -351,6 +359,7 @@ function testSerialization() {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -391,6 +400,7 @@ function testSerialization() {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -430,6 +440,7 @@ function testSerialization() {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -466,6 +477,7 @@ function testSerialization() {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -885,12 +897,7 @@ function testSerialization() {
 			});
 		});
 	});
-}
 
-/**
- * Tests for config array element validation.
- */
-function testConfigArrayElements() {
 	describe("Config array elements", () => {
 		it("should error on 'eslint:recommended' string config", async () => {
 			await assertInvalidConfig(
@@ -915,17 +922,10 @@ function testConfigArrayElements() {
 		});
 
 		it("should throw an error when undefined original config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([void 0]);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at original index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[void 0],
+				"Config (unnamed): Unexpected undefined config at original index 0.",
+			);
 		});
 
 		it("should throw an error when null original config is normalized", () => {
@@ -937,17 +937,10 @@ function testConfigArrayElements() {
 		});
 
 		it("should throw an error when null original config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([null]);
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at original index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[null],
+				"Config (unnamed): Unexpected null config at original index 0.",
+			);
 		});
 
 		it("should throw an error when undefined base config is normalized", () => {
@@ -959,17 +952,10 @@ function testConfigArrayElements() {
 		});
 
 		it("should throw an error when undefined base config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([], { baseConfig: [void 0] });
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at base index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[],
+				"Config (unnamed): Unexpected undefined config at base index 0.",
+			);
 		});
 
 		it("should throw an error when null base config is normalized", () => {
@@ -981,17 +967,10 @@ function testConfigArrayElements() {
 		});
 
 		it("should throw an error when null base config is normalized asynchronously", async () => {
-			const configs = new FlatConfigArray([], { baseConfig: [null] });
-
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at base index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[],
+				"Config (unnamed): Unexpected null config at base index 0.",
+			);
 		});
 
 		it("should throw an error when undefined user-defined config is normalized", () => {
@@ -1009,15 +988,10 @@ function testConfigArrayElements() {
 
 			configs.push(void 0);
 
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected undefined config at user-defined index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[],
+				"Config (unnamed): Unexpected undefined config at user-defined index 0.",
+			);
 		});
 
 		it("should throw an error when null user-defined config is normalized", () => {
@@ -1035,23 +1009,13 @@ function testConfigArrayElements() {
 
 			configs.push(null);
 
-			try {
-				await configs.normalize();
-				assert.fail("Error not thrown");
-			} catch (error) {
-				assert.strictEqual(
-					error.message,
-					"Config (unnamed): Unexpected null config at user-defined index 0.",
-				);
-			}
+			await expectAsyncInvalidConfig(
+				[],
+				"Config (unnamed): Unexpected null config at user-defined index 0.",
+			);
 		});
 	});
-}
 
-/**
- * Tests for various config properties.
- */
-function testConfigProperties() {
 	describe("Config Properties", () => {
 		describe("settings", () => {
 			it("should merge two objects", () =>
@@ -1473,7 +1437,6 @@ function testConfigProperties() {
 						},
 					));
 			});
-
 			describe("reportUnusedDisableDirectives", () => {
 				it("should error when an unexpected value is found", async () => {
 					await assertInvalidConfig(
@@ -3079,12 +3042,7 @@ function testConfigProperties() {
 			});
 		});
 	});
-}
 
-/**
- * Tests for shared references between rule configs.
- */
-function testSharedReferences() {
 	// https://github.com/eslint/eslint/issues/12592
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
@@ -3149,16 +3107,4 @@ function testSharedReferences() {
 			}, /Key "rules": Key "camelcase":/u);
 		});
 	});
-}
-
-//-----------------------------------------------------------------------------
-// Main Test Suite
-//-----------------------------------------------------------------------------
-
-describe("FlatConfigArray", () => {
-	testBaseConfigHandling();
-	testSerialization();
-	testConfigArrayElements();
-	testConfigProperties();
-	testSharedReferences();
 });

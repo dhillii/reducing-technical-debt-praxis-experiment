@@ -13,8 +13,8 @@ try {
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
     const FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    for (const ext of FILE_EXTENSIONS) {
-      require.extensions[ext] = function () {
+    for (let i = 0; i < FILE_EXTENSIONS.length; i++) {
+      require.extensions[FILE_EXTENSIONS[i]] = function () {
         throw new Error(
           'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
           'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
@@ -37,7 +37,7 @@ grunt.util = util;
 grunt.util.task = require('./util/task');
 
 const Log = require('grunt-legacy-log').Log;
-const log = new Log({ grunt });
+const log = new Log({ grunt: grunt });
 grunt.log = log;
 
 gRequire('template');
@@ -70,18 +70,21 @@ gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
 /**
- * Handles the --version flag, including verbose output.
+ * Handles the --version flag, including verbose output of tasks and options.
  * Returns true if processing should stop after handling version.
  */
-function handleVersionFlag() {
+function handleVersionOption() {
   if (!option('version')) {
     return false;
   }
 
+  // Not --verbose.
   log.writeln('grunt v' + grunt.version);
 
   if (option('verbose')) {
+    // --verbose
     verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+    // Suppress verbose task initialization logs.
     grunt.log.muted = true;
     grunt.task.init([], { help: true });
     grunt.log.muted = false;
@@ -107,7 +110,7 @@ function handleVersionFlag() {
  * Initializes colors and displays help if requested.
  * Returns true if processing should stop after handling help.
  */
-function handleHelpFlag() {
+function initColorsAndHelp() {
   log.initColors();
 
   if (option('help')) {
@@ -118,40 +121,45 @@ function handleHelpFlag() {
 }
 
 /**
- * Parses command‑line tasks and initializes the task system.
+ * Displays the initial header and command‑line flags.
  */
-function parseAndInitializeTasks(rawTasks) {
-  const tasksSpecified = rawTasks && rawTasks.length > 0;
-  const tasks = task.parseArgs([tasksSpecified ? rawTasks : 'default']);
-  task.init(tasks, option());
-  return { tasks, tasksSpecified };
+function displayHeaderAndFlags() {
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 }
 
 /**
- * Sets up a temporary uncaught‑exception handler.
+ * Sets up a temporary uncaughtException handler that forwards to fail.fatal.
+ * Returns a function to remove the handler.
  */
-function registerUncaughtHandler() {
+function setupUncaughtHandler() {
   const handler = function (e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
   process.on('uncaughtException', handler);
-  return handler;
+  return function removeHandler() {
+    process.removeListener('uncaughtException', handler);
+  };
 }
 
 /**
  * Configures task options for error handling and completion.
+ * @param {Function} doneCallback Optional user‑provided callback.
+ * @param {Function} removeUncaughtHandler Function to deregister the uncaught handler.
  */
-function configureTaskCallbacks(uncaughtHandler, done) {
+function configureTaskOptions(doneCallback, removeUncaughtHandler) {
   task.options({
     error: function (e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function () {
-      process.removeListener('uncaughtException', uncaughtHandler);
+      // Clean up the uncaught exception listener.
+      removeUncaughtHandler();
+
+      // Output final report.
       fail.report();
 
-      if (done) {
-        done();
+      if (doneCallback) {
+        doneCallback();
       } else {
         util.exit(0);
       }
@@ -160,51 +168,59 @@ function configureTaskCallbacks(uncaughtHandler, done) {
 }
 
 /**
- * Executes the list of tasks and starts the async runner.
+ * Executes the provided task list.
+ * @param {Array<string>} taskList List of task names to run.
  */
-function executeTasks(taskList) {
+function runTaskList(taskList) {
   taskList.forEach(function (name) {
     task.run(name);
   });
+  // Run tasks async internally to reduce call‑stack.
   task.start({ asyncDone: true });
 }
 
 /**
- * Primary entry point for running grunt tasks.
+ * Primary entry point for running Grunt tasks.
+ * @param {Array<string>|string} tasks Tasks to run.
+ * @param {Object} options CLI options.
+ * @param {Function} done Optional callback invoked when all tasks complete.
  */
 grunt.tasks = function (tasks, options, done) {
-  // Update options with passed‑in options.
+  // Update options with passed-in options.
   option.init(options);
 
   // Handle version flag early.
-  if (handleVersionFlag()) {
+  if (handleVersionOption()) {
     return;
   }
 
-  // Handle help flag early.
-  if (handleHelpFlag()) {
+  // Initialize colors and possibly display help.
+  if (initColorsAndHelp()) {
     return;
   }
 
   // Header and flags.
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+  displayHeaderAndFlags();
 
-  // Parse and initialize tasks.
-  const { tasks: taskList, tasksSpecified } = parseAndInitializeTasks(tasks);
+  // Determine and output which tasks will be run.
+  const tasksSpecified = tasks && tasks.length > 0;
+  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
-  // Display task information.
+  // Initialize tasks.
+  task.init(parsedTasks, options);
+
   verbose.writeln();
   if (!tasksSpecified) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
-  verbose.writeflags(taskList, 'Running tasks');
+  verbose.writeflags(parsedTasks, 'Running tasks');
 
-  // Register temporary uncaught‑exception handler.
-  const uncaughtHandler = registerUncaughtHandler();
+  // Setup uncaught exception handling.
+  const removeUncaughtHandler = setupUncaughtHandler();
 
   // Configure task callbacks.
-  configureTaskCallbacks(uncaughtHandler, done);
+  configureTaskOptions(done, removeUncaughtHandler);
 
-  // Run tasks.
-  executeTasks(taskList);
+  // Execute tasks.
+  runTaskList(parsedTasks);
 };

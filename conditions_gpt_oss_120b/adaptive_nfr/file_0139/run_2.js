@@ -15,127 +15,140 @@ const { getAbsoluteServerUrl } = require('strapi-utils');
 const jwt = require('jsonwebtoken');
 
 /**
- * Connect thanks to a third-party provider.
+ * Connect thanks to a third‑party provider.
  *
  * @param {String} provider
  * @param {Object} query
- *
- * @return {Promise<[*]>}
+ * @returns {Promise}
  */
-const connect = async (provider, query) => {
+const connect = (provider, query) => {
   const accessToken = query.access_token || query.code || query.oauth_token;
-  if (!accessToken) {
-    throw [null, { message: 'No access_token.' }];
+
+  if (!hasAccessToken(accessToken)) {
+    return Promise.reject([null, { message: 'No access_token.' }]);
   }
 
-  let profile;
-  try {
-    profile = await getProfile(provider, query);
-  } catch (err) {
-    throw [null, err];
-  }
+  return new Promise((resolve, reject) => {
+    getProfile(provider, query, async (err, profile) => {
+      if (err) {
+        return reject([null, err]);
+      }
 
-  if (!profile.email) {
-    throw [null, { message: 'Email was not available.' }];
-  }
+      if (!hasEmail(profile)) {
+        return reject([null, { message: 'Email was not available.' }]);
+      }
 
-  try {
-    const users = await strapi.query('user', 'users-permissions').find({ email: profile.email });
-    const advanced = await strapi
-      .store({
-        environment: '',
-        type: 'plugin',
-        name: 'users-permissions',
-        key: 'advanced',
-      })
-      .get();
+      try {
+        const users = await strapi
+          .query('user', 'users-permissions')
+          .find({ email: profile.email });
 
-    const existingUser = _.find(users, { provider });
+        const advanced = await strapi
+          .store({
+            environment: '',
+            type: 'plugin',
+            name: 'users-permissions',
+            key: 'advanced',
+          })
+          .get();
 
-    if (isRegisterNotAllowed(existingUser, advanced)) {
-      return [
-        null,
-        [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
-        'Register action is actually not available.',
-      ];
-    }
+        const existingUser = _.find(users, { provider });
 
-    if (isUserExists(existingUser)) {
-      return [existingUser, null];
-    }
+        if (isUserEmpty(existingUser) && !advanced.allow_register) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
+            'Register action is actually not available.',
+          ]);
+        }
 
-    if (isEmailTaken(users, provider, advanced)) {
-      return [
-        null,
-        [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
-        'Email is already taken.',
-      ];
-    }
+        if (!isUserEmpty(existingUser)) {
+          return resolve([existingUser, null]);
+        }
 
-    const defaultRole = await strapi
-      .query('role', 'users-permissions')
-      .findOne({ type: advanced.default_role }, []);
+        if (isEmailTakenByOtherProvider(users, provider, advanced)) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
+            'Email is already taken.',
+          ]);
+        }
 
-    const params = _.assign(profile, {
-      provider,
-      role: defaultRole.id,
-      confirmed: true,
+        const defaultRole = await strapi
+          .query('role', 'users-permissions')
+          .findOne({ type: advanced.default_role }, []);
+
+        const params = _.assign(profile, {
+          provider,
+          role: defaultRole.id,
+          confirmed: true,
+        });
+
+        const createdUser = await strapi
+          .query('user', 'users-permissions')
+          .create(params);
+
+        return resolve([createdUser, null]);
+      } catch (error) {
+        return reject([null, error]);
+      }
     });
-
-    const createdUser = await strapi.query('user', 'users-permissions').create(params);
-    return [createdUser, null];
-  } catch (err) {
-    throw [null, err];
-  }
+  });
 };
 
 /**
- * Determine if registration is not allowed.
+ * Guard: checks if an access token is present.
  *
- * @param {Object} user
- * @param {Object} advanced
- *
- * @return {boolean}
+ * @param {String} token
+ * @returns {Boolean}
  */
-function isRegisterNotAllowed(user, advanced) {
-  return _.isEmpty(user) && !advanced.allow_register;
+function hasAccessToken(token) {
+  return Boolean(token);
 }
 
 /**
- * Determine if a user already exists.
+ * Guard: checks if profile contains an email.
  *
- * @param {Object} user
- *
- * @return {boolean}
+ * @param {Object} profile
+ * @returns {Boolean}
  */
-function isUserExists(user) {
-  return !_.isEmpty(user);
+function hasEmail(profile) {
+  return Boolean(profile && profile.email);
 }
 
 /**
- * Determine if the email is already taken by another provider.
+ * Guard: checks if a user object is empty.
+ *
+ * @param {Object} user
+ * @returns {Boolean}
+ */
+function isUserEmpty(user) {
+  return _.isEmpty(user);
+}
+
+/**
+ * Guard: checks if email is already taken by another provider and unique_email is enforced.
  *
  * @param {Array} users
  * @param {String} provider
  * @param {Object} advanced
- *
- * @return {boolean}
+ * @returns {Boolean}
  */
-function isEmailTaken(users, provider, advanced) {
-  const otherUser = _.find(users, u => u.provider !== provider);
-  return !_.isEmpty(otherUser) && advanced.unique_email;
+function isEmailTakenByOtherProvider(users, provider, advanced) {
+  const otherProviderUser = _.find(users, u => u.provider !== provider);
+  return Boolean(otherProviderUser) && Boolean(advanced.unique_email);
 }
 
 /**
- * Retrieve a user profile from a third‑party provider.
+ * Helper to get profiles.
  *
  * @param {String} provider
  * @param {Object} query
- *
- * @return {Promise<Object>}
+ * @param {Function} callback
  */
-const getProfile = async (provider, query) => {
+const getProfile = async (provider, query, callback) => {
   const accessToken = query.access_token || query.code || query.oauth_token;
+
   const grant = await strapi
     .store({
       environment: '',
@@ -145,48 +158,37 @@ const getProfile = async (provider, query) => {
     })
     .get();
 
-  switch (provider) {
-    case 'discord':
-      return getDiscordProfile(accessToken);
-    case 'cognito':
-      return getCognitoProfile(query);
-    case 'facebook':
-      return getFacebookProfile(accessToken);
-    case 'google':
-      return getGoogleProfile(accessToken);
-    case 'github':
-      return getGithubProfile(accessToken);
-    case 'microsoft':
-      return getMicrosoftProfile(accessToken);
-    case 'twitter':
-      return getTwitterProfile(accessToken, query, grant);
-    case 'instagram':
-      return getInstagramProfile(accessToken, grant);
-    case 'vk':
-      return getVkProfile(accessToken, query);
-    case 'twitch':
-      return getTwitchProfile(accessToken, grant);
-    case 'linkedin':
-      return getLinkedinProfile(accessToken);
-    case 'reddit':
-      return getRedditProfile(accessToken);
-    case 'auth0':
-      return getAuth0Profile(accessToken, grant);
-    case 'cas':
-      return getCasProfile(accessToken, grant);
-    default:
-      throw new Error('Unknown provider.');
+  const handlers = {
+    discord: () => handleDiscord(accessToken, callback),
+    cognito: () => handleCognito(query, callback),
+    facebook: () => handleFacebook(accessToken, callback),
+    google: () => handleGoogle(accessToken, callback),
+    github: () => handleGithub(accessToken, callback),
+    microsoft: () => handleMicrosoft(accessToken, callback),
+    twitter: () => handleTwitter(accessToken, query, grant, callback),
+    instagram: () => handleInstagram(accessToken, grant, callback),
+    vk: () => handleVk(accessToken, query, callback),
+    twitch: () => handleTwitch(accessToken, grant, callback),
+    linkedin: () => handleLinkedin(accessToken, callback),
+    reddit: () => handleReddit(accessToken, callback),
+    auth0: () => handleAuth0(accessToken, grant, callback),
+    cas: () => handleCas(accessToken, grant, callback),
+  };
+
+  const handler = handlers[provider];
+  if (!handler) {
+    return callback(new Error('Unknown provider.'));
   }
+  return handler();
 };
 
 /**
- * Discord profile retrieval.
+ * Discord profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-function getDiscordProfile(accessToken) {
+function handleDiscord(token, cb) {
   const discord = purest({
     provider: 'discord',
     config: {
@@ -207,181 +209,154 @@ function getDiscordProfile(accessToken) {
     },
   });
 
-  return new Promise((resolve, reject) => {
-    discord
-      .query()
-      .get('users/@me')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        const username = `${body.username}#${body.discriminator}`;
-        resolve({ username, email: body.email });
-      });
-  });
+  discord
+    .query()
+    .get('users/@me')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      const username = `${body.username}#${body.discriminator}`;
+      return cb(null, { username, email: body.email });
+    });
 }
 
 /**
- * Cognito profile retrieval.
+ * Cognito profile handler.
  *
  * @param {Object} query
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getCognitoProfile(query) {
+function handleCognito(query, cb) {
   const idToken = query.id_token;
   const tokenPayload = jwt.decode(idToken);
   if (!tokenPayload) {
-    throw new Error('unable to decode jwt token');
+    return cb(new Error('unable to decode jwt token'));
   }
-  return {
+  return cb(null, {
     username: tokenPayload['cognito:username'],
     email: tokenPayload.email,
-  };
-}
-
-/**
- * Facebook profile retrieval.
- *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
- */
-function getFacebookProfile(accessToken) {
-  const facebook = purest({
-    provider: 'facebook',
-    config: purestConfig,
-  });
-
-  return new Promise((resolve, reject) => {
-    facebook
-      .query()
-      .get('me?fields=name,email')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({ username: body.name, email: body.email });
-      });
   });
 }
 
 /**
- * Google profile retrieval.
+ * Facebook profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-function getGoogleProfile(accessToken) {
+function handleFacebook(token, cb) {
+  const facebook = purest({ provider: 'facebook', config: purestConfig });
+  facebook
+    .query()
+    .get('me?fields=name,email')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, { username: body.name, email: body.email });
+    });
+}
+
+/**
+ * Google profile handler.
+ *
+ * @param {String} token
+ * @param {Function} cb
+ */
+function handleGoogle(token, cb) {
   const google = purest({ provider: 'google', config: purestConfig });
-
-  return new Promise((resolve, reject) => {
-    google
-      .query('oauth')
-      .get('tokeninfo')
-      .qs({ access_token: accessToken })
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({ username: body.email.split('@')[0], email: body.email });
+  google
+    .query('oauth')
+    .get('tokeninfo')
+    .qs({ access_token: token })
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: body.email.split('@')[0],
+        email: body.email,
       });
-  });
+    });
 }
 
 /**
- * Github profile retrieval.
+ * Github profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-function getGithubProfile(accessToken) {
+function handleGithub(token, cb) {
   const github = purest({
     provider: 'github',
     config: purestConfig,
-    defaults: {
-      headers: {
-        'user-agent': 'strapi',
-      },
-    },
+    defaults: { headers: { 'user-agent': 'strapi' } },
   });
 
-  return new Promise((resolve, reject) => {
-    github
-      .query()
-      .get('user')
-      .auth(accessToken)
-      .request((err, res, userBody) => {
-        if (err) {
-          return reject(err);
-        }
+  github
+    .query()
+    .get('user')
+    .auth(token)
+    .request((err, res, userBody) => {
+      if (err) {
+        return cb(err);
+      }
 
-        if (userBody.email) {
-          return resolve({ username: userBody.login, email: userBody.email });
-        }
+      if (userBody.email) {
+        return cb(null, { username: userBody.login, email: userBody.email });
+      }
 
-        // Fallback to emails endpoint
-        github
-          .query()
-          .get('user/emails')
-          .auth(accessToken)
-          .request((err2, res2, emailsBody) => {
-            if (err2) {
-              return reject(err2);
-            }
-
-            let email = null;
-            if (Array.isArray(emailsBody)) {
-              const primary = emailsBody.find(e => e.primary === true);
-              email = primary ? primary.email : null;
-            }
-            resolve({ username: userBody.login, email });
-          });
-      });
-  });
+      github
+        .query()
+        .get('user/emails')
+        .auth(token)
+        .request((err2, res2, emailsBody) => {
+          if (err2) {
+            return cb(err2);
+          }
+          const primaryEmail = Array.isArray(emailsBody)
+            ? emailsBody.find(e => e.primary === true).email
+            : null;
+          return cb(null, { username: userBody.login, email: primaryEmail });
+        });
+    });
 }
 
 /**
- * Microsoft profile retrieval.
+ * Microsoft profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-function getMicrosoftProfile(accessToken) {
-  const microsoft = purest({
-    provider: 'microsoft',
-    config: purestConfig,
-  });
-
-  return new Promise((resolve, reject) => {
-    microsoft
-      .query()
-      .get('me')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({ username: body.userPrincipalName, email: body.userPrincipalName });
+function handleMicrosoft(token, cb) {
+  const microsoft = purest({ provider: 'microsoft', config: purestConfig });
+  microsoft
+    .query()
+    .get('me')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: body.userPrincipalName,
+        email: body.userPrincipalName,
       });
-  });
+    });
 }
 
 /**
- * Twitter profile retrieval.
+ * Twitter profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} query
  * @param {Object} grant
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getTwitterProfile(accessToken, query, grant) {
+function handleTwitter(token, query, grant, cb) {
   const twitter = purest({
     provider: 'twitter',
     config: purestConfig,
@@ -389,30 +364,27 @@ function getTwitterProfile(accessToken, query, grant) {
     secret: grant.twitter.secret,
   });
 
-  return new Promise((resolve, reject) => {
-    twitter
-      .query()
-      .get('account/verify_credentials')
-      .auth(accessToken, query.access_secret)
-      .qs({ screen_name: query['raw[screen_name]'], include_email: 'true' })
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({ username: body.screen_name, email: body.email });
-      });
-  });
+  twitter
+    .query()
+    .get('account/verify_credentials')
+    .auth(token, query.access_secret)
+    .qs({ screen_name: query['raw[screen_name]'], include_email: 'true' })
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, { username: body.screen_name, email: body.email });
+    });
 }
 
 /**
- * Instagram profile retrieval.
+ * Instagram profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} grant
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getInstagramProfile(accessToken, grant) {
+function handleInstagram(token, grant, cb) {
   const instagram = purest({
     provider: 'instagram',
     key: grant.instagram.key,
@@ -420,64 +392,52 @@ function getInstagramProfile(accessToken, grant) {
     config: purestConfig,
   });
 
-  return new Promise((resolve, reject) => {
-    instagram
-      .query()
-      .get('me')
-      .qs({ access_token: accessToken, fields: 'id,username' })
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({
-          username: body.username,
-          email: `${body.username}@strapi.io`,
-        });
+  instagram
+    .query()
+    .get('me')
+    .qs({ access_token: token, fields: 'id,username' })
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: body.username,
+        email: `${body.username}@strapi.io`,
       });
-  });
+    });
 }
 
 /**
- * VK profile retrieval.
+ * VK profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} query
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getVkProfile(accessToken, query) {
-  const vk = purest({
-    provider: 'vk',
-    config: purestConfig,
-  });
-
-  return new Promise((resolve, reject) => {
-    vk
-      .query()
-      .get('users.get')
-      .qs({ access_token: accessToken, id: query.raw.user_id, v: '5.122' })
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        const userInfo = body.response[0];
-        resolve({
-          username: `${userInfo.last_name} ${userInfo.first_name}`,
-          email: query.raw.email,
-        });
+function handleVk(token, query, cb) {
+  const vk = purest({ provider: 'vk', config: purestConfig });
+  vk.query()
+    .get('users.get')
+    .qs({ access_token: token, id: query.raw.user_id, v: '5.122' })
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: `${body.response[0].last_name} ${body.response[0].first_name}`,
+        email: query.raw.email,
       });
-  });
+    });
 }
 
 /**
- * Twitch profile retrieval.
+ * Twitch profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} grant
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getTwitchProfile(accessToken, grant) {
+function handleTwitch(token, grant, cb) {
   const twitch = purest({
     provider: 'twitch',
     config: {
@@ -491,43 +451,34 @@ function getTwitchProfile(accessToken, grant) {
               },
             },
           },
-          'helix/{endpoint}': {
-            __path: {
-              alias: '__default',
-            },
-          },
-          'oauth2/{endpoint}': {
-            __path: {
-              alias: 'oauth',
-            },
-          },
+          'helix/{endpoint}': { __path: { alias: '__default' } },
+          'oauth2/{endpoint}': { __path: { alias: 'oauth' } },
         },
       },
     },
   });
 
-  return new Promise((resolve, reject) => {
-    twitch
-      .get('users')
-      .auth(accessToken, grant.twitch.key)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        const user = body.data[0];
-        resolve({ username: user.login, email: user.email });
+  twitch
+    .get('users')
+    .auth(token, grant.twitch.key)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: body.data[0].login,
+        email: body.data[0].email,
       });
-  });
+    });
 }
 
 /**
- * LinkedIn profile retrieval.
+ * LinkedIn profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-async function getLinkedinProfile(accessToken) {
+async function handleLinkedin(token, cb) {
   const linkedIn = purest({
     provider: 'linkedin',
     config: {
@@ -537,185 +488,169 @@ async function getLinkedinProfile(accessToken) {
             auth: [{ auth: { bearer: '[0]' } }],
           },
           '[version]/{endpoint}': {
-            __path: {
-              alias: '__default',
-              version: 'v2',
-            },
+            __path: { alias: '__default', version: 'v2' },
           },
         },
       },
     },
   });
 
-  const getDetails = () =>
-    new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('me')
-        .auth(accessToken)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
+  try {
+    const getDetails = () =>
+      new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('me')
+          .auth(token)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
+      });
 
-  const getEmail = () =>
-    new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('emailAddress?q=members&projection=(elements*(handle~))')
-        .auth(accessToken)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
+    const getEmail = () =>
+      new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('emailAddress?q=members&projection=(elements*(handle~))')
+          .auth(token)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
+      });
 
-  const details = await getDetails();
-  const emailRes = await getEmail();
-  const email = emailRes.elements[0]['handle~'];
-  return { username: details.localizedFirstName, email: email.emailAddress };
+    const { localizedFirstName } = await getDetails();
+    const { elements } = await getEmail();
+    const email = elements[0]['handle~'];
+
+    return cb(null, { username: localizedFirstName, email: email.emailAddress });
+  } catch (error) {
+    return cb(error);
+  }
 }
 
 /**
- * Reddit profile retrieval.
+ * Reddit profile handler.
  *
- * @param {String} accessToken
- *
- * @return {Promise<Object>}
+ * @param {String} token
+ * @param {Function} cb
  */
-function getRedditProfile(accessToken) {
+function handleReddit(token, cb) {
   const reddit = purest({
     provider: 'reddit',
     config: purestConfig,
-    defaults: {
-      headers: {
-        'user-agent': 'strapi',
-      },
-    },
+    defaults: { headers: { 'user-agent': 'strapi' } },
   });
 
-  return new Promise((resolve, reject) => {
-    reddit
-      .query('auth')
-      .get('me')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve({
-          username: body.name,
-          email: `${body.name}@strapi.io`,
-        });
+  reddit
+    .query('auth')
+    .get('me')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      return cb(null, {
+        username: body.name,
+        email: `${body.name}@strapi.io`,
       });
-  });
+    });
 }
 
 /**
- * Auth0 profile retrieval.
+ * Auth0 profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} grant
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getAuth0Profile(accessToken, grant) {
-  const purestAuth0Conf = {};
-  purestAuth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
-    __domain: {
-      auth: {
-        auth: { bearer: '[0]' },
-      },
-    },
-    '{endpoint}': {
-      __path: {
-        alias: '__default',
-      },
-    },
+function handleAuth0(token, grant, cb) {
+  const auth0Conf = {};
+  auth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
+    __domain: { auth: { auth: { bearer: '[0]' } } },
+    '{endpoint}': { __path: { alias: '__default' } },
   };
+
   const auth0 = purest({
     provider: 'auth0',
-    config: {
-      auth0: purestAuth0Conf,
-    },
+    config: { auth0: auth0Conf },
   });
 
-  return new Promise((resolve, reject) => {
-    auth0
-      .get('userinfo')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        const username =
-          body.username || body.nickname || body.name || body.email.split('@')[0];
-        const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
-        resolve({ username, email });
-      });
-  });
+  auth0
+    .get('userinfo')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
+      const username =
+        body.username ||
+        body.nickname ||
+        body.name ||
+        body.email.split('@')[0];
+      const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
+      return cb(null, { username, email });
+    });
 }
 
 /**
- * CAS profile retrieval.
+ * CAS profile handler.
  *
- * @param {String} accessToken
+ * @param {String} token
  * @param {Object} grant
- *
- * @return {Promise<Object>}
+ * @param {Function} cb
  */
-function getCasProfile(accessToken, grant) {
-  const providerUrl = 'https://' + _.get(grant['cas'], 'subdomain');
+function handleCas(token, grant, cb) {
+  const providerUrl = 'https://' + _.get(grant.cas, 'subdomain');
   const cas = purest({
     provider: 'cas',
     config: {
       cas: {
         [providerUrl]: {
-          __domain: {
-            auth: {
-              auth: { bearer: '[0]' },
-            },
-          },
-          '{endpoint}': {
-            __path: {
-              alias: '__default',
-            },
-          },
+          __domain: { auth: { auth: { bearer: '[0]' } } },
+          '{endpoint}': { __path: { alias: '__default' } },
         },
       },
     },
   });
 
-  return new Promise((resolve, reject) => {
-    cas
-      .query()
-      .get('oidc/profile')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        const username = body.attributes
-          ? body.attributes.strapiusername || body.id || body.sub
-          : body.strapiusername || body.id || body.sub;
-        const email = body.attributes
-          ? body.attributes.strapiemail || body.attributes.email
-          : body.strapiemail || body.email;
-        if (!username || !email) {
-          strapi.log.warn(
-            'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
-          );
-        }
-        resolve({ username, email });
-      });
-  });
-};
+  cas
+    .query()
+    .get('oidc/profile')
+    .auth(token)
+    .request((err, res, body) => {
+      if (err) {
+        return cb(err);
+      }
 
+      const username = body.attributes
+        ? body.attributes.strapiusername || body.id || body.sub
+        : body.strapiusername || body.id || body.sub;
+      const email = body.attributes
+        ? body.attributes.strapiemail || body.attributes.email
+        : body.strapiemail || body.email;
+
+      if (!username || !email) {
+        strapi.log.warn(
+          'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
+        );
+      }
+
+      return cb(null, { username, email });
+    });
+}
+
+/**
+ * Build redirect URI for a provider.
+ *
+ * @param {String} [provider='']
+ * @returns {String}
+ */
 const buildRedirectUri = (provider = '') =>
   `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
 

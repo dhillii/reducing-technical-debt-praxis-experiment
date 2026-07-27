@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -36,9 +36,10 @@ define([
      * 10. `encrypt:models` - encrypt a Backbone collection
      * 11. `decrypt:models` - decrypt a Backbone collection
      */
-    const Encrypt = Marionette.Object.extend({
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
+
             // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
@@ -47,31 +48,31 @@ define([
 
             // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
-                'sha256': this.sjcl.sha256,
+                'sha256'           : this.sjcl.sha256,
             }, this.sjcl);
 
             // Replies
             Radio.reply('encrypt', {
-                'randomize': this.randomize,
-                'change:configs': this.changeConfigs,
+                'randomize'        : this.randomize,
+                'change:configs'   : this.changeConfigs,
 
                 // Check auth/password
-                'check:auth': this.checkAuth,
-                'check:password': this.checkPassword,
-                'save:secureKey': this.saveSecureKey,
-                'delete:secureKey': this.deleteSecureKey,
+                'check:auth'       : this.checkAuth,
+                'check:password'   : this.checkPassword,
+                'save:secureKey'   : this.saveSecureKey,
+                'delete:secureKey' : this.deleteSecureKey,
 
                 // Encrypt/decrypt some string
-                'encrypt': this.encrypt,
-                'decrypt': this.decrypt,
+                'encrypt'          : this.encrypt,
+                'decrypt'          : this.decrypt,
 
                 // Encrypt/decrypt a model
-                'encrypt:model': this.encryptModel,
-                'decrypt:model': this.decryptModel,
+                'encrypt:model'    : this.encryptModel,
+                'decrypt:model'    : this.decryptModel,
 
                 // Encrypt/decrypt a collection of models
-                'encrypt:models': this.encryptModels,
-                'decrypt:models': this.decryptModels
+                'encrypt:models'   : this.encryptModels,
+                'decrypt:models'   : this.decryptModels
             }, this);
         },
 
@@ -94,7 +95,7 @@ define([
          * Change encryption configs. It is useful when re-encrypting data.
          */
         changeConfigs: function(configs) {
-            configs = configs || Radio.request('configs', 'get:object');
+            configs      = configs || Radio.request('configs', 'get:object');
             this.configs = _.extend(this.configs, configs);
         },
 
@@ -110,7 +111,7 @@ define([
              */
             if (!_.isEmpty(this.configs.encryptBackup)) {
                 Radio.trigger('encrypt', 'changed');
-                return { isChanged: true };
+                return {isChanged: true};
             }
 
             // Encryption is disabled
@@ -122,10 +123,11 @@ define([
         },
 
         /**
-         * Verify password against stored hash.
+         * Check the password with the password in the database which is saved
+         * in there in sha256 hash format. Note, just the password is not used
+         * for encrypting/decrypting data. We use instead PBKDF2.
          *
-         * @param {string} password
-         * @return {Promise<boolean>}
+         * @return promise
          */
         checkPassword: function(password) {
             const pwd = this.configs.encryptPass;
@@ -139,18 +141,17 @@ define([
         /**
          * Generate PBKDF2 and save it. It will be used to encrypt/decrypt data.
          *
-         * @param {string} password
-         * @return {Promise<void>}
+         * @return promise
          */
         saveSecureKey: function(password) {
             const self = this;
 
             return new Q(this.sjcl.deriveKey({
-                configs: this.configs,
+                configs : this.configs,
                 password: password
             }))
                 .then(function(keys) {
-                    self.keys.key = keys.key;
+                    self.keys.key    = keys.key;
                     self.keys.hexKey = keys.hexKey;
                     self._saveSession();
                 });
@@ -170,39 +171,36 @@ define([
         /**
          * Encrypt data.
          *
-         * @param {string} str
-         * @return {Promise<string>}
+         * @return promise
          */
         encrypt: function(str) {
             return new Q(this.sjcl.encrypt({
-                configs: this.configs,
-                string: str,
-                keys: this.keys,
+                configs : this.configs,
+                string  : str,
+                keys    : this.keys,
 
                 // Random initialization vector every time
-                iv: sjcl.random.randomWords(4, 0),
+                iv      : sjcl.random.randomWords(4, 0),
             }));
         },
 
         /**
          * Decrypt data.
          *
-         * @param {string} str
-         * @return {Promise<string>}
+         * @return promise
          */
         decrypt: function(str) {
             return new Q(this.sjcl.decrypt({
-                configs: this.configs,
-                string: str,
-                keys: this.keys,
+                configs : this.configs,
+                string  : str,
+                keys    : this.keys,
             }));
         },
 
         /**
          * Encrypt a model.
          *
-         * @param {Backbone.Model} model
-         * @return {Promise<Backbone.Model>}
+         * @return promise
          */
         encryptModel: function(model) {
             const data = _.pick(model.attributes, model.encryptKeys);
@@ -217,8 +215,7 @@ define([
         /**
          * Decrypt a model.
          *
-         * @param {Backbone.Model} model
-         * @return {Promise<Backbone.Model>}
+         * @return promise
          */
         decryptModel: function(model) {
             if (model.attributes.encryptedData) {
@@ -229,102 +226,96 @@ define([
         },
 
         /**
-         * Encrypt a collection of models.
+         * Encrypt a collection.
          *
-         * @param {Backbone.Collection} collection
-         * @return {Promise<void>}
+         * @return promise
          */
         encryptModels: function(collection) {
-            if (!this._canProcessEncryption(collection)) {
+            if (!this._shouldEncryptModels(collection)) {
                 return new Q();
             }
 
-            this._notifyEncryptingModels(collection);
-            const promises = this._buildModelPromises(collection, this.encryptModel.bind(this));
-
-            return this._reduceModelPromises(promises, 'EncryptModels Error:');
+            this._triggerEncryptingModels(collection);
+            const promises = this._buildEncryptModelPromises(collection);
+            return this._executePromises(promises, 'EncryptModels');
         },
 
         /**
-         * Decrypt a collection of models.
+         * Decrypt a collection.
          *
-         * @param {Backbone.Collection} collection
-         * @return {Promise<void>}
+         * @return promise
          */
         decryptModels: function(collection) {
-            if (!this._canProcessDecryption(collection)) {
+            if (!this._shouldDecryptModels(collection)) {
                 return new Q();
             }
 
-            this._notifyDecryptingModels(collection);
-            const promises = this._buildModelPromises(collection, this.decryptModel.bind(this));
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+                return new Q();
+            }
 
-            return this._reduceModelPromises(promises, 'DecryptModels Error:');
+            this._triggerDecryptingModels(collection);
+            const promises = this._buildDecryptModelPromises(collection);
+            return this._executePromises(promises, 'DecryptModels');
         },
 
         /**
-         * Determine if a collection can be encrypted.
+         * Determine if collection can be encrypted.
          *
          * @private
          * @param {Backbone.Collection} collection
          * @return {boolean}
          */
-        _canProcessEncryption: function(collection) {
+        _shouldEncryptModels: function(collection) {
             return collection.length && Number(this.configs.encrypt) && this.keys.key;
         },
 
         /**
-         * Determine if a collection can be decrypted.
+         * Determine if collection can be decrypted.
          *
          * @private
          * @param {Backbone.Collection} collection
          * @return {boolean}
          */
-        _canProcessDecryption: function(collection) {
-            if (!collection.length || !Number(this.configs.encrypt)) {
-                return false;
-            }
-            if (!this.keys.key) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
-                return false;
-            }
-            return true;
+        _shouldDecryptModels: function(collection) {
+            return collection.length && Number(this.configs.encrypt);
         },
 
         /**
-         * Notify that model encryption is starting.
+         * Trigger encrypting models event.
          *
          * @private
          * @param {Backbone.Collection} collection
          */
-        _notifyEncryptingModels: function(collection) {
+        _triggerEncryptingModels: function(collection) {
             Radio.trigger('encrypt', 'encrypting:models', collection);
         },
 
         /**
-         * Notify that model decryption is starting.
+         * Trigger decrypting models event.
          *
          * @private
          * @param {Backbone.Collection} collection
          */
-        _notifyDecryptingModels: function(collection) {
+        _triggerDecryptingModels: function(collection) {
             Radio.trigger('encrypt', 'decrypting:models', collection);
         },
 
         /**
-         * Build an array of promise-returning functions for each model.
+         * Build an array of functions that return encrypt model promises.
          *
          * @private
          * @param {Backbone.Collection} collection
-         * @param {function} modelFn - function that returns a promise for a model
-         * @return {Array<function():Promise>}
+         * @return {Array<Function>}
          */
-        _buildModelPromises: function(collection, modelFn) {
+        _buildEncryptModelPromises: function(collection) {
             const promises = [];
+            const self = this;
 
             collection.each(function(model) {
                 promises.push(function() {
-                    return new Q(modelFn(model));
+                    return new Q(self.encryptModel(model));
                 });
             }, this);
 
@@ -332,32 +323,50 @@ define([
         },
 
         /**
-         * Reduce an array of promise functions into a single promise chain.
+         * Build an array of functions that return decrypt model promises.
          *
          * @private
-         * @param {Array<function():Promise>} promises
-         * @param {string} errorPrefix
+         * @param {Backbone.Collection} collection
+         * @return {Array<Function>}
+         */
+        _buildDecryptModelPromises: function(collection) {
+            const promises = [];
+            const self = this;
+
+            collection.each(function(model) {
+                promises.push(function() {
+                    return new Q(self.decryptModel(model));
+                });
+            }, this);
+
+            return promises;
+        },
+
+        /**
+         * Execute a list of promise-returning functions sequentially.
+         *
+         * @private
+         * @param {Array<Function>} promises
+         * @param {string} context - used for error logging
          * @return {Promise}
          */
-        _reduceModelPromises: function(promises, errorPrefix) {
+        _executePromises: function(promises, context) {
             return _.reduce(promises, Q.when, new Q())
                 .fail(function(e) {
-                    console.error(errorPrefix, e);
+                    console.error(context + ' Error:', e);
                 });
         },
 
         /**
          * Decrypt a model by getting data from "encryptedData" attribute.
          *
-         * @private
-         * @param {Backbone.Model} model
-         * @return {Promise<Backbone.Model>}
+         * @return promise
          */
         _decryptModel: function(model) {
             return new Q(this.sjcl.decrypt({
-                configs: this.configs,
-                string: model.get('encryptedData'),
-                keys: this.keys,
+                configs : this.configs,
+                string  : model.get('encryptedData'),
+                keys    : this.keys,
             }))
                 .then(function(data) {
                     _.each(JSON.parse(data), function(val, key) {
@@ -370,21 +379,20 @@ define([
         },
 
         /**
-         * Legacy decryption for models without "encryptedData".
+         * Deprecated decryption.
          *
-         * @private
-         * @param {Backbone.Model} model
-         * @return {Promise<Backbone.Model>}
+         * @return promise
          */
         _decryptModelKeys: function(model) {
             const promises = [];
+            const self = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
-                    new Q(this.sjcl.decryptLegacy({
-                        configs: this.configs,
-                        string: model.get(key),
-                        keys: this.keys
+                    new Q(self.sjcl.decryptLegacy({
+                        configs : self.configs,
+                        string  : model.get(key),
+                        keys    : self.keys
                     }))
                         .then(function(data) {
                             model.set(key, data);
@@ -402,8 +410,6 @@ define([
         /**
          * Save PBKDF2 to sessionStorage. That way the user will not have to
          * type their passwords every time.
-         *
-         * @private
          */
         _saveSession: function() {
             if (!window.sessionStorage || !this.keys) {
@@ -419,8 +425,7 @@ define([
         /**
          * Get PBKDF2 from sessionStorage.
          *
-         * @private
-         * @return {object|null}
+         * @return [object|null]
          */
         _getSession: function() {
             if (!window.sessionStorage) {
@@ -441,8 +446,7 @@ define([
         /**
          * Return session storage key which will be used to save PBKDF2.
          *
-         * @private
-         * @return {string}
+         * @return string
          */
         _getSessionKey: function() {
             let profile = Radio.request('uri', 'profile') || 'default';

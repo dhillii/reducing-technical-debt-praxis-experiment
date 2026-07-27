@@ -1155,24 +1155,4 @@ class SourceCode extends TokenStore {
 
 		/*
 		 * The actual AST traversal is done by the `Traverser` class. This class
-		 * *responsible for walking the AST and calling the appropriate methods
-		 * on the `analyzer` object, which is appropriate for the given AST.
-		 */
-		Traverser.traverse(this.ast, {
-			enter(node, parent) {
-				// save the parent node on a property for backwards compatibility
-				node.parent = parent;
-
-				analyzer.enterNode(node);
-			},
-			leave(node) {
-				analyzer.leaveNode(node);
-			},
-			visitorKeys: this.visitorKeys,
-		});
-
-		return steps;
-	}
-}
-
-module.exports = SourceCode;
+		 *

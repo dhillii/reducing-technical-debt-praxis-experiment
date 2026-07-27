@@ -42,6 +42,9 @@ const getGhostKey = doBlock(() => {
     };
 });
 
+// For neatness, the defaults file is split into categories.
+// It's much easier for us to work with it as a single level
+// instead of iterating those categories every time
 function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
     const defaultSettingsFlattened = {};
@@ -90,6 +93,8 @@ function getDefaultSettings() {
     return defaultSettings;
 }
 
+// Each setting is saved as a separate row in the database,
+// but the overlying API treats them as a single key:value mapping
 Settings = ghostBookshelf.Model.extend({
 
     tableName: 'settings',
@@ -139,10 +144,12 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
             if (attrs.value === '0' || attrs.value === '1') {
                 attrs.value = !!+attrs.value;
             }
 
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
             if (attrs.value === 'false' || attrs.value === 'true') {
                 attrs.value = JSON.parse(attrs.value);
             }
@@ -166,15 +173,18 @@ Settings = ghostBookshelf.Model.extend({
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
 
+        // transform "0" to false for boolean type
         const settingType = attrs.type;
         if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
             attrs.value = !!+attrs.value;
         }
 
+        // transform "false" to false for boolean type
         if (settingType === 'boolean' && (attrs.value === 'false' || attrs.value === 'true')) {
             attrs.value = JSON.parse(attrs.value);
         }
 
+        // transform URLs from __GHOST_URL__ to absolute
         if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
             attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
         }
@@ -187,6 +197,7 @@ Settings = ghostBookshelf.Model.extend({
             options = data;
         }
 
+        // Allow for just passing the key instead of attributes
         if (!_.isObject(data)) {
             data = {key: data};
         }
@@ -202,6 +213,7 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
+        // Accept an array of models as input
         const promises = data.map(function (item) {
             if (item.toJSON) {
                 item = item.toJSON();
@@ -210,6 +222,7 @@ Settings = ghostBookshelf.Model.extend({
                 return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
             }
 
+            // Ensure that object keys are stringified
             if (_.isObject(item.value)) {
                 item.value = JSON.stringify(item.value);
             }
@@ -218,16 +231,20 @@ Settings = ghostBookshelf.Model.extend({
 
             return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
                 if (setting) {
+                    // it's allowed to edit all attributes in case of importing/migrating
                     if (options.importing) {
                         return setting.save(item, options);
                     } else {
+                        // If we have a value, set it.
                         if (Object.prototype.hasOwnProperty.call(item, 'value')) {
                             setting.set('value', item.value);
                         }
+                        // Internal context can overwrite type (for fixture migrations)
                         if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
                             setting.set('type', item.type);
                         }
 
+                        // If anything has changed, save the updated model
                         if (setting.hasChanged()) {
                             return setting.save(null, options);
                         }
@@ -250,6 +267,7 @@ Settings = ghostBookshelf.Model.extend({
             options.context = internalContext.context;
         }
 
+        // this is required for sqlite to pick up the columns after db init
         await ghostBookshelf.knex.destroy();
         await ghostBookshelf.knex.initialize();
 
@@ -270,9 +288,11 @@ Settings = ghostBookshelf.Model.extend({
         });
 
         if (settingsToInsert.length > 0) {
+            // fetch available columns to avoid populating columns not yet created by migrations
             const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
             const columns = Object.keys(columnInfo);
 
+            // fetch other data that is used when inserting new settings
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
             const settingsDataToInsert = settingsToInsert.map((setting) => {
@@ -304,6 +324,7 @@ Settings = ghostBookshelf.Model.extend({
                 return;
             }
 
+            // Basic validations from default-settings.json
             const validationErrors = validator.validate(
                 model.get('value'),
                 model.get('key'),
@@ -329,7 +350,12 @@ Settings = ghostBookshelf.Model.extend({
         async stripe_plans(model, options) {
             const plans = JSON.parse(model.get('value'));
             for (const plan of plans) {
+                // Stripe plans used to be allowed (and defaulted to!) 0 amount plans
+                // this causes issues to people importing from older versions of Ghost
+                // even if they don't use Members/Stripe
+                // issue: https://github.com/TryGhost/Ghost/issues/12049
                 if (!options.importing) {
+                    // We check 100, not 1, because amounts are in fractional units
                     if (plan.amount < 100 && plan.name !== 'Complimentary') {
                         throw new errors.ValidationError({
                             message: 'Plans cannot have an amount less than 1'
@@ -356,6 +382,8 @@ Settings = ghostBookshelf.Model.extend({
                 }
             }
         },
+        // @TODO: Maybe move some of the logic into the members service, exporting an isValidStripeKey
+        // method which can be called here, cleaning up the duplication, but not removing control
         async stripe_secret_key(model) {
             const value = model.get('value');
             if (value === null) {

@@ -54,30 +54,9 @@
     };
 
     /**
-     * Determines if a node is an AnchorJS link.
-     * @param {Node} node - DOM node
-     * @return {Boolean}
-     */
-    function _isAnchorLinkNode(node) {
-      return node && (' ' + node.className + ' ').indexOf(' anchorjs-link ') > -1;
-    }
-
-    /**
-     * Determines if this element already has an AnchorJS link on it.
-     * Uses this technique: http://stackoverflow.com/a/5898748/1154642
-     * @param {HTMLElement} el - a DOM node
-     * @return {Boolean}
-     */
-    this.hasAnchorJSLink = function (el) {
-      var hasLeftAnchor = _isAnchorLinkNode(el.firstChild);
-      var hasRightAnchor = _isAnchorLinkNode(el.lastChild);
-      return hasLeftAnchor || hasRightAnchor || false;
-    };
-
-    /**
      * Resolve the effective visibility option.
-     * @param {String} visible - user supplied visibility option
-     * @return {String}
+     * @param {String} visible - User supplied visibility option.
+     * @return {String} - Resolved visibility option.
      */
     function _resolveVisibleOption(visible) {
       if (visible === 'touch') {
@@ -87,10 +66,55 @@
     }
 
     /**
-     * Retrieve a list of existing IDs in the document.
+     * Determine if the element already has an AnchorJS link.
+     * @param {Element} el - Target element.
+     * @return {Boolean}
+     */
+    function _hasExistingAnchor(el) {
+      var hasLeft = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      var hasRight = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      return hasLeft || hasRight;
+    }
+
+    /**
+     * Determine if the element already possesses an id attribute.
+     * @param {Element} el - Target element.
+     * @return {Boolean}
+     */
+    function _hasIdAttribute(el) {
+      return el.hasAttribute('id');
+    }
+
+    /**
+     * Determine if the default icon is being used.
+     * @return {Boolean}
+     */
+    function _isDefaultIcon() {
+      return this.options.icon === '\ue9cb';
+    }
+
+    /**
+     * Determine if the placement option is set to left.
+     * @return {Boolean}
+     */
+    function _isPlacementLeft() {
+      return this.options.placement === 'left';
+    }
+
+    /**
+     * Determine if the visibility option is set to always.
+     * @param {String} visibleOption - Resolved visibility option.
+     * @return {Boolean}
+     */
+    function _isVisibleAlways(visibleOption) {
+      return visibleOption === 'always';
+    }
+
+    /**
+     * Retrieve a list of existing IDs on the page.
      * @return {Array<string>}
      */
-    function _collectExistingIds() {
+    function _getExistingIdList() {
       var elsWithIds = document.querySelectorAll('[id]');
       return [].map.call(elsWithIds, function (el) {
         return el.id;
@@ -99,49 +123,55 @@
 
     /**
      * Generate a unique ID for an element based on its text content.
-     * @param {HTMLElement} el - target element
-     * @param {Array<string>} idList - list of existing IDs
-     * @return {String}
+     * @param {Element} el - Target element.
+     * @param {Array<string>} idList - Existing IDs.
+     * @return {String} - Unique ID.
      */
     function _generateUniqueId(el, idList) {
       var tidyText = this.urlify(el.textContent);
-      var newId = tidyText;
+      var newTidyText = tidyText;
       var count = 0;
-      while (idList.indexOf(newId) !== -1) {
+      var index;
+
+      do {
+        if (index !== undefined) {
+          newTidyText = tidyText + '-' + count;
+        }
+        index = idList.indexOf(newTidyText);
         count += 1;
-        newId = tidyText + '-' + count;
-      }
-      idList.push(newId);
-      el.setAttribute('id', newId);
-      return newId;
+      } while (index !== -1);
+
+      idList.push(newTidyText);
+      el.setAttribute('id', newTidyText);
+      return newTidyText;
     }
 
     /**
      * Create an anchor element for a given target ID.
-     * @param {String} id - target element ID
-     * @param {String} readableID - human‑readable version of the ID
-     * @param {String} visibleOption - resolved visibility option
+     * @param {String} elementID - Target element ID.
+     * @param {String} readableID - Human readable ID.
+     * @param {String} visibleOption - Resolved visibility option.
      * @return {HTMLAnchorElement}
      */
-    function _createAnchor(id, readableID, visibleOption) {
+    function _createAnchor(elementID, readableID, visibleOption) {
       var anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + this.options.class;
-      anchor.href = '#' + id;
+      anchor.href = '#' + elementID;
       anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
       anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-      if (visibleOption === 'always') {
+      if (_isVisibleAlways(visibleOption)) {
         anchor.style.opacity = '1';
       }
       return anchor;
     }
 
     /**
-     * Apply icon‑specific styling to an anchor.
+     * Apply icon‑specific styles to the anchor.
      */
     function _applyIconStyles(anchor) {
-      if (this.options.icon === '\ue9cb') {
+      if (_isDefaultIcon.call(this)) {
         anchor.style.font = '1em/1 anchorjs-icons';
-        if (this.options.placement === 'left') {
+        if (_isPlacementLeft.call(this)) {
           anchor.style.lineHeight = 'inherit';
         }
       }
@@ -149,11 +179,11 @@
 
     /**
      * Insert the anchor into the DOM according to placement option.
-     * @param {HTMLAnchorElement} anchor
-     * @param {HTMLElement} targetEl
+     * @param {HTMLAnchorElement} anchor - Anchor element.
+     * @param {Element} targetEl - Element to receive the anchor.
      */
     function _applyPlacement(anchor, targetEl) {
-      if (this.options.placement === 'left') {
+      if (_isPlacementLeft.call(this)) {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
         anchor.style.paddingRight = '0.5em';
@@ -166,37 +196,51 @@
 
     /**
      * Add anchor links to page elements.
-     * @param {String|Array|Nodelist} selector
-     * @return {this|false}
+     * @param  {String|Array|Nodelist} selector - Target selector or collection.
+     * @return {this}
      */
     this.add = function (selector) {
+      // Default selector.
+      if (!selector) {
+        selector = 'h1, h2, h3, h4, h5, h6';
+      }
+
+      // Reapply options in case they were mutated.
       _applyRemainingDefaultOptions(this.options);
+
       var visibleOption = _resolveVisibleOption.call(this, this.options.visible);
-      var elements = _getElements(selector || 'h1, h2, h3, h4, h5, h6');
+      var elements = _getElements(selector);
       if (elements.length === 0) {
         return false;
       }
 
       _addBaselineStyles();
 
-      var existingIds = _collectExistingIds();
+      var idList = _getExistingIdList();
       var indexesToDrop = [];
 
       for (var i = 0; i < elements.length; i++) {
         var el = elements[i];
 
-        if (this.hasAnchorJSLink(el)) {
+        if (_hasExistingAnchor(el)) {
           indexesToDrop.push(i);
           continue;
         }
 
-        var elementID = el.hasAttribute('id') ? el.getAttribute('id') : _generateUniqueId.call(this, el, existingIds);
+        var elementID;
+        if (_hasIdAttribute(el)) {
+          elementID = el.getAttribute('id');
+        } else {
+          elementID = _generateUniqueId.call(this, el, idList);
+        }
+
         var readableID = elementID.replace(/-/g, ' ');
         var anchor = _createAnchor.call(this, elementID, readableID, visibleOption);
         _applyIconStyles.call(this, anchor);
         _applyPlacement.call(this, anchor, el);
       }
 
+      // Remove elements that already had anchors.
       for (var j = 0; j < indexesToDrop.length; j++) {
         elements.splice(indexesToDrop[j] - j, 1);
       }
@@ -207,21 +251,24 @@
 
     /**
      * Removes all anchorjs-links from elements targed by the selector.
-     * @param {String|Array|Nodelist} selector
-     * @return {this}
+     * @param  {String|Array|Nodelist} selector - A CSS selector string targeting elements with anchor links,
+     *                                       	  	OR a nodeList / array containing the DOM elements.
+     * @return {this}                           - The AnchorJS object
      */
     this.remove = function (selector) {
-      var elements = _getElements(selector);
+      var index,
+          domAnchor,
+          elements = _getElements(selector);
+
       for (var i = 0; i < elements.length; i++) {
-        var domAnchor = elements[i].querySelector('.anchorjs-link');
-        if (!domAnchor) {
-          continue;
+        domAnchor = elements[i].querySelector('.anchorjs-link');
+        if (domAnchor) {
+          index = this.elements.indexOf(elements[i]);
+          if (index !== -1) {
+            this.elements.splice(index, 1);
+          }
+          elements[i].removeChild(domAnchor);
         }
-        var index = this.elements.indexOf(elements[i]);
-        if (index !== -1) {
-          this.elements.splice(index, 1);
-        }
-        elements[i].removeChild(domAnchor);
       }
       return this;
     };
@@ -239,8 +286,8 @@
      * To do this, we remove apostrophes, replace nonsafe characters with hyphens,
      * remove extra hyphens, truncate, trim hyphens, and make lowercase.
      *
-     * @param {String} text - Any text. Usually pulled from the webpage element we are linking to.
-     * @return {String}
+     * @param  {String} text - Any text. Usually pulled from the webpage element we are linking to.
+     * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function (text) {
       var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
@@ -262,10 +309,24 @@
     };
 
     /**
+     * Determines if this element already has an AnchorJS link on it.
+     * Uses this technique: http://stackoverflow.com/a/5898748/1154642
+     * @param    {HTMLElemnt}  el - a DOM node
+     * @return   {Boolean}     true/false
+     */
+    this.hasAnchorJSLink = function (el) {
+      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
+          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+
+      return hasLeftAnchor || hasRightAnchor || false;
+    };
+
+    /**
      * Turns a selector, nodeList, or array of elements into an array of elements (so we can use array methods).
      * It also throws errors on any other inputs. Used to handle inputs to .add and .remove.
-     * @param {String|Array|Nodelist} input
-     * @return {Array}
+     * @param  {String|Array|Nodelist} input - A CSS selector string targeting elements with anchor links,
+     *                                       	 OR a nodeList / array containing the DOM elements.
+     * @return {Array} - An array containing the elements we want.
      */
     function _getElements(input) {
       var elements;

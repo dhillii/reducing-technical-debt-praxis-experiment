@@ -17,12 +17,6 @@ const DISPLAY_OPTIONS = [
     {name: 'Paid conversions', value: 'paid'}
 ];
 
-const DISPLAY_MODE = {
-    BOTH: 'both',
-    FREE_ONLY: 'freeOnly',
-    PAID_ONLY: 'paidOnly'
-};
-
 export default class Analytics extends Component {
     @service ajax;
     @service ghostPaths;
@@ -50,9 +44,9 @@ export default class Analytics extends Component {
     @tracked shouldAnimate = false;
     @tracked previousSentCount = this.post.email?.emailCount;
     @tracked previousOpenedCount = this.post.email?.openedCount;
-    @tracked previousClickedCount = this.post.count.clicks;
+    @tracked previousClickedCount = this.post.count?.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post.count.conversions;
+    @tracked previousConversionsCount = this.post.count?.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -85,50 +79,38 @@ export default class Analytics extends Component {
         this._post = value;
     }
 
-    /** Determine current display mode based on data availability */
-    _getDisplayMode() {
+    get allowedDisplayOptions() {
         if (!this.hasPaidConversionData) {
-            return DISPLAY_MODE.FREE_ONLY;
+            return this.displayOptions.filter(d => d.value === 'signups');
         }
         if (!this.hasFreeSignups) {
-            return DISPLAY_MODE.PAID_ONLY;
+            return this.displayOptions.filter(d => d.value === 'paid');
         }
-        return DISPLAY_MODE.BOTH;
-    }
-
-    get allowedDisplayOptions() {
-        const mode = this._getDisplayMode();
-        const lookup = {
-            [DISPLAY_MODE.FREE_ONLY]: this.displayOptions.filter(d => d.value === 'signups'),
-            [DISPLAY_MODE.PAID_ONLY]: this.displayOptions.filter(d => d.value === 'paid'),
-            [DISPLAY_MODE.BOTH]: this.displayOptions
-        };
-        return lookup[mode];
+        return this.displayOptions;
     }
 
     get isDropdownDisabled() {
-        const mode = this._getDisplayMode();
-        return mode !== DISPLAY_MODE.BOTH;
+        return !(this.hasPaidConversionData && this.hasFreeSignups);
     }
 
     get selectedDisplayOption() {
-        const mode = this._getDisplayMode();
-        const lookup = {
-            [DISPLAY_MODE.FREE_ONLY]: this.displayOptions.find(d => d.value === 'signups'),
-            [DISPLAY_MODE.PAID_ONLY]: this.displayOptions.find(d => d.value === 'paid'),
-            [DISPLAY_MODE.BOTH]: this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0]
-        };
-        return lookup[mode];
+        if (!this.hasPaidConversionData) {
+            return this.displayOptions.find(d => d.value === 'signups');
+        }
+        if (!this.hasFreeSignups) {
+            return this.displayOptions.find(d => d.value === 'paid');
+        }
+        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
     }
 
     get selectedSortColumn() {
-        const mode = this._getDisplayMode();
-        const lookup = {
-            [DISPLAY_MODE.FREE_ONLY]: 'signups',
-            [DISPLAY_MODE.PAID_ONLY]: 'paid',
-            [DISPLAY_MODE.BOTH]: this.sortColumn
-        };
-        return lookup[mode];
+        if (!this.hasPaidConversionData) {
+            return 'signups';
+        }
+        if (!this.hasFreeSignups) {
+            return 'paid';
+        }
+        return this.sortColumn;
     }
 
     get hasPaidConversionData() {
@@ -174,28 +156,18 @@ export default class Analytics extends Component {
 
     @action
     loadData() {
-        this._loadSources();
-        this._loadLinks();
-        this._loadMentions();
-    }
-
-    _loadSources() {
         if (this.showSources) {
             this.fetchReferrersStats();
         } else {
             this.sources = [];
         }
-    }
 
-    _loadLinks() {
         if (this.showLinks) {
             this.fetchLinks();
         } else {
             this.links = [];
         }
-    }
 
-    _loadMentions() {
         if (this.showMentions) {
             this.fetchMentions();
         } else {
@@ -211,9 +183,7 @@ export default class Analytics extends Component {
 
     @action
     confirmDeleteMember() {
-        this.modals.open(DeletePostModal, {
-            post: this.post
-        });
+        this.modals.open(DeletePostModal, {post: this.post});
     }
 
     updateLinkData(linksData) {
@@ -232,8 +202,8 @@ export default class Analytics extends Component {
             if (!acc[title]) {
                 acc[title] = link;
             } else {
-                acc[title].count = acc[title].count || {clicks: 0};
-                acc[title].count.clicks += (link.count?.clicks ?? 0);
+                acc[title].count = acc[title].count ?? {clicks: 0};
+                acc[title].count.clicks = (acc[title].count.clicks ?? 0) + (link.count?.clicks ?? 0);
             }
             return acc;
         }, {});
@@ -308,9 +278,7 @@ export default class Analytics extends Component {
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
-        setTimeout(() => {
-            this.showSuccess = null;
-        }, 2000);
+        setTimeout(() => (this.showSuccess = null), 2000);
     }
 
     @task
@@ -357,9 +325,9 @@ export default class Analytics extends Component {
     *fetchPostTask() {
         const currentSentCount = this.post.email?.emailCount;
         const currentOpenedCount = this.post.email?.openedCount;
-        const currentClickedCount = this.post.count.clicks;
+        const currentClickedCount = this.post.count?.clicks;
         const currentFeedbackCount = this.totalFeedback;
-        const currentConversionsCount = this.post.count.conversions;
+        const currentConversionsCount = this.post.count?.conversions;
 
         this.shouldAnimate = true;
 
@@ -381,44 +349,16 @@ export default class Analytics extends Component {
         return true;
     }
 
-    /** Build a selector string from an element's class list */
-    _classSelector(element) {
-        return Array.from(element.classList).map(className => `.${className}`).join('');
-    }
-
-    /** Determine whether animation should be skipped for the given element */
-    _shouldSkipAnimation(element) {
-        if (!this.shouldAnimate) {
-            return true;
-        }
-        if (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) {
-            return true;
-        }
-        if (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) {
-            return true;
-        }
-        if (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) {
-            return true;
-        }
-        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) {
-            return true;
-        }
-        if (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount) {
-            return true;
-        }
-        return false;
-    }
-
     @action
     applyClasses(element) {
         if (this._shouldSkipAnimation(element)) {
             return;
         }
 
-        const selector = this._classSelector(element);
+        const baseSelector = this._buildClassSelector(element);
 
         anime({
-            targets: `${selector} .new-number span`,
+            targets: `${baseSelector} .new-number span`,
             translateY: [10, 0],
             opacity: [0, 1],
             easing: 'easeOutElastic',
@@ -428,13 +368,51 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${selector} .old-number span`,
+            targets: `${baseSelector} .old-number span`,
             translateY: [0, -10],
             opacity: [1, 0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
         });
+    }
+
+    /**
+     * Determines whether animation should be skipped for the given element.
+     * @private
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    _shouldSkipAnimation(element) {
+        if (!this.shouldAnimate) {
+            return true;
+        }
+        if (element.classList.contains('sent') && this.post.email?.emailCount === this.previousSentCount) {
+            return true;
+        }
+        if (element.classList.contains('opened') && this.post.email?.openedCount === this.previousOpenedCount) {
+            return true;
+        }
+        if (element.classList.contains('clicked') && this.post.count?.clicks === this.previousClickedCount) {
+            return true;
+        }
+        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) {
+            return true;
+        }
+        if (element.classList.contains('conversions') && this.post.count?.conversions === this.previousConversionsCount) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Builds a selector string from an element's class list.
+     * @private
+     * @param {Element} element
+     * @returns {string}
+     */
+    _buildClassSelector(element) {
+        return Array.from(element.classList).map(className => `.${className}`).join('');
     }
 
     get showLinks() {

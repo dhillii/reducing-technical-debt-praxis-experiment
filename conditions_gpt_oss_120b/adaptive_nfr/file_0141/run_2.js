@@ -34,7 +34,7 @@ const LIFECYCLES = {
 };
 
 /**
- * Construct a Strapi instance.
+ * Construct an Strapi instance.
  *
  * @constructor
  */
@@ -176,7 +176,7 @@ class Strapi {
       const key = conn.remoteAddress + ':' + conn.remotePort;
       connections[key] = conn;
 
-      conn.on('close', function () {
+      conn.on('close', function() {
         delete connections[key];
       });
     });
@@ -240,10 +240,9 @@ class Strapi {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
-      const isInitialised = utils.isInitialised(this);
-      const hideStartupMessage = this._shouldHideStartupMessage();
+      const isInitialised = this._isInitialised();
 
-      if (!hideStartupMessage) {
+      if (!this._shouldHideStartupMessage()) {
         if (!isInitialised) {
           this.logFirstStartupMessage();
         } else {
@@ -251,7 +250,7 @@ class Strapi {
         }
       }
 
-      const databaseClients = this._getDatabaseClients();
+      const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
 
       await this.telemetry.send('didStartServer', {
         database: databaseClients,
@@ -264,7 +263,7 @@ class Strapi {
       }
 
       if (this._shouldOpenBrowser(isInitialised)) {
-        utils.openBrowser.call(this);
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -283,34 +282,35 @@ class Strapi {
   }
 
   /**
-   * Determines if the startup message should be hidden.
+   * Determines whether the startup message should be hidden.
    *
    * @returns {boolean}
    */
   _shouldHideStartupMessage() {
-    const envVar = process.env.STRAPI_HIDE_STARTUP_MESSAGE;
-    return envVar ? envVar === 'true' : false;
+    return process.env.STRAPI_HIDE_STARTUP_MESSAGE
+      ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+      : false;
   }
 
   /**
-   * Retrieves the list of database client names from the configuration.
+   * Checks if the project has been initialised.
    *
-   * @returns {string[]}
+   * @returns {boolean}
    */
-  _getDatabaseClients() {
-    return _.map(this.config.get('connections'), _.property('settings.client'));
+  _isInitialised() {
+    return utils.isInitialised(this);
   }
 
   /**
-   * Determines whether the browser should be opened automatically.
+   * Determines if the browser should be opened after server start.
    *
-   * @param {boolean} isInitialised - Whether the project is already initialised.
+   * @param {boolean} isInitialised - Result of project initialisation check.
    * @returns {boolean}
    */
   _shouldOpenBrowser(isInitialised) {
-    const autoOpen = this.config.get('server.admin.autoOpen', true);
     return (
-      (this.config.environment === 'development' && autoOpen !== false) ||
+      (this.config.environment === 'development' &&
+        this.config.get('server.admin.autoOpen', true) !== false) ||
       !isInitialised
     );
   }
@@ -357,7 +357,8 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    // bootstrap may be synchronous; do not await.
+    bootstrap(this);
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -415,7 +416,7 @@ class Strapi {
       shouldReload: 0,
     };
 
-    const reload = function () {
+    const reload = function() {
       if (state.shouldReload > 0) {
         // Reset the reloading state
         state.shouldReload -= 1;
@@ -500,7 +501,6 @@ class Strapi {
 
   /**
    * Binds queries with a specific model
-   *
    * @param {string} entity - entity name
    * @param {string} plugin - plugin name or null
    */

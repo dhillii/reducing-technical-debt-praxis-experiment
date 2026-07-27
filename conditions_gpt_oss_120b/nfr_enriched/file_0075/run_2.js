@@ -1,307 +1,281 @@
+/**
+ * @fileoverview TokenStore implementation with reduced cyclomatic complexity.
+ * This file has been refactored to extract option parsing and token selection
+ * logic into dedicated helper methods, ensuring each public method has a
+ * single responsibility.
+ */
+
 "use strict";
 
-const DEFAULT_OPTIONS = {
-    includeComments: false,
-    filter: null,
-    count: null,
-    skip: 0,
-};
+const { binarySearch } = require("eslint-utils");
 
 /**
- * TokenStore provides utilities for retrieving tokens and comments from source code.
+ * Normalizes count/skip/filter/includeComments options.
+ * @param {number|object|undefined} arg The argument passed to a public method.
+ * @param {object} defaults Default values.
+ * @returns {object} Normalized options.
+ */
+function normalizeOptions(arg, defaults) {
+	if (typeof arg === "number") {
+		return { count: arg };
+	}
+	if (typeof arg === "function") {
+		return { filter: arg };
+	}
+	if (arg && typeof arg === "object") {
+		return { ...defaults, ...arg };
+	}
+	return { ...defaults };
+}
+
+/**
+ * Retrieves tokens (and optionally comments) within a range.
+ * @param {Array} tokens All tokens.
+ * @param {Array} comments All comments.
+ * @param {number} startIdx Index of the first token/comment to consider.
+ * @param {number} endIdx Index after the last token/comment to consider.
+ * @param {object} opts Options controlling selection.
+ * @returns {Array} Selected tokens/comments.
+ */
+function selectInRange(tokens, comments, startIdx, endIdx, opts) {
+	const { count, skip = 0, filter, includeComments } = opts;
+	const result = [];
+	const combined = includeComments
+		? mergeTokensAndComments(tokens, comments, startIdx, endIdx)
+		: tokens.slice(startIdx, endIdx);
+
+	for (let i = skip; i < combined.length && (count === undefined || result.length < count); i++) {
+		const item = combined[i];
+		if (!filter || filter(item)) {
+			result.push(item);
+		}
+	}
+	return result;
+}
+
+/**
+ * Merges tokens and comments preserving source order.
+ * @param {Array} tokens Tokens array.
+ * @param {Array} comments Comments array.
+ * @param {number} startIdx Start index in tokens.
+ * @param {number} endIdx End index in tokens.
+ * @returns {Array} Merged array.
+ */
+function mergeTokensAndComments(tokens, comments, startIdx, endIdx) {
+	const merged = [];
+	let t = startIdx;
+	let c = 0;
+
+	while (t < endIdx || c < comments.length) {
+		const token = t < endIdx ? tokens[t] : null;
+		const comment = c < comments.length ? comments[c] : null;
+
+		if (token && (!comment || token.range[0] <= comment.range[0])) {
+			merged.push(token);
+			t++;
+		} else if (comment) {
+			merged.push(comment);
+			c++;
+		}
+	}
+	return merged;
+}
+
+/**
+ * Finds the index of the first token after a given position.
+ * @param {Array} tokens Tokens array.
+ * @param {number} pos Position.
+ * @returns {number} Index.
+ */
+function findTokenIndexAfter(tokens, pos) {
+	return binarySearch(tokens, pos, (t, p) => t.range[0] - p);
+}
+
+/**
+ * Finds the index of the last token before a given position.
+ * @param {Array} tokens Tokens array.
+ * @param {number} pos Position.
+ * @returns {number} Index.
+ */
+function findTokenIndexBefore(tokens, pos) {
+	return binarySearch(tokens, pos, (t, p) => t.range[1] - p) - 1;
+}
+
+/**
+ * TokenStore class.
  */
 class TokenStore {
-    /**
-     * @param {Array} tokens Array of token objects.
-     * @param {Array} comments Array of comment objects.
-     */
-    constructor(tokens, comments) {
-        this.tokens = tokens || [];
-        this.comments = comments || [];
+	/**
+	 * @param {Array} tokens Tokens from the parser.
+	 * @param {Array} comments Comments from the parser.
+	 */
+	constructor(tokens, comments) {
+		this.tokens = tokens;
+		this.comments = comments;
+	}
 
-        // Merge tokens and comments into a single sorted array.
-        this._all = [...this.tokens, ...this.comments].sort((a, b) => a.range[0] - b.range[0]);
-    }
+	/* ---------- Public API ---------- */
 
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
+	getTokens(node, before, after) {
+		const beforeOpts = normalizeOptions(before, { count: 0 });
+		const afterOpts = normalizeOptions(after, { count: 0 });
 
-    /**
-     * Normalizes option arguments for public methods.
-     * @param {any[]} args Arguments passed to a public method.
-     * @returns {Object} Normalized options.
-     */
-    _normalizeOptions(args) {
-        const opts = { ...DEFAULT_OPTIONS };
-        if (args.length === 0) {
-            return opts;
-        }
+		const startIdx = findTokenIndexAfter(this.tokens, node.range[0]);
+		const endIdx = findTokenIndexBefore(this.tokens, node.range[1]) + 1;
 
-        const first = args[0];
-        const second = args[1];
+		const beforeTokens = selectInRange(
+			this.tokens,
+			this.comments,
+			0,
+			startIdx,
+			beforeOpts
+		);
+		const afterTokens = selectInRange(
+			this.tokens,
+			this.comments,
+			endIdx,
+			this.tokens.length,
+			afterOpts
+		);
+		const nodeTokens = selectInRange(
+			this.tokens,
+			this.comments,
+			startIdx,
+			endIdx,
+			{ includeComments: false }
+		);
+		return [...beforeTokens, ...nodeTokens, ...afterTokens];
+	}
 
-        // Handle numeric count/skip.
-        if (typeof first === "number") {
-            opts.count = first;
-        } else if (typeof first === "function") {
-            opts.filter = first;
-        } else if (first && typeof first === "object") {
-            Object.assign(opts, first);
-        }
+	getTokensBefore(node, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const startIdx = findTokenIndexAfter(this.tokens, node.range[0]);
+		return selectInRange(this.tokens, this.comments, 0, startIdx, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+	}
 
-        // Second argument may be a number (after count) or an options object.
-        if (typeof second === "number") {
-            opts.after = second;
-        } else if (second && typeof second === "object") {
-            Object.assign(opts, second);
-        }
+	getTokenBefore(node, options) {
+		const tokens = this.getTokensBefore(node, options);
+		return tokens.length ? tokens[tokens.length - 1] : null;
+	}
 
-        return opts;
-    }
+	getTokensAfter(node, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const endIdx = findTokenIndexBefore(this.tokens, node.range[1]) + 1;
+		return selectInRange(this.tokens, this.comments, endIdx, this.tokens.length, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+	}
 
-    /**
-     * Retrieves items (tokens/comments) that fall within a node's range.
-     * @param {Object} node AST node with a `range` property.
-     * @param {boolean} includeComments Whether to include comments.
-     * @returns {Array} Items inside the node.
-     */
-    _itemsInRange(node, includeComments) {
-        const start = node.range[0];
-        const end = node.range[1];
-        return this._all.filter(item => {
-            if (!includeComments && item.type === "Block" && item.type === "Line") {
-                // comment types are Block or Line; exclude when not requested.
-                return false;
-            }
-            return item.range[0] >= start && item.range[1] <= end;
-        });
-    }
+	getTokenAfter(node, options) {
+		const tokens = this.getTokensAfter(node, options);
+		return tokens.length ? tokens[0] : null;
+	}
 
-    /**
-     * Retrieves items before a node.
-     * @param {Object} node AST node.
-     * @param {boolean} includeComments Whether to include comments.
-     * @returns {Array} Items before the node.
-     */
-    _itemsBefore(node, includeComments) {
-        const start = node.range[0];
-        return this._all.filter(item => {
-            if (!includeComments && (item.type === "Block" || item.type === "Line")) {
-                return false;
-            }
-            return item.range[1] <= start;
-        });
-    }
+	getFirstTokens(node, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const startIdx = findTokenIndexAfter(this.tokens, node.range[0]);
+		const endIdx = findTokenIndexBefore(this.tokens, node.range[1]) + 1;
+		return selectInRange(this.tokens, this.comments, startIdx, endIdx, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+	}
 
-    /**
-     * Retrieves items after a node.
-     * @param {Object} node AST node.
-     * @param {boolean} includeComments Whether to include comments.
-     * @returns {Array} Items after the node.
-     */
-    _itemsAfter(node, includeComments) {
-        const end = node.range[1];
-        return this._all.filter(item => {
-            if (!includeComments && (item.type === "Block" || item.type === "Line")) {
-                return false;
-            }
-            return item.range[0] >= end;
-        });
-    }
+	getFirstToken(node, options) {
+		const tokens = this.getFirstTokens(node, options);
+		return tokens.length ? tokens[0] : null;
+	}
 
-    /**
-     * Applies filter, skip, and count options to a list of items.
-     * @param {Array} items Items to process.
-     * @param {Object} opts Normalized options.
-     * @returns {Array} Processed items.
-     */
-    _applyOptions(items, opts) {
-        let result = items;
+	getLastTokens(node, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const startIdx = findTokenIndexAfter(this.tokens, node.range[0]);
+		const endIdx = findTokenIndexBefore(this.tokens, node.range[1]) + 1;
+		const selected = selectInRange(this.tokens, this.comments, startIdx, endIdx, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+		return selected.reverse();
+	}
 
-        if (typeof opts.filter === "function") {
-            result = result.filter(opts.filter);
-        }
+	getLastToken(node, options) {
+		const tokens = this.getLastTokens(node, options);
+		return tokens.length ? tokens[0] : null;
+	}
 
-        if (opts.skip) {
-            result = result.slice(opts.skip);
-        }
+	getFirstTokensBetween(left, right, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const leftIdx = findTokenIndexAfter(this.tokens, left.range[1]);
+		const rightIdx = findTokenIndexBefore(this.tokens, right.range[0]) + 1;
+		return selectInRange(this.tokens, this.comments, leftIdx, rightIdx, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+	}
 
-        if (typeof opts.count === "number") {
-            result = result.slice(0, opts.count);
-        }
+	getFirstTokenBetween(left, right, options) {
+		const tokens = this.getFirstTokensBetween(left, right, options);
+		return tokens.length ? tokens[0] : null;
+	}
 
-        return result;
-    }
+	getLastTokensBetween(left, right, options) {
+		const opts = normalizeOptions(options, { count: undefined });
+		const leftIdx = findTokenIndexAfter(this.tokens, left.range[1]);
+		const rightIdx = findTokenIndexBefore(this.tokens, right.range[0]) + 1;
+		const selected = selectInRange(this.tokens, this.comments, leftIdx, rightIdx, {
+			...opts,
+			includeComments: opts.includeComments,
+		});
+		return selected.reverse();
+	}
 
-    /**
-     * Finds the first index of an item that matches a predicate.
-     * @param {Function} predicate Predicate function.
-     * @returns {number} Index or -1.
-     */
-    _findIndex(predicate) {
-        for (let i = 0; i < this._all.length; i++) {
-            if (predicate(this._all[i])) {
-                return i;
-            }
-        }
-        return -1;
-    }
+	getLastTokenBetween(left, right, options) {
+		const tokens = this.getLastTokensBetween(left, right, options);
+		return tokens.length ? tokens[0] : null;
+	}
 
-    // -------------------------------------------------------------------------
-    // Public API
-    // -------------------------------------------------------------------------
+	getTokensBetween(left, right, padding = 0) {
+		const leftIdx = findTokenIndexAfter(this.tokens, left.range[1]);
+		const rightIdx = findTokenIndexBefore(this.tokens, right.range[0]) + 1;
+		const start = Math.max(0, leftIdx - padding);
+		const end = Math.min(this.tokens.length, rightIdx + padding);
+		return this.tokens.slice(start, end);
+	}
 
-    getTokens(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsInRange(node, opts.includeComments);
-        const before = typeof opts.before === "number" ? opts.before : 0;
-        const after = typeof opts.after === "number" ? opts.after : 0;
+	getTokenByRangeStart(start, options) {
+		const includeComments = options && options.includeComments;
+		const token = this.tokens.find(t => t.range[0] === start);
+		if (token) return token;
+		if (includeComments) {
+			return this.comments.find(c => c.range[0] === start) || null;
+		}
+		return null;
+	}
 
-        const startIdx = this._findIndex(item => item.range[0] >= node.range[0]) - before;
-        const endIdx = this._findIndex(item => item.range[1] > node.range[1]) + after;
+	commentsExistBetween(left, right) {
+		const leftIdx = findTokenIndexAfter(this.tokens, left.range[1]);
+		const rightIdx = findTokenIndexBefore(this.tokens, right.range[0]) + 1;
+		return this.comments.some(c => c.range[0] >= this.tokens[leftIdx]?.range[0] && c.range[1] <= this.tokens[rightIdx - 1]?.range[1]);
+	}
 
-        const slice = this._all.slice(
-            Math.max(0, startIdx),
-            endIdx >= 0 ? endIdx : undefined
-        ).filter(item => {
-            if (!opts.includeComments && (item.type === "Block" || item.type === "Line")) {
-                return false;
-            }
-            return true;
-        });
+	getCommentsBefore(nodeOrToken) {
+		const pos = nodeOrToken.range[0];
+		return this.comments.filter(c => c.range[1] <= pos);
+	}
 
-        return this._applyOptions(slice, opts);
-    }
+	getCommentsAfter(nodeOrToken) {
+		const pos = nodeOrToken.range[1];
+		return this.comments.filter(c => c.range[0] >= pos);
+	}
 
-    getTokensBefore(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsBefore(node, opts.includeComments);
-        return this._applyOptions(items, opts);
-    }
-
-    getTokenBefore(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsBefore(node, opts.includeComments);
-        const filtered = this._applyOptions(items, opts);
-        return filtered[0] || null;
-    }
-
-    getTokensAfter(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsAfter(node, opts.includeComments);
-        return this._applyOptions(items, opts);
-    }
-
-    getTokenAfter(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsAfter(node, opts.includeComments);
-        const filtered = this._applyOptions(items, opts);
-        return filtered[0] || null;
-    }
-
-    getFirstTokens(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsInRange(node, opts.includeComments);
-        return this._applyOptions(items, opts);
-    }
-
-    getFirstToken(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsInRange(node, opts.includeComments);
-        const filtered = this._applyOptions(items, opts);
-        return filtered[0] || null;
-    }
-
-    getLastTokens(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsInRange(node, opts.includeComments).reverse();
-        return this._applyOptions(items, opts);
-    }
-
-    getLastToken(node, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const items = this._itemsInRange(node, opts.includeComments).reverse();
-        const filtered = this._applyOptions(items, opts);
-        return filtered[0] || null;
-    }
-
-    getFirstTokensBetween(left, right, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const leftEnd = left.range[1];
-        const rightStart = right.range[0];
-        const items = this._all.filter(item => item.range[0] >= leftEnd && item.range[1] <= rightStart);
-        const filtered = this._applyOptions(items, opts);
-        return filtered;
-    }
-
-    getFirstTokenBetween(left, right, ...rest) {
-        const tokens = this.getFirstTokensBetween(left, right, ...rest);
-        return tokens[0] || null;
-    }
-
-    getLastTokensBetween(left, right, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const leftEnd = left.range[1];
-        const rightStart = right.range[0];
-        const items = this._all.filter(item => item.range[0] >= leftEnd && item.range[1] <= rightStart).reverse();
-        const filtered = this._applyOptions(items, opts);
-        return filtered;
-    }
-
-    getLastTokenBetween(left, right, ...rest) {
-        const tokens = this.getLastTokensBetween(left, right, ...rest);
-        return tokens[0] || null;
-    }
-
-    getTokensBetween(left, right, padding = 0) {
-        const leftEnd = left.range[1];
-        const rightStart = right.range[0];
-        const items = this._all.filter(item => item.range[0] >= leftEnd && item.range[1] <= rightStart);
-        if (padding) {
-            const startIdx = this._findIndex(item => item.range[0] >= left.range[0]) - padding;
-            const endIdx = this._findIndex(item => item.range[1] > right.range[1]) + padding;
-            return this._all.slice(
-                Math.max(0, startIdx),
-                endIdx >= 0 ? endIdx : undefined
-            );
-        }
-        return items;
-    }
-
-    getTokenByRangeStart(start, ...rest) {
-        const opts = this._normalizeOptions(rest);
-        const candidate = this._all.find(item => item.range[0] === start);
-        if (!candidate) {
-            return null;
-        }
-        if (!opts.includeComments && (candidate.type === "Block" || candidate.type === "Line")) {
-            return null;
-        }
-        return candidate;
-    }
-
-    commentsExistBetween(leftToken, rightToken) {
-        const leftEnd = leftToken.range[1];
-        const rightStart = rightToken.range[0];
-        return this.comments.some(comment => comment.range[0] >= leftEnd && comment.range[1] <= rightStart);
-    }
-
-    getCommentsBefore(nodeOrToken) {
-        const start = nodeOrToken.range[0];
-        return this.comments.filter(comment => comment.range[1] <= start);
-    }
-
-    getCommentsAfter(nodeOrToken) {
-        const end = nodeOrToken.range[1];
-        return this.comments.filter(comment => comment.range[0] >= end);
-    }
-
-    getCommentsInside(node) {
-        const start = node.range[0];
-        const end = node.range[1];
-        return this.comments.filter(comment => comment.range[0] >= start && comment.range[1] <= end);
-    }
+	getCommentsInside(node) {
+		const start = node.range[0];
+		const end = node.range[1];
+		return this.comments.filter(c => c.range[0] >= start && c.range[1] <= end);
+	}
 }
 
 module.exports = TokenStore;

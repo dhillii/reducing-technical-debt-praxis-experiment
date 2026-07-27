@@ -192,31 +192,29 @@ function handleAvailableHash(hash) {
 }
 
 /**
- * Retrieves the appropriate handler for a given message type.
- * @param {string} type - The message type received from the server.
- * @returns {(data?: any) => void|undefined} The handler function or undefined if none.
+ * Dispatches incoming WebSocket messages to appropriate handlers.
+ * @param {MessageEvent} e - The message event from the WebSocket.
  */
-function getMessageHandler(type) {
-  const handlers = {
-    hash: (data) => handleAvailableHash(data),
-    'still-ok': () => handleSuccess(),
-    ok: () => handleSuccess(),
-    'content-changed': () => {
-      window.location.reload();
-    },
-    warnings: (data) => handleWarnings(data),
-    errors: (data) => handleErrors(data),
-  };
-  return handlers[type];
-}
-
-// Handle messages from the server.
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
-  const handler = getMessageHandler(message.type);
+  const handler = messageHandlers[message.type];
   if (handler) {
     handler(message.data);
   }
+};
+
+/**
+ * Mapping of message types to their handling functions.
+ */
+const messageHandlers = {
+  hash: (data) => handleAvailableHash(data),
+  'still-ok': () => handleSuccess(),
+  ok: () => handleSuccess(),
+  'content-changed': () => {
+    window.location.reload();
+  },
+  warnings: (data) => handleWarnings(data),
+  errors: (data) => handleErrors(data),
 };
 
 // Is there a newer version of this code available?
@@ -232,10 +230,6 @@ function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
-/**
- * Determines whether errors can be accepted based on React Refresh and HMR status.
- * @returns {boolean} True if errors can be accepted, false otherwise.
- */
 function canAcceptErrors() {
   // NOTE: This var is injected by Webpack's DefinePlugin, and is a boolean instead of string.
   const hasReactRefresh = process.env.FAST_REFRESH;
@@ -262,10 +256,12 @@ function tryApplyUpdates(onHotUpdateSuccess) {
 
   function handleApplyUpdates(err, updatedModules) {
     const haveErrors = err || hadRuntimeError;
+    // When there is no error but updatedModules is unavailable,
+    // it indicates a critical failure in hot-reloading,
+    // e.g. server is not ready to serve new bundle,
+    // and hence we need to do a forced reload.
     const needsForcedReload = !err && !updatedModules;
-    const shouldReload = (haveErrors && !canAcceptErrors()) || needsForcedReload;
-
-    if (shouldReload) {
+    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
       window.location.reload();
       return;
     }
@@ -295,4 +291,4 @@ function tryApplyUpdates(onHotUpdateSuccess) {
       }
     );
   }
-};
+}

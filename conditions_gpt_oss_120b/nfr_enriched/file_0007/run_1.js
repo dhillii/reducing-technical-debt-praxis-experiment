@@ -19,229 +19,157 @@ import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateL
 
 const validators: Record<string, (u: Partial<User>) => string> = {
     name: ({name}) => {
-        if (!name) return 'Name is required';
-        if (name.length > 191) return 'Name is too long';
-        return '';
+        let error = '';
+        if (!name) {
+            error = 'Name is required';
+        }
+        if (name && name.length > 191) {
+            error = 'Name is too long';
+        }
+        return error;
     },
     email: ({email}) => validator.isEmail(email || '') ? '' : 'Enter a valid email address',
     url: ({url}) => (!url || validator.isURL(url, {require_tld: false})) ? '' : 'Enter a valid URL',
     bio: ({bio}) => (!bio || bio.length <= 250) ? '' : 'Bio is too long',
     location: ({location}) => (!location || location.length <= 150) ? '' : 'Location is too long',
     website: ({website}) => (!website || (validator.isURL(website) && website.length <= 2000)) ? '' : 'Enter a valid URL',
-    facebook: ({facebook}) => safeValidate(validateFacebookUrl, facebook),
-    twitter: ({twitter}) => safeValidate(validateTwitterUrl, twitter),
-    threads: ({threads}) => safeValidate(validateThreadsUrl, threads),
-    bluesky: ({bluesky}) => safeValidate(validateBlueskyUrl, bluesky),
-    linkedin: ({linkedin}) => safeValidate(validateLinkedInUrl, linkedin),
-    instagram: ({instagram}) => safeValidate(validateInstagramUrl, instagram),
-    youtube: ({youtube}) => safeValidate(validateYouTubeUrl, youtube),
-    tiktok: ({tiktok}) => safeValidate(validateTikTokUrl, tiktok),
-    mastodon: ({mastodon}) => safeValidate(validateMastodonUrl, mastodon)
+    facebook: ({facebook}) => {
+        try {
+            validateFacebookUrl(facebook || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    twitter: ({twitter}) => {
+        try {
+            validateTwitterUrl(twitter || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    threads: ({threads}) => {
+        try {
+            validateThreadsUrl(threads || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    bluesky: ({bluesky}) => {
+        try {
+            validateBlueskyUrl(bluesky || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    linkedin: ({linkedin}) => {
+        try {
+            validateLinkedInUrl(linkedin || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    instagram: ({instagram}) => {
+        try {
+            validateInstagramUrl(instagram || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    youtube: ({youtube}) => {
+        try {
+            validateYouTubeUrl(youtube || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    tiktok: ({tiktok}) => {
+        try {
+            validateTikTokUrl(tiktok || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    mastodon: ({mastodon}) => {
+        try {
+            validateMastodonUrl(mastodon || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    }
 };
 
-function safeValidate(fn: (url: string) => void, value?: string): string {
-    try {
-        fn(value || '');
-        return '';
-    } catch (e) {
-        return e instanceof Error ? e.message : '';
-    }
+export interface UserDetailProps {
+    user: User;
+    setUserData: (user: User) => void;
+    errors: {[key in keyof User]?: string};
+    validateField: <K extends keyof User>(key: K, value: User[K]) => boolean;
+    clearError: (key: keyof User) => void;
 }
 
-/** Extract tab identifier from route path */
-function getTabFromPath(path: string): string {
-    const last = path.split('/').pop() || '';
-    return (last === 'social-links' || last === 'email-notifications') ? last : 'profile';
-}
+/**
+ * Determines which tab should be active based on the current route.
+ */
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+    return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
+};
 
-/** Navigate back to staff list after modal close */
-function useNavigateOnClose(currentUser: User, updateRoute: (dest: any) => void) {
-    return useCallback(() => {
-        if (canAccessSettings(currentUser)) {
-            updateRoute('staff');
-        } else {
-            updateRoute({isExternal: true, route: ''});
-        }
-    }, [currentUser, updateRoute]);
-}
-
-/** Show confirmation for suspending / unsuspending a user */
-async function confirmSuspendUser(
-    target: User,
-    limiter: ReturnType<typeof useLimiter>,
-    updateUser: (data: Partial<User>) => Promise<void>,
-    setFormState: (updater: (prev: User) => User) => void,
-    handleError: (err: unknown) => void,
-    updateRoute: (dest: any) => void
-) {
-    if (target.status === 'inactive' && target.roles[0].name !== 'Contributor') {
-        try {
-            await limiter?.errorIfWouldGoOverLimit('staff');
-        } catch (error) {
-            if (error instanceof HostLimitError) {
-                NiceModal.show(LimitModal, {
-                    formSheet: true,
-                    prompt: error.message || `Your current plan doesn't support more users.`,
-                    onOk: () => updateRoute({route: '/pro', isExternal: true})
-                });
-                return;
-            }
-            throw error;
-        }
-    }
-
-    const warning = target.status === 'inactive'
-        ? 'This user will be able to log in again and will have the same permissions they had previously.'
-        : 'This user will no longer be able to log in but their posts will be kept.';
-
-    NiceModal.show(ConfirmationModal, {
-        title: 'Are you sure you want to suspend this user?',
-        prompt: (
-            <>
-                <strong>WARNING:</strong> {warning}
-            </>
-        ),
-        okLabel: target.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-        okRunningLabel: target.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
-        okColor: 'red',
-        onOk: async (modal) => {
-            const updated = {...target, status: target.status === 'inactive' ? 'active' : 'inactive'};
-            try {
-                await updateUser(updated);
-                setFormState(() => updated);
-                modal?.remove();
-                showToast({
-                    title: target.status === 'inactive' ? 'User un-suspended' : 'User suspended',
-                    type: 'success'
-                });
-            } catch (e) {
-                handleError(e);
-            }
-        }
-    });
-}
-
-/** Show confirmation for deleting a user */
-function confirmDeleteUser(
-    target: User,
-    owner: User,
-    deleteUser: (id: string) => Promise<void>,
-    mainModal: ReturnType<typeof useModal>,
-    navigateOnClose: () => void,
-    handleError: (err: unknown) => void
-) {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Are you sure you want to delete this user?',
-        prompt: (
-            <>
-                <p className='mb-3'>
-                    <span className='font-bold'>{target.name || target.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.
-                </p>
-                <p>
-                    To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{target.slug}</span>
-                </p>
-            </>
-        ),
-        okLabel: 'Delete user',
-        okColor: 'red',
-        onOk: async (modal) => {
-            try {
-                await deleteUser(target.id);
-                modal?.remove();
-                mainModal?.remove();
-                navigateOnClose();
-                showToast({title: 'User deleted', type: 'success'});
-            } catch (e) {
-                handleError(e);
-            }
-        }
-    });
-}
-
-/** Show confirmation for transferring ownership */
-function confirmMakeOwner(
-    userId: string,
-    makeOwner: (id: string) => Promise<void>,
-    handleError: (err: unknown) => void
-) {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Transfer Ownership',
-        prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
-        okLabel: "Yep — I'm sure",
-        okColor: 'red',
-        onOk: async (modal) => {
-            try {
-                await makeOwner(userId);
-                modal?.remove();
-                showToast({title: 'Ownership transferred', type: 'success'});
-            } catch (e) {
-                handleError(e);
-            }
-        }
-    });
-}
-
-/** Upload image and update form state */
-async function handleImageUpload(
-    type: 'cover_image' | 'profile_image',
-    file: File,
-    uploadImage: (params: {file: File}) => Promise<any>,
-    updateForm: (updater: (prev: User) => User) => void,
-    handleError: (err: unknown) => void
-) {
-    try {
-        const imageUrl = getImageUrl(await uploadImage({file}));
-        updateForm((u) => ({...u, [type]: imageUrl}));
-    } catch (e) {
-        const err = e as APIError;
-        if (err.response?.status === 415) {
-            err.message = 'Unsupported file type';
-        }
-        handleError(err);
-    }
-}
-
-/** Delete image from form state */
-function handleImageDelete(
-    type: 'cover_image' | 'profile_image',
-    updateForm: (updater: (prev: User) => User) => void
-) {
-    updateForm((u) => ({...u, [type]: ''}));
-}
-
-/** Build menu items based on permissions and user state */
-function buildMenuItems(
-    currentUser: User,
-    formState: User,
-    ownerUser: User | undefined,
-    confirmMakeOwnerFn: () => void,
-    confirmDeleteFn: () => void,
-    confirmSuspendFn: () => void,
-    mainModal: ReturnType<typeof useModal>,
-    updateRoute: (dest: any) => void
-): MenuItem[] {
+/**
+ * Builds the context menu items for a user based on permissions and status.
+ */
+const buildMenuItems = ({
+    currentUser,
+    formState,
+    user,
+    ownerUser,
+    confirmMakeOwner,
+    confirmDelete,
+    confirmSuspend,
+    mainModal,
+    updateRoute
+}: {
+    currentUser: User;
+    formState: User;
+    user: User;
+    ownerUser: User | undefined;
+    confirmMakeOwner: () => void;
+    confirmDelete: (user: User, owner: User) => void;
+    confirmSuspend: (user: User) => void;
+    mainModal: ReturnType<typeof useModal>;
+    updateRoute: (route: string | {route: string; isExternal: boolean}) => void;
+}): MenuItem[] => {
     const items: MenuItem[] = [];
 
     if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-        items.push({id: 'make-owner', label: 'Make owner', onClick: confirmMakeOwnerFn});
+        items.push({id: 'make-owner', label: 'Make owner', onClick: confirmMakeOwner});
     }
 
-    const canActOnUser = formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(formState)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(formState))
-    );
+    const canDeleteOrSuspend =
+        formState.id !== currentUser.id &&
+        ((hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+            (isEditorUser(currentUser) && isAuthorOrContributor(user)));
 
-    if (canActOnUser) {
+    if (canDeleteOrSuspend) {
+        const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
         items.push(
             {
                 id: 'delete-user',
                 label: 'Delete user',
-                onClick: confirmDeleteFn
+                onClick: () => confirmDelete(user, ownerUser as User)
             },
             {
                 id: 'suspend-user',
-                label: formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user',
-                onClick: confirmSuspendFn
+                label: suspendLabel,
+                onClick: () => confirmSuspend(formState)
             }
         );
     }
@@ -256,7 +184,39 @@ function buildMenuItems(
     });
 
     return items;
-}
+};
+
+/**
+ * Handles image upload for cover or profile images.
+ */
+const uploadUserImage = async (
+    imageKey: 'cover_image' | 'profile_image',
+    file: File,
+    uploadImage: (params: {file: File}) => Promise<any>,
+    updateForm: (updater: (user: User) => User) => void,
+    handleError: (e: unknown) => void
+) => {
+    try {
+        const imageUrl = getImageUrl(await uploadImage({file}));
+        updateForm((user) => ({...user, [imageKey]: imageUrl}));
+    } catch (e) {
+        const err = e as APIError;
+        if (err.response?.status === 415) {
+            err.message = 'Unsupported file type';
+        }
+        handleError(err);
+    }
+};
+
+/**
+ * Handles removal of cover or profile images.
+ */
+const deleteUserImage = (
+    imageKey: 'cover_image' | 'profile_image',
+    updateForm: (updater: (user: User) => User) => void
+) => {
+    updateForm((user) => ({...user, [imageKey]: ''}));
+};
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
@@ -279,10 +239,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         savingDelay: 500,
         savedDelay: 500,
         onValidate: (values) => {
-            return Object.entries(validators).reduce<ErrorMessages>((acc, [key, fn]) => {
-                const err = fn(values);
-                if (err) acc[key] = err;
-                return acc;
+            return Object.entries(validators).reduce<ErrorMessages>((newErrors, [key, validate]) => {
+                const error = validate(values);
+                if (error) {
+                    newErrors[key] = error;
+                }
+                return newErrors;
             }, {});
         },
         onSave: async (values) => {
@@ -310,37 +272,148 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const limiter = useLimiter();
     const editor = usePinturaEditor();
 
-    const navigateOnClose = useNavigateOnClose(currentUser, updateRoute);
+    const navigateOnClose = useCallback(() => {
+        if (canAccessSettings(currentUser)) {
+            updateRoute('staff');
+        } else {
+            updateRoute({isExternal: true, route: ''});
+        }
+    }, [currentUser, updateRoute]);
+
+    const confirmSuspend = async (targetUser: User) => {
+        if (targetUser.status === 'inactive' && targetUser.roles[0].name !== 'Contributor') {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('staff');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        formSheet: true,
+                        prompt: error.message || `Your current plan doesn't support more users.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                }
+                throw error;
+            }
+        }
+
+        const warningText =
+            targetUser.status === 'inactive'
+                ? 'This user will be able to log in again and will have the same permissions they had previously.'
+                : 'This user will no longer be able to log in but their posts will be kept.';
+
+        NiceModal.show(ConfirmationModal, {
+            title: 'Are you sure you want to suspend this user?',
+            prompt: (
+                <>
+                    <strong>WARNING:</strong> {warningText}
+                </>
+            ),
+            okLabel: targetUser.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: targetUser.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okColor: 'red',
+            onOk: async (modal) => {
+                const updated = {
+                    ...targetUser,
+                    status: targetUser.status === 'inactive' ? 'active' : 'inactive'
+                };
+                try {
+                    await updateUser(updated);
+                    setFormState(() => updated);
+                    modal?.remove();
+                    showToast({
+                        title: targetUser.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                        type: 'success'
+                    });
+                } catch (e) {
+                    handleError(e);
+                }
+            }
+        });
+    };
+
+    const confirmDelete = (targetUser: User, {owner}: {owner: User}) => {
+        NiceModal.show(ConfirmationModal, {
+            title: 'Are you sure you want to delete this user?',
+            prompt: (
+                <>
+                    <p className='mb-3'>
+                        <span className='font-bold'>{targetUser.name || targetUser.email}</span> will be permanently deleted and all their posts will be automatically assigned to the{' '}
+                        <span className='font-bold'>{owner.name}</span>.
+                    </p>
+                    <p>
+                        To make these easy to find in the future, each post will be given an internal tag of{' '}
+                        <span className='font-bold'>#{user.slug}</span>
+                    </p>
+                </>
+            ),
+            okLabel: 'Delete user',
+            okColor: 'red',
+            onOk: async (modal) => {
+                try {
+                    await deleteUser(targetUser?.id);
+                    modal?.remove();
+                    mainModal?.remove();
+                    navigateOnClose();
+                    showToast({title: 'User deleted', type: 'success'});
+                } catch (e) {
+                    handleError(e);
+                }
+            }
+        });
+    };
+
+    const confirmMakeOwner = () => {
+        NiceModal.show(ConfirmationModal, {
+            title: 'Transfer Ownership',
+            prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
+            okLabel: "Yep — I'm sure",
+            okColor: 'red',
+            onOk: async (modal) => {
+                try {
+                    await makeOwner(user.id);
+                    modal?.remove();
+                    showToast({title: 'Ownership transferred', type: 'success'});
+                } catch (e) {
+                    handleError(e);
+                }
+            }
+        });
+    };
+
+    const handleImageUpload = async (key: 'cover_image' | 'profile_image', file: File) => {
+        await uploadUserImage(key, file, uploadImage, updateForm, handleError);
+    };
+
+    const handleImageDelete = (key: 'cover_image' | 'profile_image') => {
+        deleteUserImage(key, updateForm);
+    };
+
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const menuItems = buildMenuItems({
+        currentUser,
+        formState,
+        user,
+        ownerUser,
+        confirmMakeOwner,
+        confirmDelete,
+        confirmSuspend,
+        mainModal,
+        updateRoute
+    });
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
 
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
-        const segment = newTabId === 'profile' ? '' : `/${newTabId}`;
-        updateRoute(`staff/${user.slug}${segment}`);
+        const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+        updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
-
-    const confirmSuspend = () => confirmSuspendUser(formState, limiter, updateUser, setFormState, handleError, updateRoute);
-    const confirmDelete = () => confirmDeleteUser(user, ownerUser as User, deleteUser, mainModal, navigateOnClose, handleError);
-    const confirmMakeOwnerFn = () => confirmMakeOwner(user.id, makeOwner, handleError);
-
-    const menuItems = buildMenuItems(
-        currentUser,
-        formState,
-        ownerUser,
-        confirmMakeOwnerFn,
-        confirmDelete,
-        confirmSuspend,
-        mainModal,
-        updateRoute
-    );
-
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-
-    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
-    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
-    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
 
     return (
         <Modal
@@ -363,7 +436,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             <div>
                 <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
                     <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
-                        style={{backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'}}>
+                        style={{
+                            backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
+                        }}>
                         <div className='flex w-full flex-col gap-2'>
                             <div className='flex flex-nowrap items-start justify-between gap-3'>
                                 <div>
@@ -382,14 +457,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.profile_image || '',
                                                 handleSave: async (file: File) => {
-                                                    await handleImageUpload('profile_image', file, uploadImage, updateForm, handleError);
+                                                    await handleImageUpload('profile_image', file);
                                                 }
                                             })
                                         }}
                                         unstyled={true}
                                         width='80px'
-                                        onDelete={() => handleImageDelete('profile_image', updateForm)}
-                                        onUpload={(file: File) => handleImageUpload('profile_image', file, uploadImage, updateForm, handleError)}
+                                        onDelete={() => handleImageDelete('profile_image')}
+                                        onUpload={(file: File) => handleImageUpload('profile_image', file)}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
                                     </ImageUpload>
@@ -409,16 +484,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.cover_image || '',
                                                 handleSave: async (file: File) => {
-                                                    await handleImageUpload('cover_image', file, uploadImage, updateForm, handleError);
+                                                    await handleImageUpload('cover_image', file);
                                                 }
                                             })
                                         }}
                                         unstyled
-                                        onDelete={() => handleImageDelete('cover_image', updateForm)}
-                                        onUpload={(file: File) => handleImageUpload('cover_image', file, uploadImage, updateForm, handleError)}
-                                    >
-                                        Upload cover image
-                                    </ImageUpload>
+                                        onDelete={() => handleImageDelete('cover_image')}
+                                        onUpload={(file: File) => handleImageUpload('cover_image', file)}
+                                    >Upload cover image</ImageUpload>
                                     {showMenu && (
                                         <div className="z-10">
                                             <Menu
@@ -488,8 +561,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
+
     const isCurrentUser = currentUser.slug === params?.slug;
-    const {data: fetchedUserData} = useGetUserBySlug(params?.slug || '', {enabled: !isCurrentUser && !!params?.slug});
+
+    const {data: fetchedUserData} = useGetUserBySlug(
+        params?.slug || '',
+        {enabled: !isCurrentUser && !!params?.slug}
+    );
+
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
     return user ? <UserDetailModalContent user={user} /> : null;

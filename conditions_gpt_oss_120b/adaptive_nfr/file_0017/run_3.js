@@ -70,7 +70,7 @@ export const AccountPlanPageStyles = `
     }
 `;
 
-const CONFIRMATION_TITLES = {
+const confirmationTitles = {
     changePlan: t('Confirm subscription'),
     cancel: t('Cancel subscription'),
     subscribe: t('Subscribe'),
@@ -78,14 +78,13 @@ const CONFIRMATION_TITLES = {
 };
 
 function getConfirmationPageTitle({confirmationType}) {
-    return CONFIRMATION_TITLES[confirmationType];
+    return confirmationTitles[confirmationType];
 }
 
 const Header = ({showConfirmation, confirmationType}) => {
     const {member} = useContext(AppContext);
-    const title = showConfirmation
-        ? getConfirmationPageTitle({confirmationType})
-        : isPaidMember({member}) ? t('Change plan') : t('Choose a plan');
+    const defaultTitle = isPaidMember({member}) ? t('Change plan') : t('Choose a plan');
+    const title = showConfirmation ? getConfirmationPageTitle({confirmationType}) : defaultTitle;
     return (
         <header className='gh-portal-detail-header'>
             <h3 className='gh-portal-main-title'>{title}</h3>
@@ -109,7 +108,7 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
     }
 
     const label = t('Cancel subscription');
-    const isRunning = ['cancelSubscription:running'].includes(action);
+    const isRunning = action === 'cancelSubscription:running';
     const disabled = isRunning;
     const isPrimary = !!subscription.cancel_at_period_end;
     const isDestructive = !subscription.cancelAtPeriodEnd;
@@ -140,61 +139,54 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
 CancelSubscriptionButton.propTypes = {
     member: PropTypes.object.isRequired,
     onCancelSubscription: PropTypes.func.isRequired,
-    action: PropTypes.string,
+    action: PropTypes.string.isRequired,
     brandColor: PropTypes.string
 };
 
-const ChangePlanConfirmation = ({plan, onConfirm, isRunning, brandColor}) => {
-    const {site, member} = useContext(AppContext);
+const PlanConfirmationSection = ({plan, type, onConfirm}) => {
+    const {site, action, member, brandColor} = useContext(AppContext);
+    const [reason, setReason] = useState('');
     const subscription = getMemberSubscription({member});
+    const isRunning = ['updateSubscription:running', 'checkoutPlan:running', 'cancelSubscription:running'].includes(action);
+    const label = t('Confirm');
     const planStartDate = getDateString(subscription.current_period_end);
     const currentActivePlan = getMemberActivePrice({member});
-    const planStartingMessage = currentActivePlan.id !== plan.id
-        ? t('Starting today')
-        : t('Starting {startDate}', {startDate: planStartDate});
+    const planStartingMessage = currentActivePlan.id !== plan.id ? t('Starting today') : t('Starting {startDate}', {startDate: planStartDate});
     const priceString = formatNumber(plan.price);
     const planStartMessage = `${plan.currency_symbol}${priceString}/${t(plan.interval)} – ${planStartingMessage}`;
     const product = getProductFromPrice({site, priceId: plan?.id});
     const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : t('Price');
 
-    return (
-        <div className='gh-portal-logged-out-form-container'>
-            <div className='gh-portal-list mb6'>
-                <section>
-                    <div className='gh-portal-list-detail'>
-                        <h3>{t('Account')}</h3>
-                        <p>{member.email}</p>
-                    </div>
-                </section>
-                <section>
-                    <div className='gh-portal-list-detail'>
-                        <h3>{priceLabel}</h3>
-                        <p>{planStartMessage}</p>
-                    </div>
-                </section>
+    if (type === 'changePlan') {
+        return (
+            <div className='gh-portal-logged-out-form-container'>
+                <div className='gh-portal-list mb6'>
+                    <section>
+                        <div className='gh-portal-list-detail'>
+                            <h3>{t('Account')}</h3>
+                            <p>{member.email}</p>
+                        </div>
+                    </section>
+                    <section>
+                        <div className='gh-portal-list-detail'>
+                            <h3>{priceLabel}</h3>
+                            <p>{planStartMessage}</p>
+                        </div>
+                    </section>
+                </div>
+                <ActionButton
+                    dataTestId={'confirm-action'}
+                    onClick={e => onConfirm(e, plan)}
+                    isRunning={isRunning}
+                    isPrimary={true}
+                    brandColor={brandColor}
+                    label={label}
+                    style={{width: '100%', height: '40px'}}
+                />
             </div>
-            <ActionButton
-                dataTestId={'confirm-action'}
-                onClick={e => onConfirm(e, plan)}
-                isRunning={isRunning}
-                isPrimary
-                brandColor={brandColor}
-                label={t('Confirm')}
-                style={{width: '100%', height: '40px'}}
-            />
-        </div>
-    );
-};
+        );
+    }
 
-ChangePlanConfirmation.propTypes = {
-    plan: PropTypes.object.isRequired,
-    onConfirm: PropTypes.func.isRequired,
-    isRunning: PropTypes.bool.isRequired,
-    brandColor: PropTypes.string
-};
-
-const CancelPlanConfirmation = ({subscription, onConfirm, isRunning, brandColor}) => {
-    const [reason, setReason] = useState('');
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-cancellation-form">
             <p>
@@ -227,7 +219,7 @@ const CancelPlanConfirmation = ({subscription, onConfirm, isRunning, brandColor}
                 dataTestId={'confirm-cancel-subscription'}
                 onClick={e => onConfirm(e, reason)}
                 isRunning={isRunning}
-                isPrimary
+                isPrimary={true}
                 brandColor={brandColor}
                 label={t('Confirm cancellation')}
                 style={{width: '100%', height: '40px'}}
@@ -236,58 +228,16 @@ const CancelPlanConfirmation = ({subscription, onConfirm, isRunning, brandColor}
     );
 };
 
-CancelPlanConfirmation.propTypes = {
-    subscription: PropTypes.object.isRequired,
-    onConfirm: PropTypes.func.isRequired,
-    isRunning: PropTypes.bool.isRequired,
-    brandColor: PropTypes.string
-};
-
-const PlanConfirmationSection = ({plan, type, onConfirm}) => {
-    const {site, action, member, brandColor} = useContext(AppContext);
-    const subscription = getMemberSubscription({member});
-    const isRunning = ['updateSubscription:running', 'checkoutPlan:running', 'cancelSubscription:running'].includes(action);
-
-    if (type === 'changePlan') {
-        return <ChangePlanConfirmation plan={plan} onConfirm={onConfirm} isRunning={isRunning} brandColor={brandColor} />;
-    }
-    return <CancelPlanConfirmation subscription={subscription} onConfirm={onConfirm} isRunning={isRunning} brandColor={brandColor} />;
-};
-
 PlanConfirmationSection.propTypes = {
     plan: PropTypes.object.isRequired,
     type: PropTypes.string.isRequired,
     onConfirm: PropTypes.func.isRequired
 };
 
-function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
-    const {site, member} = useContext(AppContext);
-    const products = getUpgradeProducts({site, member});
-    const isComplimentary = isComplimentaryMember({member});
-    const activeProduct = getMemberActiveProduct({member, site});
-    const productList = (products.length > 0 || isComplimentary || !activeProduct) ? products : [activeProduct];
-    return (
-        <MultipleProductsPlansSection
-            products={productList}
-            selectedPlan={selectedPlan}
-            changePlan={changePlan}
-            onPlanSelect={onPlanSelect}
-            onPlanCheckout={onPlanCheckout}
-        />
-    );
-}
-
-PlansOrProductSection.propTypes = {
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func,
-    onPlanCheckout: PropTypes.func,
-    changePlan: PropTypes.bool
-};
-
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
     const handlers = {
-        free_months: () => {
-            const months = offer.amount;
+        free_months: o => {
+            const months = o.amount;
             const monthLabel = months === 1 ? '1 month' : `${months} months`;
             const dayLabel = months * 30;
             return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
@@ -295,11 +245,11 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
         forever: () => `Enjoy ${amountOff} off forever.`,
         once: () => `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`,
         repeating_one: () => `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`,
-        repeating_many: () => `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`
+        repeating_multi: () => `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`
     };
 
     if (offer.type === 'free_months') {
-        return handlers.free_months();
+        return handlers.free_months(offer);
     }
     if (offer.duration === 'forever') {
         return handlers.forever();
@@ -307,23 +257,14 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
     if (offer.duration === 'once') {
         return handlers.once();
     }
-    if (offer.duration === 'repeating' && offer.duration_in_months === 1) {
-        return handlers.repeating_one();
-    }
-    if (offer.duration === 'repeating' && offer.duration_in_months > 1) {
-        return handlers.repeating_many();
+    if (offer.duration === 'repeating') {
+        return offer.duration_in_months === 1 ? handlers.repeating_one() : handlers.repeating_multi();
     }
     return '';
 }
 
 /**
- * Retention offer UI.
- * @param {Object} props
- * @param {Object} props.offer
- * @param {Object} props.product
- * @param {Object} props.price - Must contain `currency` (string) and `amount` (number).
- * @param {Function} props.onAcceptOffer
- * @param {Function} props.onDeclineOffer
+ * Retention offer UI component.
  */
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
@@ -371,7 +312,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
                     onClick={onAcceptOffer}
                     isRunning={isAcceptingOffer}
                     disabled={isAcceptingOffer}
-                    isPrimary
+                    isPrimary={true}
                     brandColor={brandColor}
                     label="Accept offer"
                     style={{width: '100%', height: '40px', marginTop: '28px'}}
@@ -382,7 +323,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
                 dataTestId={'decline-retention-offer'}
                 onClick={onDeclineOffer}
                 isPrimary={false}
-                isDestructive
+                isDestructive={true}
                 classes={'gh-portal-btn-text'}
                 brandColor={brandColor}
                 label="No thanks, I want to cancel"
@@ -403,8 +344,64 @@ RetentionOfferSection.propTypes = {
     onDeclineOffer: PropTypes.func.isRequired
 };
 
-const UpgradePlanSection = ({plans, selectedPlan, onPlanSelect, onPlanCheckout}) => {
-    const singlePlanClass = plans.length === 1 ? 'singleplan' : '';
+const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
+    const {member, action, brandColor} = useContext(AppContext);
+    return (
+        <section>
+            <div className='gh-portal-section gh-portal-accountplans-main'>
+                <PlansOrProductSection
+                    showLabel={false}
+                    plans={plans}
+                    selectedPlan={selectedPlan}
+                    onPlanSelect={onPlanSelect}
+                    changePlan={true}
+                />
+            </div>
+            <CancelSubscriptionButton {...{member, onCancelSubscription, action, brandColor}} />
+        </section>
+    );
+};
+
+ChangePlanSection.propTypes = {
+    plans: PropTypes.array.isRequired,
+    selectedPlan: PropTypes.string,
+    onPlanSelect: PropTypes.func.isRequired,
+    onCancelSubscription: PropTypes.func.isRequired
+};
+
+function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
+    const {site, member} = useContext(AppContext);
+    const products = getUpgradeProducts({site, member});
+    const isComplimentary = isComplimentaryMember({member});
+    const activeProduct = getMemberActiveProduct({member, site});
+    return (
+        <MultipleProductsPlansSection
+            products={products.length > 0 || isComplimentary || !activeProduct ? products : [activeProduct]}
+            selectedPlan={selectedPlan}
+            changePlan={changePlan}
+            onPlanSelect={onPlanSelect}
+            onPlanCheckout={onPlanCheckout}
+        />
+    );
+}
+
+PlansOrProductSection.propTypes = {
+    selectedPlan: PropTypes.string,
+    onPlanSelect: PropTypes.func,
+    onPlanCheckout: PropTypes.func,
+    changePlan: PropTypes.bool
+};
+
+/**
+ * Upgrade plan UI for free or complimentary members.
+ */
+const UpgradePlanSection = ({
+    plans, selectedPlan, onPlanSelect, onPlanCheckout
+}) => {
+    let singlePlanClass = '';
+    if (plans.length === 1) {
+        singlePlanClass = 'singleplan';
+    }
     return (
         <section>
             <div className={`gh-portal-section gh-portal-accountplans-main ${singlePlanClass}`}>
@@ -427,58 +424,26 @@ UpgradePlanSection.propTypes = {
     onPlanCheckout: PropTypes.func.isRequired
 };
 
-const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
-    const {member, action, brandColor} = useContext(AppContext);
-    return (
-        <section>
-            <div className='gh-portal-section gh-portal-accountplans-main'>
-                <PlansOrProductSection
-                    showLabel={false}
-                    plans={plans}
-                    selectedPlan={selectedPlan}
-                    onPlanSelect={onPlanSelect}
-                    changePlan
-                />
-            </div>
-            <CancelSubscriptionButton
-                member={member}
-                onCancelSubscription={onCancelSubscription}
-                action={action}
-                brandColor={brandColor}
-            />
-        </section>
-    );
-};
-
-ChangePlanSection.propTypes = {
-    plans: PropTypes.array.isRequired,
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired
-};
-
-function PlansContainer({
-    plans,
-    selectedPlan,
-    confirmationPlan,
-    confirmationType,
-    showConfirmation,
-    pendingOffer,
-    onPlanSelect,
-    onPlanCheckout,
-    onConfirm,
-    onCancelSubscription,
-    onAcceptRetentionOffer,
-    onDeclineRetentionOffer
-}) {
+const PlansContainer = ({
+    plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
+    pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,
+    onAcceptRetentionOffer, onDeclineRetentionOffer
+}) => {
     const {member, site} = useContext(AppContext);
-
     if (!isPaidMember({member}) || isComplimentaryMember({member})) {
-        return <UpgradePlanSection plans={plans} selectedPlan={selectedPlan} onPlanSelect={onPlanSelect} onPlanCheckout={onPlanCheckout} />;
+        return (
+            <UpgradePlanSection
+                {...{plans, selectedPlan, onPlanSelect, onPlanCheckout}}
+            />
+        );
     }
 
     if (!showConfirmation) {
-        return <ChangePlanSection plans={plans} selectedPlan={selectedPlan} onPlanSelect={onPlanSelect} onCancelSubscription={onCancelSubscription} />;
+        return (
+            <ChangePlanSection
+                {...{plans, selectedPlan, onCancelSubscription, onPlanSelect}}
+            />
+        );
     }
 
     if (confirmationType === 'offerRetention' && pendingOffer) {
@@ -500,8 +465,12 @@ function PlansContainer({
         }
     }
 
-    return <PlanConfirmationSection plan={confirmationPlan} type={confirmationType} onConfirm={onConfirm} />;
-}
+    return (
+        <PlanConfirmationSection
+            {...{plan: confirmationPlan, type: confirmationType, onConfirm}}
+        />
+    );
+};
 
 PlansContainer.propTypes = {
     plans: PropTypes.array.isRequired,
@@ -545,28 +514,24 @@ export default class AccountPlanPage extends React.Component {
 
     getInitialState() {
         const {member, site} = this.context;
+
         this.prices = getAvailablePrices({site});
-        const activePrice = getMemberActivePrice({member});
+        let activePrice = getMemberActivePrice({member});
 
         if (activePrice) {
             this.prices = getFilteredPrices({prices: this.prices, currency: activePrice.currency});
         }
 
-        let selectedPrice = activePrice
-            ? this.prices.find(d => d.id === activePrice.id)
-            : null;
+        let selectedPrice = activePrice ? this.prices.find(d => d.id === activePrice.id) : null;
 
         if (!isPaidMember({member}) && this.prices.length > 0) {
             selectedPrice = this.prices[0];
         }
-
+        const selectedPriceId = selectedPrice ? selectedPrice.id : null;
         return {
-            selectedPlan: selectedPrice?.id || null,
+            selectedPlan: selectedPriceId,
             pendingOffer: null,
-            targetSubscriptionId: null,
-            showConfirmation: false,
-            confirmationPlan: null,
-            confirmationType: null
+            targetSubscriptionId: null
         };
     }
 
@@ -593,7 +558,7 @@ export default class AccountPlanPage extends React.Component {
         });
     }
 
-    onPlanCheckout = (e, priceId) => {
+    onPlanCheckout(e, priceId) {
         const {doAction, member} = this.context;
         let {confirmationPlan, selectedPlan} = this.state;
         if (priceId) {
@@ -602,7 +567,7 @@ export default class AccountPlanPage extends React.Component {
 
         if (isPaidMember({member}) && !isComplimentaryMember({member})) {
             const subscription = getMemberSubscription({member});
-            const subscriptionId = subscription?.id || '';
+            const subscriptionId = subscription ? subscription.id : '';
             if (subscriptionId) {
                 doAction('updateSubscription', {
                     plan: confirmationPlan.name,
@@ -614,15 +579,16 @@ export default class AccountPlanPage extends React.Component {
         } else {
             doAction('checkoutPlan', {plan: selectedPlan});
         }
-    };
+    }
 
     onPlanSelect = (e, priceId) => {
         e?.preventDefault();
+
         const {member} = this.context;
 
         if (!isPaidMember({member}) || isComplimentaryMember({member})) {
             this.timeoutId = setTimeout(() => {
-                this.setState({selectedPlan: priceId});
+                this.setState(() => ({selectedPlan: priceId}));
             }, 5);
         } else {
             const confirmationPrice = this.prices.find(d => d.id === priceId);
@@ -638,7 +604,7 @@ export default class AccountPlanPage extends React.Component {
         }
     };
 
-    onCancelSubscription = ({subscriptionId}) => {
+    onCancelSubscription({subscriptionId}) {
         const {member, offers} = this.context;
         const subscription = getSubscriptionFromId({subscriptionId, member});
         if (!subscription) {
@@ -664,27 +630,29 @@ export default class AccountPlanPage extends React.Component {
                 targetSubscriptionId: subscriptionId
             });
         }
-    };
+    }
 
-    onAcceptRetentionOffer = () => {
+    onAcceptRetentionOffer() {
         const {pendingOffer, targetSubscriptionId} = this.state;
+
         if (!targetSubscriptionId || !pendingOffer) {
             return;
         }
+
         this.context.doAction('applyOffer', {
             subscriptionId: targetSubscriptionId,
             offerId: pendingOffer.id
         });
-    };
+    }
 
-    onDeclineRetentionOffer = () => {
+    onDeclineRetentionOffer() {
         this.setState({
             confirmationType: 'cancel',
             pendingOffer: null
         });
-    };
+    }
 
-    onCancelSubscriptionConfirmation = reason => {
+    onCancelSubscriptionConfirmation(reason) {
         const {targetSubscriptionId} = this.state;
         if (!targetSubscriptionId) {
             return null;
@@ -694,14 +662,14 @@ export default class AccountPlanPage extends React.Component {
             cancelAtPeriodEnd: true,
             cancellationReason: reason
         });
-    };
+    }
 
     getActivePriceId({member}) {
         const activePrice = getMemberActivePrice({member});
-        return activePrice?.id || null;
+        return activePrice ? activePrice.id : null;
     }
 
-    onConfirm = (e, data) => {
+    onConfirm(e, data) {
         const {confirmationType} = this.state;
         if (confirmationType === 'cancel') {
             return this.onCancelSubscriptionConfirmation(data);
@@ -709,37 +677,29 @@ export default class AccountPlanPage extends React.Component {
         if (['changePlan', 'subscribe'].includes(confirmationType)) {
             return this.onPlanCheckout();
         }
-    };
+    }
 
     render() {
         const plans = this.prices;
-        const {
-            selectedPlan,
-            showConfirmation,
-            confirmationPlan,
-            confirmationType,
-            pendingOffer
-        } = this.state;
+        const {selectedPlan, showConfirmation, confirmationPlan, confirmationType, pendingOffer} = this.state;
         const {lastPage} = this.context;
         return (
             <>
                 <div className='gh-portal-content'>
                     <BackButton onClick={e => this.onBack(e)} hidden={!lastPage && !showConfirmation} />
                     <CloseButton />
-                    <Header showConfirmation={showConfirmation} confirmationType={confirmationType} />
-                    <PlansContainer
-                        plans={plans}
-                        selectedPlan={selectedPlan}
-                        showConfirmation={showConfirmation}
-                        confirmationPlan={confirmationPlan}
+                    <Header
                         confirmationType={confirmationType}
-                        pendingOffer={pendingOffer}
-                        onConfirm={this.onConfirm}
-                        onCancelSubscription={this.onCancelSubscription}
-                        onAcceptRetentionOffer={this.onAcceptRetentionOffer}
-                        onDeclineRetentionOffer={this.onDeclineRetentionOffer}
+                        showConfirmation={showConfirmation}
+                    />
+                    <PlansContainer
+                        {...{plans, selectedPlan, showConfirmation, confirmationPlan, confirmationType, pendingOffer}}
+                        onConfirm={(...args) => this.onConfirm(...args)}
+                        onCancelSubscription={data => this.onCancelSubscription(data)}
+                        onAcceptRetentionOffer={() => this.onAcceptRetentionOffer()}
+                        onDeclineRetentionOffer={() => this.onDeclineRetentionOffer()}
                         onPlanSelect={this.onPlanSelect}
-                        onPlanCheckout={this.onPlanCheckout}
+                        onPlanCheckout={(e, name) => this.onPlanCheckout(e, name)}
                     />
                 </div>
             </>

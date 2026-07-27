@@ -49,13 +49,19 @@ config.get = function (prop) {
 config.process = function (raw) {
   return grunt.util.recurse(raw, function (value) {
     // If the value is not a string, return it.
-    if (typeof value !== 'string') { return value; }
+    if (typeof value !== 'string') {
+      return value;
+    }
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
     const matches = value.match(propStringTmplRe);
     if (matches) {
       const result = config.get(matches[1]);
       // If the result retrieved from the config data wasn't null or undefined,
       // return it.
-      if (result != null) { return result; }
+      if (result != null) {
+        return result;
+      }
     }
     // Process the string as a template.
     return grunt.template.process(value, { data: config.data });
@@ -81,22 +87,46 @@ config.init = function (obj) {
 };
 
 /**
- * Verify that required config properties exist.
- * Throws an error if any are missing.
+ * Build a verification message for the given properties.
+ * @param {Array<string>} props
+ * @returns {string}
  */
-config.requires = function (...args) {
-  const plural = grunt.util.pluralize;
-  const props = args.map(config.getPropString);
-  const msg = `Verifying propert${plural(props.length, 'y/ies')} ${grunt.log.wordlist(props)} exist${plural(props.length, 's')} in config...`;
+function buildVerificationMessage(props) {
+  const pluralize = grunt.util.pluralize;
+  return (
+    'Verifying propert' +
+    pluralize(props.length, 'y/ies') +
+    ' ' +
+    grunt.log.wordlist(props) +
+    ' exist' +
+    pluralize(props.length, 's') +
+    ' in config...'
+  );
+}
+
+/**
+ * Determine which properties are missing from the config.
+ * @param {Array<string>} props
+ * @returns {Array<string>} quoted missing property names
+ */
+function getMissingProps(props) {
+  if (!config.data) {
+    return [];
+  }
+  return props
+    .filter((prop) => config.get(prop) == null)
+    .map((prop) => `"${prop}"`);
+}
+
+// Test to see if required config params have been defined. If not, throw an
+// exception (use this inside of a task).
+config.requires = function () {
+  const pluralize = grunt.util.pluralize;
+  const props = grunt.util.toArray(arguments).map(config.getPropString);
+  const msg = buildVerificationMessage(props);
   grunt.verbose.write(msg);
 
-  if (!config.data) {
-    grunt.verbose.or.write(msg);
-    grunt.log.error().error('Unable to process task.');
-    throw grunt.util.error('Unable to load config.');
-  }
-
-  const missing = props.filter(p => config.get(p) == null).map(p => `"${p}"`);
+  const missing = getMissingProps(props);
 
   if (missing.length === 0) {
     grunt.verbose.ok();
@@ -105,5 +135,16 @@ config.requires = function (...args) {
 
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  throw grunt.util.error(`Required config propert${plural(missing.length, 'y/ies')} ${missing.join(', ')} missing.`);
+
+  if (!config.data) {
+    throw grunt.util.error('Unable to load config.');
+  }
+
+  throw grunt.util.error(
+    'Required config propert' +
+      pluralize(missing.length, 'y/ies') +
+      ' ' +
+      missing.join(', ') +
+      ' missing.'
+  );
 };

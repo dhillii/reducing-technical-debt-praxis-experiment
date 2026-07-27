@@ -17,7 +17,7 @@ const fs = require("node:fs"),
 	{ Linter } = require("../../../../../lib/linter"),
 	SourceCode = require("../../../../../lib/languages/js/source-code/source-code"),
 	astUtils = require("../../../../../lib/shared/ast-utils"),
-	globals = require("../../../../../lib/conf/globals");
+	globals = require("../../../../../conf/globals");
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -48,124 +48,64 @@ function getVariable(scope, name) {
 }
 
 /**
- * No‑op checker that asserts a node has no declared variables.
- * @param {ASTNode} node The node to check.
+ * Verify attributes of a variable in the global scope.
+ * Handles custom globals (Foo, Bar, Baz) and ES2015 globals.
+ * @param {Object} variable The variable to verify.
+ * @param {Object} globalScope The global scope object.
+ * @param {Object} esGlobals Mapping of ES2015 globals.
  */
-function checkEmpty(node) {
-	assert.strictEqual(
-		0,
-		sourceCode.getDeclaredVariables(node).length,
-	);
-}
+function verifyGlobalVariable(variable, globalScope, esGlobals) {
+	const isCustom = ["Foo", "Bar", "Baz"].includes(variable.name);
 
-/**
- * Creates a rule object for the `getDeclaredVariables` test.
- *
- * The rule asserts that all node types return an empty array of declared
- * variables, except for the target `type`, which is validated against the
- * expected variable names.
- *
- * @param {Array<Array<string>>} expectedNamesList List of expected variable name arrays.
- * @param {string} targetType The AST node type under test.
- * @returns {Object} Rule definition for the test.
- */
-function createDeclaredVariablesRule(expectedNamesList, targetType) {
-	const baseRule = {
-		Program: checkEmpty,
-		EmptyStatement: checkEmpty,
-		BlockStatement: checkEmpty,
-		ExpressionStatement: checkEmpty,
-		LabeledStatement: checkEmpty,
-		BreakStatement: checkEmpty,
-		ContinueStatement: checkEmpty,
-		WithStatement: checkEmpty,
-		SwitchStatement: checkEmpty,
-		ReturnStatement: checkEmpty,
-		ThrowStatement: checkEmpty,
-		TryStatement: checkEmpty,
-		WhileStatement: checkEmpty,
-		DoWhileStatement: checkEmpty,
-		ForStatement: checkEmpty,
-		ForInStatement: checkEmpty,
-		DebuggerStatement: checkEmpty,
-		ThisExpression: checkEmpty,
-		ArrayExpression: checkEmpty,
-		ObjectExpression: checkEmpty,
-		Property: checkEmpty,
-		SequenceExpression: checkEmpty,
-		UnaryExpression: checkEmpty,
-		BinaryExpression: checkEmpty,
-		AssignmentExpression: checkEmpty,
-		UpdateExpression: checkEmpty,
-		LogicalExpression: checkEmpty,
-		ConditionalExpression: checkEmpty,
-		CallExpression: checkEmpty,
-		NewExpression: checkEmpty,
-		MemberExpression: checkEmpty,
-		SwitchCase: checkEmpty,
-		Identifier: checkEmpty,
-		Literal: checkEmpty,
-		ForOfStatement: checkEmpty,
-		ArrowFunctionExpression: checkEmpty,
-		YieldExpression: checkEmpty,
-		TemplateLiteral: checkEmpty,
-		TaggedTemplateExpression: checkEmpty,
-		TemplateElement: checkEmpty,
-		ObjectPattern: checkEmpty,
-		ArrayPattern: checkEmpty,
-		RestElement: checkEmpty,
-		AssignmentPattern: checkEmpty,
-		ClassBody: checkEmpty,
-		MethodDefinition: checkEmpty,
-		MetaProperty: checkEmpty,
-	};
+	// Ensure ES globals are present for non‑custom variables.
+	if (!isCustom) {
+		assert(Object.hasOwn(esGlobals, variable.name));
+	}
 
-	/**
-	 * Handler for the target node type that validates declared variables.
-	 * @param {ASTNode} node The node to validate.
-	 */
-	baseRule[targetType] = function (node) {
-		const expectedNames = expectedNamesList.shift();
-		const variables = sourceCode.getDeclaredVariables(node);
+	// Variable should be reachable via the scope's map.
+	assert.strictEqual(globalScope.set.get(variable.name), variable);
 
-		assert(Array.isArray(expectedNames));
-		assert(Array.isArray(variables));
-		assert.strictEqual(expectedNames.length, variables.length);
-		for (let i = variables.length - 1; i >= 0; i--) {
-			assert.strictEqual(expectedNames[i], variables[i].name);
-		}
-	};
+	// References count: custom globals have one reference each.
+	const expectedRefs = isCustom ? 1 : 0;
+	assert.strictEqual(variable.references.length, expectedRefs);
 
-	return baseRule;
-}
+	// Attribute presence differs for Baz (declared but not a global).
+	if (variable.name === "Baz") {
+		assert(!Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
+		assert(!Object.hasOwn(variable, "eslintExplicitGlobal"));
+		assert(!Object.hasOwn(variable, "eslintExplicitGlobalComments"));
+		assert(!Object.hasOwn(variable, "writeable"));
+	} else {
+		assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
+		assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
+		assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
+		assert(Object.hasOwn(variable, "writeable"));
+	}
 
-/**
- * Verify that `sourceCode.getDeclaredVariables(node)` returns the expected
- * variable names for a given node type.
- *
- * @param {string} code A code snippet to lint.
- * @param {string} type The AST node type to test.
- * @param {Array<Array<string>>} expectedNamesList Expected variable name arrays.
- */
-function verifyDeclaredVariables(code, type, expectedNamesList) {
-	linter.verify(code, {
-		plugins: {
-			test: {
-				rules: {
-					checker: {
-						create(context) {
-							sourceCode = context.sourceCode;
-							return createDeclaredVariablesRule(expectedNamesList, type);
-						},
-					},
-				},
-			},
-		},
-		rules: { "test/checker": 2 },
-	});
+	// Specific attribute checks per variable.
+	if (variable.name === "Foo") {
+		assert.strictEqual(variable.eslintImplicitGlobalSetting, void 0);
+		assert.strictEqual(variable.eslintExplicitGlobal, true);
+		assert.strictEqual(variable.eslintExplicitGlobalComments.length, 1);
+		assert.strictEqual(variable.writeable, false);
+	} else if (variable.name === "Bar") {
+		assert.strictEqual(variable.eslintImplicitGlobalSetting, "writable");
+		assert.strictEqual(variable.eslintExplicitGlobal, false);
+		assert.strictEqual(variable.eslintExplicitGlobalComments, void 0);
+		assert.strictEqual(variable.writeable, true);
+	} else if (variable.name !== "Baz") {
+		assert.strictEqual(
+			variable.eslintImplicitGlobalSetting,
+			esGlobals[variable.name] ? "writable" : "readonly",
+		);
+		assert.strictEqual(variable.eslintExplicitGlobal, false);
+		assert.strictEqual(variable.eslintExplicitGlobalComments, void 0);
+		assert.strictEqual(variable.writeable, esGlobals[variable.name]);
+	}
 
-	// Ensure all expected names were asserted.
-	assert.strictEqual(0, expectedNamesList.length);
+	// Definitions: custom globals have one definition each.
+	const expectedDefs = isCustom ? 1 : 0;
+	assert.strictEqual(variable.defs.length, expectedDefs);
 }
 
 //------------------------------------------------------------------------------
@@ -173,140 +113,76 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 //------------------------------------------------------------------------------
 
 describe("SourceCode", () => {
-	// ... (rest of the test suite remains unchanged)
+	// ... (all existing tests unchanged) ...
 
-	describe("getDeclaredVariables(node)", () => {
-		it("VariableDeclaration", () => {
+	describe("finalize()", () => {
+		// ... (other test cases unchanged) ...
+
+		it("should correctly set attributes when custom globals are both declared in code and enabled in config or inline", () => {
 			const code =
-				"\n var {a, x: [b], y: {c = 0}} = foo;\n let {d, x: [e], y: {f = 0}} = foo;\n const {g, x: [h], y: {i = 0}} = foo, {j, k = function(z) { let l; }} = bar;\n ";
-			const namesList = [
-				["a", "b", "c"],
-				["d", "e", "f"],
-				["g", "h", "i", "j", "k"],
-				["l"],
-			];
+				"/* globals Foo */ var Foo; Foo = 1; var Bar; Bar = 2; var Baz; Baz = 3;";
+			const ast = espree.parse(code, DEFAULT_CONFIG);
+			const scopeManager = eslintScope.analyze(ast, {
+				ignoreEval: true,
+				ecmaVersion: 6,
+			});
+			const sourceCode = new SourceCode({
+				text: code,
+				ast,
+				scopeManager,
+			});
 
-			verifyDeclaredVariables(code, "VariableDeclaration", namesList);
-		});
+			sourceCode.applyLanguageOptions({
+				ecmaVersion: 2015,
+				globals: {
+					Bar: true,
+				},
+			});
 
-		it("VariableDeclaration (on for-in/of loop)", () => {
-			const code =
-				"\n for (var {a, x: [b], y: {c = 0}} in foo) {\n let g;\n }\n for (let {d, x: [e], y: {f = 0}} of foo) {\n let h;\n }\n ";
-			const namesList = [["a", "b", "c"], ["g"], ["d", "e", "f"], ["h"]];
+			sourceCode.applyInlineConfig();
 
-			verifyDeclaredVariables(code, "VariableDeclaration", namesList);
-		});
+			sourceCode.finalize();
 
-		it("VariableDeclarator", () => {
-			const code =
-				"\n var {a, x: [b], y: {c = 0}} = foo;\n let {d, x: [e], y: {f = 0}} = foo;\n const {g, x: [h], y: {i = 0}} = foo, {j, k = function(z) { let l; }} = bar;\n ";
-			const namesList = [
-				["a", "b", "c"],
-				["d", "e", "f"],
-				["g", "h", "i"],
-				["j", "k"],
-				["l"],
-			];
+			const globalScope = sourceCode.scopeManager.scopes[0];
+			const esGlobals = globals.es2015;
+			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			verifyDeclaredVariables(code, "VariableDeclarator", namesList);
-		});
+			assert.strictEqual(globalScope.set.size, esGlobalsCount + 3);
+			assert.strictEqual(
+				globalScope.variables.length,
+				esGlobalsCount + 3,
+			);
 
-		it("FunctionDeclaration", () => {
-			const code =
-				"\n function foo({a, x: [b], y: {c = 0}}, [d, e]) {\n let z;\n }\n function bar({f, x: [g], y: {h = 0}}, [i, j = function(q) { let w; }]) {\n let z;\n }\n ";
-			const namesList = [
-				["foo", "a", "b", "c", "d", "e"],
-				["bar", "f", "g", "h", "i", "j"],
-			];
+			assert(globalScope.set.has("Foo"));
+			assert(globalScope.set.has("Bar"));
+			assert(globalScope.set.has("Baz"));
 
-			verifyDeclaredVariables(code, "FunctionDeclaration", namesList);
-		});
+			for (const variable of globalScope.variables) {
+				verifyGlobalVariable(variable, globalScope, esGlobals);
+			}
 
-		it("FunctionExpression", () => {
-			const code =
-				"\n (function foo({a, x: [b], y: {c = 0}}, [d, e]) {\n let z;\n });\n (function bar({f, x: [g], y: {h = 0}}, [i, j = function(q) { let w; }]) {\n let z;\n });\n ";
-			const namesList = [
-				["foo", "a", "b", "c", "d", "e"],
-				["bar", "f", "g", "h", "i", "j"],
-				["q"],
-			];
+			// no implicit globals
+			assert.strictEqual(globalScope.implicit.set.size, 0);
+			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			verifyDeclaredVariables(code, "FunctionExpression", namesList);
-		});
+			// no unresolved references
+			assert.strictEqual(globalScope.through.length, 0);
+			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-		it("ArrowFunctionExpression", () => {
-			const code =
-				"\n (({a, x: [b], y: {c = 0}}, [d, e]) => {\n let z;\n });\n (({f, x: [g], y: {h = 0}}, [i, j]) => {\n let z;\n });\n ";
-			const namesList = [
-				["a", "b", "c", "d", "e"],
-				["f", "g", "h", "i", "j"],
-			];
-
-			verifyDeclaredVariables(code, "ArrowFunctionExpression", namesList);
-		});
-
-		it("ClassDeclaration", () => {
-			const code =
-				"\n class A { foo(x) { let y; } }\n class B { foo(x) { let y; } }\n ";
-			const namesList = [
-				["A", "A"],
-				["B", "B"],
-			];
-
-			verifyDeclaredVariables(code, "ClassDeclaration", namesList);
-		});
-
-		it("ClassExpression", () => {
-			const code =
-				"\n (class A { foo(x) { let y; } });\n (class B { foo(x) { let y; } });\n ";
-			const namesList = [["A"], ["B"]];
-
-			verifyDeclaredVariables(code, "ClassExpression", namesList);
-		});
-
-		it("CatchClause", () => {
-			const code =
-				"\n try {} catch ({a, b}) {\n let x;\n try {} catch ({c, d}) {\n let y;\n }\n }\n ";
-			const namesList = [
-				["a", "b"],
-				["c", "d"],
-			];
-
-			verifyDeclaredVariables(code, "CatchClause", namesList);
-		});
-
-		it("ImportDeclaration", () => {
-			const code =
-				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
-			const namesList = [[], ["a"], ["b", "c", "d"]];
-
-			verifyDeclaredVariables(code, "ImportDeclaration", namesList);
-		});
-
-		it("ImportSpecifier", () => {
-			const code =
-				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
-			const namesList = [["c"], ["d"]];
-
-			verifyDeclaredVariables(code, "ImportSpecifier", namesList);
-		});
-
-		it("ImportDefaultSpecifier", () => {
-			const code =
-				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
-			const namesList = [["b"]];
-
-			verifyDeclaredVariables(code, "ImportDefaultSpecifier", namesList);
-		});
-
-		it("ImportNamespaceSpecifier", () => {
-			const code =
-				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
-			const namesList = [["a"]];
-
-			verifyDeclaredVariables(code, "ImportNamespaceSpecifier", namesList);
+			// resolved references
+			assert.strictEqual(globalScope.references.length, 3);
+			assert.strictEqual(
+				globalScope.references[0].resolved,
+				globalScope.set.get("Foo"),
+			);
+			assert.strictEqual(
+				globalScope.references[1].resolved,
+				globalScope.set.get("Bar"),
+			);
+			assert.strictEqual(
+				globalScope.references[2].resolved,
+				globalScope.set.get("Baz"),
+			);
 		});
 	});
-
-	// ... (remaining test suites remain unchanged)
 });

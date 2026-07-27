@@ -44,8 +44,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
                 }
-                throw new Error('Failed to fetch site data');
             });
         },
 
@@ -60,8 +61,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
                 }
-                throw new Error('Failed to fetch site data');
             });
         },
 
@@ -76,8 +78,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
                 }
-                throw new Error('Failed to fetch site data');
             });
         },
 
@@ -92,8 +95,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
                 }
-                throw new Error('Failed to fetch site data');
             });
         },
 
@@ -108,8 +112,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch offer data');
                 }
-                throw new Error('Failed to fetch offer data');
             });
         },
 
@@ -124,8 +129,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch recommendations');
                 }
-                throw new Error('Failed to fetch recommendations');
             });
         }
     };
@@ -155,23 +161,21 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
             if (res.ok) {
                 return res.json();
+            } else {
+                const humanError = HumanReadableError.fromApiResponse(res);
+                throw humanError ?? new Error('Failed to save feedback');
             }
-            const humanError = HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to save feedback');
         }
     };
 
     api.recommendations = {
         trackClicked({recommendationId}) {
-            const url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/clicked'});
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/clicked'});
             navigator.sendBeacon(url);
         },
 
         trackSubscribed({recommendationId}) {
-            const url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/subscribed'});
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/subscribed'});
             navigator.sendBeacon(url);
         }
     };
@@ -253,12 +257,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             if (res.ok) {
                 return res.text();
+            } else {
+                const humanError = HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to start a members session');
             }
-            const humanError = HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to start a members session');
         },
 
         async sendMagicLink({email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC}) {
@@ -302,12 +307,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     }
                 }
                 return {};
+            } else {
+                const humanError = HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to send magic link email');
             }
-            const humanError = HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to send magic link email');
         },
 
         async verifyOTC({otc, otcRef, redirect, integrityToken}) {
@@ -330,12 +336,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             if (res.ok) {
                 return await res.json();
+            } else {
+                const humanError = HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to verify code');
             }
-            const humanError = HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to verify code');
         },
 
         signout(all = false) {
@@ -353,8 +360,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                     return 'Success';
+                } else {
+                    throw new Error('Failed to signout');
                 }
-                throw new Error('Failed to signout');
             });
         },
 
@@ -393,8 +401,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to update email preferences');
                 }
-                throw new Error('Failed to update email preferences');
             });
         },
 
@@ -416,10 +425,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(async function (res) {
                 if (res.ok) {
                     return 'Success';
+                } else {
+                    const errData = await res.json();
+                    const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
+                    throw new Error(errMssg);
                 }
-                const errData = await res.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
-                throw new Error(errMssg);
             });
         },
 
@@ -445,7 +455,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             const body = {
                 priceId: offerId ? null : plan,
                 offerId,
-                identity,
+                identity: identity,
                 metadata: metadataObj,
                 successUrl,
                 cancelUrl
@@ -524,6 +534,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (error) {
                     throw error;
                 }
+
                 throw new Error('We\'re unable to process your payment right now. Please try again later.');
             }
 
@@ -552,7 +563,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    identity,
+                    identity: identity,
                     subscription_id: subscriptionId,
                     successUrl,
                     cancelUrl
@@ -571,6 +582,8 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (result.error) {
                     throw new Error(result.error.message);
                 }
+            }).catch(function (err) {
+                throw err;
             });
         },
 
@@ -590,7 +603,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    identity,
+                    identity: identity,
                     subscription_id: subscriptionId,
                     returnUrl
                 })
@@ -601,6 +614,8 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 return res.json();
             }).then(function (result) {
                 return window.location.assign(result.url);
+            }).catch(function (err) {
+                throw err;
             });
         },
 
@@ -611,7 +626,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 smart_cancel: smartCancel,
                 cancel_at_period_end: cancelAtPeriodEnd,
                 cancellation_reason: cancellationReason,
-                identity,
+                identity: identity,
                 priceId: planId
             };
 
@@ -678,7 +693,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     };
 
     api.init = async () => {
-        const [member] = await Promise.all([
+        let [member] = await Promise.all([
             api.member.sessionData()
         ]);
         let site = {};
@@ -688,7 +703,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         let offers = [];
 
         try {
-            const [{settings}, {tiers}, {newsletters}] = await Promise.all([
+            [{settings}, {tiers}, {newsletters}] = await Promise.all([
                 api.site.settings(),
                 api.site.tiers(),
                 api.site.newsletters()
@@ -705,8 +720,10 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         if (member && member.paid) {
             try {
                 const offersData = await api.member.offers();
+
                 offers = offersData.offers || [];
             } catch (e) {
+                // eslint-disable-next-line no-console
                 console.warn('[Portal] Failed to load member offers:', e);
             }
         }

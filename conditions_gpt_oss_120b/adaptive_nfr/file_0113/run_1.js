@@ -35,8 +35,11 @@ exports.specialProperties = specialProperties;
  * @api private
  */
 
-exports.toCollectionName = function (name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+exports.toCollectionName = function(name, pluralize) {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -56,6 +59,125 @@ exports.toCollectionName = function (name, pluralize) {
  * @api private
  */
 
+/**
+ * Compare two Date objects.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _isEqualDate(a, b) {
+  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+}
+
+/**
+ * Compare two BSON types (ObjectId or Decimal128).
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _isEqualBson(a, b) {
+  return (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'));
+}
+
+/**
+ * Compare two RegExp objects.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _isEqualRegExp(a, b) {
+  return a instanceof RegExp && b instanceof RegExp &&
+    a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
+
+/**
+ * Compare two Buffer objects.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _isEqualBuffer(a, b) {
+  return Buffer.isBuffer(a) && Buffer.isBuffer(b) && exports.buffer.areEqual(a, b);
+}
+
+/**
+ * Compare two Map objects.
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _isEqualMap(a, b) {
+  if (a instanceof Map && b instanceof Map) {
+    return exports.deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      exports.deepEqual(Array.from(a.values()), Array.from(b.values()));
+  }
+  return false;
+}
+
+/**
+ * Compare two plain arrays.
+ * @param {any[]} a
+ * @param {any[]} b
+ * @returns {boolean}
+ */
+function _isEqualArray(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; ++i) {
+    if (!exports.deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Normalize mongoose documents / objects.
+ * @param {any} val
+ * @returns {any}
+ */
+function _normalizeMongoose(val) {
+  if (val && val.$__ != null) {
+    return val._doc;
+  }
+  if (isMongooseObject(val)) {
+    return val.toObject();
+  }
+  return val;
+}
+
+/**
+ * Deep compare two plain objects.
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {boolean}
+ */
+function _comparePlainObjects(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) {
+    return false;
+  }
+  ka.sort();
+  kb.sort();
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+  for (const key of ka) {
+    if (!exports.deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 exports.deepEqual = function deepEqual(a, b) {
   if (a === b) {
     return true;
@@ -65,24 +187,16 @@ exports.deepEqual = function deepEqual(a, b) {
     return a === b;
   }
 
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+  if (_isEqualDate(a, b)) {
+    return true;
   }
 
-  if (
-    (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))
-  ) {
+  if (_isEqualBson(a, b)) {
     return a.toString() === b.toString();
   }
 
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return (
-      a.source === b.source &&
-      a.ignoreCase === b.ignoreCase &&
-      a.multiline === b.multiline &&
-      a.global === b.global
-    );
+  if (_isEqualRegExp(a, b)) {
+    return true;
   }
 
   if (a == null || b == null) {
@@ -93,78 +207,37 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  if (a instanceof Map && b instanceof Map) {
-    return (
-      deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()))
-    );
+  if (_isEqualMap(a, b)) {
+    return true;
   }
 
-  // Handle MongooseNumbers
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
 
-  if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
-  }
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
+  if (_isEqualBuffer(a, b)) {
     return true;
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
+  if (_isEqualArray(a, b)) {
+    return true;
   }
 
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
+  a = _normalizeMongoose(a);
+  b = _normalizeMongoose(b);
+
+  if (exports.isObject(a) && exports.isObject(b)) {
+    return _comparePlainObjects(a, b);
   }
 
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  const kaLength = ka.length;
-
-  if (kaLength !== kb.length) {
-    return false;
-  }
-
-  ka.sort();
-  kb.sort();
-
-  for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
-  }
-
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-
-  return true;
+  return false;
 };
 
 /*!
  * Get the last element of an array
  */
 
-exports.last = function (arr) {
+exports.last = function(arr) {
   if (arr.length > 0) {
     return arr[arr.length - 1];
   }
@@ -198,6 +271,7 @@ exports.omit = function omit(obj, keys) {
   return ret;
 };
 
+
 /*!
  * Shallow copies defaults into options.
  *
@@ -207,7 +281,7 @@ exports.omit = function omit(obj, keys) {
  * @api private
  */
 
-exports.options = function (defaults, options) {
+exports.options = function(defaults, options) {
   const keys = Object.keys(defaults);
   let i = keys.length;
   let k;
@@ -230,7 +304,7 @@ exports.options = function (defaults, options) {
  * @api private
  */
 
-exports.random = function () {
+exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
@@ -271,11 +345,9 @@ exports.merge = function merge(to, from, options, path) {
         to[key] = {};
       }
       if (from[key] != null) {
-        if (
-          options.isDiscriminatorSchemaMerge &&
-          ((from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
-            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested))
-        ) {
+        if (options.isDiscriminatorSchemaMerge &&
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
           continue;
         } else if (from[key].instanceOfSchema) {
           if (to[key].instanceOfSchema) {
@@ -369,22 +441,22 @@ exports.isPOJO = function isPOJO(arg) {
  * etc.
  */
 
-exports.isNativeObject = function (arg) {
-  return (
-    Array.isArray(arg) ||
+exports.isNativeObject = function(arg) {
+  return Array.isArray(arg) ||
     arg instanceof Date ||
     arg instanceof Boolean ||
     arg instanceof Number ||
-    arg instanceof String
-  );
+    arg instanceof String;
 };
 
 /*!
  * Determines if `val` is an object that has no own keys
  */
 
-exports.isEmptyObject = function (val) {
-  return val != null && typeof val === 'object' && Object.keys(val).length === 0;
+exports.isEmptyObject = function(val) {
+  return val != null &&
+    typeof val === 'object' &&
+    Object.keys(val).length === 0;
 };
 
 /*!
@@ -427,11 +499,11 @@ exports.tick = function tick(callback) {
   if (typeof callback !== 'function') {
     return;
   }
-  return function () {
+  return function() {
     try {
       callback.apply(this, arguments);
     } catch (err) {
-      immediate(function () {
+      immediate(function() {
         throw err;
       });
     }
@@ -443,7 +515,7 @@ exports.tick = function tick(callback) {
  * MongoDB
  */
 
-exports.isMongooseType = function (v) {
+exports.isMongooseType = function(v) {
   return v instanceof ObjectId || v instanceof Decimal || v instanceof Buffer;
 };
 
@@ -474,149 +546,70 @@ exports.expires = function expires(object) {
   delete object.expires;
 };
 
-/**
- * Parameter object for populate.
- *
- * @typedef {Object} PopulateParams
- * @property {String} path
- * @property {String|Array|Object} [select]
- * @property {String|Function} [model]
- * @property {Object} [match]
- * @property {Object} [options]
- * @property {Object|Array} [populate]
- * @property {Boolean} [justOne]
- * @property {Boolean} [count]
+/*!
+ * populate helper
  */
 
 /**
- * Builder for PopulateParams to allow optional chaining.
- *
- * @class
+ * Backward compatible populate wrapper.
+ * Supports the original multi‑parameter signature as well as a single
+ * options object.
  */
-class PopulateBuilder {
-  constructor(path) {
-    this.params = { path };
-  }
-  setSelect(select) {
-    this.params.select = select;
-    return this;
-  }
-  setModel(model) {
-    this.params.model = model;
-    return this;
-  }
-  setMatch(match) {
-    this.params.match = match;
-    return this;
-  }
-  setOptions(options) {
-    this.params.options = options;
-    return this;
-  }
-  setPopulate(populate) {
-    this.params.populate = populate;
-    return this;
-  }
-  setJustOne(justOne) {
-    this.params.justOne = justOne;
-    return this;
-  }
-  setCount(count) {
-    this.params.count = count;
-    return this;
-  }
-  build() {
-    return this.params;
-  }
-}
-
-/**
- * Core populate implementation that works with a parameter object.
- *
- * @param {PopulateParams} params
- * @returns {Array<PopulateOptions>}
- * @private
- */
-function _populateCore(params) {
-  if (typeof params.path !== 'string') {
-    throw new TypeError(
-      'utils.populate: invalid path. Expected string. Got typeof `' + typeof params.path + '`'
-    );
-  }
-  return _populateObj(params);
-}
-
-/**
- * Backward‑compatible wrapper that accepts the historic signature.
- *
- * @param {String|Object|Array} path
- * @param {any} [select]
- * @param {any} [model]
- * @param {any} [match]
- * @param {any} [options]
- * @param {any} [subPopulate]
- * @param {any} [justOne]
- * @param {any} [count]
- * @returns {Array<PopulateOptions>}
- */
-exports.populate = function populate(
-  path,
-  select,
-  model,
-  match,
-  options,
-  subPopulate,
-  justOne,
-  count
-) {
-  // Single argument handling (object or array)
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return [path];
+exports.populate = function populate(...args) {
+  // Single argument handling (object, array, PopulateOptions, or path string)
+  if (args.length === 1) {
+    const first = args[0];
+    if (first instanceof PopulateOptions) {
+      return [first];
     }
-    if (Array.isArray(path)) {
-      const singles = makeSingles(path);
-      return singles.map((o) => exports.populate(o)[0]);
+    if (Array.isArray(first)) {
+      const singles = makeSingles(first);
+      return singles.map(o => exports.populate(o)[0]);
     }
-    if (exports.isObject(path)) {
-      return _populateCore(Object.assign({}, path));
+    if (exports.isObject(first)) {
+      return _populateObj(first);
     }
-    return _populateCore({ path });
+    // treat as path string
+    return _populateObj({ path: first });
   }
 
-  // Detect object‑style third argument (model is actually match)
-  if (typeof model === 'object' && model !== null && !(model instanceof String)) {
-    const builder = new PopulateBuilder(path)
-      .setSelect(select)
-      .setMatch(model)
-      .setOptions(match);
-    return _populateCore(builder.build());
+  // Multi‑parameter legacy signature
+  const [path, select, model, match, options, subPopulate, justOne, count] = args;
+  let obj;
+  if (typeof model === 'object' && model !== null && !(model instanceof PopulateOptions)) {
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
+  } else {
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
-
-  // Full signature
-  const builder = new PopulateBuilder(path)
-    .setSelect(select)
-    .setModel(model)
-    .setMatch(match)
-    .setOptions(options)
-    .setPopulate(subPopulate)
-    .setJustOne(justOne)
-    .setCount(count);
-  return _populateCore(builder.build());
+  return _populateObj(obj);
 };
 
 /**
- * Helper to split space‑separated paths into single populate objects.
- *
- * @param {Array<Object>} arr
- * @returns {Array<Object>}
+ * Convert an array of populate objects that may contain space‑separated paths
+ * into an array of single‑path objects.
+ * @param {Array} arr
+ * @returns {Array}
  */
 function makeSingles(arr) {
   const ret = [];
-  arr.forEach(function (obj) {
+  arr.forEach(function(obj) {
     if (/[\s]/.test(obj.path)) {
       const paths = obj.path.split(' ');
-      paths.forEach(function (p) {
+      paths.forEach(function(p) {
         const copy = Object.assign({}, obj);
         copy.path = p;
         ret.push(copy);
@@ -629,20 +622,19 @@ function makeSingles(arr) {
 }
 
 /**
- * Internal helper that normalises populate objects and creates PopulateOptions.
- *
+ * Internal helper that normalizes a populate definition object and returns
+ * an array of PopulateOptions instances.
  * @param {Object} obj
  * @returns {Array<PopulateOptions>}
- * @private
  */
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function (obj) {
+    obj.populate.forEach(function(obj) {
       if (/[\s]/.test(obj.path)) {
         const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
-        paths.forEach(function (p) {
+        paths.forEach(function(p) {
           copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
@@ -662,7 +654,7 @@ function _populateObj(obj) {
   }
 
   for (const path of paths) {
-    ret.push(new PopulateOptions(Object.assign({}, obj, { path })));
+    ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
   }
 
   return ret;
@@ -675,7 +667,7 @@ function _populateObj(obj) {
  * @param {Object} obj
  */
 
-exports.getValue = function (path, obj, map) {
+exports.getValue = function(path, obj, map) {
   return mpath.get(path, obj, '_doc', map);
 };
 
@@ -687,7 +679,7 @@ exports.getValue = function (path, obj, map) {
  * @param {Object} obj
  */
 
-exports.setValue = function (path, val, obj, map, _copying) {
+exports.setValue = function(path, val, obj, map, _copying) {
   mpath.set(path, val, obj, '_doc', map, _copying);
 };
 
@@ -700,7 +692,7 @@ exports.setValue = function (path, val, obj, map, _copying) {
  */
 
 exports.object = {};
-exports.object.vals = function (o) {
+exports.object.vals = function vals(o) {
   const keys = Object.keys(o);
   let i = keys.length;
   const ret = [];
@@ -726,7 +718,7 @@ exports.object.shallowCopy = exports.options;
  */
 
 const hop = Object.prototype.hasOwnProperty;
-exports.object.hasOwnProperty = function (obj, prop) {
+exports.object.hasOwnProperty = function(obj, prop) {
   return hop.call(obj, prop);
 };
 
@@ -736,7 +728,7 @@ exports.object.hasOwnProperty = function (obj, prop) {
  * @return {Boolean}
  */
 
-exports.isNullOrUndefined = function (val) {
+exports.isNullOrUndefined = function(val) {
   return val === null || val === undefined;
 };
 
@@ -760,7 +752,7 @@ exports.array = {};
 exports.array.flatten = function flatten(arr, filter, ret) {
   ret || (ret = []);
 
-  arr.forEach(function (item) {
+  arr.forEach(function(item) {
     if (Array.isArray(item)) {
       flatten(item, filter, ret);
     } else {
@@ -779,7 +771,7 @@ exports.array.flatten = function flatten(arr, filter, ret) {
 
 const _hasOwnProperty = Object.prototype.hasOwnProperty;
 
-exports.hasUserDefinedProperty = function (obj, key) {
+exports.hasUserDefinedProperty = function(obj, key) {
   if (obj == null) {
     return false;
   }
@@ -810,7 +802,7 @@ exports.hasUserDefinedProperty = function (obj, key) {
 
 const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
 
-exports.isArrayIndex = function (val) {
+exports.isArrayIndex = function(val) {
   if (typeof val === 'number') {
     return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
@@ -837,7 +829,7 @@ exports.isArrayIndex = function (val) {
  * @private
  */
 
-exports.array.unique = function (arr) {
+exports.array.unique = function(arr) {
   const primitives = new Set();
   const ids = new Set();
   const ret = [];
@@ -871,7 +863,7 @@ exports.array.unique = function (arr) {
  */
 
 exports.buffer = {};
-exports.buffer.areEqual = function (a, b) {
+exports.buffer.areEqual = function(a, b) {
   if (!Buffer.isBuffer(a)) {
     return false;
   }
@@ -894,7 +886,7 @@ exports.getFunctionName = getFunctionName;
  * Decorate buffers
  */
 
-exports.decorate = function (destination, source) {
+exports.decorate = function(destination, source) {
   for (const key in source) {
     if (specialProperties.has(key)) {
       continue;
@@ -911,14 +903,14 @@ exports.decorate = function (destination, source) {
  * @api private
  */
 
-exports.mergeClone = function (to, fromObj) {
+exports.mergeClone = function(to, fromObj) {
   if (isMongooseObject(fromObj)) {
     fromObj = fromObj.toObject({
       transform: false,
       virtuals: false,
       depopulate: true,
       getters: false,
-      flattenDecimals: false,
+      flattenDecimals: false
     });
   }
   const keys = Object.keys(fromObj);
@@ -937,7 +929,7 @@ exports.mergeClone = function (to, fromObj) {
         virtuals: false,
         depopulate: true,
         getters: false,
-        flattenDecimals: false,
+        flattenDecimals: false
       });
     } else {
       let val = fromObj[key];
@@ -952,7 +944,7 @@ exports.mergeClone = function (to, fromObj) {
             virtuals: false,
             depopulate: true,
             getters: false,
-            flattenDecimals: false,
+            flattenDecimals: false
           });
         }
         if (val.isMongooseBuffer) {
@@ -961,7 +953,7 @@ exports.mergeClone = function (to, fromObj) {
         exports.mergeClone(to[key], obj);
       } else {
         to[key] = exports.clone(val, {
-          flattenDecimals: false,
+          flattenDecimals: false
         });
       }
     }
@@ -976,7 +968,7 @@ exports.mergeClone = function (to, fromObj) {
  * @api private
  */
 
-exports.each = function (arr, fn) {
+exports.each = function(arr, fn) {
   for (const item of arr) {
     fn(item);
   }
@@ -986,7 +978,7 @@ exports.each = function (arr, fn) {
  * ignore
  */
 
-exports.getOption = function (name) {
+exports.getOption = function(name) {
   const sources = Array.prototype.slice.call(arguments, 1);
 
   for (const source of sources) {
@@ -1002,7 +994,7 @@ exports.getOption = function (name) {
  * ignore
  */
 
-exports.noop = function () {};
+exports.noop = function() {};
 
 exports.errorToPOJO = function errorToPOJO(error) {
   const isError = error instanceof Error;

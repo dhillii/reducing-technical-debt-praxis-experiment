@@ -84,7 +84,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...(options || {}) },
+			options ? { silent: true, ...options } : { silent: true },
 		);
 
 		forkedProcesses.add(newProcess);

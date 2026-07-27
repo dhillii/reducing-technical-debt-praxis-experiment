@@ -233,8 +233,7 @@ async function globSearch({
 				return false;
 			}
 			const absolutePath = path.resolve(basePath, entry.path);
-			const configs =
-				await configLoader.loadConfigArrayForDirectory(absolutePath);
+			const configs = await configLoader.loadConfigArrayForDirectory(absolutePath);
 			return !configs.isDirectoryIgnored(absolutePath);
 		},
 		async entryFilter(entry) {
@@ -242,8 +241,7 @@ async function globSearch({
 			if (entry.isDirectory) {
 				return false;
 			}
-			const configs =
-				await configLoader.loadConfigArrayForFile(absolutePath);
+			const configs = await configLoader.loadConfigArrayForFile(absolutePath);
 			const config = configs.getConfig(absolutePath);
 			const matchesPattern =
 				unmatchedPatterns.size > 0
@@ -301,12 +299,7 @@ async function throwErrorForUnmatchedPatterns({
 }) {
 	const pattern = unmatchedPatterns[0];
 	const rawPattern = rawPatterns[patterns.indexOf(pattern)];
-
-	const patternHasMatch = await globMatch({
-		basePath,
-		pattern,
-	});
-
+	const patternHasMatch = await globMatch({ basePath, pattern });
 	if (patternHasMatch) {
 		throw new AllFilesIgnoredError(rawPattern);
 	}
@@ -371,7 +364,7 @@ async function globMultiSearch({
 }
 
 /**
- * @typedef {Object} FindFilesOptions
+ * @typedef {Object} FindFilesArgs
  * @property {Array<string>} patterns
  * @property {boolean} globInputPaths
  * @property {string} cwd
@@ -381,7 +374,7 @@ async function globMultiSearch({
 
 /**
  * Finds all files matching the options specified.
- * @param {FindFilesOptions} args
+ * @param {FindFilesArgs} args
  * @returns {Promise<Array<string>>}
  */
 async function findFiles({
@@ -395,9 +388,7 @@ async function findFiles({
 	const missingPatterns = [];
 	let globbyPatterns = [];
 	let rawPatterns = [];
-	const searches = new Map([
-		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
-	]);
+	const searches = new Map([[cwd, { patterns: globbyPatterns, rawPatterns: [] }]]);
 
 	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
 	const stats = await Promise.all(
@@ -455,11 +446,6 @@ async function findFiles({
 	return [...new Set([...results, ...globbyResults])];
 }
 
-/**
- * Return the absolute path of a file named `"__placeholder__.js"` in a given directory.
- * @param {string} cwd An absolute directory path.
- * @returns {string}
- */
 function getPlaceholderPath(cwd) {
 	return path.join(cwd, "__placeholder__.js");
 }
@@ -472,13 +458,6 @@ function isErrorMessage(message) {
 	return message.severity === 2;
 }
 
-/**
- * Returns result with warning by ignore settings
- * @param {string} filePath Absolute file path of checked code
- * @param {string} baseDir Absolute path of base directory
- * @param {"ignored"|"external"|"unconfigured"} configStatus A status that determines why the file is ignored
- * @returns {LintResult}
- */
 function createIgnoreResult(filePath, baseDir, configStatus) {
 	let message;
 	switch (configStatus) {
@@ -486,8 +465,7 @@ function createIgnoreResult(filePath, baseDir, configStatus) {
 			message = "File ignored because outside of base path.";
 			break;
 		case "unconfigured":
-			message =
-				"File ignored because no matching configuration was supplied.";
+			message = "File ignored because no matching configuration was supplied.";
 			break;
 		default: {
 			const isInNodeModules =
@@ -498,10 +476,10 @@ function createIgnoreResult(filePath, baseDir, configStatus) {
 					.includes("node_modules");
 			if (isInNodeModules) {
 				message =
-					'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+					'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or "--no-warn-ignored" to suppress this warning.';
 			} else {
 				message =
-					'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+					'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or "--no-warn-ignored" to suppress this warning.';
 			}
 		}
 	}
@@ -524,11 +502,6 @@ function createIgnoreResult(filePath, baseDir, configStatus) {
 	};
 }
 
-/**
- * Calculates stats per file.
- * @param {LintMessage[]} messages
- * @returns {Object}
- */
 function calculateStatsPerFile(messages) {
 	const stat = {
 		errorCount: 0,
@@ -583,8 +556,34 @@ class ESLintInvalidOptionsError extends Error {
 }
 
 /**
+ * @typedef {Object} ProcessOptionsParams
+ * @property {boolean} [allowInlineConfig=true]
+ * @property {object|null} [baseConfig=null]
+ * @property {boolean} [cache=false]
+ * @property {string} [cacheLocation=".eslintcache"]
+ * @property {"metadata"|"content"} [cacheStrategy="metadata"]
+ * @property {"off"|"auto"|number} [concurrency="off"]
+ * @property {string} [cwd=process.cwd()]
+ * @property {boolean} [errorOnUnmatchedPattern=true]
+ * @property {boolean|Function} [fix=false]
+ * @property {Array<string>|null} [fixTypes=null]
+ * @property {Array<string>} [flags=[]]
+ * @property {boolean} [globInputPaths=true]
+ * @property {boolean} [ignore=true]
+ * @property {Array<string>|null} [ignorePatterns=null]
+ * @property {object|null} [overrideConfig=null]
+ * @property {string|boolean|null} [overrideConfigFile=null]
+ * @property {object} [plugins={}]
+ * @property {boolean} [stats=false]
+ * @property {boolean} [warnIgnored=true]
+ * @property {boolean} [passOnNoPatterns=false]
+ * @property {Function} [ruleFilter=()=>true]
+ */
+
+/**
  * Validates and normalizes options for the wrapped CLIEngine instance.
- * @param {ESLintOptions} options
+ * @param {ProcessOptionsParams} options
+ * @throws {ESLintInvalidOptionsError}
  * @returns {ESLintOptions}
  */
 function processOptions({
@@ -804,11 +803,10 @@ async function loadOptionsFromModule(optionsURL) {
 
 /**
  * @typedef {Object} GetCacheFileOptions
- * @property {string} [prefix]
+ * @property {string} [prefix=".cache_"]
  */
 
 /**
- * Returns the cache file path.
  * @param {string} cacheFile
  * @param {string} cwd
  * @param {GetCacheFileOptions} [options]
@@ -818,11 +816,9 @@ function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 	const normalizedCacheFile = path.normalize(cacheFile);
 	const resolvedCacheFile = path.resolve(cwd, normalizedCacheFile);
 	const looksLikeADirectory = normalizedCacheFile.slice(-1) === path.sep;
-
 	function getCacheFileForDirectory() {
 		return path.join(resolvedCacheFile, `${prefix}${hash(cwd)}`);
 	}
-
 	let fileStats;
 	try {
 		fileStats = fs.lstatSync(resolvedCacheFile);
@@ -842,7 +838,6 @@ function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 }
 
 /**
- * Creates a new lint result cache.
  * @param {ESLintOptions} eslintOptions
  * @param {string} cacheFilePath
  * @returns {?LintResultCache}
@@ -883,12 +878,11 @@ function getFixerForFixTypes(fix, fixTypesSet, config) {
 	}
 	const originalFix = typeof fix === "function" ? fix : () => true;
 	return message =>
-		shouldMessageBeFixed(message, config, fixTypesSet) &&
-		originalFix(message);
+		shouldMessageBeFixed(message, config, fixTypesSet) && originalFix(message);
 }
 
 /**
- * @typedef {Object} VerifyTextOptions
+ * @typedef {Object} VerifyTextParams
  * @property {string} text
  * @property {string} cwd
  * @property {string|undefined} filePath
@@ -902,7 +896,7 @@ function getFixerForFixTypes(fix, fixTypesSet, config) {
 
 /**
  * Processes a source code using ESLint.
- * @param {VerifyTextOptions} opts
+ * @param {VerifyTextParams} params
  * @returns {LintResult}
  */
 function verifyText({
@@ -939,10 +933,7 @@ function verifyText({
 	if (fixed) {
 		result.output = output;
 	}
-	if (
-		result.errorCount + result.warningCount > 0 &&
-		typeof result.output === "undefined"
-	) {
+	if (result.errorCount + result.warningCount > 0 && typeof result.output === "undefined") {
 		result.source = text;
 	}
 	if (stats) {
@@ -954,62 +945,6 @@ function verifyText({
 	const endTime = hrtimeBigint();
 	debug('File "%s" linted in %t', filePath, endTime - startTime);
 	return result;
-}
-
-/**
- * @typedef {Object} ReadAndVerifyOptions
- * @property {string} filePath
- * @property {FlatConfigArray} configs
- * @property {string} cwd
- * @property {boolean|Function} fix
- * @property {boolean} allowInlineConfig
- * @property {Function} ruleFilter
- * @property {boolean} stats
- * @property {Linter} linter
- * @property {AbortController} [controller]
- * @property {Object} [readFileCounter]
- */
-
-/**
- * Reads a file and verifies its content.
- * @param {ReadAndVerifyOptions} opts
- * @returns {Promise<LintResult>}
- */
-async function readAndVerifyFile({
-	filePath,
-	configs,
-	cwd,
-	fix,
-	allowInlineConfig,
-	ruleFilter,
-	stats,
-	linter,
-	controller,
-	readFileCounter,
-}) {
-	const readFileEnterTime = hrtimeBigint();
-	const text = await fsp.readFile(filePath, {
-		encoding: "utf8",
-		signal: controller?.signal,
-	});
-	const readFileExitTime = hrtimeBigint();
-	const readFileDuration = readFileExitTime - readFileEnterTime;
-	debug('File "%s" read in %t', filePath, readFileDuration);
-	if (readFileCounter) {
-		readFileCounter.duration += readFileDuration;
-	}
-	controller?.signal.throwIfAborted();
-	return verifyText({
-		text,
-		filePath,
-		configs,
-		cwd,
-		fix,
-		allowInlineConfig,
-		ruleFilter,
-		stats,
-		linter,
-	});
 }
 
 /**
@@ -1025,11 +960,11 @@ async function readAndVerifyFile({
  */
 
 /**
- * Lints a single file using an options object.
+ * Internal implementation of lintFile with a single options object.
  * @param {LintFileOptions} opts
  * @returns {Promise<LintResult>}
  */
-async function lintFileWithOptions({
+async function _lintFileInternal({
 	filePath,
 	configs,
 	eslintOptions,
@@ -1065,8 +1000,7 @@ async function lintFileWithOptions({
 			config,
 		);
 		if (cachedResult) {
-			const hadMessages =
-				cachedResult.messages && cachedResult.messages.length > 0;
+			const hadMessages = cachedResult.messages && cachedResult.messages.length > 0;
 			if (hadMessages && fix) {
 				debug(`Reprocessing cached file to allow autofix: ${filePath}`);
 			} else {
@@ -1077,8 +1011,22 @@ async function lintFileWithOptions({
 	}
 
 	const fixer = getFixerForFixTypes(fix, fixTypesSet, config);
-	const readAndVerify = () =>
-		readAndVerifyFile({
+
+	async function readAndVerifyFile() {
+		const readFileEnterTime = hrtimeBigint();
+		const text = await fsp.readFile(filePath, {
+			encoding: "utf8",
+			signal: controller?.signal,
+		});
+		const readFileExitTime = hrtimeBigint();
+		const readFileDuration = readFileExitTime - readFileEnterTime;
+		debug('File "%s" read in %t', filePath, readFileDuration);
+		if (readFileCounter) {
+			readFileCounter.duration += readFileDuration;
+		}
+		controller?.signal.throwIfAborted();
+		return verifyText({
+			text,
 			filePath,
 			configs,
 			cwd,
@@ -1087,15 +1035,14 @@ async function lintFileWithOptions({
 			ruleFilter,
 			stats,
 			linter,
-			controller,
-			readFileCounter,
 		});
+	}
 
-	const promise = retrier
-		? retrier.retry(readAndVerify, { signal: controller?.signal })
-		: readAndVerify();
+	const readAndVerifyFilePromise = retrier
+		? retrier.retry(readAndVerifyFile, { signal: controller?.signal })
+		: readAndVerifyFile();
 
-	return promise.catch(error => {
+	return readAndVerifyFilePromise.catch(error => {
 		controller?.abort(error);
 		throw error;
 	});
@@ -1103,12 +1050,13 @@ async function lintFileWithOptions({
 
 /**
  * Backward‑compatible wrapper for lintFile.
+ * Accepts either the original positional arguments or a single options object.
  * @param {...any} args
  * @returns {Promise<LintResult>}
  */
 function lintFile(...args) {
 	if (args.length === 1 && typeof args[0] === "object" && args[0] !== null) {
-		return lintFileWithOptions(args[0]);
+		return _lintFileInternal(args[0]);
 	}
 	const [
 		filePath,
@@ -1120,7 +1068,7 @@ function lintFile(...args) {
 		retrier,
 		controller,
 	] = args;
-	return lintFileWithOptions({
+	return _lintFileInternal({
 		filePath,
 		configs,
 		eslintOptions,
@@ -1162,7 +1110,7 @@ function createLinter({ cwd, flags }, warningService) {
 
 /**
  * Creates default configs with the specified plugins.
- * @param {Record<string, Plugin> | undefined} optionPlugins
+ * @param {Record<string, Plugin>|undefined} optionPlugins
  * @returns {Config[]}
  */
 function createDefaultConfigs(optionPlugins) {
@@ -1178,18 +1126,8 @@ function createDefaultConfigs(optionPlugins) {
 }
 
 /**
- * @typedef {Object} CreateConfigLoaderOptions
- * @property {string} cwd
- * @property {Config|null} baseConfig
- * @property {Config|null} overrideConfig
- * @property {string|false|null} configFile
- * @property {boolean} ignore
- * @property {Array<string>|null} ignorePatterns
- */
-
-/**
  * Creates a config loader.
- * @param {CreateConfigLoaderOptions} eslintOptions
+ * @param {ESLintOptions} eslintOptions
  * @param {Config[]} defaultConfigs
  * @param {Linter} linter
  * @param {WarningService} warningService

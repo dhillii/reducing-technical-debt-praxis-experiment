@@ -185,17 +185,27 @@ const QueryGenerator = {
     return `(${quotedColumn}#>>${pathStr})`;
   },
 
-  handleSequelizeMethod(...args) {
-    const [smth, tableName, factory, options, prepend] = args;
-    const params = { tableName, factory, options, prepend };
-    return this._handleSequelizeMethod(smth, params);
+  handleSequelizeMethod(smth, tableName, factory, options, prepend) {
+    return this._handleSequelizeMethod({
+      smth,
+      tableName,
+      factory,
+      options,
+      prepend
+    });
   },
 
   /**
-   * Internal implementation of handleSequelizeMethod using a parameter object.
-   * @private
+   * Internal implementation using a parameter object.
+   * @param {Object} params
+   * @param {any} params.smth
+   * @param {string} params.tableName
+   * @param {any} params.factory
+   * @param {Object} params.options
+   * @param {any} params.prepend
+   * @returns {string}
    */
-  _handleSequelizeMethod(smth, { tableName, factory, options, prepend }) {
+  _handleSequelizeMethod({ smth, tableName, factory, options, prepend }) {
     if (smth instanceof Utils.Json) {
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
@@ -328,69 +338,129 @@ const QueryGenerator = {
     return `ALTER TABLE ${this.quoteTable(tableName)} RENAME COLUMN ${attrString.join(', ')};`;
   },
 
-  fn(...args) {
-    const [fnName, tableName, parameters, body, returns, language] = args;
-    const params = { fnName, tableName, parameters, body, returns, language };
-    return this._fn(params);
+  fn(fnName, tableName, parameters, body, returns, language) {
+    return this._fnBuilder()
+      .setFnName(fnName)
+      .setTableName(tableName)
+      .setParameters(parameters)
+      .setBody(body)
+      .setReturns(returns)
+      .setLanguage(language)
+      .build();
   },
 
   /**
-   * Internal implementation of fn using a parameter object.
-   * @private
+   * Builder for fn function parameters.
+   * @returns {Object}
    */
-  _fn({ fnName, tableName, parameters, body, returns, language }) {
-    fnName = fnName || 'testfunc';
-    language = language || 'plpgsql';
-    returns = returns ? `RETURNS ${returns}` : '';
-    parameters = parameters || '';
-
-    return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
+  _fnBuilder() {
+    const obj = {
+      fnName: 'testfunc',
+      tableName: undefined,
+      parameters: '',
+      body: '',
+      returns: '',
+      language: 'plpgsql',
+      setFnName(name) { this.fnName = name || 'testfunc'; return this; },
+      setTableName(name) { this.tableName = name; return this; },
+      setParameters(p) { this.parameters = p || ''; return this; },
+      setBody(b) { this.body = b; return this; },
+      setReturns(r) { this.returns = r ? `RETURNS ${r}` : ''; return this; },
+      setLanguage(l) { this.language = l || 'plpgsql'; return this; },
+      build() {
+        return `CREATE OR REPLACE FUNCTION pg_temp.${this.fnName}(${this.parameters}) ${this.returns} AS $func$ BEGIN ${this.body} END; $func$ LANGUAGE ${this.language}; SELECT * FROM pg_temp.${this.fnName}();`;
+      }
+    };
+    return obj;
   },
 
-  exceptionFn(...args) {
-    const [fnName, tableName, parameters, main, then, when, returns, language] = args;
-    const params = { fnName, tableName, parameters, main, then, when, returns, language };
-    return this._exceptionFn(params);
+  exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
+    return this._exceptionFnBuilder()
+      .setFnName(fnName)
+      .setTableName(tableName)
+      .setParameters(parameters)
+      .setMain(main)
+      .setThen(then)
+      .setWhen(when)
+      .setReturns(returns)
+      .setLanguage(language)
+      .build();
   },
 
-  /**
-   * Internal implementation of exceptionFn using a parameter object.
-   * @private
-   */
-  _exceptionFn({ fnName, tableName, parameters, main, then, when, returns, language }) {
-    when = when || 'unique_violation';
-
-    const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
-
-    return this._fn({ fnName, tableName, parameters, body, returns, language });
+  _exceptionFnBuilder() {
+    const obj = {
+      fnName: undefined,
+      tableName: undefined,
+      parameters: '',
+      main: '',
+      then: '',
+      when: 'unique_violation',
+      returns: '',
+      language: undefined,
+      setFnName(v) { this.fnName = v; return this; },
+      setTableName(v) { this.tableName = v; return this; },
+      setParameters(v) { this.parameters = v; return this; },
+      setMain(v) { this.main = v; return this; },
+      setThen(v) { this.then = v; return this; },
+      setWhen(v) { this.when = v || 'unique_violation'; return this; },
+      setReturns(v) { this.returns = v; return this; },
+      setLanguage(v) { this.language = v; return this; },
+      build() {
+        const body = `${this.main} EXCEPTION WHEN ${this.when} THEN ${this.then};`;
+        return this._fnBuilder()
+          .setFnName(this.fnName)
+          .setTableName(this.tableName)
+          .setParameters(this.parameters)
+          .setBody(body)
+          .setReturns(this.returns)
+          .setLanguage(this.language)
+          .build();
+      }
+    };
+    return obj;
   },
 
-  upsertQuery(...args) {
-    const [tableName, insertValues, updateValues, where, model, options] = args;
-    const params = { tableName, insertValues, updateValues, where, model, options };
-    return this._upsertQuery(params);
+  upsertQuery(tableName, insertValues, updateValues, where, model, options) {
+    return this._upsertQueryBuilder()
+      .setTableName(tableName)
+      .setInsertValues(insertValues)
+      .setUpdateValues(updateValues)
+      .setWhere(where)
+      .setModel(model)
+      .setOptions(options)
+      .build();
   },
 
-  /**
-   * Internal implementation of upsertQuery using a parameter object.
-   * @private
-   */
-  _upsertQuery({ tableName, insertValues, updateValues, where, model, options }) {
-    const primaryField = this.quoteIdentifier(model.primaryKeyField);
-
-    let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
-    let update = this.updateQuery(tableName, updateValues, where, options, model.rawAttributes);
-
-    insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
-    update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
-
-    return this.exceptionFn(
-      'sequelize_upsert',
-      tableName,
-      'OUT created boolean, OUT primary_key text',
-      `${insert} created := true;`,
-      `${update}; created := false`
-    );
+  _upsertQueryBuilder() {
+    const obj = {
+      tableName: undefined,
+      insertValues: undefined,
+      updateValues: undefined,
+      where: undefined,
+      model: undefined,
+      options: undefined,
+      setTableName(v) { this.tableName = v; return this; },
+      setInsertValues(v) { this.insertValues = v; return this; },
+      setUpdateValues(v) { this.updateValues = v; return this; },
+      setWhere(v) { this.where = v; return this; },
+      setModel(v) { this.model = v; return this; },
+      setOptions(v) { this.options = v; return this; },
+      build() {
+        const primaryField = this.quoteIdentifier(this.model.primaryKeyField);
+        let insert = this.insertQuery(this.tableName, this.insertValues, this.model.rawAttributes, this.options);
+        let update = this.updateQuery(this.tableName, this.updateValues, this.where, this.options, this.model.rawAttributes);
+        insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
+        update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
+        return this.exceptionFn(
+          'sequelize_upsert',
+          this.tableName,
+          'OUT created boolean, OUT primary_key text',
+          `${insert} created := true;`,
+          `${update}; created := false`
+        );
+      }
+    };
+    return obj;
   },
 
   deleteQuery(tableName, where, options, model) {
@@ -621,27 +691,48 @@ const QueryGenerator = {
     return result;
   },
 
-  createTrigger(...args) {
-    const [tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray] = args;
-    const params = { tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray };
-    return this._createTrigger(params);
+  createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+    return this._createTriggerBuilder()
+      .setTableName(tableName)
+      .setTriggerName(triggerName)
+      .setEventType(eventType)
+      .setFireOnSpec(fireOnSpec)
+      .setFunctionName(functionName)
+      .setFunctionParams(functionParams)
+      .setOptionsArray(optionsArray)
+      .build();
   },
 
-  /**
-   * Internal implementation of createTrigger using a parameter object.
-   * @private
-   */
-  _createTrigger({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray }) {
-    const decodedEventType = this.decodeTriggerEventType(eventType);
-    const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
-    const expandedOptions = this.expandOptions(optionsArray);
-    const paramList = this.expandFunctionParamList(functionParams);
+  _createTriggerBuilder() {
+    const obj = {
+      tableName: undefined,
+      triggerName: undefined,
+      eventType: undefined,
+      fireOnSpec: undefined,
+      functionName: undefined,
+      functionParams: undefined,
+      optionsArray: undefined,
+      setTableName(v) { this.tableName = v; return this; },
+      setTriggerName(v) { this.triggerName = v; return this; },
+      setEventType(v) { this.eventType = v; return this; },
+      setFireOnSpec(v) { this.fireOnSpec = v; return this; },
+      setFunctionName(v) { this.functionName = v; return this; },
+      setFunctionParams(v) { this.functionParams = v; return this; },
+      setOptionsArray(v) { this.optionsArray = v; return this; },
+      build() {
+        const decodedEventType = this.decodeTriggerEventType(this.eventType);
+        const eventSpec = this.expandTriggerEventSpec(this.fireOnSpec);
+        const expandedOptions = this.expandOptions(this.optionsArray);
+        const paramList = this.expandFunctionParamList(this.functionParams);
 
-    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n` +
-      `\t${decodedEventType} ${eventSpec}\n` +
-      `\tON ${tableName}\n` +
-      `\t${expandedOptions}\n` +
-      `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
+        return `CREATE ${this.triggerEventTypeIsConstraint(this.eventType)}TRIGGER ${this.triggerName}\n` +
+          `\t${decodedEventType} ${eventSpec}\n` +
+          `\tON ${this.tableName}\n` +
+          `\t${expandedOptions}\n` +
+          `\tEXECUTE PROCEDURE ${this.functionName}(${paramList});`;
+      }
+    };
+    return obj;
   },
 
   dropTrigger(tableName, triggerName) {
@@ -652,29 +743,49 @@ const QueryGenerator = {
     return `ALTER TRIGGER ${oldTriggerName} ON ${tableName} RENAME TO ${newTriggerName};`;
   },
 
-  createFunction(...args) {
-    const [functionName, params, returnType, language, body, options] = args;
-    const paramObj = { functionName, params, returnType, language, body, options };
-    return this._createFunction(paramObj);
+  createFunction(functionName, params, returnType, language, body, options) {
+    return this._createFunctionBuilder()
+      .setFunctionName(functionName)
+      .setParams(params)
+      .setReturnType(returnType)
+      .setLanguage(language)
+      .setBody(body)
+      .setOptions(options)
+      .build();
   },
 
-  /**
-   * Internal implementation of createFunction using a parameter object.
-   * @private
-   */
-  _createFunction({ functionName, params, returnType, language, body, options }) {
-    if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
+  _createFunctionBuilder() {
+    const obj = {
+      functionName: undefined,
+      params: undefined,
+      returnType: undefined,
+      language: undefined,
+      body: undefined,
+      options: undefined,
+      setFunctionName(v) { this.functionName = v; return this; },
+      setParams(v) { this.params = v; return this; },
+      setReturnType(v) { this.returnType = v; return this; },
+      setLanguage(v) { this.language = v; return this; },
+      setBody(v) { this.body = v; return this; },
+      setOptions(v) { this.options = v; return this; },
+      build() {
+        if (!this.functionName || !this.returnType || !this.language || !this.body) {
+          throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
+        }
 
-    const paramList = this.expandFunctionParamList(params);
-    const indentedBody = body.replace('\n', '\n\t');
-    const expandedOptions = this.expandOptions(options);
+        const paramList = this.expandFunctionParamList(this.params);
+        const indentedBody = this.body.replace('\n', '\n\t');
+        const expandedOptions = this.expandOptions(this.options);
 
-    return `CREATE FUNCTION ${functionName}(${paramList})\n` +
-      `RETURNS ${returnType} AS $func$\n` +
-      'BEGIN\n' +
-      `\t${indentedBody}\n` +
-      'END;\n' +
-      `$func$ language '${language}'${expandedOptions};`;
+        return `CREATE FUNCTION ${this.functionName}(${paramList})\n` +
+          `RETURNS ${this.returnType} AS $func$\n` +
+          'BEGIN\n' +
+          `\t${indentedBody}\n` +
+          'END;\n' +
+          `$func$ language '${this.language}'${expandedOptions};`;
+      }
+    };
+    return obj;
   },
 
   dropFunction(functionName, params) {
@@ -722,7 +833,6 @@ const QueryGenerator = {
 
       const joined = paramDef.join(' ');
       if (joined) paramList.push(joined);
-
     });
 
     return paramList.join(', ');
@@ -875,7 +985,7 @@ const QueryGenerator = {
         dataType = dataType.replace(/BIGINT/, '');
       } else if (_.includes(dataType, 'SMALLINT')) {
         dataType = dataType.replace(/SERIAL/, 'SMALLSERIAL');
-        dataType = dataType.replace(/SMALLINT/, '');
+        dataType = dataType.replace(/SMALLINT/, '');        
       } else {
         dataType = dataType.replace(/INTEGER/, '');
       }

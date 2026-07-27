@@ -101,7 +101,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
          const objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o});
 
-         const win  = function (e) {
+         const win = function (e) {
            if (callback) { self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0] ) }
          };
 
@@ -265,8 +265,9 @@ Lawnchair.adapter('indexed-db', (function(){
 
         let toDelete = keyOrArray; 
         if (!this.isArray(keyOrArray)) {
-          toDelete = [keyOrArray];
+          toDelete=[keyOrArray];
         }
+
 
         const win = function () {
           if (callback) self.lambda(callback).call(self)
@@ -274,6 +275,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
 
+        const key = keyOrArray.key ? keyOrArray.key : keyOrArray;
         for (let i = 0; i < toDelete.length; i++) {
           const delKey = toDelete[i].key ? toDelete[i].key : toDelete[i];
           os['delete'](delKey);

@@ -213,24 +213,22 @@ class Strapi {
     await Promise.all(
       Object.values(this.plugins).map(plugin => {
         if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
-          return Promise.resolve(plugin.destroy());
+          return plugin.destroy();
         }
       })
     );
 
     if (_.has(this, 'admin')) {
-      await Promise.resolve(this.admin.destroy());
+      await this.admin.destroy();
     }
 
     this.eventHub.removeAllListeners();
 
     if (_.has(this, 'db')) {
-      await Promise.resolve(this.db.destroy());
+      await this.db.destroy();
     }
 
-    if (this.telemetry && typeof this.telemetry.destroy === 'function') {
-      this.telemetry.destroy();
-    }
+    this.telemetry.destroy();
 
     delete global.strapi;
   }
@@ -243,7 +241,7 @@ class Strapi {
       if (err) return this.stopWithError(err);
 
       // Is the project initialised?
-      const isInitialised = await Promise.resolve(utils.isInitialised(this));
+      const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
       const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
@@ -277,7 +275,7 @@ class Strapi {
           this.config.get('server.admin.autoOpen', true) !== false) ||
         !isInitialised
       ) {
-        await Promise.resolve(utils.openBrowser.call(this));
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -337,7 +335,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    await Promise.resolve(bootstrap(this));
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -386,7 +384,7 @@ class Strapi {
   }
 
   async startWebhooks() {
-    const webhooks = await Promise.resolve(this.webhookStore.findWebhooks());
+    const webhooks = await this.webhookStore.findWebhooks();
     webhooks.forEach(webhook => this.webhookRunner.add(webhook));
   }
 
@@ -435,7 +433,8 @@ class Strapi {
       if (!fn) {
         return;
       }
-      return Promise.resolve(fn());
+
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;

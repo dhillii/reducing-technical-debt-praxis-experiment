@@ -113,7 +113,7 @@ module.exports = class EventRepository {
 
         //Start the promises
         const pages = filteredPages.map((page) => {
-            return this[page.action](otherFilter, options);
+            return this[page.action](options, otherFilter);
         });
 
         const allEventPages = await Promise.all(pages);
@@ -153,7 +153,7 @@ module.exports = class EventRepository {
         });
     }
 
-    async getNewsletterSubscriptionEvents(filter, options = {}) {
+    async getNewsletterSubscriptionEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'newsletter'],
@@ -187,7 +187,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSubscriptionEvents(filter, options = {}) {
+    async getSubscriptionEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: [
@@ -249,7 +249,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getPaymentEvents(filter, options = {}) {
+    async getPaymentEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -282,7 +282,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getLoginEvents(filter, options = {}) {
+    async getLoginEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -315,7 +315,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSignupEvents(filter, options = {}) {
+    async getSignupEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: [
@@ -370,7 +370,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getDonationEvents(filter, options = {}) {
+    async getDonationEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: [
@@ -424,7 +424,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getCommentEvents(filter, options = {}) {
+    async getCommentEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'post', 'parent'],
@@ -458,7 +458,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getClickEvents(filter, options = {}) {
+    async getClickEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'link', 'link.post'],
@@ -492,13 +492,34 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAggregatedClickEvents(filter, options = {}) {
+    getPostIdFromFilter(filter) {
+        let postIdString = '';
+
+        if (filter && filter.$and) {
+            // Case when there is an $and condition
+            postIdString = filter.$and.find(condition => condition['data.post_id'])?.['data.post_id'];
+        } else {
+            // Case when there's no $and condition, directly look for data.post_id
+            postIdString = filter ? filter['data.post_id'] : '';
+        }
+
+        if (!ObjectID.isValid(postIdString)) {
+            return null;
+        }
+
+        return ObjectID.createFromHexString(postIdString);
+    }
+
+    /**
+     * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
+     */
+    async getAggregatedClickEvents(options, filter = {}) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
         const [typeFilter, otherFilter] = this.getNQLSubset(options.filter); // eslint-disable-line
 
-        const adjustedFilter = this.removePostIdFilter(otherFilter); //Remove post_id filter as we don't need it in the query
+        filter = this.removePostIdFilter(otherFilter); //Remove post_id filter as we don't need it in the query
 
         let postClicksQuery = postId ? `SELECT
                     mce.id,
@@ -549,7 +570,7 @@ module.exports = class EventRepository {
             useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
-                replaceCustomFilterTransformer(adjustedFilter),
+                replaceCustomFilterTransformer(filter),
 
                 // Map the used keys in that filter
                 ...mapKeys({
@@ -591,7 +612,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getFeedbackEvents(filter, options = {}) {
+    async getFeedbackEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'post'],
@@ -625,7 +646,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSentEvents(filter, options = {}) {
+    async getEmailSentEvents(options, filter = {}) {
         const filterStr = 'failed_at:null+processed_at:-null+delivered_at:null+custom:true';
         options = {
             ...options,
@@ -669,7 +690,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailDeliveredEvents(filter, options = {}) {
+    async getEmailDeliveredEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -712,7 +733,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailOpenedEvents(filter, options = {}) {
+    async getEmailOpenedEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -755,7 +776,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSpamComplaintEvents(filter, options = {}) {
+    async getEmailSpamComplaintEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -789,7 +810,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailFailedEvents(filter, options = {}) {
+    async getEmailFailedEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -832,7 +853,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailChangeEvent(filter, options = {}) {
+    async getEmailChangeEvent(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -865,7 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(filter, options = {}) {
+    async getAutomatedEmailSentEvents(options, filter = {}) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

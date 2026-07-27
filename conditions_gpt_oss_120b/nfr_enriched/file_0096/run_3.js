@@ -2,8 +2,8 @@
  * Copyright (C) 2015 Laverna project Authors.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -22,7 +22,7 @@ define([
      * replies to the following requests:
      * 1. save            - save model changes
      * 2. save:collection - save all collection changes
-     * 3. save:raw        - saves several objects
+     * 3. save:all:raw    - saves several objects
      * 4. fetch           - fetches models from the database
      * 5. get:model       - returns a specific model
      * 6. get:all         - returns a collection
@@ -32,7 +32,7 @@ define([
      * 1. model:update    - after a model is updated or created
      * 2. destroy:model   - after a model is removed
      */
-    const Module = Marionette.Object.extend({
+    var Module = Marionette.Object.extend({
         /**
          * @type object Backbone collection
          */
@@ -62,6 +62,7 @@ define([
         },
 
         initialize: function() {
+            // Default replies
             const defReply = _.bind(Module.prototype.reply, this);
             this.vent = Radio.channel(this.Collection.prototype.storeName);
 
@@ -80,14 +81,16 @@ define([
          */
         changeDatabase: function(options) {
             const profile = options && options.profile ? options.profile : this.defaultDB;
+            let model;
+            let collection;
 
-            const model = this.Collection.prototype.model.extend({
-                profileId: profile
+            model = this.Collection.prototype.model.extend({
+                profileId : profile
             });
 
-            const collection = this.Collection.extend({
-                profileId: profile,
-                model: model
+            collection = this.Collection.extend({
+                profileId : profile,
+                model     : model
             });
 
             return collection;
@@ -128,10 +131,10 @@ define([
             model[setF](data);
 
             return new Q(self.encryptModel(model))
-                .then(function(encryptedModel) {
-                    return new Q(encryptedModel.save(encryptedModel.attributes, { validate: false }))
-                        .thenResolve(encryptedModel);
-                });
+            .then(function(model) {
+                return new Q(model.save(model.attributes, {validate: false}))
+                .thenResolve(model);
+            });
         },
 
         /**
@@ -147,14 +150,14 @@ define([
             }
 
             return this.save(model, data)
-                .then(function(savedModel) {
-                    self.vent.trigger('sync:model', savedModel);
-                    return self.decryptModel(savedModel);
-                })
-                .then(function(decryptedModel) {
-                    self.vent.trigger('update:model', decryptedModel);
-                    return decryptedModel;
-                });
+            .then(function(model) {
+                self.vent.trigger('sync:model', model);
+                return self.decryptModel(model);
+            })
+            .then(function(model) {
+                self.vent.trigger('update:model', model);
+                return model;
+            });
         },
 
         /**
@@ -175,10 +178,10 @@ define([
             });
 
             return Q.all(promises)
-                .then(function() {
-                    self.vent.trigger('saved:collection');
-                    return collection;
-                });
+            .then(function() {
+                self.vent.trigger('saved:collection');
+                return collection;
+            });
         },
 
         /**
@@ -188,28 +191,27 @@ define([
          */
         saveRaw: function(data, options) {
             const self = this;
-            const ModelClass = this.changeDatabase(options).prototype.model;
-            const model = new ModelClass(data);
+            const model = new (this.changeDatabase(options)).prototype.model(data);
             let errors;
 
             return this.decryptModel(model)
-                .then(function() {
-                    errors = model.validate(model.attributes);
+            .then(function() {
+                errors = model.validate(model.attributes);
 
-                    // Don't save data which can't be validated
-                    if (errors) {
-                        console.error('Validation failed:' + model.storeName, errors);
-                        return;
-                    }
+                // Don't save data which can't be validated
+                if (errors) {
+                    console.error('Validation failed:' + model.storeName, errors);
+                    return;
+                }
 
-                    return self.save(model, data)
-                        .then(self.decryptModel)
-                        .then(function(savedModel) {
-                            self.vent.trigger('update:model', savedModel);
-                            self.vent.trigger('synced:' + savedModel.id, savedModel);
-                            return savedModel;
-                        });
+                return self.save(model, data)
+                .then(self.decryptModel)
+                .then(function(model) {
+                    self.vent.trigger('update:model', model);
+                    self.vent.trigger('synced:' + model.id, model);
+                    return model;
                 });
+            });
         },
 
         /**
@@ -238,16 +240,15 @@ define([
             const self = this;
 
             // Change model's attributes to default values (empty values)
-            const id = typeof model === 'string' ? model : model.id;
-            const ModelClass = this.changeDatabase(options).prototype.model;
-            const modelInstance = new ModelClass({ id: id });
+            model = typeof model === 'string' ? model : model.id;
+            model = new (this.changeDatabase(options)).prototype.model({id: model});
 
-            modelInstance.set({ 'trash': 2, updated: Date.now() });
+            model.set({'trash': 2, updated: Date.now()});
 
-            return this.save(modelInstance, modelInstance.attributes)
-                .then(function() {
-                    self.vent.trigger('destroy:model', modelInstance);
-                });
+            return this.save(model, model.attributes)
+            .then(function() {
+                self.vent.trigger('destroy:model', model);
+            });
         },
 
         /**
@@ -255,7 +256,7 @@ define([
          * @type object options
          */
         getModel: function(options) {
-            const Model = this.changeDatabase(options).prototype.model;
+            const Model = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
             const data = {};
             let model;
@@ -279,16 +280,16 @@ define([
             const self = this;
 
             return new Q(model.fetch())
-                .then(function() {
-                    return self.decryptModel(model)
-                        .thenResolve(model);
-                })
-                .fail(function(e) {
-                    if (typeof e === 'string' && e.search('not found') > -1) {
-                        return null;
-                    }
-                    throw new Error(e);
-                });
+            .then(function() {
+                return self.decryptModel(model)
+                .thenResolve(model);
+            })
+            .fail(function(e) {
+                if (typeof e === 'string' && e.search('not found') > -1) {
+                    return null;
+                }
+                throw new Error(e);
+            });
         },
 
         /**
@@ -309,21 +310,21 @@ define([
             // this.onReset();
 
             return this.fetch(options || {})
-                .then(function(collection) {
-                    self.collection = collection;
-                    self.collection.conditionFilter = options.filter;
-                    self.collection.conditionCurrent = options.conditions;
+            .then(function(collection) {
+                self.collection = collection;
+                self.collection.conditionFilter  = options.filter;
+                self.collection.conditionCurrent = options.conditions;
 
-                    // Register events
-                    if (self.collection.registerEvents) {
-                        self.collection.registerEvents();
-                    }
+                // Register events
+                if (self.collection.registerEvents) {
+                    self.collection.registerEvents();
+                }
 
-                    // Events
-                    self.listenTo(self.collection, 'reset:all', self.onReset);
+                // Events
+                self.listenTo(self.collection, 'reset:all', self.onReset);
 
-                    return self.collection;
-                });
+                return self.collection;
+            });
         },
 
         /**
@@ -335,20 +336,20 @@ define([
             const self = this;
 
             return new Q(collection.fetch(options))
-                .then(function() {
+            .then(function() {
 
-                    // Return in decrypted format
-                    if (!options.encrypt) {
-                        return self.decryptModels(collection.fullCollection || collection)
-                            .then(function() {
-                                collection.trigger('decrypted');
-                                return;
-                            })
-                            .thenResolve(collection);
-                    }
+                // Return in decrypted format
+                if (!options.encrypt) {
+                    return self.decryptModels(collection.fullCollection || collection)
+                    .then(function() {
+                        collection.trigger('decrypted');
+                        return;
+                    })
+                    .thenResolve(collection);
+                }
 
-                    return collection;
-                });
+                return collection;
+            });
         },
 
         /**
@@ -361,11 +362,11 @@ define([
             }
 
             const configs = Radio.request('configs', 'get:object');
-            const backup = { encrypt: configs.encryptBackup.encrypt || 0 };
-            model = model || this.Collection.prototype.model.prototype;
+            const backup = {encrypt: configs.encryptBackup.encrypt || 0};
+            let targetModel = model || this.Collection.prototype.model.prototype;
 
             return (
-                !_.isUndefined(model.encryptKeys) &&
+                !_.isUndefined(targetModel.encryptKeys) &&
                 (Number(configs.encrypt) || Number(backup.encrypt)) === 1
             );
         },

@@ -32,7 +32,7 @@ define([
      * 1. model:update    - after a model is updated or created
      * 2. destroy:model   - after a model is removed
      */
-    const Module = Marionette.Object.extend({
+    var Module = Marionette.Object.extend({
         /**
          * @type object Backbone collection
          */
@@ -241,13 +241,13 @@ define([
 
             // Change model's attributes to default values (empty values)
             model = typeof model === 'string' ? model : model.id;
-            model = new (this.changeDatabase(options)).prototype.model({id: model});
+            let modelInstance = new (this.changeDatabase(options)).prototype.model({id: model});
 
-            model.set({'trash': 2, updated: Date.now()});
+            modelInstance.set({'trash': 2, updated: Date.now()});
 
-            return this.save(model, model.attributes)
+            return this.save(modelInstance, modelInstance.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', model);
+                self.vent.trigger('destroy:model', modelInstance);
             });
         },
 
@@ -302,9 +302,9 @@ define([
 
             // Add filter conditions
             if (options.filter) {
-                let cond = this.Collection.prototype.conditions[options.filter];
-                cond = (typeof cond === 'function' ? cond(options) : cond);
-                options.conditions = cond;
+                const cond = this.Collection.prototype.conditions[options.filter];
+                const resolvedCond = (typeof cond === 'function' ? cond(options) : cond);
+                options.conditions = resolvedCond;
             }
 
             // this.onReset();
@@ -363,10 +363,10 @@ define([
 
             const configs = Radio.request('configs', 'get:object');
             const backup = {encrypt: configs.encryptBackup.encrypt || 0};
-            model = model || this.Collection.prototype.model.prototype;
+            const modelProto = model || this.Collection.prototype.model.prototype;
 
             return (
-                !_.isUndefined(model.encryptKeys) &&
+                !_.isUndefined(modelProto.encryptKeys) &&
                 (Number(configs.encrypt) || Number(backup.encrypt)) === 1
             );
         },

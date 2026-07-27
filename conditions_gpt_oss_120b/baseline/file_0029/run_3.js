@@ -4,7 +4,7 @@ import PostSuccessModal from '../modal-post-success';
 import anime from 'animejs/lib/anime.es.js';
 import {action} from '@ember/object';
 import {didCancel, task} from 'ember-concurrency';
-import {inject} as inject from 'ghost-admin/decorators/inject';
+import {inject} from 'ghost-admin/decorators/inject';
 import {inject as service} from '@ember/service';
 import {tracked} from '@glimmer/tracking';
 
@@ -12,10 +12,13 @@ import {tracked} from '@glimmer/tracking';
  * @typedef {import('../../services/dashboard-stats').SourceAttributionCount} SourceAttributionCount
 */
 
-const DISPLAY_OPTIONS = [
-    {name: 'Free signups', value: 'signups'},
-    {name: 'Paid conversions', value: 'paid'}
-];
+const DISPLAY_OPTIONS = [{
+    name: 'Free signups',
+    value: 'signups'
+}, {
+    name: 'Paid conversions',
+    value: 'paid'
+}];
 
 export default class Analytics extends Component {
     @service ajax;
@@ -44,9 +47,9 @@ export default class Analytics extends Component {
     @tracked shouldAnimate = false;
     @tracked previousSentCount = this.post.email?.emailCount;
     @tracked previousOpenedCount = this.post.email?.openedCount;
-    @tracked previousClickedCount = this.post.count.clicks;
+    @tracked previousClickedCount = this.post.count?.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post.count.conversions;
+    @tracked previousConversionsCount = this.post.count?.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -92,7 +95,11 @@ export default class Analytics extends Component {
     }
 
     get isDropdownDisabled() {
-        return !(this.hasPaidConversionData && this.hasFreeSignups);
+        if (!this.hasPaidConversionData || !this.hasFreeSignups) {
+            return true;
+        }
+
+        return false;
     }
 
     get selectedDisplayOption() {
@@ -127,11 +134,11 @@ export default class Analytics extends Component {
     }
 
     get totalFeedback() {
-        return this.post.count.positive_feedback + this.post.count.negative_feedback;
+        return this.post.count?.positive_feedback + this.post.count?.negative_feedback;
     }
 
     get feedbackChartData() {
-        const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
+        const values = [this.post.count?.positive_feedback, this.post.count?.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
             {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
@@ -194,23 +201,30 @@ export default class Analytics extends Component {
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map(link => ({
-            ...link,
-            link: {
-                ...link.link,
-                originalTo: link.link.to,
-                to: this.utils.cleanTrackedUrl(link.link.to, false),
-                title: this.utils.cleanTrackedUrl(link.link.to, true)
-            }
-        }));
+        let cleanedLinks = linksData.map((link) => {
+            return {
+                ...link,
+                link: {
+                    ...link.link,
+                    originalTo: link.link.to,
+                    to: this.utils.cleanTrackedUrl(link.link.to, false),
+                    title: this.utils.cleanTrackedUrl(link.link.to, true)
+                }
+            };
+        });
 
         const linksByTitle = cleanedLinks.reduce((acc, link) => {
-            const title = link.link.title;
-            if (!acc[title]) {
-                acc[title] = link;
+            if (!acc[link.link.title]) {
+                acc[link.link.title] = link;
             } else {
-                acc[title].count = acc[title].count || {clicks: 0};
-                acc[title].count.clicks = (acc[title].count.clicks ?? 0) + (link.count?.clicks ?? 0);
+                if (!acc[link.link.title].count) {
+                    acc[link.link.title].count = {clicks: 0};
+                }
+                if (!acc[link.link.title].count.clicks) {
+                    acc[link.link.title].count.clicks = 0;
+                }
+
+                acc[link.link.title].count.clicks += (link.count?.clicks ?? 0);
             }
             return acc;
         }, {});
@@ -241,6 +255,7 @@ export default class Analytics extends Component {
             if (this._fetchLinks.isRunning) {
                 return this._fetchLinks.last;
             }
+
             return this._fetchLinks.perform();
         } catch (e) {
             if (didCancel(e)) {
@@ -254,7 +269,7 @@ export default class Analytics extends Component {
     *_updateLinks(linkId, newLink) {
         this.updateLinkId = linkId;
         let currentLink;
-        this.links = this.links?.map(link => {
+        this.links = this.links?.map((link) => {
             if (link.link.link_id === linkId) {
                 currentLink = new URL(link.link.originalTo);
                 return {
@@ -270,7 +285,7 @@ export default class Analytics extends Component {
         });
 
         const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
-        const bulkUpdateUrl = `${this.ghostPaths.url.api('links/bulk')}?filter=${encodeURIComponent(filter)}`;
+        let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -281,8 +296,8 @@ export default class Analytics extends Component {
         });
 
         const linksFilter = `post_id:'${this.post.id}'`;
-        const statsUrl = `${this.ghostPaths.url.api('links/')}?filter=${encodeURIComponent(linksFilter)}`;
-        const result = yield this.ajax.request(statsUrl);
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
+        let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
         setTimeout(() => {
@@ -292,20 +307,22 @@ export default class Analytics extends Component {
 
     @task
     *_fetchReferrersStats() {
-        const statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
-        const result = yield this.ajax.request(statsUrl);
-        this.sources = result.stats.map(stat => ({
-            source: stat.source ?? 'Direct',
-            signups: stat.signups,
-            paidConversions: stat.paid_conversions
-        }));
+        let statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
+        let result = yield this.ajax.request(statsUrl);
+        this.sources = result.stats.map((stat) => {
+            return {
+                source: stat.source ?? 'Direct',
+                signups: stat.signups,
+                paidConversions: stat.paid_conversions
+            };
+        });
     }
 
     @task
     *_fetchLinks() {
         const filter = `post_id:'${this.post.id}'`;
-        const statsUrl = `${this.ghostPaths.url.api('links/')}?filter=${encodeURIComponent(filter)}`;
-        const result = yield this.ajax.request(statsUrl);
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
+        let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
 
@@ -326,7 +343,9 @@ export default class Analytics extends Component {
     *fetchPostCountTask() {
         if (!this.post.emailOnly) {
             const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
-            this.postCount = result.meta.pagination.total;
+            let count = result.meta.pagination.total;
+
+            this.postCount = count;
         }
     }
 
@@ -334,17 +353,13 @@ export default class Analytics extends Component {
     *fetchPostTask() {
         const currentSentCount = this.post.email?.emailCount;
         const currentOpenedCount = this.post.email?.openedCount;
-        const currentClickedCount = this.post.count.clicks;
+        const currentClickedCount = this.post.count?.clicks;
         const currentFeedbackCount = this.totalFeedback;
-        const currentConversionsCount = this.post.count.conversions;
+        const currentConversionsCount = this.post.count?.conversions;
 
         this.shouldAnimate = true;
 
-        const result = yield this.store.query('post', {
-            filter: `id:${this.post.id}`,
-            include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment',
-            limit: 1
-        });
+        const result = yield this.store.query('post', {filter: `id:${this.post.id}`, include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment', limit: 1});
         this.post = result.toArray()[0];
 
         this.previousSentCount = currentSentCount;
@@ -361,18 +376,16 @@ export default class Analytics extends Component {
     @action
     applyClasses(element) {
         if (!this.shouldAnimate ||
-            (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
-            (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
-            (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
+            (element.classList.contains('sent') && this.post.email?.emailCount === this.previousSentCount) ||
+            (element.classList.contains('opened') && this.post.email?.openedCount === this.previousOpenedCount) ||
+            (element.classList.contains('clicked') && this.post.count?.clicks === this.previousClickedCount) ||
             (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
-            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
+            (element.classList.contains('conversions') && this.post.count?.conversions === this.previousConversionsCount)
         ) {
             return;
         }
 
-        const baseSelector = Array.from(element.classList)
-            .map(className => '.' + className)
-            .join('');
+        const baseSelector = Array.from(element.classList).map(className => '.' + className).join('');
 
         anime({
             targets: `${baseSelector} .new-number span`,

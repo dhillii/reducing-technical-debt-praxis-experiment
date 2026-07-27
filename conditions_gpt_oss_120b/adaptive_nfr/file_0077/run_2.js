@@ -17,30 +17,29 @@ const assert = require("chai").assert,
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
 
 //------------------------------------------------------------------------------
-// Test Helpers
+// Tests
 //------------------------------------------------------------------------------
 
-/**
- * Asserts that a given function is called at least once during a test.
- * @param {Function} func The function that must be called at least once.
- * @returns {Function} A wrapper around the same function.
- */
-function mustCall(func) {
-	callCounts.set(func, 0);
-	return function Wrapper(...args) {
-		callCounts.set(func, callCounts.get(func) + 1);
-		return func.call(this, ...args);
-	};
-}
+const ESPREE_CONFIG = {
+	ecmaVersion: 6,
+	comment: true,
+	tokens: true,
+	range: true,
+	loc: true,
+};
+const linter = new Linter();
+
+let callCounts;
 
 /**
  * Asserts that the unique node of the given type in the code is either
  * in a loop or not in a loop.
- * @param {string} code The code to check.
- * @param {string} nodeType The type of the node to consider. The code
- *   must have exactly one node of this type.
- * @param {boolean} expectedInLoop The expected result for whether the
- *   node is in a loop.
+ *
+ * @param {string} code the code to check.
+ * @param {string} nodeType the type of the node to consider. The code
+ *      must have exactly one node of this type.
+ * @param {boolean} expectedInLoop the expected result for whether the
+ *      node is in a loop.
  * @returns {void}
  */
 function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
@@ -67,25 +66,24 @@ function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 	assert.strictEqual(results[0], expectedInLoop);
 }
 
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
-
-const ESPREE_CONFIG = {
-	ecmaVersion: 6,
-	comment: true,
-	tokens: true,
-	range: true,
-	loc: true,
-};
-const linter = new Linter();
-
 describe("ast-utils", () => {
-	let callCounts;
-
 	beforeEach(() => {
 		callCounts = new Map();
 	});
+
+	/**
+	 * Asserts that a given function is called at least once during a test
+	 * @param {Function} func The function that must be called at least once
+	 * @returns {Function} A wrapper around the same function
+	 */
+	function mustCall(func) {
+		callCounts.set(func, 0);
+		return function Wrapper(...args) {
+			callCounts.set(func, callCounts.get(func) + 1);
+
+			return func.call(this, ...args);
+		};
+	}
 
 	afterEach(() => {
 		callCounts.forEach((callCount, func) => {
@@ -1816,22 +1814,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isClosingBraceToken", () => {
+		describe("isOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isClosingBraceToken(token),
+						astUtils.isOpeningBraceToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotClosingBraceToken", () => {
+		describe("isNotOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotClosingBraceToken(token),
+						astUtils.isNotOpeningBraceToken(token),
 						!expected[index],
 					);
 				});

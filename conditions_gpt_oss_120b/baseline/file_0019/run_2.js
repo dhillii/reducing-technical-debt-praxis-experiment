@@ -413,12 +413,12 @@ class SignupPage extends React.Component {
     }
 
     doSignup() {
-        this.setState(state => ({
+        this.setState((state) => ({
             errors: this.getFormErrors(state)
         }), () => {
             const {site, doAction} = this.context;
             const {name, email, plan, phonenumber, token, errors} = this.state;
-            const hasFormErrors = errors && Object.values(errors).some(Boolean);
+            const hasFormErrors = errors && Object.values(errors).some(d => !!d);
 
             const otherErrors = {...errors};
             delete otherErrors.checkbox;
@@ -471,7 +471,7 @@ class SignupPage extends React.Component {
     };
 
     onKeyDown(e) {
-        if (e.keyCode === 13) {
+        if (e.keyCode === 13){
             this.handleSignup(e);
         }
     }
@@ -501,7 +501,6 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
-                tabIndex: 0,
                 errorMessage: errors.email || ''
             },
             {
@@ -525,7 +524,6 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
-                tabIndex: 0,
                 errorMessage: errors.name || ''
             });
         }
@@ -543,7 +541,7 @@ class SignupPage extends React.Component {
             return null;
         }
 
-        const handleCheckboxChange = e => {
+        const handleCheckboxChange = (e) => {
             this.setState({termsCheckboxChecked: e.target.checked});
         };
 
@@ -567,43 +565,43 @@ class SignupPage extends React.Component {
         ) : termsText;
 
         const errorClassName = this.state.errors?.checkbox ? 'gh-portal-error' : '';
-        const className = `gh-portal-signup-terms ${errorClassName}`;
 
         return (
-            <div className={className} onClick={interceptAnchorClicks} ref={this.termsRef}>
+            <div className={`gh-portal-signup-terms ${errorClassName}`} onClick={interceptAnchorClicks} ref={this.termsRef}>
                 {signupTerms}
             </div>
         );
     }
 
     renderSubmitButton() {
-        const {action, site, brandColor, pageQuery} = this.context;
+        const {action, brandColor} = this.context;
 
-        if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
+        if (isInviteOnly(this.context) || !hasAvailablePrices(this.context)) {
             return null;
         }
 
         let label = t('Continue');
-        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+        const showOnlyFree = this.context.pageQuery === 'free' && isFreeSignupAllowed(this.context);
 
-        if (hasOnlyFreePlan({site}) || showOnlyFree) {
+        if (hasOnlyFreePlan(this.context) || showOnlyFree) {
             label = t('Sign up');
         } else {
             return null;
         }
 
         let isRunning = false;
-        let retry = false;
         if (action === 'signup:running') {
             label = t('Sending...');
             isRunning = true;
         }
+        let retry = false;
         if (action === 'signup:failed') {
             label = t('Retry');
             retry = true;
         }
 
         const disabled = action === 'signup:running';
+
         return (
             <ActionButton
                 style={{width: '100%'}}
@@ -613,7 +611,6 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
-                tabIndex={0}
             />
         );
     }
@@ -744,9 +741,7 @@ class SignupPage extends React.Component {
                                     {this.renderLoginMessage()}
                                 </div>
                             </div>
-                        ) : (
-                            this.renderLoginMessage()
-                        )}
+                        ) : this.renderLoginMessage()}
                     </div>
                 </div>
             </section>

@@ -1,6 +1,5 @@
 'use strict';
 
-// Nodejs libs.
 const path = require('path');
 
 // This allows grunt to require() .coffee files.
@@ -70,106 +69,117 @@ gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
 /**
- * Determines if the version option was supplied.
- * @returns {boolean}
+ * Determines if the provided argument list contains any tasks.
+ * @param {Array|string} tasks - The tasks argument.
+ * @returns {boolean} True if tasks are specified.
  */
-function isVersionRequested() {
-  return Boolean(option('version'));
+function hasTasksSpecified(tasks) {
+  return !!tasks && tasks.length > 0;
 }
 
 /**
- * Determines if the verbose option was supplied.
+ * Checks whether the version flag is set.
  * @returns {boolean}
  */
-function isVerboseRequested() {
-  return Boolean(option('verbose'));
+function isVersionOption() {
+  return option('version');
 }
 
 /**
- * Determines if the help option was supplied.
+ * Checks whether the verbose flag is set.
  * @returns {boolean}
  */
-function isHelpRequested() {
-  return Boolean(option('help'));
+function isVerboseOption() {
+  return option('verbose');
 }
 
 /**
- * Logs version information and, if verbose, additional details.
+ * Checks whether the help flag is set.
+ * @returns {boolean}
  */
-function handleVersionOption() {
-  log.writeln('grunt v' + grunt.version);
-  if (!isVerboseRequested()) {
-    return;
+function isHelpOption() {
+  return option('help');
+}
+
+/**
+ * Handles the --version flag, including optional verbose output.
+ * @returns {boolean} True if the version handling caused an early exit.
+ */
+function handleVersion() {
+  if (!isVersionOption()) {
+    return false;
   }
+  log.writeln('grunt v' + grunt.version);
+  if (isVerboseOption()) {
+    verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+    grunt.log.muted = true;
+    grunt.task.init([], { help: true });
+    grunt.log.muted = false;
 
-  verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-  // Suppress verbose task initialization logs.
-  grunt.log.muted = true;
-  grunt.task.init([], { help: true });
-  grunt.log.muted = false;
+    const tasksList = Object.keys(grunt.task._tasks).sort();
+    verbose.writeln('Available tasks: ' + tasksList.join(' '));
 
-  const availableTasks = Object.keys(grunt.task._tasks).sort();
-  verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-
-  const availableOptions = [];
-  Object.keys(grunt.cli.optlist).forEach(function (long) {
-    const o = grunt.cli.optlist[long];
-    availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) {
-      availableOptions.push('-' + o.short);
-    }
-  });
-  verbose.writeln('Available options: ' + availableOptions.join(' '));
+    const optionsList = [];
+    Object.keys(grunt.cli.optlist).forEach(function (long) {
+      const o = grunt.cli.optlist[long];
+      optionsList.push('--' + (o.negate ? 'no-' : '') + long);
+      if (o.short) {
+        optionsList.push('-' + o.short);
+      }
+    });
+    verbose.writeln('Available options: ' + optionsList.join(' '));
+  }
+  return true;
 }
 
 /**
- * Handles the help option.
+ * Handles the --help flag.
+ * @returns {boolean} True if help was displayed and an early exit is required.
  */
-function handleHelpOption() {
+function handleHelp() {
+  if (!isHelpOption()) {
+    return false;
+  }
   help.display();
+  return true;
 }
 
 /**
- * Executes the provided tasks with given options.
- *
- * @param {Array<string>} tasks
- * @param {Object} [options]
- * @param {Function} [done]
+ * Executes Grunt tasks based on provided arguments.
+ * @param {Array|string} tasks - Tasks to run.
+ * @param {Object} options - Command‑line options.
+ * @param {Function} [done] - Optional callback invoked when all tasks complete.
  */
 grunt.tasks = function (tasks, options, done) {
-  // Update options with passed-in options.
+  // Update options with passed‑in options.
   option.init(options);
 
-  // Guard: version request.
-  if (isVersionRequested()) {
-    handleVersionOption();
+  // Early exit for version or help flags.
+  if (handleVersion()) {
     return;
   }
-
-  // Guard: help request.
-  if (isHelpRequested()) {
-    handleHelpOption();
+  if (handleHelp()) {
     return;
   }
 
   // Init colors.
   log.initColors();
 
-  // A little header stuff.
+  // Header information.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
   // Determine and output which tasks will be run.
-  const tasksSpecified = Array.isArray(tasks) && tasks.length > 0;
-  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+  const tasksSpecified = hasTasksSpecified(tasks);
+  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.
-  task.init(parsedTasks, options);
+  task.init(tasks, options);
 
   verbose.writeln();
   if (!tasksSpecified) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
-  verbose.writeflags(parsedTasks, 'Running tasks');
+  verbose.writeflags(tasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
   const uncaughtHandler = function (e) {
@@ -183,13 +193,10 @@ grunt.tasks = function (tasks, options, done) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function () {
-      // Stop handling uncaught exceptions.
       process.removeListener('uncaughtException', uncaughtHandler);
-
-      // Output a final fail / success report.
       fail.report();
 
-      if (typeof done === 'function') {
+      if (done) {
         done();
       } else {
         util.exit(0);
@@ -198,9 +205,9 @@ grunt.tasks = function (tasks, options, done) {
   });
 
   // Execute all tasks, in order.
-  parsedTasks.forEach(function (name) {
+  tasks.forEach(function (name) {
     task.run(name);
   });
-  // Run tasks async internally to reduce call-stack.
+  // Run tasks async internally to reduce call‑stack.
   task.start({ asyncDone: true });
 };

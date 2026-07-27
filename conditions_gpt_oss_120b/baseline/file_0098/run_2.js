@@ -33,7 +33,7 @@ define([
      * 1. `start` on `sync` channel
      *     starts synchronizing.
      */
-    const Sync = Marionette.Object.extend({
+    var Sync = Marionette.Object.extend({
 
         configs  : {
             // Dropbox app key
@@ -135,9 +135,9 @@ define([
 
                 if (parts.length > 1) {
                     const key  = parts.shift();
-                    const val  = parts.length > 0 ? parts.join('=') : undefined;
-                    const decoded = undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = decoded;
+                    let val    = parts.length > 0 ? parts.join('=') : undefined;
+                    val = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = val;
                 }
             });
 

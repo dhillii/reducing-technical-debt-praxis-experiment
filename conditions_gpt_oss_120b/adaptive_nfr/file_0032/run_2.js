@@ -22,11 +22,9 @@ function statusCompare(postA, postB) {
     if (!status1 && !status2) {
         return 0;
     }
-
     if (!status1 && status2) {
         return -1;
     }
-
     if (!status2 && status1) {
         return 1;
     }
@@ -34,7 +32,6 @@ function statusCompare(postA, postB) {
     if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
         return -1;
     }
-
     if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
         return 1;
     }
@@ -49,11 +46,9 @@ function publishedAtCompare(postA, postB) {
     if (!published1 && !published2) {
         return 0;
     }
-
     if (!published1 && published2) {
         return -1;
     }
-
     if (!published2 && published1) {
         return 1;
     }
@@ -62,52 +57,84 @@ function publishedAtCompare(postA, postB) {
 }
 
 /**
- * Determine if the post is public based on its visibility.
- * @param {string} visibility
- * @returns {boolean}
- */
-function isPublicVisibility(visibility) {
-    return visibility === 'public';
-}
-
-/**
- * Compute the visibility segment filter string.
- * @param {Object} context - The post model instance.
+ * Compute visibility segment based on post visibility settings.
+ *
  * @returns {string}
  */
-function determineVisibilitySegment(context) {
-    if (context.isPublic) {
-        return context.settings.defaultContentVisibility === 'paid'
+function computeVisibilitySegment(post) {
+    if (post.isPublic) {
+        return post.settings.defaultContentVisibility === 'paid'
             ? 'status:-free'
             : 'status:free,status:-free';
     }
 
-    if (context.visibility === 'members') {
-        return 'status:free,status:-free';
+    const visibilityMap = {
+        members: 'status:free,status:-free',
+        paid: 'status:-free'
+    };
+
+    if (visibilityMap[post.visibility]) {
+        return visibilityMap[post.visibility];
     }
 
-    if (context.visibility === 'paid') {
-        return 'status:-free';
+    if (post.visibility === 'tiers' && post.tiers) {
+        return post.tiers.map(tier => `tier:${tier.slug}`).join(',');
     }
 
-    if (context.visibility === 'tiers' && context.tiers) {
-        return context.tiers.map(tier => `tier:${tier.slug}`).join(',');
-    }
-
-    return context.visibility;
+    return post.visibility;
 }
 
 /**
- * Determine whether attribution analytics should be shown.
- * @param {Object} context - The post model instance.
+ * Compute full recipient filter string.
+ *
+ * @returns {string}
+ */
+function computeFullRecipientFilter(post) {
+    if (!post.newsletter) {
+        return post.emailSegment;
+    }
+    return `${post.newsletter.recipientFilter}+(${post.emailSegment})`;
+}
+
+/**
+ * Determine if the post is public.
+ *
  * @returns {boolean}
  */
-function shouldShowAttributionAnalytics(context) {
-    return (context.isPage || !context.emailOnly) &&
-        context.isPublished &&
-        context.settings.membersTrackSources &&
-        !context.membersUtils.isMembersInviteOnly &&
-        !context.session.user.isContributor;
+function computeIsPublic(post) {
+    return post.visibility === 'public';
+}
+
+/**
+ * Determine if the scheduled time has passed.
+ *
+ * @returns {boolean}
+ */
+function computePastScheduledTime(post) {
+    if (!post.isScheduled) {
+        return false;
+    }
+
+    const now = moment.utc();
+    const publishedAtUTC = post.publishedAtUTC || now;
+    const past = publishedAtUTC.diff(now, 'hours', true) < 0;
+
+    // force a recompute
+    post.get('clock.second');
+
+    return past;
+}
+
+/**
+ * Compute click rate percentage.
+ *
+ * @returns {number}
+ */
+function computeClickRate(post) {
+    if (!post.email?.emailCount || !post.count?.clicks) {
+        return 0;
+    }
+    return Math.round(post.count.clicks / post.email.emailCount * 100);
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -245,7 +272,11 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return shouldShowAttributionAnalytics(this);
+        return (this.isPage || !this.emailOnly) &&
+            this.isPublished &&
+            this.settings.membersTrackSources &&
+            !this.membersUtils.isMembersInviteOnly &&
+            !this.session.user.isContributor;
     }),
 
     showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
@@ -253,13 +284,16 @@ export default Model.extend(Comparable, ValidationEngine, {
     hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
         return this.isPost &&
             this.session.user.isAdmin &&
-            (this.showEmailOpenAnalytics || this.showEmailClickAnalytics || this.showAttributionAnalytics);
+            (this.showEmailOpenAnalytics ||
+                this.showEmailClickAnalytics ||
+                this.showAttributionAnalytics);
     }),
 
     previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        let blogUrl = this.config.blogUrl;
-        let uuid = this.uuid;
-        let previewKeyword = 'p';
+        const blogUrl = this.config.blogUrl;
+        const uuid = this.uuid;
+        const previewKeyword = 'p';
+
         if (!uuid) {
             return '';
         }
@@ -269,29 +303,19 @@ export default Model.extend(Comparable, ValidationEngine, {
     isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
 
     isPublic: computed('visibility', function () {
-        return this.visibility === 'public';
+        return computeIsPublic(this);
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return determineVisibilitySegment(this);
+        return computeVisibilitySegment(this);
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
-        if (!this.newsletter) {
-            return this.emailSegment;
-        }
-        return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
+        return computeFullRecipientFilter(this);
     }),
 
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (this.isScheduled) {
-            let now = moment.utc();
-            let publishedAtUTC = this.publishedAtUTC || now;
-            let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
-            this.get('clock.second');
-            return pastScheduledTime;
-        }
-        return false;
+        return computePastScheduledTime(this);
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
@@ -299,52 +323,49 @@ export default Model.extend(Comparable, ValidationEngine, {
             return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
-            let momentValue = value ? moment(value) : null;
+            const momentValue = value ? moment(value) : null;
             this._setPublishedAtBlogStrings(momentValue);
             return this._getPublishedAtBlogTZ();
         }
     }),
 
     clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.email || !this.email.emailCount) {
-            return 0;
-        }
-        if (!this.count || !this.count.clicks) {
-            return 0;
-        }
-        return Math.round(this.count.clicks / this.email.emailCount * 100);
+        return computeClickRate(this);
     }),
 
     _getPublishedAtBlogTZ() {
-        let publishedAtUTC = this.publishedAtUTC;
-        let publishedAtBlogDate = this.publishedAtBlogDate;
-        let publishedAtBlogTime = this.publishedAtBlogTime;
-        let blogTimezone = this.settings.timezone;
+        const publishedAtUTC = this.publishedAtUTC;
+        const publishedAtBlogDate = this.publishedAtBlogDate;
+        const publishedAtBlogTime = this.publishedAtBlogTime;
+        const blogTimezone = this.settings.timezone;
 
         if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
             return null;
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+            const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+
             if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
                 return publishedAtUTC;
             }
+
             return publishedAtBlog;
         }
+
         return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
     // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
-        let publishedAtUTC = this.publishedAtUTC;
+        const publishedAtUTC = this.publishedAtUTC;
         this._setPublishedAtBlogStrings(publishedAtUTC);
     })),
 
     _setPublishedAtBlogStrings(momentDate) {
         if (momentDate) {
-            let blogTimezone = this.settings.timezone;
-            let publishedAtBlog = moment.tz(momentDate, blogTimezone);
+            const blogTimezone = this.settings.timezone;
+            const publishedAtBlog = moment.tz(momentDate, blogTimezone);
             this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
             this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
         } else {
@@ -354,8 +375,8 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     updateTags() {
-        let tags = this.tags;
-        let oldTags = tags.filterBy('id', null);
+        const tags = this.tags;
+        const oldTags = tags.filterBy('id', null);
         tags.removeObjects(oldTags);
         oldTags.invoke('deleteRecord');
     },
@@ -365,21 +386,20 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        let updated1 = postA.get('updatedAtUTC');
-        let updated2 = postB.get('updatedAtUTC');
+        const updated1 = postA.get('updatedAtUTC');
+        const updated2 = postB.get('updatedAtUTC');
 
         if (postA.get('isNew') || !updated1) {
             return -1;
         }
-
         if (postB.get('isNew') || !updated2) {
             return 1;
         }
 
-        let idResult = compare(postA.get('id'), postB.get('id'));
-        let statusResult = statusCompare(postA, postB);
-        let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        let publishedAtResult = publishedAtCompare(postA, postB);
+        const idResult = compare(postA.get('id'), postB.get('id'));
+        const statusResult = statusCompare(postA, postB);
+        const updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        const publishedAtResult = publishedAtCompare(postA, postB);
 
         if (statusResult === 0) {
             if (publishedAtResult === 0) {
@@ -395,15 +415,15 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     beforeSave() {
-        let publishedAtBlogTZ = this.publishedAtBlogTZ;
-        let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        const publishedAtBlogTZ = this.publishedAtBlogTZ;
+        const publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
         this.set('publishedAtUTC', publishedAtUTC);
     },
 
     save() {
         const [oldStatus] = this.changedAttributes().status || [];
 
-        return this._super(...arguments).then((res) => {
+        return this._super(...arguments).then(res => {
             if (this.status === 'published' || oldStatus === 'published') {
                 this.search.expireContent();
             }

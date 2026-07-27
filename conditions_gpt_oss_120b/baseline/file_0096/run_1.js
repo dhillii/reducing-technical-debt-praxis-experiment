@@ -22,7 +22,7 @@ define([
      * replies to the following requests:
      * 1. save            - save model changes
      * 2. save:collection - save all collection changes
-     * 3. save:raw        - saves several objects
+     * 3. save:all:raw    - saves several objects
      * 4. fetch           - fetches models from the database
      * 5. get:model       - returns a specific model
      * 6. get:all         - returns a collection
@@ -167,9 +167,9 @@ define([
         saveCollection: function(collection) {
             const promises = [];
             const self = this;
-            const coll = collection || this.collection;
+            collection = collection || this.collection;
 
-            coll.each(function(model) {
+            collection.each(function(model) {
                 model.attributes.updated = Date.now();
 
                 promises.push(
@@ -180,7 +180,7 @@ define([
             return Q.all(promises)
             .then(function() {
                 self.vent.trigger('saved:collection');
-                return coll;
+                return collection;
             });
         },
 
@@ -191,8 +191,7 @@ define([
          */
         saveRaw: function(data, options) {
             const self = this;
-            const ModelClass = this.changeDatabase(options).prototype.model;
-            const model = new ModelClass(data);
+            const model = new (this.changeDatabase(options)).prototype.model(data);
             let errors;
 
             return this.decryptModel(model)
@@ -242,8 +241,7 @@ define([
 
             // Change model's attributes to default values (empty values)
             model = typeof model === 'string' ? model : model.id;
-            const ModelClass = this.changeDatabase(options).prototype.model;
-            model = new ModelClass({id: model});
+            model = new (this.changeDatabase(options)).prototype.model({id: model});
 
             model.set({'trash': 2, updated: Date.now()});
 
@@ -364,8 +362,7 @@ define([
             }
 
             const configs = Radio.request('configs', 'get:object');
-            const backup = {encrypt: configs.encryptBackup.encrypt || 0};
-
+            const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
             if (!model) {
                 model = this.Collection.prototype.model.prototype;
             }
@@ -405,13 +402,13 @@ define([
          * @type object Backbone collection
          */
         decryptModels: function(collection) {
-            collection = collection || this.collection;
-            if (!this._isEncryptEnabled(collection.model.prototype)) {
-                return new Q(collection);
+            let coll = collection || this.collection;
+            if (!this._isEncryptEnabled(coll.model.prototype)) {
+                return new Q(coll);
             }
 
-            collection = collection.fullCollection || collection;
-            return Radio.request('encrypt', 'decrypt:models', collection);
+            coll = coll.fullCollection || coll;
+            return Radio.request('encrypt', 'decrypt:models', coll);
         }
     });
 

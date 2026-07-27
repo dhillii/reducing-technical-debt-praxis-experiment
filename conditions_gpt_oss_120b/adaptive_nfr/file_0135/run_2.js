@@ -10,134 +10,11 @@ import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
 /**
- * Determines if the current step is 'upload' and there are files pending upload.
- * @param {string} currentStep
- * @param {Array} filesToUpload
- * @returns {boolean}
+ * Wrapper around global confirmation dialog.
+ * @param {string} message - Message to display.
+ * @returns {boolean} User confirmation.
  */
-const hasPendingUploads = (currentStep, filesToUpload) => currentStep === 'upload' && filesToUpload.length > 0;
-
-/**
- * Determines if a confirmation is required when closing the modal with pending uploads.
- * @param {number} filesToUploadLength
- * @param {Function} formatMessage
- * @returns {boolean}
- */
-const shouldConfirmCloseWithFiles = (filesToUploadLength, formatMessage) => {
-  if (filesToUploadLength > 0) {
-    // eslint-disable-next-line no-alert
-    return !globalThis.confirm(formatMessage({ id: getTrad('window.confirm.close-modal.files') }));
-  }
-  return false;
-};
-
-/**
- * Determines if a confirmation is required when closing the modal with unsaved changes.
- * @param {string} currentStep
- * @param {Array} selectedFiles
- * @param {Array} initialSelectedFiles
- * @param {Object} fileToEdit
- * @param {Object} initialFileToEdit
- * @param {Function} formatMessage
- * @returns {boolean}
- */
-const shouldConfirmCloseWithChanges = (
-  currentStep,
-  selectedFiles,
-  initialSelectedFiles,
-  fileToEdit,
-  initialFileToEdit,
-  formatMessage
-) => {
-  const hasSelectionChange =
-    (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-    (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-    (currentStep === 'edit' && selectedFiles.length > 0);
-
-  if (hasSelectionChange) {
-    // eslint-disable-next-line no-alert
-    return !globalThis.confirm(formatMessage({ id: getTrad('window.confirm.close-modal.file') }));
-  }
-  return false;
-};
-
-/**
- * Handles navigation back based on element name and current step.
- * @param {Object} params
- */
-const navigateBack = ({
-  elementName,
-  backButtonDestination,
-  currentStep,
-  filesToUpload,
-  goTo,
-  goToList,
-  handleClearFilesToUploadAndDownload,
-  prev,
-}) => {
-  const hasFilesToUpload = !isEmpty(filesToUpload);
-
-  if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-    if (hasFilesToUpload) {
-      // eslint-disable-next-line no-alert
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-      if (!confirm) {
-        return;
-      }
-    }
-    goTo(backButtonDestination);
-    handleClearFilesToUploadAndDownload();
-    return;
-  }
-
-  if (
-    elementName === 'backButton' &&
-    backButtonDestination &&
-    currentStep === 'browse' &&
-    hasFilesToUpload
-  ) {
-    goTo(backButtonDestination);
-    return;
-  }
-
-  goTo(prev);
-};
-
-/**
- * Handles modal toggle with appropriate confirmations.
- * @param {Object} params
- */
-const handleModalToggle = ({
-  filesToUploadLength,
-  currentStep,
-  selectedFiles,
-  initialSelectedFiles,
-  fileToEdit,
-  initialFileToEdit,
-  formatMessage,
-  onToggle,
-}) => {
-  if (shouldConfirmCloseWithFiles(filesToUploadLength, formatMessage)) {
-    return;
-  }
-
-  if (
-    shouldConfirmCloseWithChanges(
-      currentStep,
-      selectedFiles,
-      initialSelectedFiles,
-      fileToEdit,
-      initialFileToEdit,
-      formatMessage
-    )
-  ) {
-    return;
-  }
-
-  onToggle(true);
-};
+const confirmDialog = message => globalThis.confirm(message);
 
 const InputModalStepper = ({
   allowedActions,
@@ -221,17 +98,40 @@ const InputModalStepper = ({
     goNext();
   };
 
+  // Predicate helpers
+  const hasFilesToUpload = () => !isEmpty(filesToUpload);
+  const isBackFromUpload = elementName =>
+    elementName === 'backButton' && backButtonDestination && currentStep === 'upload';
+  const isBackFromBrowseWithFiles = elementName =>
+    elementName === 'backButton' &&
+    backButtonDestination &&
+    currentStep === 'browse' &&
+    hasFilesToUpload();
+
+  // Action helpers
+  const handleBackFromUpload = () => {
+    if (hasFilesToUpload()) {
+      const confirm = confirmDialog(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+      if (!confirm) return;
+    }
+    goTo(backButtonDestination);
+    handleClearFilesToUploadAndDownload();
+  };
+
   const goBack = (elementName = null) => {
-    navigateBack({
-      elementName,
-      backButtonDestination,
-      currentStep,
-      filesToUpload,
-      goTo,
-      goToList,
-      handleClearFilesToUploadAndDownload,
-      prev,
-    });
+    if (isBackFromUpload(elementName)) {
+      handleBackFromUpload();
+      return;
+    }
+
+    if (isBackFromBrowseWithFiles(elementName)) {
+      goTo(backButtonDestination);
+      return;
+    }
+
+    goTo(prev);
   };
 
   const goNext = () => {
@@ -251,7 +151,7 @@ const InputModalStepper = ({
     toggleModalWarning();
   };
 
-  const handleClickDeleteFileToUpload = (fileIndex) => {
+  const handleClickDeleteFileToUpload = fileIndex => {
     handleRemoveFileToUpload(fileIndex);
     if (currentStep === 'edit-new') {
       handleResetFileToEdit();
@@ -274,13 +174,13 @@ const InputModalStepper = ({
     goBack();
   };
 
-  const handleSubmitEditNewFile = (e) => {
+  const handleSubmitEditNewFile = e => {
     e.preventDefault();
     submitEditNewFile();
     goNext();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = e => {
     e.preventDefault();
     onInputMediaChange(multiple ? selectedFiles : selectedFiles[0]);
     goNext();
@@ -288,9 +188,7 @@ const InputModalStepper = ({
 
   const handleCloseModalWarning = async () => {
     if (!shouldDeleteFile) return;
-
     const { id } = fileToEdit;
-
     try {
       const requestURL = getRequestUrl(`files/${id}`);
       await request(requestURL, { method: 'DELETE' });
@@ -341,7 +239,6 @@ const InputModalStepper = ({
     if (didCropFile) {
       formData.append('files', file);
     }
-
     formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
@@ -356,7 +253,6 @@ const InputModalStepper = ({
         false,
         false
       );
-
       handleEditExistingFile(editedFile);
       goToList();
     } catch (err) {
@@ -378,22 +274,41 @@ const InputModalStepper = ({
     }
   };
 
+  // Confirmation helpers for toggle
+  const confirmCloseIfUploading = () => {
+    if (filesToUploadLength > 0) {
+      const confirm = confirmDialog(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+      if (!confirm) return false;
+    }
+    return true;
+  };
+
+  const confirmCloseIfUnsaved = () => {
+    const unsavedCondition =
+      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0);
+    if (unsavedCondition) {
+      const confirm = confirmDialog(
+        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+      );
+      if (!confirm) return false;
+    }
+    return true;
+  };
+
   const handleToggle = () => {
-    handleModalToggle({
-      filesToUploadLength,
-      currentStep,
-      selectedFiles,
-      initialSelectedFiles,
-      fileToEdit,
-      initialFileToEdit,
-      formatMessage,
-      onToggle,
-    });
+    if (!confirmCloseIfUploading()) return;
+    if (!confirmCloseIfUnsaved()) return;
+    onToggle(true);
   };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
-  const isFinishButtonDisabled = filesToUpload.some((file) => file.isDownloading || file.isUploading);
-  const areButtonsDisabledOnEditExistingFile = currentStep === 'edit' && fileToEdit.isUploading === true;
+  const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
+  const areButtonsDisabledOnEditExistingFile =
+    currentStep === 'edit' && fileToEdit.isUploading === true;
 
   return (
     <>

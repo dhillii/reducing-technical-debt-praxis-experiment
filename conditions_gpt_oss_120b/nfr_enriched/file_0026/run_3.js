@@ -29,14 +29,14 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
-// Convert device codes to human‑readable labels
-const getDeviceLabel = (code: string): string => {
-    if (code === 'mobile-ios') return 'iOS';
-    if (code === 'mobile-android') return 'Android';
-    if (code === 'desktop') return 'Desktop';
-    if (code === 'bot') return 'Bot';
-    if (code === 'unknown') return 'Unknown';
-    return code;
+// Map device identifier to human‑readable label
+const mapDeviceLabel = (device: string): string => {
+    if (device === 'mobile-ios') return 'iOS';
+    if (device === 'mobile-android') return 'Android';
+    if (device === 'desktop') return 'Desktop';
+    if (device === 'bot') return 'Bot';
+    if (device === 'unknown') return 'Unknown';
+    return device;
 };
 
 interface FilterFieldDefinition {
@@ -94,7 +94,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
         valueKey: 'device',
         transformValue: v => ({
             value: v,
-            label: getDeviceLabel(v)
+            label: mapDeviceLabel(v)
         })
     }
 };
@@ -277,6 +277,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
         handleChange(mediaQuery);
         mediaQuery.addEventListener('change', handleChange);
+
         return () => mediaQuery.removeEventListener('change', handleChange);
     }, []);
 
@@ -471,19 +472,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
                 fields: utmFields
             }
         ];
-    }, [
-        utmSourceOptions, utmSourceLoading,
-        utmMediumOptions, utmMediumLoading,
-        utmCampaignOptions, utmCampaignLoading,
-        utmContentOptions, utmContentLoading,
-        utmTermOptions, utmTermLoading,
-        supportedOperators,
-        postOptions, postLoading,
-        audienceOptions,
-        sourceOptions, sourceLoading,
-        deviceOptions, deviceLoading,
-        locationOptions, locationLoading
-    ]);
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
 
     const hasFilters = filters.length > 0;
 

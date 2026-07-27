@@ -23,70 +23,54 @@ const isTypeAttributeEnabled = (model, attr) =>
 /**
  * Resolve scalar GraphQL type based on Strapi attribute definition.
  */
-function resolveScalarType(attribute, modelName, attributeName, rootType, action) {
-  let gqlType = 'String';
+function resolveScalarType(attribute, modelName, attributeName, convertEnum) {
   switch (attribute.type) {
     case 'boolean':
-      gqlType = 'Boolean';
-      break;
+      return 'Boolean';
     case 'integer':
-      gqlType = 'Int';
-      break;
+      return 'Int';
     case 'biginteger':
-      gqlType = 'Long';
-      break;
+      return 'Long';
     case 'float':
     case 'decimal':
-      gqlType = 'Float';
-      break;
+      return 'Float';
     case 'json':
-      gqlType = 'JSON';
-      break;
+      return 'JSON';
     case 'date':
-      gqlType = 'Date';
-      break;
+      return 'Date';
     case 'time':
-      gqlType = 'Time';
-      break;
+      return 'Time';
     case 'datetime':
     case 'timestamp':
-      gqlType = 'DateTime';
-      break;
+      return 'DateTime';
     case 'enumeration':
-      gqlType = module.exports.convertEnumType(attribute, modelName, attributeName);
-      break;
+      return convertEnum(attribute, modelName, attributeName);
+    default:
+      return 'String';
   }
-
-  if (attribute.required) {
-    const isMutation = rootType === 'mutation';
-    const needsNonNull = !isMutation || (action !== 'update' && attribute.default === undefined);
-    if (needsNonNull) {
-      gqlType += '!';
-    }
-  }
-
-  return gqlType;
 }
 
 /**
- * Resolve component GraphQL type.
+ * Build GraphQL type for component attributes.
  */
 function resolveComponentType(attribute, rootType, action) {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
 
-  let typeName = required === true ? `${globalId}` : globalId;
+  let typeName = globalId;
 
   if (rootType === 'mutation') {
-    const base = _.upperFirst(toSingular(globalId));
-    typeName = action === 'update' ? `edit${base}Input` : `${base}Input${required ? '!' : ''}`;
+    typeName =
+      action === 'update'
+        ? `edit${_.upperFirst(toSingular(globalId))}Input`
+        : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
   }
 
   return repeatable ? `[${typeName}]` : `${typeName}`;
 }
 
 /**
- * Resolve dynamic zone GraphQL type.
+ * Build GraphQL type for dynamic zone attributes.
  */
 function resolveDynamicZoneType(attribute, modelName, attributeName, rootType) {
   const { required } = attribute;
@@ -96,26 +80,32 @@ function resolveDynamicZoneType(attribute, modelName, attributeName, rootType) {
 }
 
 /**
- * Resolve association (relation) GraphQL type.
+ * Build GraphQL type for relational attributes.
  */
 function resolveAssociationType(attribute, rootType) {
   const ref = attribute.model || attribute.collection;
-  if (!ref || ref === '*') {
-    return rootType === 'mutation' ? (attribute.model ? 'ID' : '[ID]') : attribute.model ? 'Morph' : '[Morph]';
+
+  if (ref && ref !== '*') {
+    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+    const isPlural = !_.isEmpty(attribute.collection);
+
+    if (isPlural) {
+      return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
+    }
+
+    return rootType === 'mutation' ? 'ID' : globalId;
   }
 
-  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-  const isCollection = !!attribute.collection;
-
-  if (isCollection) {
-    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
+  // Fallback for polymorphic relations
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
   }
 
-  return rootType === 'mutation' ? 'ID' : globalId;
+  return attribute.model ? 'Morph' : '[Morph]';
 }
 
 /**
- * Convert Strapi type to GraphQL type.
+ * Main conversion function – orchestrates type resolution.
  */
 function convertType({
   attribute = {},
@@ -124,125 +114,67 @@ function convertType({
   rootType = 'query',
   action = '',
 }) {
+  // Scalar attributes
   if (isScalarAttribute(attribute)) {
-    return resolveScalarType(attribute, modelName, attributeName, rootType, action);
+    let type = resolveScalarType(
+      attribute,
+      modelName,
+      attributeName,
+      this.convertEnumType.bind(this)
+    );
+
+    if (attribute.required) {
+      if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
+        type += '!';
+      }
+    }
+
+    return type;
   }
 
+  // Component attributes
   if (attribute.type === 'component') {
     return resolveComponentType(attribute, rootType, action);
   }
 
+  // Dynamic zone attributes
   if (attribute.type === 'dynamiczone') {
     return resolveDynamicZoneType(attribute, modelName, attributeName, rootType);
   }
 
-  // Association or fallback
+  // Associations & polymorphic relations
   return resolveAssociationType(attribute, rootType);
 }
 
-/**
- * Build input fields for a model based on enabled attributes.
- */
-function buildInputFields(model, globalId, rootType, action) {
-  return Object.keys(model.attributes)
-    .filter(attrName => isTypeAttributeEnabled(model, attrName))
-    .map(attrName => {
-      const gqlType = module.exports.convertType({
-        attribute: model.attributes[attrName],
-        modelName: globalId,
-        attributeName: attrName,
-        rootType,
-        action,
-      });
-      return `${attrName}: ${gqlType}`;
-    })
-    .join('\n');
-}
-
-/**
- * Generate GraphQL input model definitions.
- */
-function generateInputModel(model, name, { allowIds = false } = {}) {
-  const globalId = model.globalId;
-  const inputName = `${_.upperFirst(toSingular(name))}Input`;
-  const hasAllAttributesDisabled = Object.keys(model.attributes).every(
-    attr => !isTypeAttributeEnabled(model, attr)
-  );
-
-  if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
-    return `
-      input ${inputName} {
-        _: String
-      }
-
-      input edit${inputName} {
-        ${allowIds ? 'id: ID' : '_: String'}
-      }
-     `;
-  }
-
-  const createFields = buildInputFields(model, globalId, 'mutation', '');
-  const updateFields = buildInputFields(model, globalId, 'mutation', 'update');
-
-  return `
-    input ${inputName} {
-      ${createFields}
-    }
-
-    input edit${inputName} {
-      ${allowIds ? 'id: ID' : ''}
-      ${updateFields}
-    }
-  `;
-}
-
-/**
- * Generate input payload arguments for mutations.
- */
-function generateInputPayloadArguments({ model, name, mutationName, action }) {
-  const singularName = toSingular(name);
-  const inputName = toInputName(name);
-  const { kind } = model;
-
-  switch (action) {
-    case 'create':
-      return `
-        input ${mutationName}Input { data: ${inputName} }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-    case 'update':
-      if (kind === 'singleType') {
-        return `
-          input ${mutationName}Input  { data: edit${inputName} }
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
-      }
-      return `
-        input ${mutationName}Input  { where: InputID, data: edit${inputName} }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-    case 'delete':
-      if (kind === 'singleType') {
-        return `
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
-      }
-      return `
-        input ${mutationName}Input  { where: InputID }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-    default:
-      return '';
-  }
-}
-
 module.exports = {
+  /**
+   * Convert Strapi type to GraphQL type.
+   * @param {Object} attribute Information about the attribute.
+   * @param {Object} attribute.definition Definition of the attribute.
+   * @param {String} attribute.modelName Name of the model which owns the attribute.
+   * @param {String} attribute.attributeName Name of the attribute.
+   * @return String
+   */
   convertType,
+
+  /**
+   * Convert Strapi enumeration to GraphQL Enum.
+   * @param {Object} definition Definition of the attribute.
+   * @param {String} model Name of the model which owns the attribute.
+   * @param {String} field Name of the attribute.
+   * @return String
+   */
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
       : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
   },
+
+  /**
+   * Add custom scalar type such as JSON.
+   *
+   * @return void
+   */
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -253,13 +185,19 @@ module.exports = {
       Upload: GraphQLUpload,
     };
   },
+
+  /**
+   * Add Union Type that contains the types defined by the user.
+   *
+   * @return string
+   */
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)
       .definitions.filter(
-        def => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query'
+        (def) => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query'
       )
-      .map(def => def.name.value);
+      .map((def) => def.name.value);
 
     if (types.length > 0) {
       return {
@@ -279,11 +217,105 @@ module.exports = {
       resolvers: {},
     };
   },
+
   addInput() {
     return `
       input InputID { id: ID!}
     `;
   },
-  generateInputModel,
-  generateInputPayloadArguments,
+
+  generateInputModel(model, name, { allowIds = false } = {}) {
+    const globalId = model.globalId;
+    const inputName = `${_.upperFirst(toSingular(name))}Input`;
+    const hasAllAttributesDisabled = Object.keys(model.attributes).every(
+      (attr) => !isTypeAttributeEnabled(model, attr)
+    );
+
+    if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
+      return `
+      input ${inputName} {
+        _: String
+      }
+
+      input edit${inputName} {
+        ${allowIds ? 'id: ID' : '_: String'}
+      }
+     `;
+    }
+
+    const inputs = `
+      input ${inputName} {
+
+        ${Object.keys(model.attributes)
+          .filter((attributeName) => isTypeAttributeEnabled(model, attributeName))
+          .map((attributeName) => {
+            return `${attributeName}: ${this.convertType({
+              attribute: model.attributes[attributeName],
+              modelName: globalId,
+              attributeName,
+              rootType: 'mutation',
+            })}`;
+          })
+          .join('\n')}
+      }
+
+      input edit${inputName} {
+        ${allowIds ? 'id: ID' : ''}
+        ${Object.keys(model.attributes)
+          .filter((attributeName) => isTypeAttributeEnabled(model, attributeName))
+          .map((attributeName) => {
+            return `${attributeName}: ${this.convertType({
+              attribute: model.attributes[attributeName],
+              modelName: globalId,
+              attributeName,
+              rootType: 'mutation',
+              action: 'update',
+            })}`;
+          })
+          .join('\n')}
+      }
+    `;
+
+    return inputs;
+  },
+
+  generateInputPayloadArguments({ model, name, mutationName, action }) {
+    const singularName = toSingular(name);
+    const inputName = toInputName(name);
+
+    const { kind } = model;
+
+    switch (action) {
+      case 'create':
+        return `
+          input ${mutationName}Input { data: ${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      case 'update':
+        if (kind === 'singleType') {
+          return `
+          input ${mutationName}Input  { data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
+
+        return `
+          input ${mutationName}Input  { where: InputID, data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      case 'delete':
+        if (kind === 'singleType') {
+          return `
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
+
+        return `
+          input ${mutationName}Input  { where: InputID }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      default:
+        // Nothing
+    }
+  },
 };

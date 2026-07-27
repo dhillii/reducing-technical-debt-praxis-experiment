@@ -31,7 +31,7 @@ function Keychain(accountLawnchair, publicKey, privateKey, crypto, pgp, dialog, 
  * @param  {String}   params.userId   The user's email address
  */
 Keychain.prototype.requestPermissionForKeyUpdate = function(params, callback) {
-    const str = this._appConfig.string;
+    let str = this._appConfig.string;
     let message = params.newKey ? str.updatePublicKeyMsgNewKey : str.updatePublicKeyMsgRemovedKey;
     message = message.replace('{0}', params.userId);
 
@@ -210,7 +210,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
 
@@ -311,8 +311,8 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 //
 
 Keychain.prototype.lookupPublicKey = function(id) {
-    const self = this;
-    let cloudPubkey;
+    const self = this,
+        cloudPubkey = undefined;
 
     if (!id) {
         return new Promise(function() {

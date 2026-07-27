@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -87,7 +87,6 @@ define([
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
-
             this.timeout = setTimeout(() => {
                 this.checkChanges();
             }, 0);
@@ -121,33 +120,31 @@ define([
          * @returns {Object}
          */
         parseHash: function () {
-            const hash = window.location.hash.replace('#', '').split('&');
-            const ret = {};
+            const hashParts = window.location.hash.replace('#', '').split('&');
+            const result = {};
 
-            if (!hash.length) {
-                return ret;
+            if (!hashParts.length) {
+                return result;
             }
 
-            _.each(hash, str => {
+            _.each(hashParts, str => {
                 const parts = str.replace(/\+/g, ' ').split('=');
-
                 if (parts.length > 1) {
                     const key = parts.shift();
                     let val = parts.length > 0 ? parts.join('=') : undefined;
-                    // Preserve original logic (may be a bug)
                     val = undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = val;
+                    result[key] = val;
                 }
             });
 
-            return ret;
+            return result;
         },
 
         authenticate: function () {
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', defer.reject);
+            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', () => {
                 window.location = authUrl;
             });
@@ -173,8 +170,7 @@ define([
             })
                 .then(() => {
                     Radio.request('uri', 'navigate', '/');
-                    // Preserve original side‑effect
-                    this.configs.accessToken.accessToken;
+                    this.configs.accessToken = accessToken;
                     return true;
                 });
         },
@@ -192,32 +188,15 @@ define([
         },
 
         /**
-         * Check for changes across all modules.
-         */
-        checkChanges: function () {
-            this.configs.statRemote = false;
-            Radio.trigger('sync', 'start', 'dropbox');
-
-            const syncTasks = this.buildSyncTasks();
-
-            return _.reduce(syncTasks, Q.when, new Q())
-                .then(() => {
-                    Radio.trigger('sync', 'stop', 'dropbox');
-                    this.startWatch();
-                })
-                .fail(err => this.handleSyncError(err));
-        },
-
-        /**
-         * Build an array of functions that perform synchronization for each module.
+         * Build an array of synchronization promise factories for each module.
          *
          * @returns {Array<Function>}
          */
-        buildSyncTasks: function () {
-            const tasks = [];
+        buildSyncPromises: function () {
+            const factories = [];
 
             _.each(['notes', 'notebooks', 'tags'], module => {
-                tasks.push(() => {
+                factories.push(() => {
                     return Q.all([
                         Radio.request(module, 'fetch', { encrypt: true }),
                         adapter.getAll(module)
@@ -228,27 +207,31 @@ define([
                 });
             });
 
-            return tasks;
+            return factories;
         },
 
         /**
-         * Centralized error handling for synchronization.
+         * Handle errors that occur during the synchronization process.
          *
          * @param {Object} err
          */
-        handleSyncError: function (err) {
-            if (err) {
-                switch (err.status) {
-                    // If access was revoked, try to ask for it again
-                    case 401:
-                        this.checkAuth();
-                        break;
-                    // On connection error, increase watch interval
-                    case 0:
-                        this.configs.interval = this.configs.intervalMax;
-                        this.startWatch();
-                        break;
-                }
+        handleSyncFailure: function (err) {
+            if (!err) {
+                return;
+            }
+
+            switch (err.status) {
+                case 401:
+                    // Access revoked – re‑authenticate.
+                    this.checkAuth();
+                    break;
+                case 0:
+                    // Connection error – back‑off.
+                    this.configs.interval = this.configs.intervalMax;
+                    this.startWatch();
+                    break;
+                default:
+                    break;
             }
 
             Radio.trigger('sync', 'stop', 'dropbox');
@@ -257,9 +240,26 @@ define([
         },
 
         /**
+         * Check for changes.
+         */
+        checkChanges: function () {
+            this.configs.statRemote = false;
+            Radio.trigger('sync', 'start', 'dropbox');
+
+            const promiseFactories = this.buildSyncPromises();
+
+            _.reduce(promiseFactories, Q.when, new Q())
+                .then(() => {
+                    Radio.trigger('sync', 'stop', 'dropbox');
+                    this.startWatch();
+                })
+                .fail(err => this.handleSyncFailure(err));
+        },
+
+        /**
          * Synchronize a collection.
          *
-         * @param {Backbone.Collection|Object} localData
+         * @param {Backbone.Collection} localData
          * @param {Array} remoteData
          * @param {String} module
          * @returns {Promise}
@@ -278,7 +278,7 @@ define([
         },
 
         /**
-         * Generate promises to apply remote changes locally.
+         * Save only models which don't exist locally or which were updated remotely.
          *
          * @param {Array} localData
          * @param {Array} remoteData
@@ -289,24 +289,21 @@ define([
             const promises = [];
 
             const newData = _.filter(remoteData, rModel => {
-                const model = _.findWhere(localData, { id: rModel.id });
-                return !model || model.updated < rModel.updated;
+                const localModel = _.findWhere(localData, { id: rModel.id });
+                return !localModel || localModel.updated < rModel.updated;
             });
 
             if (newData.length) {
                 console.log('Dropbox changes:', newData);
                 this.configs.statRemote = true;
-
-                promises.push(() => {
-                    return Radio.request(module, 'save:all:raw', newData, { profile: adapter.profile });
-                });
+                promises.push(() => Radio.request(module, 'save:all:raw', newData, { profile: adapter.profile }));
             }
 
             return promises;
         },
 
         /**
-         * Generate promises to push local changes to Dropbox.
+         * Save only models which don't exist on Dropbox or which were updated locally.
          *
          * @param {Array} localData
          * @param {Array} remoteData
@@ -324,9 +321,7 @@ define([
                 }
 
                 console.log('Dropbox local changes:', lModel);
-                promises.push(() => {
-                    return adapter.save(module, lModel, encryptKeys);
-                });
+                promises.push(() => adapter.save(module, lModel, encryptKeys));
             });
 
             return promises;
@@ -346,7 +341,7 @@ define([
         },
 
         /**
-         * Adjust watch interval based on recent remote activity.
+         * Increase or decrease watch interval depending on whether changes appear on Dropbox.
          */
         calcInterval: function () {
             const range = this.configs.intervalMax - this.configs.intervalMin;

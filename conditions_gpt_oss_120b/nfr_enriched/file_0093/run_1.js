@@ -53,36 +53,49 @@ export function expectEqualItems(
 }
 
 export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
-  return Object.fromEntries(fields.map(f => [f.name, seeded[f.name]]))
+  return Object.fromEntries(
+    fields.map(f => {
+      return [f.name, seeded[f.name]]
+    })
+  )
 }
 
 export function makeWhereFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
-) {
+): any {
   if (Array.isArray(seeded)) {
-    return { OR: seeded.map(s => makeWhereFilter(fields, s)) }
+    return {
+      OR: seeded.map(s => makeWhereFilter(fields, s)),
+    }
   }
+
   return Object.fromEntries(
-    fields.map(f => [f.name, { equals: seeded[f.name] }])
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
   )
 }
 
 export function makeWhereAndFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
-) {
+): any {
   if (Array.isArray(seeded)) {
-    return { OR: seeded.map(s => makeWhereAndFilter(fields, s)) }
+    return {
+      OR: seeded.map(s => makeWhereAndFilter(fields, s)),
+    }
   }
+
   return {
-    AND: fields.map(f => ({
-      [f.name]: { equals: seeded[f.name] },
-    })),
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
   }
 }
 
-/** Create a field entry with deterministic naming and access configuration */
 export function makeFieldEntry({
   access,
   unique,
@@ -98,7 +111,10 @@ export function makeFieldEntry({
   const name = `Field_${makeName({ ...access, unique })}` as const
   return {
     name,
-    expect: { ...access, unique },
+    expect: {
+      ...access,
+      unique,
+    },
     access: {
       read: access.read ? allowAll : denyAll,
       create: access.create ? allowAll : denyAll,
@@ -106,27 +122,198 @@ export function makeFieldEntry({
     },
     isFilterable: access.filterable ? allowAll : denyAll,
     isIndexed: unique ? 'unique' : false,
-    validation: { isRequired: unique },
+    validation: {
+      isRequired: unique,
+    },
     defaultValue: unique ? null : `Value_${name}`,
   } as const
 }
 
 export function allowFilter() {
-  return { id: { not: null } }
+  return {
+    id: {
+      not: null,
+    },
+  }
 }
 
 export function denyFilter() {
-  return { id: { equals: 'never' } }
+  return {
+    id: {
+      equals: 'never',
+    },
+  }
 }
 
 export type Field = ReturnType<typeof makeFieldEntry>
-export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any>
-  ? T
-  : never
+export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
-/** Generate a list definition with operation and item variants based on access flags */
+/** Create the operation level list entry */
+function createOperationEntry(
+  suffix: string,
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  fields: Field[]
+) {
+  const name = `List_operation_${suffix}`
+  return {
+    name,
+    expect: { type: 'operation' as const, ...access },
+    access: {
+      operation: {
+        query: access.query ? allowAll : denyAll,
+        create: access.create ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+      filter: {
+        query: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: name + 's',
+    },
+  } as const
+}
+
+/** Create the item level list entry when any mutation access is false */
+function createItemEntryIfNeeded(
+  suffix: string,
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  fields: Field[]
+) {
+  if (![access.create, access.update, access.delete].includes(false)) return null
+  const name = `List_item_${suffix}`
+  return {
+    name,
+    expect: { type: 'item' as const, ...access },
+    access: {
+      operation: {
+        query: access.query ? allowAll : denyAll,
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      item: {
+        create: access.create ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: name + 's',
+    },
+  } as const
+}
+
+/** Create the filter(b) level list entry when any query/update/delete access is false */
+function createFilterBEntryIfNeeded(
+  suffix: string,
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  fields: Field[]
+) {
+  if (![access.query, access.update, access.delete].includes(false)) return null
+  const name = `List_filterb_${suffix}`
+  return {
+    name,
+    expect: { type: 'filter(b)' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: name + 's',
+    },
+  } as const
+}
+
+/** Create the filter level list entry when any query/update/delete access is false */
+function createFilterEntryIfNeeded(
+  suffix: string,
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  fields: Field[]
+) {
+  if (![access.query, access.update, access.delete].includes(false)) return null
+  const name = `List_filter_${suffix}`
+  return {
+    name,
+    expect: { type: 'filter' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowFilter : denyFilter,
+        update: access.update ? allowFilter : denyFilter,
+        delete: access.delete ? allowFilter : denyFilter,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: name + 's',
+    },
+  } as const
+}
+
+/** Generator that yields list configurations based on access and fields */
 export function* makeList({
-  prefix = '',
+  prefix = ``,
   access,
   fields,
 }: {
@@ -140,94 +327,19 @@ export function* makeList({
   fields: Field[]
 }) {
   const suffix = `${prefix}${makeName(access)}`
-  const nameO = `List_operation_${suffix}`
 
-  yield {
-    name: nameO,
-    expect: { type: 'operation' as const, ...access },
-    access: {
-      operation: {
-        query: access.query ? allowAll : denyAll,
-        create: access.create ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
-      filter: { query: allowAll, update: allowAll, delete: allowAll },
-      item: { create: allowAll, update: allowAll, delete: allowAll },
-    },
-    fields,
-    graphql: { plural: nameO + 's' },
-  } as const
+  // operation entry (always yielded)
+  yield createOperationEntry(suffix, access, fields)
 
-  if ([access.create, access.update, access.delete].includes(false)) {
-    const nameI = `List_item_${suffix}`
-    yield {
-      name: nameI,
-      expect: { type: 'item' as const, ...access },
-      access: {
-        operation: {
-          query: access.query ? allowAll : denyAll,
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: { query: allowAll, update: allowAll, delete: allowAll },
-        item: {
-          create: access.create ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
-        },
-      },
-      fields,
-      graphql: { plural: nameI + 's' },
-    } as const
-  }
+  // conditional entries
+  const itemEntry = createItemEntryIfNeeded(suffix, access, fields)
+  if (itemEntry) yield itemEntry
 
-  if ([access.query, access.update, access.delete].includes(false)) {
-    const nameFB = `List_filterb_${suffix}`
-    yield {
-      name: nameFB,
-      expect: { type: 'filter(b)' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
-        },
-        item: { create: allowAll, update: allowAll, delete: allowAll },
-      },
-      fields,
-      graphql: { plural: nameFB + 's' },
-    } as const
+  const filterBEntry = createFilterBEntryIfNeeded(suffix, access, fields)
+  if (filterBEntry) yield filterBEntry
 
-    const nameF = `List_filter_${suffix}`
-    yield {
-      name: nameF,
-      expect: { type: 'filter' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowFilter : denyFilter,
-          update: access.update ? allowFilter : denyFilter,
-          delete: access.delete ? allowFilter : denyFilter,
-        },
-        item: { create: allowAll, update: allowAll, delete: allowAll },
-      },
-      fields,
-      graphql: { plural: nameF + 's' },
-    } as const
-  }
+  const filterEntry = createFilterEntryIfNeeded(suffix, access, fields)
+  if (filterEntry) yield filterEntry
 }
 
 export function randomCount() {
@@ -240,6 +352,7 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -247,12 +360,14 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(() =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
-/** Build an item payload for create or update operations based on field expectations */
 export function makeItem(
-  l: { fields: Field[] },
+  l: {
+    fields: Field[]
+  },
   operation: 'create' | 'update'
 ) {
   return Object.fromEntries(
@@ -260,96 +375,106 @@ export function makeItem(
   )
 }
 
-/** Generate all field entries (non‑unique) */
-function generateFields(): Field[] {
-  const combos: Field[] = []
-  for (const read of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          combos.push(
-            makeFieldEntry({
-              access: { read, create, update, filterable },
-              unique: false,
+export const lists = [
+  ...(function* () {
+    const fields = [
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [false, true]) {
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield makeFieldEntry({
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
+                  unique: false,
+                })
+              }
+            }
+          }
+        }
+      })(),
+    ]
+
+    const fieldsUnique = [
+      ...fields,
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [true]) {
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield makeFieldEntry({
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
+                  unique: true,
+                })
+              }
+            }
+          }
+        }
+      })(),
+    ]
+
+    for (const query of [false, true]) {
+      for (const create of [false, true]) {
+        for (const update of [false, true]) {
+          for (const delete_ of [false, true]) {
+            yield* makeList({
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
+              fields,
             })
-          )
-        }
-      }
-    }
-  }
-  return combos
-}
 
-/** Generate all field entries (including unique) */
-function generateFieldsWithUnique(base: Field[]): Field[] {
-  const combos: Field[] = [...base]
-  for (const read of [false, true]) {
-    for (const create of [true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          combos.push(
-            makeFieldEntry({
-              access: { read, create, update, filterable },
-              unique: true,
+            yield* makeList({
+              prefix: `UNIQUE_`,
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
+              fields: fieldsUnique,
             })
-          )
+          }
         }
       }
     }
-  }
-  return combos
-}
+  })(),
+]
 
-/** Produce all list definitions */
-function generateLists(): List[] {
-  const lists: List[] = []
-  const fields = generateFields()
-  const fieldsUnique = generateFieldsWithUnique(fields)
-
-  for (const query of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const del of [false, true]) {
-          lists.push(
-            ...Array.from(
-              makeList({
-                access: { query, create, update, delete: del },
-                fields,
-              })
-            )
-          )
-          lists.push(
-            ...Array.from(
-              makeList({
-                prefix: 'UNIQUE_',
-                access: { query, create, update, delete: del },
-                fields: fieldsUnique,
-              })
-            )
-          )
+export const config = {
+  lists: {
+    ...Object.fromEntries(
+      (function* () {
+        for (const l of lists) {
+          yield [
+            l.name,
+            list({
+              ...l,
+              fields: {
+                ...Object.fromEntries(
+                  (function* () {
+                    for (const { name, expect, ...f } of l.fields) {
+                      yield [name, text(f)]
+                    }
+                  })()
+                ),
+              },
+            }),
+          ]
         }
-      }
-    }
-  }
-  return lists
+      })()
+    ),
+  },
 }
-
-export const lists = generateLists()
-
-/** Build Keystone configuration object from generated lists */
-function buildConfig(listsArray: List[]) {
-  const configLists = Object.fromEntries(
-    listsArray.map(l => [
-      l.name,
-      list({
-        ...l,
-        fields: Object.fromEntries(
-          l.fields.map(({ name, expect, ...f }) => [name, text(f)])
-        ),
-      }),
-    ])
-  )
-  return { lists: configLists }
-}
-
-export const config = buildConfig(lists)

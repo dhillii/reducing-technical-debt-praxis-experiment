@@ -1,13 +1,18 @@
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
+
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
-var eachLimit       = require('async/eachLimit');
-var series       = require('async/series');
+var eachLimit   = require('async/eachLimit');
+var series      = require('async/series');
 var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-var conf = require('./conf');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
@@ -33,6 +38,7 @@ var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment vari
  */
 var API = module.exports = function(opts) {
   if (!opts) opts = {};
+  let conf = global.conf; // Added explicit declaration
   var that = this;
 
   this.daemon_mode = typeof(opts.daemon_mode) == 'undefined' ? true : opts.daemon_mode;
@@ -59,8 +65,7 @@ var API = module.exports = function(opts) {
     // Override default conf file
     this.pm2_home        = opts.pm2_home;
     conf = util._extend(conf, path_structure(this.pm2_home));
-  }
-  else if (opts.independent == true && conf.IS_WINDOWS === false) {
+  } else if (opts.independent == true && conf.IS_WINDOWS === false) {
     // Create an unique pm2 instance
     var crypto = require('crypto');
     var random_file = crypto.randomBytes(8).toString('hex');
@@ -1569,3 +1574,62 @@ API.prototype.scale = function(app_name, number, cb) {
         return cb ? cb(new Error('Same process number')) : that.exitCli(conf.ERROR_EXIT);
       }
     }
+  });
+};
+
+/**
+ * Description
+ * @method describeProcess
+ * @param {} pm2_id
+ * @return
+ */
+API.prototype.describe = function(pm2_id, cb) {
+  var that = this;
+
+  var found_proc = [];
+
+  that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+    if (err) {
+      Common.printError('Error retrieving process list: ' + err);
+      that.exitCli(conf.ERROR_EXIT);
+    }
+
+    list.forEach(function(proc) {
+      if ((!isNaN(pm2_id)    && proc.pm_id == pm2_id) ||
+          (typeof(pm2_id) === 'string' && proc.name  == pm2_id)) {
+        found_proc.push(proc);
+      }
+    });
+
+    if (found_proc.length === 0) {
+      Common.printError(conf.PREFIX_MSG_WARNING + '%s doesn\'t exist', pm2_id);
+      return cb ? cb(null, []) : that.exitCli(conf.ERROR_EXIT);
+    }
+
+    if (!cb) {
+      found_proc.forEach(function(proc) {
+        UX.describeTable(proc);
+      });
+    }
+
+    return cb ? cb(null, found_proc) : that.exitCli(conf.SUCCESS_EXIT);
+  });
+};
+
+/**
+ * API method to perform a deep update of PM2
+ * @method deepUpdate
+ */
+API.prototype.deepUpdate = function(cb) {
+  var that = this;
+
+  Common.printOut(conf.PREFIX_MSG + 'Updating PM2...');
+
+  var exec = require('shelljs').exec;
+  var child = exec("npm i -g pm2@latest; pm2 update", {async : true});
+
+  child.stdout.on('end', function() {
+    Common.printOut(conf.PREFIX_MSG + 'PM2 successfully updated');
+    cb ? cb(null, {success:true}) : that.exitCli(conf.SUCCESS_EXIT);
+  });
+};

@@ -1,135 +1,178 @@
 import EmailNotificationsTab from './users/email-notifications-tab';
 import NiceModal, {useModal} from '@ebay/nice-modal-react';
 import ProfileTab from './users/profile-tab';
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import SocialLinksTab from './users/social-links-tab';
 import clsx from 'clsx';
 import usePinturaEditor from '../../../hooks/use-pintura-editor';
 import useStaffUsers from '../../../hooks/use-staff-users';
 import validator from 'validator';
 import {APIError} from '@tryghost/admin-x-framework/errors';
-import {
-    ConfirmationModal,
-    Heading,
-    Icon,
-    ImageUpload,
-    LimitModal,
-    Menu,
-    type MenuItem,
-    Modal,
-    TabView,
-    showToast
-} from '@tryghost/admin-x-design-system';
+import {ConfirmationModal, Heading, Icon, ImageUpload, LimitModal, Menu, type MenuItem, Modal, TabView, showToast} from '@tryghost/admin-x-design-system';
 import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {HostLimitError, useLimiter} from '../../../hooks/use-limiter';
 import {type RoutingModalProps, useRouting} from '@tryghost/admin-x-framework/routing';
-import {
-    type User,
-    canAccessSettings,
-    hasAdminAccess,
-    isAdminUser,
-    isAuthorOrContributor,
-    isEditorUser,
-    isOwnerUser,
-    useDeleteUser,
-    useEditUser,
-    useGetUserBySlug,
-    useMakeOwner
-} from '@tryghost/admin-x-framework/api/users';
+import {type User, canAccessSettings, hasAdminAccess, isAdminUser, isAuthorOrContributor, isEditorUser, isOwnerUser, useDeleteUser, useEditUser, useGetUserBySlug, useMakeOwner} from '@tryghost/admin-x-framework/api/users';
 import {getImageUrl, useUploadImage} from '@tryghost/admin-x-framework/api/images';
 import {useGlobalData} from '../../providers/global-data-provider';
-import {
-    validateBlueskyUrl,
-    validateFacebookUrl,
-    validateInstagramUrl,
-    validateLinkedInUrl,
-    validateMastodonUrl,
-    validateThreadsUrl,
-    validateTikTokUrl,
-    validateTwitterUrl,
-    validateYouTubeUrl
-} from '../../../utils/social-urls/index';
+import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateLinkedInUrl, validateMastodonUrl, validateThreadsUrl, validateTikTokUrl, validateTwitterUrl, validateYouTubeUrl} from '../../../utils/social-urls/index';
 
 const validators: Record<string, (u: Partial<User>) => string> = {
-    name: ({name}) => (!name ? 'Name is required' : name.length > 191 ? 'Name is too long' : ''),
-    email: ({email}) => (validator.isEmail(email || '') ? '' : 'Enter a valid email address'),
-    url: ({url}) => (!url || validator.isURL(url, {require_tld: false}) ? '' : 'Enter a valid URL'),
-    bio: ({bio}) => (!bio || bio.length <= 250 ? '' : 'Bio is too long'),
-    location: ({location}) => (!location || location.length <= 150 ? '' : 'Location is too long'),
-    website: ({website}) => (!website || (validator.isURL(website) && website.length <= 2000) ? '' : 'Enter a valid URL'),
-    facebook: ({facebook}) => safeValidate(validateFacebookUrl, facebook),
-    twitter: ({twitter}) => safeValidate(validateTwitterUrl, twitter),
-    threads: ({threads}) => safeValidate(validateThreadsUrl, threads),
-    bluesky: ({bluesky}) => safeValidate(validateBlueskyUrl, bluesky),
-    linkedin: ({linkedin}) => safeValidate(validateLinkedInUrl, linkedin),
-    instagram: ({instagram}) => safeValidate(validateInstagramUrl, instagram),
-    youtube: ({youtube}) => safeValidate(validateYouTubeUrl, youtube),
-    tiktok: ({tiktok}) => safeValidate(validateTikTokUrl, tiktok),
-    mastodon: ({mastodon}) => safeValidate(validateMastodonUrl, mastodon)
+    name: ({name}) => {
+        let error = '';
+        if (!name) {
+            error = 'Name is required';
+        }
+        if (name && name.length > 191) {
+            error = 'Name is too long';
+        }
+        return error;
+    },
+    email: ({email}) => validator.isEmail(email || '') ? '' : 'Enter a valid email address',
+    url: ({url}) => (!url || validator.isURL(url, {require_tld: false})) ? '' : 'Enter a valid URL',
+    bio: ({bio}) => (!bio || bio.length <= 250) ? '' : 'Bio is too long',
+    location: ({location}) => (!location || location.length <= 150) ? '' : 'Location is too long',
+    website: ({website}) => (!website || (validator.isURL(website) && website.length <= 2000)) ? '' : 'Enter a valid URL',
+    facebook: ({facebook}) => {
+        try {
+            validateFacebookUrl(facebook || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    twitter: ({twitter}) => {
+        try {
+            validateTwitterUrl(twitter || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    threads: ({threads}) => {
+        try {
+            validateThreadsUrl(threads || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    bluesky: ({bluesky}) => {
+        try {
+            validateBlueskyUrl(bluesky || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    linkedin: ({linkedin}) => {
+        try {
+            validateLinkedInUrl(linkedin || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    instagram: ({instagram}) => {
+        try {
+            validateInstagramUrl(instagram || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    youtube: ({youtube}) => {
+        try {
+            validateYouTubeUrl(youtube || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    tiktok: ({tiktok}) => {
+        try {
+            validateTikTokUrl(tiktok || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    mastodon: ({mastodon}) => {
+        try {
+            validateMastodonUrl(mastodon || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    }
 };
 
-function safeValidate(validateFn: (url: string) => void, value?: string): string {
-    try {
-        validateFn(value || '');
-        return '';
-    } catch (e) {
-        return e instanceof Error ? e.message : '';
-    }
-}
-
-function getTabFromPath(path: string): string {
+function getInitialTab(path: string): string {
     const lastSegment = path.split('/').pop() || '';
-    return lastSegment === 'social-links' || lastSegment === 'email-notifications' ? lastSegment : 'profile';
+    if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
+        return lastSegment;
+    }
+    return 'profile';
 }
 
-function useMenuItems({
-    currentUser,
-    formState,
-    ownerUser,
-    mainModal,
-    updateRoute,
-    confirmDelete,
-    confirmSuspend,
-    confirmMakeOwner
-}: {
+interface BuildMenuParams {
     currentUser: User;
     formState: User;
+    user: User;
     ownerUser: User | undefined;
+    confirmMakeOwner: () => void;
+    confirmDelete: (user: User, opts: {owner: User}) => void;
+    confirmSuspend: (user: User) => void;
     mainModal: ReturnType<typeof useModal>;
     updateRoute: (route: string | {route: string; isExternal: boolean}) => void;
-    confirmDelete: (user: User, owner: User) => void;
-    confirmSuspend: (user: User) => void;
-    confirmMakeOwner: () => void;
-}) {
-    const menuItems: MenuItem[] = [];
+}
 
-    const canShowMakeOwner = isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive';
-    if (canShowMakeOwner) {
-        menuItems.push({id: 'make-owner', label: 'Make owner', onClick: confirmMakeOwner});
-    }
+function buildMenuItems({
+    currentUser,
+    formState,
+    user,
+    ownerUser,
+    confirmMakeOwner,
+    confirmDelete,
+    confirmSuspend,
+    mainModal,
+    updateRoute
+}: BuildMenuParams): MenuItem[] {
+    const items: MenuItem[] = [];
 
-    const canDeleteOrSuspend =
-        formState.id !== currentUser.id &&
-        ((hasAdminAccess(currentUser) && !isOwnerUser(formState)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(formState)));
-
-    if (canDeleteOrSuspend) {
-        const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-        if (ownerUser) {
-            menuItems.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => confirmDelete(formState, ownerUser)
-            });
-        }
-        menuItems.push({
-            id: 'suspend-user',
-            label: suspendLabel,
-            onClick: () => confirmSuspend(formState)
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        items.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
         });
     }
 
-    menuItems.push({
+    if (
+        formState.id !== currentUser.id &&
+        ((hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+            (isEditorUser(currentUser) && isAuthorOrContributor(user)))
+    ) {
+        const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+        items.push(
+            {
+                id: 'delete-user',
+                label: 'Delete user',
+                onClick: () => {
+                    confirmDelete(user, {owner: ownerUser!});
+                }
+            },
+            {
+                id: 'suspend-user',
+                label: suspendLabel,
+                onClick: () => {
+                    confirmSuspend(formState);
+                }
+            }
+        );
+    }
+
+    items.push({
         id: 'view-user-activity',
         label: 'View user activity',
         onClick: () => {
@@ -138,7 +181,7 @@ function useMenuItems({
         }
     });
 
-    return menuItems;
+    return items;
 }
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
@@ -161,13 +204,16 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         initialState: user,
         savingDelay: 500,
         savedDelay: 500,
-        onValidate: values =>
-            Object.entries(validators).reduce<ErrorMessages>((acc, [key, validate]) => {
+        onValidate: (values) => {
+            return Object.entries(validators).reduce<ErrorMessages>((newErrors, [key, validate]) => {
                 const error = validate(values);
-                if (error) acc[key] = error;
-                return acc;
-            }, {}),
-        onSave: async values => {
+                if (error) {
+                    newErrors[key] = error;
+                }
+                return newErrors;
+            }, {});
+        },
+        onSave: async (values) => {
             await updateUser?.(values);
         },
         onSaveError: handleError
@@ -200,8 +246,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspend = async (targetUser: User) => {
-        if (targetUser.status === 'inactive' && targetUser.roles[0].name !== 'Contributor') {
+    const confirmSuspend = async (_user: User) => {
+        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -218,7 +264,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
 
         const warningText =
-            targetUser.status === 'inactive'
+            _user.status === 'inactive'
                 ? 'This user will be able to log in again and will have the same permissions they had previously.'
                 : 'This user will no longer be able to log in but their posts will be kept.';
 
@@ -229,17 +275,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: targetUser.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: targetUser.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
-            onOk: async modal => {
-                const updated = {...targetUser, status: targetUser.status === 'inactive' ? 'active' : 'inactive'};
+            onOk: async (modal) => {
+                const updatedUserData = {
+                    ..._user,
+                    status: _user.status === 'inactive' ? 'active' : 'inactive'
+                };
                 try {
-                    await updateUser(updated);
-                    setFormState(() => updated);
+                    await updateUser(updatedUserData);
+                    setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: targetUser.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -249,13 +298,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const confirmDelete = (targetUser: User, owner: User) => {
+    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
                 <>
                     <p className='mb-3'>
-                        <span className='font-bold'>{targetUser.name || targetUser.email}</span> will be permanently deleted and all their posts will be automatically assigned to the{' '}
+                        <span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the{' '}
                         <span className='font-bold'>{owner.name}</span>.
                     </p>
                     <p>
@@ -266,9 +315,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             ),
             okLabel: 'Delete user',
             okColor: 'red',
-            onOk: async modal => {
+            onOk: async (modal) => {
                 try {
-                    await deleteUser(targetUser?.id);
+                    await deleteUser(_user?.id);
                     modal?.remove();
                     mainModal?.remove();
                     navigateOnClose();
@@ -286,7 +335,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
             okLabel: "Yep — I'm sure",
             okColor: 'red',
-            onOk: async modal => {
+            onOk: async (modal) => {
                 try {
                     await makeOwner(user.id);
                     modal?.remove();
@@ -298,52 +347,70 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleImageUpload = async (type: string, file: File) => {
+    const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            if (type === 'cover_image') {
-                updateForm(u => ({...u, cover_image: imageUrl}));
-            } else if (type === 'profile_image') {
-                updateForm(u => ({...u, profile_image: imageUrl}));
+            if (image === 'cover_image') {
+                updateForm((_user) => ({..._user, cover_image: imageUrl}));
+            } else if (image === 'profile_image') {
+                updateForm((_user) => ({..._user, profile_image: imageUrl}));
             }
         } catch (e) {
-            const err = e as APIError;
-            if (err.response?.status === 415) {
-                err.message = 'Unsupported file type';
+            const error = e as APIError;
+            if (error.response?.status === 415) {
+                error.message = 'Unsupported file type';
             }
-            handleError(err);
+            handleError(error);
         }
     };
 
-    const handleImageDelete = (type: string) => {
-        if (type === 'cover_image') {
-            updateForm(u => ({...u, cover_image: ''}));
-        } else if (type === 'profile_image') {
-            updateForm(u => ({...u, profile_image: ''}));
+    const handleImageDelete = (image: string) => {
+        if (image === 'cover_image') {
+            updateForm((_user) => ({..._user, cover_image: ''}));
+        } else if (image === 'profile_image') {
+            updateForm((_user) => ({..._user, profile_image: ''}));
         }
     };
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = useMenuItems({
-        currentUser,
-        formState,
-        ownerUser,
-        mainModal,
-        updateRoute,
-        confirmDelete,
-        confirmSuspend,
-        confirmMakeOwner
-    });
 
-    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
-    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const menuItems = useMemo(
+        () =>
+            buildMenuItems({
+                currentUser,
+                formState,
+                user,
+                ownerUser,
+                confirmMakeOwner,
+                confirmDelete,
+                confirmSuspend,
+                mainModal,
+                updateRoute
+            }),
+        [
+            currentUser,
+            formState,
+            user,
+            ownerUser,
+            confirmMakeOwner,
+            confirmDelete,
+            confirmSuspend,
+            mainModal,
+            updateRoute
+        ]
+    );
+
+    const noCoverButtonClasses =
+        'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+    const coverButtonClasses =
+        'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
-    const initialTab = getTabFromPath(route);
+    const initialTab = getInitialTab(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
-        const segment = newTabId === 'profile' ? '' : `/${newTabId}`;
-        updateRoute(`staff/${user.slug}${segment}`);
+        const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+        updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
 
@@ -358,7 +425,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             okColor={okProps.color}
             okLabel={okProps.label || 'Save'}
             size={canAccessSettings(currentUser) ? 'md' : 'bleed'}
-            stickyFooter
+            stickyFooter={true}
             testId='user-detail-modal'
             width={canAccessSettings(currentUser) ? 600 : 'full'}
             onOk={async () => {
@@ -398,10 +465,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                     }
                                                 })
                                         }}
-                                        unstyled
+                                        unstyled={true}
                                         width='80px'
-                                        onDelete={() => handleImageDelete('profile_image')}
-                                        onUpload={file => handleImageUpload('profile_image', file)}
+                                        onDelete={() => {
+                                            handleImageDelete('profile_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('profile_image', file);
+                                        }}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
                                     </ImageUpload>
@@ -427,8 +498,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                 })
                                         }}
                                         unstyled
-                                        onDelete={() => handleImageDelete('cover_image')}
-                                        onUpload={file => handleImageUpload('cover_image', file)}
+                                        onDelete={() => {
+                                            handleImageDelete('cover_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('cover_image', file);
+                                        }}
                                     >
                                         Upload cover image
                                     </ImageUpload>
@@ -531,7 +606,6 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
         enabled: !isCurrentUser && !!params?.slug
     });
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
-
     return user ? <UserDetailModalContent user={user} /> : null;
 };
 

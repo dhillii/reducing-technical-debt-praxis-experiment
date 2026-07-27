@@ -55,15 +55,7 @@ module.exports = class EventRepository {
         this._AutomatedEmailRecipient = AutomatedEmailRecipient;
     }
 
-    /**
-     * Orchestrates retrieval of the event timeline.
-     * @param {Object} options
-     * @returns {Promise<Object>}
-     */
-    async getEventTimeline(options) {
-        if (!options) {
-            options = {};
-        }
+    async getEventTimeline(options = {}) {
         if (!options.limit) {
             options.limit = 10;
         }
@@ -72,14 +64,17 @@ module.exports = class EventRepository {
         options.order = 'created_at desc, id desc';
 
         const pageActions = this._buildPageActions(options);
-        const filteredPages = this._applyTypeFilter(pageActions, typeFilter);
+        const filteredPages = this._filterPages(pageActions, typeFilter, otherFilter);
+
         const pages = filteredPages.map(page => this[page.action](options, otherFilter));
         const allEventPages = await Promise.all(pages);
+
         const allEvents = allEventPages.flatMap(page => page.data);
         const totalEvents = allEventPages.reduce((acc, page) => acc + page.meta.pagination.total, 0);
+        const sortedEvents = this._sortAndSliceEvents(allEvents, options.limit);
 
         return {
-            events: this._sortAndSliceEvents(allEvents, options.limit),
+            events: sortedEvents,
             meta: {
                 pagination: {
                     limit: options.limit,
@@ -94,9 +89,9 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Builds the list of page actions based on available services and filters.
+     * Build the list of page actions based on enabled services and filters.
      * @param {Object} options
-     * @returns {Array<Object>}
+     * @returns {Array<{type:string,action:string}>}
      */
     _buildPageActions(options) {
         const pageActions = [
@@ -109,7 +104,7 @@ module.exports = class EventRepository {
         ];
 
         // Some events are not filterable by post_id
-        if (!getUsedKeys(options.filter || {}).includes('data.post_id')) {
+        if (!getUsedKeys(options.filter).includes('data.post_id')) {
             pageActions.push(
                 {type: 'newsletter_event', action: 'getNewsletterSubscriptionEvents'},
                 {type: 'login_event', action: 'getLoginEvents'},
@@ -123,12 +118,10 @@ module.exports = class EventRepository {
         }
 
         if (this._EmailRecipient) {
-            pageActions.push(
-                {type: 'email_sent_event', action: 'getEmailSentEvents'},
-                {type: 'email_delivered_event', action: 'getEmailDeliveredEvents'},
-                {type: 'email_opened_event', action: 'getEmailOpenedEvents'},
-                {type: 'email_failed_event', action: 'getEmailFailedEvents'}
-            );
+            pageActions.push({type: 'email_sent_event', action: 'getEmailSentEvents'});
+            pageActions.push({type: 'email_delivered_event', action: 'getEmailDeliveredEvents'});
+            pageActions.push({type: 'email_opened_event', action: 'getEmailOpenedEvents'});
+            pageActions.push({type: 'email_failed_event', action: 'getEmailFailedEvents'});
         }
 
         pageActions.push({type: 'email_complained_event', action: 'getEmailSpamComplaintEvents'});
@@ -141,12 +134,13 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Applies the type filter to the list of page actions.
-     * @param {Array<Object>} pageActions
+     * Apply type filter to the list of page actions.
+     * @param {Array} pageActions
      * @param {Object} typeFilter
-     * @returns {Array<Object>}
+     * @param {Object} otherFilter
+     * @returns {Array}
      */
-    _applyTypeFilter(pageActions, typeFilter) {
+    _filterPages(pageActions, typeFilter, otherFilter) {
         if (!typeFilter) {
             return pageActions;
         }
@@ -155,21 +149,19 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Sorts events by created_at and id, then slices to the limit.
-     * @param {Array<Object>} events
+     * Sort events by created_at and id, then slice to limit.
+     * @param {Array} events
      * @param {number} limit
-     * @returns {Array<Object>}
+     * @returns {Array}
      */
     _sortAndSliceEvents(events, limit) {
-        return events
-            .sort((a, b) => {
-                const diff = new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime();
-                if (diff !== 0) {
-                    return diff;
-                }
-                return b.data.id.localeCompare(a.data.id);
-            })
-            .slice(0, limit);
+        return events.sort((a, b) => {
+            const diff = new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime();
+            if (diff !== 0) {
+                return diff;
+            }
+            return b.data.id.localeCompare(a.data.id);
+        }).slice(0, limit);
     }
 
     async registerPayment(data) {
@@ -233,14 +225,21 @@ module.exports = class EventRepository {
 
         const {data: models, meta} = await this._MemberPaidSubscriptionEvent.findPage(options);
         const data = models.map(model => {
-            const tierName = model.related('stripeSubscription')?.related('stripePrice')?.related('stripeProduct')?.related('product')?.get('name') || null;
+            const tierName = model.related('stripeSubscription') &&
+                model.related('stripeSubscription').related('stripePrice') &&
+                model.related('stripeSubscription').related('stripePrice').related('stripeProduct') &&
+                model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product')
+                ? model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product').get('name')
+                : null;
+
             delete model.relations.stripeSubscription;
             const d = {
                 ...model.toJSON(options),
-                attribution: model.get('type') === 'created' && model.related('subscriptionCreatedEvent')?.id
+                attribution: model.get('type') === 'created' && model.related('subscriptionCreatedEvent') && model.related('subscriptionCreatedEvent').id
                     ? this._memberAttributionService.getEventAttribution(model.related('subscriptionCreatedEvent'))
                     : null,
-                signup: model.get('type') === 'created' && model.related('subscriptionCreatedEvent')?.related('memberCreatedEvent')?.id ? true : false,
+                signup: model.get('type') === 'created' && model.related('subscriptionCreatedEvent') && model.related('subscriptionCreatedEvent').id &&
+                    model.related('subscriptionCreatedEvent').related('memberCreatedEvent') && model.related('subscriptionCreatedEvent').related('memberCreatedEvent').id,
                 tierName
             };
             delete d.stripeSubscription;
@@ -459,7 +458,7 @@ module.exports = class EventRepository {
         const [typeFilter, otherFilter] = this.getNQLSubset(options.filter);
         filter = this.removePostIdFilter(otherFilter);
 
-        const postClicksQuery = postId ? `SELECT
+        let postClicksQuery = postId ? `SELECT
                     mce.id,
                     mce.member_id,
                     mce.redirect_id,
@@ -469,7 +468,8 @@ module.exports = class EventRepository {
                 INNER JOIN
                     redirects r ON mce.redirect_id = r.id
                 WHERE
-                    r.post_id = '${postId.toHexString()}'` : `SELECT
+                    r.post_id = '${postId.toHexString()}'
+        ` : `SELECT
                         mce.id,
                         mce.member_id,
                         mce.redirect_id,
@@ -477,7 +477,8 @@ module.exports = class EventRepository {
                     FROM
                         members_click_events mce
                     INNER JOIN
-                        redirects r ON mce.redirect_id = r.id`;
+                        redirects r ON mce.redirect_id = r.id
+            `;
 
         const firstClicksQuery = `
             SELECT
@@ -497,7 +498,6 @@ module.exports = class EventRepository {
                         SELECT redirect_id
                         FROM PostClicks
                     )`;
-
         options = {
             ...options,
             withRelated: ['member'],
@@ -823,23 +823,13 @@ module.exports = class EventRepository {
 
         const cumulativeResults = resultsJSON.reduce((acc, result) => {
             if (!acc[result.currency]) {
-                return {
-                    ...acc,
-                    [result.currency]: [{
-                        date: result.date,
-                        mrr: result.mrr_delta,
-                        currency: result.currency
-                    }]
-                };
+                return {...acc, [result.currency]: [{date: result.date, mrr: result.mrr_delta, currency: result.currency}]};
             }
-            return {
-                ...acc,
-                [result.currency]: acc[result.currency].concat([{
-                    date: result.date,
-                    mrr: result.mrr_delta + acc[result.currency].slice(-1)[0].mrr,
-                    currency: result.currency
-                }])
-            };
+            return {...acc, [result.currency]: acc[result.currency].concat([{
+                date: result.date,
+                mrr: result.mrr_delta + acc[result.currency].slice(-1)[0].mrr,
+                currency: result.currency
+            }])};
         }, {});
 
         return cumulativeResults;
@@ -851,12 +841,7 @@ module.exports = class EventRepository {
 
         const cumulativeResults = resultsJSON.reduce((acc, result, index) => {
             if (index === 0) {
-                return [{
-                    date: result.date,
-                    paid: result.paid_delta,
-                    comped: result.comped_delta,
-                    free: result.free_delta
-                }];
+                return [{date: result.date, paid: result.paid_delta, comped: result.comped_delta, free: result.free_delta}];
             }
             return acc.concat([{
                 date: result.date,

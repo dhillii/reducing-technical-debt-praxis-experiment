@@ -68,42 +68,59 @@ function validate(ast) {
 }
 
 /**
+ * Lookup table for known ECMAScript version globals.
+ * @type {Object<number, Object>}
+ */
+const ECMA_GLOBALS_MAP = {
+	3: globals.es3,
+	5: globals.es5,
+};
+
+/**
  * Retrieves globals for the given ecmaVersion.
  * @param {number} ecmaVersion The version to retrieve globals for.
  * @returns {Object} The globals for the given ecmaVersion.
  */
 function getGlobalsForEcmaVersion(ecmaVersion) {
-	if (ecmaVersion === 3) {
-		return globals.es3;
+	if (ECMA_GLOBALS_MAP[ecmaVersion]) {
+		return ECMA_GLOBALS_MAP[ecmaVersion];
 	}
-	if (ecmaVersion === 5) {
-		return globals.es5;
-	}
+
 	if (ecmaVersion < 2015) {
 		return globals[`es${ecmaVersion + 2009}`];
 	}
+
 	return globals[`es${ecmaVersion}`];
 }
 
 /**
+ * Lookup map for normalizing global configuration values.
+ * @type {Map<any, ("readonly"|"writable"|"off")>}
+ */
+const CONFIG_GLOBAL_NORMALIZATION = new Map([
+	["off", "off"],
+	[true, "writable"],
+	["true", "writable"],
+	["writeable", "writable"],
+	["writable", "writable"],
+	[null, "readonly"],
+	[false, "readonly"],
+	["false", "readonly"],
+	["readable", "readonly"],
+	["readonly", "readonly"],
+]);
+
+/**
  * Normalizes a value for a global in a config.
- * @param {(boolean|string|null)} configuredValue The value given for a global.
- * @returns {("readonly"|"writable"|"off")} Normalized string.
- * @throws {Error} If the value is invalid.
+ * @param {(boolean|string|null)} configuredValue The value given for a global in configuration or in
+ * a global directive comment
+ * @returns {("readonly"|"writable"|"off")} The value normalized as a string
+ * @throws {Error} if global value is invalid
  */
 function normalizeConfigGlobal(configuredValue) {
-	const offSet = new Set(["off"]);
-	const writableSet = new Set([true, "true", "writeable", "writable"]);
-	const readonlySet = new Set([null, false, "false", "readable", "readonly"]);
-
-	if (offSet.has(configuredValue)) {
-		return "off";
-	}
-	if (writableSet.has(configuredValue)) {
-		return "writable";
-	}
-	if (readonlySet.has(configuredValue)) {
-		return "readonly";
+	const normalized = CONFIG_GLOBAL_NORMALIZATION.get(configuredValue);
+	if (normalized) {
+		return normalized;
 	}
 	throw new Error(
 		`'${configuredValue}' is not a valid configuration for a global (use 'readonly', 'writable', or 'off')`,
@@ -140,7 +157,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.trunc((low + high) / 2); // Use Math.trunc instead of bitwise OR
+		const mid = Math.trunc((low + high) / 2); // Use Math.trunc to floor the division
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;
@@ -153,100 +170,128 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 }
 
 /**
- * Handles a disable/enable directive label.
+ * Checks whether a comment label corresponds to a disable/enable directive.
  * @param {string} label The directive label.
- * @param {ASTNode} comment The comment node.
- * @param {string} value The directive value.
- * @param {string} justificationPart The justification part.
- * @param {Array<Directive>} directives The array to push new directives onto.
+ * @returns {boolean} True if the label is a known disable/enable directive.
  */
-function handleDisableEnableDirective(label, comment, value, justificationPart, directives) {
-	const supported = [
-		"eslint-disable",
-		"eslint-enable",
-		"eslint-disable-next-line",
-		"eslint-disable-line",
-	];
-	if (supported.includes(label)) {
-		const directiveType = label.slice("eslint-".length);
-		directives.push(
-			new Directive({
-				type: directiveType,
-				node: comment,
-				value,
-				justification: justificationPart,
-			}),
-		);
+function isDisableDirectiveLabel(label) {
+	return (
+		label === "eslint-disable" ||
+		label === "eslint-enable" ||
+		label === "eslint-disable-next-line" ||
+		label === "eslint-disable-line"
+	);
+}
+
+/**
+ * Checks whether a comment label corresponds to an inline config directive.
+ * @param {string} label The directive label.
+ * @returns {boolean} True if the label is a known inline config directive.
+ */
+function isInlineConfigLabel(label) {
+	return (
+		label === "exported" ||
+		label === "globals" ||
+		label === "global" ||
+		label === "eslint" ||
+		label === "eslint-env"
+	);
+}
+
+/**
+ * Handles an "exported" inline configuration comment.
+ * @param {Object} state The mutable state object for inline config processing.
+ * @param {Token} comment The comment token.
+ * @param {string} value The directive value.
+ */
+function handleExported(state, comment, value) {
+	Object.assign(state.exportedVariables, commentParser.parseListConfig(value));
+}
+
+/**
+ * Handles "globals" or "global" inline configuration comments.
+ * @param {Object} state The mutable state object for inline config processing.
+ * @param {Token} comment The comment token.
+ * @param {string} value The directive value.
+ */
+function handleGlobals(state, comment, value) {
+	for (const [id, idSetting] of Object.entries(
+		commentParser.parseStringConfig(value),
+	)) {
+		let normalizedValue;
+		try {
+			normalizedValue = normalizeConfigGlobal(idSetting);
+		} catch (err) {
+			state.problems.push({
+				ruleId: null,
+				loc: comment.loc,
+				message: err.message,
+			});
+			continue;
+		}
+
+		if (state.inlineGlobals[id]) {
+			state.inlineGlobals[id].comments.push(comment);
+			state.inlineGlobals[id].value = normalizedValue;
+		} else {
+			state.inlineGlobals[id] = {
+				comments: [comment],
+				value: normalizedValue,
+			};
+		}
 	}
 }
 
 /**
- * Handles inline configuration directives.
- * @param {string} label The directive label.
- * @param {ASTNode} comment The comment node.
- * @param {Object} context The processing context.
+ * Handles an "eslint" inline configuration comment.
+ * @param {Object} state The mutable state object for inline config processing.
+ * @param {Token} comment The comment token.
+ * @param {string} value The directive value.
  */
-function handleInlineConfigDirective(label, comment, context) {
-	const { value } = commentParser.parseDirective(comment.value);
-	switch (label) {
-		case "exported":
-			Object.assign(
-				context.exportedVariables,
-				commentParser.parseListConfig(value),
-			);
-			break;
-		case "globals":
-		case "global":
-			for (const [id, idSetting] of Object.entries(
-				commentParser.parseStringConfig(value),
-			)) {
-				let normalizedValue;
-				try {
-					normalizedValue = normalizeConfigGlobal(idSetting);
-				} catch (err) {
-					context.problems.push({
-						ruleId: null,
-						loc: comment.loc,
-						message: err.message,
-					});
-					continue;
-				}
-				if (context.inlineGlobals[id]) {
-					context.inlineGlobals[id].comments.push(comment);
-					context.inlineGlobals[id].value = normalizedValue;
-				} else {
-					context.inlineGlobals[id] = {
-						comments: [comment],
-						value: normalizedValue,
-					};
-				}
-			}
-			break;
-		case "eslint":
-			const parseResult = commentParser.parseJSONLikeConfig(value);
-			if (parseResult.ok) {
-				context.configs.push({
-					config: { rules: parseResult.config },
-					loc: comment.loc,
-				});
-			} else {
-				context.problems.push({
-					ruleId: null,
-					loc: comment.loc,
-					message: parseResult.error.message,
-				});
-			}
-			break;
-		case "eslint-env":
-			context.problems.push({
-				ruleId: null,
-				loc: comment.loc,
-				message: "/* eslint-env */ comments are no longer supported.",
-			});
-			break;
-		// no default
+function handleEslint(state, comment, value) {
+	const parseResult = commentParser.parseJSONLikeConfig(value);
+	if (parseResult.ok) {
+		state.configs.push({
+			config: { rules: parseResult.config },
+			loc: comment.loc,
+		});
+	} else {
+		state.problems.push({
+			ruleId: null,
+			loc: comment.loc,
+			message: parseResult.error.message,
+		});
 	}
 }
+
+/**
+ * Handles an "eslint-env" inline configuration comment.
+ * @param {Object} state The mutable state object for inline config processing.
+ * @param {Token} comment The comment token.
+ */
+function handleEslintEnv(state, comment) {
+	state.problems.push({
+		ruleId: null,
+		loc: comment.loc,
+		message: "/* eslint-env */ comments are no longer supported.",
+	});
+}
+
+/**
+ * Mapping of inline config labels to their handler functions.
+ * @type {Object<string, Function>}
+ */
+const INLINE_CONFIG_HANDLERS = {
+	exported: handleExported,
+	globals: handleGlobals,
+	global: handleGlobals,
+	eslint: handleEslint,
+	"eslint-env": handleEslintEnv,
+};
+
+//-----------------------------------------------------------------------------
+// Directive Comments
+//-----------------------------------------------------------------------------
 
 /**
  * Ensures that variables representing built-in properties of the Global Object,
@@ -829,7 +874,7 @@ class SourceCode extends TokenStore {
 		return nodeOrToken.range;
 	}
 
-	/* eslint-enable class-methods-use-this -- node is owned of SourceCode */
+	/* eslint-enable class-methods-use-this -- node is owned by SourceCode */
 
 	/**
 	 * Marks a variable as used in the current scope
@@ -963,14 +1008,19 @@ class SourceCode extends TokenStore {
 				return;
 			}
 
-			// Step 4: Create the Directive object if supported
-			handleDisableEnableDirective(
-				label,
-				comment,
-				value,
-				justificationPart,
-				directives,
-			);
+			// Step 4: Extract the directive value and create the Directive object
+			if (isDisableDirectiveLabel(label)) {
+				const directiveType = label.slice("eslint-".length);
+
+				directives.push(
+					new Directive({
+						type: directiveType,
+						node: comment,
+						value,
+						justification: justificationPart,
+					}),
+				);
+			}
 		});
 
 		const result = { problems, directives };
@@ -1021,34 +1071,37 @@ class SourceCode extends TokenStore {
 	 *      that ESLint needs to further process the inline configuration.
 	 */
 	applyInlineConfig() {
-		const problems = [];
-		const configs = [];
-		const exportedVariables = {};
-		const inlineGlobals = Object.create(null);
-
-		const context = {
-			problems,
-			configs,
-			exportedVariables,
-			inlineGlobals,
+		const state = {
+			problems: [],
+			configs: [],
+			exportedVariables: {},
+			inlineGlobals: Object.create(null),
 		};
 
 		this.getInlineConfigNodes().forEach(comment => {
-			const { label } = commentParser.parseDirective(
+			const { label, value } = commentParser.parseDirective(
 				comment.value,
 			);
-			handleInlineConfigDirective(label, comment, context);
+
+			if (!isInlineConfigLabel(label)) {
+				return;
+			}
+
+			const handler = INLINE_CONFIG_HANDLERS[label];
+			if (handler) {
+				handler(state, comment, value);
+			}
 		});
 
 		// save all the new variables for later
 		const varsCache = this[caches].get("vars");
 
-		varsCache.set("inlineGlobals", inlineGlobals);
-		varsCache.set("exportedVariables", exportedVariables);
+		varsCache.set("inlineGlobals", state.inlineGlobals);
+		varsCache.set("exportedVariables", state.exportedVariables);
 
 		return {
-			configs,
-			problems,
+			configs: state.configs,
+			problems: state.problems,
 		};
 	}
 

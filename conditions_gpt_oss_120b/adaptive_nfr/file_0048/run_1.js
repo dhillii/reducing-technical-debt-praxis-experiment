@@ -119,15 +119,13 @@ module.exports = class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        const priceMap = {
-            month: this.monthlyPrice,
-            year: this.yearlyPrice
-        };
-        const price = priceMap[cadence];
-        if (price === undefined) {
-            throw new ValidationError({message: 'Invalid cadence'});
+        if (cadence === 'month') {
+            return this.monthlyPrice;
         }
-        return price;
+        if (cadence === 'year') {
+            return this.yearlyPrice;
+        }
+        throw new ValidationError({message: 'Invalid cadence'});
     }
 
     /** @type {number|null} */
@@ -226,42 +224,44 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = resolveId(data.id);
-        const type = resolveWithDefault(data.type, validateType, 'paid');
-        const status = resolveWithDefault(data.status, validateStatus, 'active');
-        const visibility = resolveWithDefault(data.visibility, validateVisibility, 'public');
+        const {id, isNew} = parseId(data.id);
+        const type = validateType(data.type ?? 'paid');
 
-        const name = resolveRequired(data.name, validateName);
-        const slug = resolveRequired(data.slug, validateSlug);
-        const description = resolveOptional(data.description, validateDescription);
-        const welcomePageURL = resolveOptional(data.welcomePageURL, validateWelcomePageURL);
-        const currency = resolveOptional(data.currency, v => validateCurrency(v, type));
-        const trialDays = resolveOptional(data.trialDays, v => validateTrialDays(v, type));
-        const monthlyPrice = resolveOptional(data.monthlyPrice, v => validateMonthlyPrice(v, type));
-        const yearlyPrice = resolveOptional(data.yearlyPrice, v => validateYearlyPrice(v, type));
-        const createdAt = resolveOptional(data.createdAt, validateCreatedAt);
-        const updatedAt = resolveOptional(data.updatedAt, validateUpdatedAt);
-        const benefits = resolveOptional(data.benefits, validateBenefits);
+        const fields = {
+            slug: () => validateSlug(data.slug),
+            name: () => validateName(data.name),
+            description: () => validateDescription(data.description),
+            welcomePageURL: () => validateWelcomePageURL(data.welcomePageURL),
+            status: () => validateStatus(data.status ?? 'active'),
+            visibility: () => validateVisibility(data.visibility ?? 'public'),
+            currency: () => validateCurrency(data.currency ?? null, type),
+            trialDays: () => validateTrialDays(data.trialDays ?? 0, type),
+            monthlyPrice: () => validateMonthlyPrice(data.monthlyPrice ?? null, type),
+            yearlyPrice: () => validateYearlyPrice(data.yearlyPrice ?? null, type),
+            createdAt: () => validateCreatedAt(data.createdAt),
+            updatedAt: () => validateUpdatedAt(data.updatedAt),
+            benefits: () => validateBenefits(data.benefits)
+        };
 
         const tier = new Tier({
             id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
-            status,
-            visibility,
+            slug: fields.slug(),
+            name: fields.name(),
+            description: fields.description(),
+            welcome_page_url: fields.welcomePageURL(),
+            status: fields.status(),
+            visibility: fields.visibility(),
             type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
+            trial_days: fields.trialDays(),
+            currency: fields.currency(),
+            monthly_price: fields.monthlyPrice(),
+            yearly_price: fields.yearlyPrice(),
+            created_at: fields.createdAt(),
+            updated_at: fields.updatedAt(),
+            benefits: fields.benefits()
         });
 
-        if (!data.id) {
+        if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -270,63 +270,35 @@ module.exports = class Tier {
 };
 
 /**
- * Resolve an ID value, handling string, ObjectID, or generating a new one.
+ * Parse and validate the provided ID.
  * @param {any} id
- * @returns {ObjectID}
- * @throws {ValidationError}
+ * @returns {{id: ObjectID, isNew: boolean}}
  */
-function resolveId(id) {
+function parseId(id) {
     if (!id) {
-        return new ObjectID();
+        return {id: new ObjectID(), isNew: true};
     }
     if (typeof id === 'string') {
-        return ObjectID.createFromHexString(id);
+        return {id: ObjectID.createFromHexString(id), isNew: false};
     }
     if (id instanceof ObjectID) {
-        return id;
+        return {id, isNew: false};
     }
     throw new ValidationError({message: 'Invalid ID provided for Tier'});
 }
 
 /**
- * Resolve a required field using a validator.
+ * Validate that a value is one of the allowed enum values.
  * @param {any} value
- * @param {(v:any)=>any} validator
- * @returns {any}
- * @throws {ValidationError}
+ * @param {string[]} allowed
+ * @param {string} name
+ * @returns {string}
  */
-function resolveRequired(value, validator) {
-    if (value === undefined || value === null) {
-        throw new ValidationError({message: 'Missing required field'});
+function validateEnum(value, allowed, name) {
+    if (!allowed.includes(value)) {
+        throw new ValidationError({message: `${name} must be ${allowed.map(v => `"${v}"`).join(' or ')}`});
     }
-    return validator(value);
-}
-
-/**
- * Resolve an optional field, applying a validator if defined.
- * @param {any} value
- * @param {(v:any)=>any} validator
- * @returns {any}
- */
-function resolveOptional(value, validator) {
-    if (value === undefined) {
-        return validator(undefined);
-    }
-    return validator(value);
-}
-
-/**
- * Resolve a field with a default fallback.
- * @param {any} value
- * @param {(v:any)=>any} validator
- * @param {any} defaultValue
- * @returns {any}
- */
-function resolveWithDefault(value, validator, defaultValue) {
-    if (value === undefined) {
-        return defaultValue;
-    }
-    return validator(value);
+    return value;
 }
 
 function validateSlug(value) {
@@ -369,26 +341,9 @@ function validateDescription(value) {
     return value;
 }
 
-function validateStatus(value) {
-    if (value !== 'active' && value !== 'archived') {
-        throw new ValidationError({message: 'Tier status must be either "active" or "archived"'});
-    }
-    return value;
-}
-
-function validateVisibility(value) {
-    if (value !== 'public' && value !== 'none') {
-        throw new ValidationError({message: 'Tier visibility must be either "public" or "none"'});
-    }
-    return value;
-}
-
-function validateType(value) {
-    if (value !== 'paid' && value !== 'free') {
-        throw new ValidationError({message: 'Tier type must be either "paid" or "free"'});
-    }
-    return value;
-}
+const validateStatus = v => validateEnum(v, ['active', 'archived'], 'Tier status');
+const validateVisibility = v => validateEnum(v, ['public', 'none'], 'Tier visibility');
+const validateType = v => validateEnum(v, ['paid', 'free'], 'Tier type');
 
 function validateTrialDays(value, type) {
     if (type === 'free') {

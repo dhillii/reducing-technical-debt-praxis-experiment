@@ -44,7 +44,7 @@ module.exports = function() {
 				}
 			};
 		};
-		for (const name in $require$) {
+		for (let name in $require$) {
 			if (Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
 				Object.defineProperty(fn, name, ObjectFactory(name));
 			}
@@ -150,9 +150,9 @@ module.exports = function() {
 	// while downloading
 	let hotWaitingFiles = 0;
 	let hotChunksLoading = 0;
-	const hotWaitingFilesMap = {};
-	const hotRequestedFilesMap = {};
-	const hotAvailableFilesMap = {};
+	let hotWaitingFilesMap = {};
+	let hotRequestedFilesMap = {};
+	let hotAvailableFilesMap = {};
 	let hotDeferred;
 
 	// The update info
@@ -201,7 +201,7 @@ module.exports = function() {
 		if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
-		for (const moduleId in moreModules) {
+		for (let moduleId in moreModules) {
 			if (Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
 				hotUpdate[moduleId] = moreModules[moduleId];
 			}
@@ -234,7 +234,7 @@ module.exports = function() {
 			});
 		} else {
 			const outdatedModules = [];
-			for (const id in hotUpdate) {
+			for (let id in hotUpdate) {
 				if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 					outdatedModules.push(toModuleId(id));
 				}
@@ -321,8 +321,8 @@ module.exports = function() {
 		}
 
 		function addAllToSet(a, b) {
-			for (let i = 0; i < b.length; i++) {
-				const item = b[i];
+			for (let k = 0; k < b.length; k++) {
+				const item = b[k];
 				if (a.indexOf(item) < 0)
 					a.push(item);
 			}
@@ -338,7 +338,7 @@ module.exports = function() {
 			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
 		};
 
-		for (const id in hotUpdate) {
+		for (let id in hotUpdate) {
 			if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 				moduleId = toModuleId(id);
 				let result;

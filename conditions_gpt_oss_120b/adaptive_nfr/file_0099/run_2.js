@@ -3,39 +3,46 @@
 const util = require('crypto-lib').util;
 
 /**
- * Internal implementation of WriteCtrl with a single parameter object.
- * @param {Object} deps - Dependency container.
- * @param {Object} deps.$scope
- * @param {Object} deps.$window
- * @param {Function} deps.$filter
- * @param {Object} deps.$q
- * @param {Object} deps.appConfig
- * @param {Object} deps.auth
- * @param {Object} deps.keychain
- * @param {Object} deps.pgp
- * @param {Object} deps.email
- * @param {Object} deps.outbox
- * @param {Object} deps.dialog
- * @param {Object} deps.axe
- * @param {Object} deps.status
- * @param {Object} deps.invitation
+ * Parameter object for WriteCtrl dependencies.
+ * @typedef {Object} WriteCtrlDeps
+ * @property {*} $scope
+ * @property {*} $window
+ * @property {*} $filter
+ * @property {*} $q
+ * @property {*} appConfig
+ * @property {*} auth
+ * @property {*} keychain
+ * @property {*} pgp
+ * @property {*} email
+ * @property {*} outbox
+ * @property {*} dialog
+ * @property {*} axe
+ * @property {*} status
+ * @property {*} invitation
  */
-function initWriteCtrl({
-    $scope,
-    $window,
-    $filter,
-    $q,
-    appConfig,
-    auth,
-    keychain,
-    pgp,
-    email,
-    outbox,
-    dialog,
-    axe,
-    status,
-    invitation
-}) {
+
+/**
+ * Main controller implementation using a single parameter object.
+ * @param {WriteCtrlDeps} deps
+ */
+const WriteCtrlImpl = function (deps) {
+    const {
+        $scope,
+        $window,
+        $filter,
+        $q,
+        appConfig,
+        auth,
+        keychain,
+        pgp,
+        email,
+        outbox,
+        dialog,
+        axe,
+        status,
+        invitation
+    } = deps;
+
     const str = appConfig.string;
     const cfg = appConfig.config;
 
@@ -119,9 +126,7 @@ function initWriteCtrl({
         };
         axe.dump(appender);
 
-        $scope.to = [{
-            address: str.supportAddress
-        }];
+        $scope.to = [{ address: str.supportAddress }];
         $scope.writerTitle = str.bugReportTitle;
         $scope.subject = str.bugReportSubject;
         $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
@@ -136,66 +141,116 @@ function initWriteCtrl({
 
         const replyTo = (re.replyTo && re.replyTo[0] && re.replyTo[0].address) || re.from[0].address;
 
-        // fill recipient field and references
         if (!forward) {
             $scope.to.unshift({ address: replyTo });
             $scope.to.forEach($scope.verify);
-
-            $scope.references = (re.references || []);
-            if (re.id && $scope.references.indexOf(re.id) < 0) {
-                // references might not exist yet, so use the double concat
-                $scope.references = $scope.references.concat(re.id);
-            }
-            if (re.id) {
-                $scope.inReplyTo = re.id;
-            }
+            populateReferencesAndInReplyTo(re);
         }
 
         if (replyAll) {
-            re.to.concat(re.cc).forEach(function (recipient) {
-                const me = auth.emailAddress;
-                if (recipient.address === me && replyTo !== me) {
-                    // don't reply to yourself
-                    return;
-                }
-                $scope.cc.unshift({ address: recipient.address });
-            });
-
-            // filter duplicates
-            $scope.cc = _.uniq($scope.cc, function (recipient) {
-                return recipient.address;
-            });
-            $scope.showCC = true;
-            $scope.cc.forEach($scope.verify);
+            populateReplyAll(re, replyTo);
         }
 
-        // fill attachments and references on forward
         if (forward) {
-            // create a new array, otherwise removing an attachment will also
-            // remove it from the original in the mail list as a side effect
-            $scope.attachments = [].concat(re.attachments);
-            if (re.id) {
-                $scope.references = [re.id];
-            }
+            populateForwardAttachments(re);
         }
 
-        // fill subject
-        $scope.subject = forward ? 'Fwd: ' + re.subject : (re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '');
+        $scope.subject = buildSubject(forward, re);
+        const { from, sentDate } = extractFromAndDate(re);
+        $scope.body = buildBody(forward, re, sentDate, from);
+    }
 
-        // fill text body
+    /**
+     * Populate references and in-reply-to headers.
+     * @param {*} re
+     */
+    function populateReferencesAndInReplyTo(re) {
+        $scope.references = (re.references || []);
+        if (re.id && $scope.references.indexOf(re.id) < 0) {
+            $scope.references = $scope.references.concat(re.id);
+        }
+        if (re.id) {
+            $scope.inReplyTo = re.id;
+        }
+    }
+
+    /**
+     * Populate CC list when replying to all.
+     * @param {*} re
+     * @param {string} replyTo
+     */
+    function populateReplyAll(re, replyTo) {
+        re.to.concat(re.cc).forEach(function (recipient) {
+            const me = auth.emailAddress;
+            if (recipient.address === me && replyTo !== me) {
+                return;
+            }
+            $scope.cc.unshift({ address: recipient.address });
+        });
+
+        // filter duplicates
+        $scope.cc = _.uniq($scope.cc, function (recipient) {
+            return recipient.address;
+        });
+        $scope.showCC = true;
+        $scope.cc.forEach($scope.verify);
+    }
+
+    /**
+     * Populate attachments and references for forwarded messages.
+     * @param {*} re
+     */
+    function populateForwardAttachments(re) {
+        $scope.attachments = [].concat(re.attachments);
+        if (re.id) {
+            $scope.references = [re.id];
+        }
+    }
+
+    /**
+     * Build email subject line.
+     * @param {boolean} forward
+     * @param {*} re
+     * @returns {string}
+     */
+    function buildSubject(forward, re) {
+        if (forward) {
+            return 'Fwd: ' + re.subject;
+        }
+        return re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '';
+    }
+
+    /**
+     * Extract sender name and formatted date.
+     * @param {*} re
+     * @returns {{from:string, sentDate:string}}
+     */
+    function extractFromAndDate(re) {
+        const replyTo = re.replyTo && re.replyTo[0] && re.replyTo[0].address || re.from[0].address;
         const from = re.from[0].name || replyTo;
         const sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+        return { from, sentDate };
+    }
 
-        function createString(array) {
+    /**
+     * Build email body text.
+     * @param {boolean} forward
+     * @param {*} re
+     * @param {string} sentDate
+     * @param {string} from
+     * @returns {string}
+     */
+    function buildBody(forward, re, sentDate, from) {
+        const createString = function (array) {
             let str = '';
             array.forEach(function (to) {
                 str += (str) ? ', ' : '';
                 str += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
             });
             return str;
-        }
+        };
 
-        let body;
+        let body = '';
         if (forward) {
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
@@ -211,8 +266,8 @@ function initWriteCtrl({
 
         if (re.body) {
             body += re.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
-            $scope.body = body;
         }
+        return body;
     }
 
     //
@@ -268,18 +323,15 @@ function initWriteCtrl({
             });
         }).then(function (key) {
             if (key) {
-                // compare again since model could have changed during the roundtrip
                 const userIds = pgp.getKeyParams(key.publicKey).userIds;
                 const matchingUserId = _.findWhere(userIds, {
                     emailAddress: recipient.address
                 });
-                // compare either primary userId or (if available) multiple IDs
                 if (matchingUserId) {
                     recipient.key = key;
                     recipient.secure = true;
                 }
             } else {
-                // show invite dialog if no key found
                 $scope.showInvite = true;
             }
             $scope.checkSendStatus();
@@ -378,7 +430,6 @@ function initWriteCtrl({
                     sender: sender,
                     recipient: recipientAddress
                 });
-                // send invitation mail
                 const promise = outbox.put(invitationMail).then(function () {
                     return invitation.invite({
                         recipient: recipientAddress,
@@ -386,7 +437,6 @@ function initWriteCtrl({
                     });
                 });
                 sendJobs.push(promise);
-                // remember already invited users to prevent spamming
                 $scope.invited.push(recipientAddress);
             });
 
@@ -402,7 +452,6 @@ function initWriteCtrl({
     //
 
     $scope.sendToOutbox = function () {
-        // build email model for smtp-client
         const message = {
             from: [{
                 name: auth.realname,
@@ -441,12 +490,9 @@ function initWriteCtrl({
         }).then(function () {
             return outbox.put(message);
         }).then(function () {
-            // if we need to synchronize replyTo.answered = true to imap,
-            // let's do that. otherwise, we're done
             if (!$scope.replyTo || $scope.replyTo.answered) {
                 return;
             }
-
             $scope.replyTo.answered = true;
             return email.setFlags({
                 folder: currentFolder(),
@@ -478,7 +524,6 @@ function initWriteCtrl({
             if ($scope.addressBookCache) {
                 return;
             }
-            // populate address book cache
             return keychain.listLocalPublicKeys().then(function (keys) {
                 $scope.addressBookCache = keys.map(function (key) {
                     const name = pgp.getKeyParams(key.publicKey).userIds[0].name;
@@ -489,7 +534,6 @@ function initWriteCtrl({
                 });
             });
         }).then(function () {
-            // filter the address book cache
             return $scope.addressBookCache.filter(function (i) {
                 return i.displayId.toLowerCase().indexOf(query.toLowerCase()) !== -1;
             });
@@ -510,13 +554,13 @@ function initWriteCtrl({
     function filterEmptyAddresses(addr) {
         return !!addr.address;
     }
-}
+};
 
 /**
- * Backward-compatible wrapper preserving original signature.
+ * Legacy wrapper preserving original signature.
  */
-function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
-    return initWriteCtrl({
+function WriteCtrlLegacy($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+    return WriteCtrlImpl({
         $scope,
         $window,
         $filter,
@@ -534,4 +578,4 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
     });
 }
 
-module.exports = WriteCtrl;
+module.exports = WriteCtrlLegacy;

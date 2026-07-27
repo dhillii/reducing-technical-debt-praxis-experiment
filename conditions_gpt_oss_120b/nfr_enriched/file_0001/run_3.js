@@ -224,19 +224,32 @@ export interface PaginatedExploreAccountsResponse {
     next: string | null;
 }
 
-export class ApiError extends Error {
+export type ApiError = {
+    message: string;
+    statusCode: number;
+    code?: string;
+};
+
+export class ApiError extends Error implements ApiError {
     statusCode: number;
     code?: string;
     constructor(message: string, statusCode: number, code?: string) {
         super(message);
         this.name = 'ApiError';
         this.statusCode = statusCode;
-        this.code = code;
+        if (code) this.code = code;
     }
 }
 
 export const isApiError = (error: unknown): error is ApiError => {
-    return error instanceof ApiError;
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'statusCode' in error &&
+        'message' in error &&
+        typeof (error as any).statusCode === 'number' &&
+        typeof (error as any).message === 'string'
+    );
 };
 
 export class ActivityPubAPI {
@@ -258,7 +271,6 @@ export class ActivityPubAPI {
         }
     }
 
-    /** Fetch JSON and throw an ApiError on non‑OK responses. */
     private async fetchJSON(url: URL, method: 'DELETE' | 'GET' | 'POST' | 'PUT' = 'GET', body?: object): Promise<object | null> {
         const token = await this.getToken();
         const options: RequestInit = {
@@ -270,7 +282,7 @@ export class ActivityPubAPI {
         };
         if (body) {
             options.body = JSON.stringify(body);
-            (options.headers as Record<string, string>)['Content-Type'] = 'application/json';
+            (options.headers! as Record<string, string>)['Content-Type'] = 'application/json';
         }
         const response = await this.fetch(url, options);
 
@@ -279,103 +291,92 @@ export class ActivityPubAPI {
         }
 
         if (!response.ok) {
-            let message = 'Something went wrong, please try again.';
-            let code: string | undefined;
-
+            const error = new ApiError('Something went wrong, please try again.', response.status);
             try {
                 const json = await response.json();
                 if (json.message || json.error) {
-                    message = json.message ?? json.error;
+                    error.message = json.message || json.error;
                 }
                 if (json.code) {
-                    code = json.code;
+                    error.code = json.code;
                 }
             } catch {
-                // ignore parsing errors
+                // keep default message
             }
-
-            throw new ApiError(message, response.status, code);
+            throw error;
         }
 
         return await response.json();
     }
 
-    private buildActionUrl(action: string, identifier: string): URL {
-        return new URL(`.ghost/activitypub/v1/actions/${action}/${encodeURIComponent(identifier)}`, this.apiUrl);
-    }
-
     async blockDomain(domain: URL): Promise<boolean> {
-        const url = this.buildActionUrl('block/domain', domain.href);
+        const url = new URL(`.ghost/activitypub/v1/actions/block/domain/${encodeURIComponent(domain.href)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
         return true;
     }
 
     async unblockDomain(domain: URL): Promise<boolean> {
-        const url = this.buildActionUrl('unblock/domain', domain.href);
+        const url = new URL(`.ghost/activitypub/v1/actions/unblock/domain/${encodeURIComponent(domain.href)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
         return true;
     }
 
     async block(id: URL): Promise<boolean> {
-        const url = this.buildActionUrl('block', id.href);
+        const url = new URL(`.ghost/activitypub/v1/actions/block/${encodeURIComponent(id.href)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
         return true;
     }
 
     async unblock(id: URL): Promise<boolean> {
-        const url = this.buildActionUrl('unblock', id.href);
+        const url = new URL(`.ghost/activitypub/v1/actions/unblock/${encodeURIComponent(id.href)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
         return true;
     }
 
     async follow(username: string): Promise<Actor> {
-        const url = this.buildActionUrl('follow', username);
+        const url = new URL(`.ghost/activitypub/v1/actions/follow/${username}`, this.apiUrl);
         const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
     async unfollow(username: string): Promise<Actor> {
-        const url = this.buildActionUrl('unfollow', username);
+        const url = new URL(`.ghost/activitypub/v1/actions/unfollow/${username}`, this.apiUrl);
         const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
     async like(id: string): Promise<void> {
-        const url = this.buildActionUrl('like', id);
+        const url = new URL(`.ghost/activitypub/v1/actions/like/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
     async unlike(id: string): Promise<void> {
-        const url = this.buildActionUrl('unlike', id);
+        const url = new URL(`.ghost/activitypub/v1/actions/unlike/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
     async repost(id: string): Promise<void> {
-        const url = this.buildActionUrl('repost', id);
+        const url = new URL(`.ghost/activitypub/v1/actions/repost/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
     async derepost(id: string): Promise<void> {
-        const url = this.buildActionUrl('derepost', id);
+        const url = new URL(`.ghost/activitypub/v1/actions/derepost/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    async reply(id: string, content: string, image?: {url: string; altText?: string}): Promise<Activity> {
-        const url = this.buildActionUrl('reply', id);
-        const body: {content: string; image?: {url: string; altText?: string}} = {content};
-        if (image) {
-            body.image = image;
-        }
+    async reply(id: string, content: string, image?: {url: string, altText?: string}): Promise<Activity> {
+        const url = new URL(`.ghost/activitypub/v1/actions/reply/${encodeURIComponent(id)}`, this.apiUrl);
+        const body: {content: string, image?: {url: string, altText?: string}} = {content};
+        if (image) body.image = image;
         const response = await this.fetchJSON(url, 'POST', body);
         return response as Activity;
     }
 
-    async note(content: string, image?: {url: string; altText?: string}): Promise<Post> {
+    async note(content: string, image?: {url: string, altText?: string}): Promise<Post> {
         const url = new URL('.ghost/activitypub/v1/actions/note', this.apiUrl);
-        const body: {content: string; image?: {url: string; altText?: string}} = {content};
-        if (image) {
-            body.image = image;
-        }
+        const body: {content: string, image?: {url: string, altText?: string}} = {content};
+        if (image) body.image = image;
         const response = await this.fetchJSON(url, 'POST', body);
         return (response as {post: Post}).post;
     }
@@ -389,7 +390,7 @@ export class ActivityPubAPI {
         return new URL(`.ghost/activitypub/users/${this.handle}`, this.apiUrl);
     }
 
-    async getUser(): Promise<ActorProperties> {
+    async getUser() {
         const json = await this.fetchJSON(this.userApiUrl);
         return json as ActorProperties;
     }
@@ -422,14 +423,10 @@ export class ActivityPubAPI {
 
     async getAccountFollows(handle: string, type: AccountFollowsType, next?: string): Promise<GetAccountFollowsResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}/follows/${type}`, this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            accounts: this.extractArray<FollowAccount>(json, 'accounts'),
-            next: this.extractNext(json)
-        };
+        const {items: accounts, next: nextPage} = this.extractPaginated<FollowAccount>(json, 'accounts');
+        return {accounts, next: nextPage};
     }
 
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
@@ -452,18 +449,16 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
         return {
-            topics: this.extractArray<TopicData>(json, 'topics')
+            topics: (json && 'topics' in json && Array.isArray(json.topics)) ? json.topics : []
         };
     }
 
     async getRecommendations(limit?: number): Promise<GetRecommendationsResponse> {
         const url = new URL('.ghost/activitypub/v1/recommendations', this.apiUrl);
-        if (limit) {
-            url.searchParams.set('limit', limit.toString());
-        }
+        if (limit) url.searchParams.set('limit', limit.toString());
         const json = await this.fetchJSON(url);
         return {
-            accounts: this.extractArray<ExploreAccount>(json, 'accounts')
+            accounts: (json && 'accounts' in json && Array.isArray(json.accounts)) ? json.accounts : []
         };
     }
 
@@ -472,31 +467,23 @@ export class ActivityPubAPI {
     }
 
     async getPostsLikedByAccount(next?: string): Promise<PaginatedPostsResponse> {
-        return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/me/liked`, next);
+        return this.getPaginatedPosts('.ghost/activitypub/v1/posts/me/liked', next);
     }
 
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
         const url = new URL(endpoint, this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            posts: this.extractArray<Post>(json, 'posts'),
-            next: this.extractNext(json)
-        };
+        const {items: posts, next: nextPage} = this.extractPaginated<Post>(json, 'posts');
+        return {posts, next: nextPage};
     }
 
     async getNotifications(next?: string): Promise<GetNotificationsResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications', this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            notifications: this.extractArray<Notification>(json, 'notifications'),
-            next: this.extractNext(json)
-        };
+        const {items: notifications, next: nextPage} = this.extractPaginated<Notification>(json, 'notifications');
+        return {notifications, next: nextPage};
     }
 
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
@@ -506,7 +493,7 @@ export class ActivityPubAPI {
         return {count};
     }
 
-    async resetNotificationsCount(): Promise<boolean> {
+    async resetNotificationsCount() {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
         await this.fetchJSON(url, 'PUT');
         return true;
@@ -514,38 +501,26 @@ export class ActivityPubAPI {
 
     async getBlockedAccounts(next?: string): Promise<GetBlockedAccountsResponse> {
         const url = new URL('.ghost/activitypub/v1/blocks/accounts', this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            accounts: this.extractArray<Account>(json, 'blocked_accounts'),
-            next: this.extractNext(json)
-        };
+        const {items: accounts, next: nextPage} = this.extractPaginated<Account>(json, 'blocked_accounts');
+        return {accounts, next: nextPage};
     }
 
     async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
         const url = new URL('.ghost/activitypub/v1/blocks/domains', this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            domains: this.extractArray<Account>(json, 'blocked_domains'),
-            next: this.extractNext(json)
-        };
+        const {items: domains, next: nextPage} = this.extractPaginated<Account>(json, 'blocked_domains');
+        return {domains, next: nextPage};
     }
 
     private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
         const url = new URL(endpoint, this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
-        return {
-            accounts: this.extractArray<ExploreAccount>(json, 'accounts'),
-            next: this.extractNext(json)
-        };
+        const {items: accounts, next: nextPage} = this.extractPaginated<ExploreAccount>(json, 'accounts');
+        return {accounts, next: nextPage};
     }
 
     async getPost(id: string): Promise<Post> {
@@ -556,9 +531,7 @@ export class ActivityPubAPI {
 
     async getReplies(postApId: string, next?: string): Promise<ReplyChainResponse> {
         const url = new URL(`.ghost/activitypub/v1/replies/${encodeURIComponent(postApId)}`, this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
+        if (next) url.searchParams.set('next', next);
         const json = await this.fetchJSON(url);
         return json as ReplyChainResponse;
     }
@@ -575,8 +548,8 @@ export class ActivityPubAPI {
         bio: string;
         avatarUrl: string;
         bannerImageUrl: string;
-    }): Promise<void> {
-        const url = new URL(`.ghost/activitypub/v1/account`, this.apiUrl);
+    }) {
+        const url = new URL('.ghost/activitypub/v1/account', this.apiUrl);
         await this.fetchJSON(url, 'PUT', {name, username, bio, avatarUrl, bannerImageUrl});
     }
 
@@ -599,12 +572,12 @@ export class ActivityPubAPI {
         return json.fileUrl;
     }
 
-    async enableBluesky(): Promise<void> {
+    async enableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    async disableBluesky(): Promise<void> {
+    async disableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
@@ -612,25 +585,22 @@ export class ActivityPubAPI {
     async confirmBlueskyHandle(): Promise<string> {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
         const json = await this.fetchJSON(url, 'POST');
-        if (json && 'handle' in json && typeof json.handle === 'string') {
-            return json.handle;
+        if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
+            return '';
         }
-        return '';
+        return String(json.handle);
     }
 
-    /** Extract an array field from a JSON response, defaulting to an empty array. */
-    private extractArray<T>(json: any, field: string): T[] {
-        if (json && Array.isArray(json[field])) {
-            return json[field] as T[];
+    /**
+     * Extracts a paginated list from a JSON response.
+     * Returns an empty array and null next token when the expected key is missing.
+     */
+    private extractPaginated<T>(json: any, key: string): {items: T[], next: string | null} {
+        if (!json || !(key in json)) {
+            return {items: [], next: null};
         }
-        return [];
-    }
-
-    /** Extract the pagination token from a JSON response, defaulting to null. */
-    private extractNext(json: any): string | null {
-        if (json && typeof json.next === 'string') {
-            return json.next;
-        }
-        return null;
+        const items = Array.isArray(json[key]) ? json[key] as T[] : [];
+        const next = typeof json.next === 'string' ? json.next : null;
+        return {items, next};
     }
 }

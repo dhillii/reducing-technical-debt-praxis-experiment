@@ -3,7 +3,9 @@
 const util = require('crypto-lib').util;
 
 /**
- * Implementation of WriteCtrl with dependencies injected via a single object.
+ * Internal implementation of the Write controller.
+ * Accepts a single parameter object containing all dependencies.
+ *
  * @param {Object} deps - Dependency container.
  * @param {Object} deps.$scope
  * @param {Object} deps.$window
@@ -20,7 +22,7 @@ const util = require('crypto-lib').util;
  * @param {Object} deps.status
  * @param {Object} deps.invitation
  */
-function WriteCtrlImpl({
+function WriteCtrlInternal({
     $scope,
     $window,
     $filter,
@@ -119,9 +121,7 @@ function WriteCtrlImpl({
         };
         axe.dump(appender);
 
-        $scope.to = [{
-            address: str.supportAddress
-        }];
+        $scope.to = [{ address: str.supportAddress }];
         $scope.writerTitle = str.bugReportTitle;
         $scope.subject = str.bugReportSubject;
         $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
@@ -134,18 +134,16 @@ function WriteCtrlImpl({
             return;
         }
 
-        $scope.writerTitle = (forward) ? 'Forward' : 'Reply';
+        $scope.writerTitle = forward ? 'Forward' : 'Reply';
 
-        replyTo = re.replyTo && re.replyTo[0] && re.replyTo[0].address || re.from[0].address;
+        replyTo = (re.replyTo && re.replyTo[0] && re.replyTo[0].address) || re.from[0].address;
 
         // fill recipient field and references
         if (!forward) {
-            $scope.to.unshift({
-                address: replyTo
-            });
+            $scope.to.unshift({ address: replyTo });
             $scope.to.forEach($scope.verify);
 
-            $scope.references = (re.references || []);
+            $scope.references = re.references || [];
             if (re.id && $scope.references.indexOf(re.id) < 0) {
                 // references might not exist yet, so use the double concat
                 $scope.references = $scope.references.concat(re.id);
@@ -161,9 +159,7 @@ function WriteCtrlImpl({
                     // don't reply to yourself
                     return;
                 }
-                $scope.cc.unshift({
-                    address: recipient.address
-                });
+                $scope.cc.unshift({ address: recipient.address });
             });
 
             // filter duplicates
@@ -198,8 +194,8 @@ function WriteCtrlImpl({
         function createString(array) {
             let str = '';
             array.forEach(function (to) {
-                str += (str) ? ', ' : '';
-                str += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
+                str += str ? ', ' : '';
+                str += (to.name ? to.name : to.address) + ' <' + to.address + '>';
             });
             return str;
         }
@@ -211,9 +207,8 @@ function WriteCtrlImpl({
                 'Date: ' + sentDate + '\n' +
                 'Subject: ' + re.subject + '\n' +
                 'To: ' + createString(re.to) + '\n' +
-                ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
+                (re.cc && re.cc.length > 0 ? 'Cc: ' + createString(re.cc) + '\n' : '') +
                 '\n\n';
-
         } else {
             body = '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
         }
@@ -271,12 +266,10 @@ function WriteCtrlImpl({
         // when we write an email, we always need to work with the latest keys available
         return $q(function (resolve) {
             resolve();
-
         }).then(function () {
             return keychain.refreshKeyForUserId({
                 userId: recipient.address
             });
-
         }).then(function (key) {
             if (key) {
                 // compare again since model could have changed during the roundtrip
@@ -294,7 +287,6 @@ function WriteCtrlImpl({
                 $scope.showInvite = true;
             }
             $scope.checkSendStatus();
-
         }).catch(dialog.error);
     };
 
@@ -328,7 +320,7 @@ function WriteCtrlImpl({
             }
         }
 
-        // only allow sending if receivers exist
+        // only allow sending if receviers exist
         if (numReceivers < 1) {
             $scope.showInvite = false;
             return;
@@ -384,7 +376,6 @@ function WriteCtrlImpl({
 
         return $q(function (resolve) {
             resolve();
-
         }).then(function () {
             invitees.forEach(function (recipientAddress) {
                 const invitationMail = invitation.createMail({
@@ -404,7 +395,6 @@ function WriteCtrlImpl({
             });
 
             return Promise.all(sendJobs);
-
         }).catch(function (err) {
             $scope.showInvite = true;
             return dialog.error(err);
@@ -454,10 +444,8 @@ function WriteCtrlImpl({
         // persist the email to disk for later sending
         return $q(function (resolve) {
             resolve();
-
         }).then(function () {
             return outbox.put(message);
-
         }).then(function () {
             // if we need to synchronize replyTo.answered = true to imap,
             // let's do that. otherwise, we're done
@@ -470,7 +458,6 @@ function WriteCtrlImpl({
                 folder: currentFolder(),
                 message: $scope.replyTo
             });
-
         }).catch(function (err) {
             if (err.code !== 42) {
                 dialog.error(err);
@@ -493,7 +480,6 @@ function WriteCtrlImpl({
     $scope.lookupAddressBook = function (query) {
         return $q(function (resolve) {
             resolve();
-
         }).then(function () {
             if ($scope.addressBookCache) {
                 return;
@@ -508,13 +494,11 @@ function WriteCtrlImpl({
                     };
                 });
             });
-
         }).then(function () {
             // filter the address book cache
             return $scope.addressBookCache.filter(function (i) {
                 return i.displayId.toLowerCase().indexOf(query.toLowerCase()) !== -1;
             });
-
         }).catch(dialog.error);
     };
 
@@ -535,30 +519,41 @@ function WriteCtrlImpl({
 }
 
 /**
- * Backward-compatible wrapper for WriteCtrl.
- * Accepts either a single dependency object or the original positional arguments.
+ * Backward-compatible wrapper preserving the original AngularJS injection signature.
+ *
+ * @param {Object} $scope
+ * @param {Object} $window
+ * @param {Function} $filter
+ * @param {Object} $q
+ * @param {Object} appConfig
+ * @param {Object} auth
+ * @param {Object} keychain
+ * @param {Object} pgp
+ * @param {Object} email
+ * @param {Object} outbox
+ * @param {Object} dialog
+ * @param {Object} axe
+ * @param {Object} status
+ * @param {Object} invitation
+ * @returns {void}
  */
-function WriteCtrl() {
-    if (arguments.length === 1 && typeof arguments[0] === 'object' && !Array.isArray(arguments[0])) {
-        return WriteCtrlImpl(arguments[0]);
-    }
-    const deps = {
-        $scope: arguments[0],
-        $window: arguments[1],
-        $filter: arguments[2],
-        $q: arguments[3],
-        appConfig: arguments[4],
-        auth: arguments[5],
-        keychain: arguments[6],
-        pgp: arguments[7],
-        email: arguments[8],
-        outbox: arguments[9],
-        dialog: arguments[10],
-        axe: arguments[11],
-        status: arguments[12],
-        invitation: arguments[13]
-    };
-    return WriteCtrlImpl(deps);
-}
+const WriteCtrl = function ($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+    return WriteCtrlInternal({
+        $scope,
+        $window,
+        $filter,
+        $q,
+        appConfig,
+        auth,
+        keychain,
+        pgp,
+        email,
+        outbox,
+        dialog,
+        axe,
+        status,
+        invitation
+    });
+};
 
 module.exports = WriteCtrl;

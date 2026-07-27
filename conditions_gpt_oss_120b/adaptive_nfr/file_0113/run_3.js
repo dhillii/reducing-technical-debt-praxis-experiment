@@ -489,16 +489,13 @@ exports.expires = function expires(object) {
  */
 
 /**
- * Public populate function supporting legacy signatures.
- * Accepts a variable number of arguments and normalizes them into a
- * PopulateOptions object array.
+ * Populate options parser.
  *
- * @param {...any} args
- * @returns {PopulateOptions[]}
+ * @param {Array} args - raw arguments passed to populate
+ * @returns {Object} normalized populate options object
  */
-exports.populate = function(...args) {
+function parsePopulateArgs(args) {
   let obj = null;
-
   if (args.length === 1) {
     const path = args[0];
     if (path instanceof PopulateOptions) {
@@ -515,28 +512,25 @@ exports.populate = function(...args) {
     } else {
       obj = { path: path };
     }
+  } else if (typeof args[2] === 'object' && args[2] !== null) {
+    // signature: (path, select, modelObject)
+    obj = {
+      path: args[0],
+      select: args[1],
+      match: args[2],
+      options: args[3]
+    };
   } else {
-    // legacy positional arguments
-    const [path, select, model, match, options, subPopulate, justOne, count] = args;
-    if (typeof model === 'object' && model !== null && !(model instanceof PopulateOptions)) {
-      obj = {
-        path: path,
-        select: select,
-        match: model,
-        options: match
-      };
-    } else {
-      obj = {
-        path: path,
-        select: select,
-        model: model,
-        match: match,
-        options: options,
-        populate: subPopulate,
-        justOne: justOne,
-        count: count
-      };
-    }
+    obj = {
+      path: args[0],
+      select: args[1],
+      model: args[2],
+      match: args[3],
+      options: args[4],
+      populate: args[5],
+      justOne: args[6],
+      count: args[7]
+    };
   }
 
   if (typeof obj.path !== 'string') {
@@ -544,19 +538,40 @@ exports.populate = function(...args) {
   }
 
   return _populateObj(obj);
-};
+}
 
 /**
- * Internal helper to create PopulateOptions instances from a normalized object.
+ * Split array of populate objects with space-separated paths into single-path objects.
  *
- * @param {Object} obj Normalized populate descriptor
- * @returns {PopulateOptions[]}
+ * @param {Array} arr
+ * @returns {Array}
  */
+function makeSingles(arr) {
+  const ret = [];
+  arr.forEach(function(obj) {
+    if (/[\\s]/.test(obj.path)) {
+      const paths = obj.path.split(' ');
+      paths.forEach(function(p) {
+        const copy = Object.assign({}, obj);
+        copy.path = p;
+        ret.push(copy);
+      });
+    } else {
+      ret.push(obj);
+    }
+  });
+  return ret;
+}
+
+exports.populate = function populate(...args) {
+  return parsePopulateArgs(args);
+};
+
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
     obj.populate.forEach(function(obj) {
-      if (/[\s]/.test(obj.path)) {
+      if (/[\\s]/.test(obj.path)) {
         const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
@@ -582,30 +597,6 @@ function _populateObj(obj) {
     ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
   }
 
-  return ret;
-}
-
-/**
- * Helper to split array of populate descriptors with space-separated paths
- * into individual descriptors.
- *
- * @param {Array} arr
- * @returns {Array}
- */
-function makeSingles(arr) {
-  const ret = [];
-  arr.forEach(function(obj) {
-    if (/[\s]/.test(obj.path)) {
-      const paths = obj.path.split(' ');
-      paths.forEach(function(p) {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
   return ret;
 }
 
@@ -756,7 +747,7 @@ exports.isArrayIndex = function(val) {
     return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
   if (typeof val === 'string') {
-    if (!/^\d+$/.test(val)) {
+    if (!/^\\d+$/.test(val)) {
       return false;
     }
     val = +val;

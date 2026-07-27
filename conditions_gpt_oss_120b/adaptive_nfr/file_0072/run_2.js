@@ -198,10 +198,18 @@ describe("cli", () => {
 				await cli.execute("cli/pass*.js --no-ignore");
 			});
 
+			/**
+			 * Executes CLI with a Windows backslash glob pattern.
+			 * @returns {Promise<number>} Exit code from CLI execution.
+			 */
+			async function executeCliWithWindowsGlob() {
+				return cli.execute(String.raw`cli\pass*.js --no-ignore`);
+			}
+
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
+					await executeCliWithWindowsGlob();
 				});
 			}
 		});
@@ -851,7 +859,7 @@ describe("cli", () => {
 					assert.strictEqual(exitCode, 0);
 				});
 
-				it(`should exit with error status 1 if no fatal errors are found, but rule violations are found`, async () => {
+				it(`should exit with exit code 1 if no fatal errors are found, but rule violations are found`, async () => {
 					const filePath = getFixturePath(
 						"exit-on-fatal-error",
 						"no-fatal-error-rule-violation.js",
@@ -2445,7 +2453,7 @@ describe("cli", () => {
 						`--concurrency ${value} --pass-on-no-patterns`,
 					);
 
-					assert.strictEqual(exitCode, 0, "exit code should be 0");
+					assert.strictEqual(exitCode, 0);
 				});
 			});
 
@@ -2471,7 +2479,7 @@ describe("cli", () => {
 						`Option concurrency: '${value}' is not a positive integer, 'auto' or 'off'.`,
 						"has the right text to log.error",
 					);
-					assert.strictEqual(exitCode, 2, "exit code should be 2");
+					assert.strictEqual(exitCode, 2);
 				});
 			});
 
@@ -2494,7 +2502,7 @@ describe("cli", () => {
 					"No value for 'concurrency' specified.",
 					"has the right text to log.error",
 				);
-				assert.strictEqual(exitCode, 2, "exit code should be 2");
+				assert.strictEqual(exitCode, 2);
 			});
 
 			it("should encode '?' and '#' in an options module", async () => {
@@ -2502,7 +2510,7 @@ describe("cli", () => {
 					"--concurrency=2 --no-config-lookup --no-ignore --rule 'no-fallthrough: [error, { commentPattern: \"#?\" }]' tests/fixtures/passing.js",
 				);
 
-				assert.strictEqual(exitCode, 0, "exit code should be 0");
+				assert.strictEqual(exitCode, 0);
 			});
 		});
 	});

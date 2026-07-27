@@ -29,9 +29,12 @@ function openPopup({data}) {
 
 function back({state}) {
     if (state.lastPage) {
-        return {page: state.lastPage};
+        return {
+            page: state.lastPage
+        };
+    } else {
+        return closePopup({state});
     }
-    return closePopup({state});
 }
 
 function closePopup({state}) {
@@ -53,13 +56,17 @@ function openNotification({data}) {
 }
 
 function closeNotification() {
-    return {showNotification: false};
+    return {
+        showNotification: false
+    };
 }
 
 async function signout({api, state}) {
     try {
         await api.member.signout();
-        return {action: 'signout:success'};
+        return {
+            action: 'signout:success'
+        };
     } catch (e) {
         return {
             action: 'signout:failed',
@@ -112,7 +119,8 @@ async function signin({data, api, state}) {
 
 function startSigninOTCFromCustomForm({data, state}) {
     const email = (data?.email || '').trim();
-    const {otcRef, inboxLinks} = data ?? {};
+    const otcRef = data?.otcRef;
+    const inboxLinks = data?.inboxLinks;
 
     if (!otcRef) {
         return {};
@@ -141,11 +149,12 @@ async function verifyOTC({data, api}) {
 
         if (response.redirectUrl) {
             return window.location.assign(response.redirectUrl);
+        } else {
+            return {
+                action: 'verifyOTC:failed',
+                actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
+            };
         }
-        return {
-            action: 'verifyOTC:failed',
-            actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
-        };
     } catch (e) {
         return {
             action: 'verifyOTC:failed',
@@ -154,66 +163,49 @@ async function verifyOTC({data, api}) {
     }
 }
 
-/* Helper for free plan signup */
-async function _handleFreeSignup({api, data, trimmedEmail, trimmedName}) {
-    const integrityToken = await api.member.getIntegrityToken();
-    const {inboxLinks} = await api.member.sendMagicLink({
-        emailType: 'signup',
-        integrityToken,
-        ...data,
-        name: trimmedName
-    });
-    return {
-        page: 'magiclink',
-        lastPage: 'signup',
-        inboxLinks,
-        pageData: {
-            ...(data.state?.pageData || {}),
-            email: trimmedEmail
-        }
-    };
-}
-
-/* Helper for paid plan signup */
-async function _handlePaidSignup({api, state, data, plan, tierId, cadence, email, name, newsletters, offerId}) {
-    if (tierId && cadence) {
-        await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
-    } else {
-        const cadenceInfo = getProductCadenceFromPrice({site: state?.site, priceId: plan});
-        await api.member.checkoutPlan({
-            plan,
-            tierId: cadenceInfo.tierId,
-            cadence: cadenceInfo.cadence,
-            email,
-            name,
-            newsletters,
-            offerId
-        });
-    }
-    return {page: 'loading'};
-}
-
 async function signup({data, state, api}) {
-    const {plan, tierId, cadence, email, name, newsletters, offerId} = data;
-    const trimmedName = name?.trim();
-    const trimmedEmail = (email || '').trim();
+    try {
+        let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+        name = name?.trim();
 
-    if (plan.toLowerCase() === 'free') {
-        return _handleFreeSignup({api, data, trimmedEmail, trimmedName});
+        let inboxLinks;
+        if (plan.toLowerCase() === 'free') {
+            const integrityToken = await api.member.getIntegrityToken();
+            ({inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name}));
+        } else {
+            if (tierId && cadence) {
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            } else {
+                ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            }
+            return {
+                page: 'loading'
+            };
+        }
+        return {
+            page: 'magiclink',
+            lastPage: 'signup',
+            inboxLinks,
+            pageData: {
+                ...(state.pageData || {}),
+                email: (email || '').trim()
+            }
+        };
+    } catch (e) {
+        const message = chooseBestErrorMessage(e, t('Failed to sign up, please try again'));
+        return {
+            action: 'signup:failed',
+            popupNotification: createPopupNotification({
+                type: 'signup:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message
+            })
+        };
     }
-
-    return _handlePaidSignup({
-        api,
-        state,
-        data,
-        plan,
-        tierId,
-        cadence,
-        email: trimmedEmail,
-        name: trimmedName,
-        newsletters,
-        offerId
-    });
 }
 
 async function checkoutPlan({data, state, api}) {
@@ -227,7 +219,9 @@ async function checkoutPlan({data, state, api}) {
             tierId,
             cadence,
             offerId,
-            metadata: {checkoutType: 'upgrade'}
+            metadata: {
+                checkoutType: 'upgrade'
+            }
         });
     } catch (e) {
         return {
@@ -255,7 +249,7 @@ async function updateSubscription({data, state, api}) {
             cadence,
             subscriptionId,
             cancelAtPeriodEnd,
-            planId
+            planId: planId
         });
         const member = await api.member.sessionData();
         const action = 'updateSubscription:success';
@@ -290,10 +284,18 @@ async function updateSubscription({data, state, api}) {
 async function cancelSubscription({data, state, api}) {
     try {
         const {subscriptionId, cancellationReason} = data;
-        await api.member.updateSubscription({subscriptionId, smartCancel: true, cancellationReason});
+        await api.member.updateSubscription({
+            subscriptionId,
+            smartCancel: true,
+            cancellationReason
+        });
         const member = await api.member.sessionData();
         const action = 'cancelSubscription:success';
-        return {action, page: 'accountHome', member};
+        return {
+            action,
+            page: 'accountHome',
+            member
+        };
     } catch (e) {
         return {
             action: 'cancelSubscription:failed',
@@ -312,10 +314,17 @@ async function cancelSubscription({data, state, api}) {
 async function continueSubscription({data, state, api}) {
     try {
         const {subscriptionId} = data;
-        await api.member.updateSubscription({subscriptionId, cancelAtPeriodEnd: false});
+        await api.member.updateSubscription({
+            subscriptionId,
+            cancelAtPeriodEnd: false
+        });
         const member = await api.member.sessionData();
         const action = 'continueSubscription:success';
-        return {action, page: 'accountHome', member};
+        return {
+            action,
+            page: 'accountHome',
+            member
+        };
     } catch (e) {
         return {
             action: 'continueSubscription:failed',
@@ -334,7 +343,10 @@ async function continueSubscription({data, state, api}) {
 async function applyOffer({data, state, api}) {
     try {
         const {offerId, subscriptionId} = data;
-        await api.member.applyOffer({offerId, subscriptionId});
+        await api.member.applyOffer({
+            offerId,
+            subscriptionId
+        });
         const member = await api.member.sessionData();
         const action = 'applyOffer:success';
         return {
@@ -403,7 +415,9 @@ async function manageBilling({data, state, api}) {
 }
 
 async function clearPopupNotification() {
-    return {popupNotification: null};
+    return {
+        popupNotification: null
+    };
 }
 
 async function showPopupNotification({data, state}) {
@@ -428,11 +442,18 @@ async function updateNewsletterPreference({data, state, api}) {
             return {};
         }
         const updateData = {};
-        if (newsletters) updateData.newsletters = newsletters;
-        if (enableCommentNotifications !== undefined) updateData.enableCommentNotifications = enableCommentNotifications;
+        if (newsletters) {
+            updateData.newsletters = newsletters;
+        }
+        if (enableCommentNotifications !== undefined) {
+            updateData.enableCommentNotifications = enableCommentNotifications;
+        }
         const member = await api.member.update(updateData);
         const action = 'updateNewsletterPref:success';
-        return {action, member};
+        return {
+            action,
+            member
+        };
     } catch (e) {
         return {
             action: 'updateNewsletterPref:failed',
@@ -482,7 +503,9 @@ async function updateNewsletter({data, state, api}) {
     try {
         const {subscribed} = data;
         const member = await api.member.update({subscribed});
-        if (!member) throw new Error('Failed to update newsletter');
+        if (!member) {
+            throw new Error('Failed to update newsletter');
+        }
         const action = 'updateNewsletter:success';
         return {
             action,
@@ -517,9 +540,14 @@ async function updateMemberEmail({data, state, api}) {
     if (email !== originalEmail) {
         try {
             await api.member.updateEmailAddress({email});
-            return {success: true};
+            return {
+                success: true
+            };
         } catch (err) {
-            return {success: false, error: err};
+            return {
+                success: false,
+                error: err
+            };
         }
     }
     return null;
@@ -528,125 +556,173 @@ async function updateMemberEmail({data, state, api}) {
 async function updateMemberData({data, state, api}) {
     const name = data?.name?.trim();
     const originalName = getMemberName({member: state.member});
+
     if (originalName !== name) {
         try {
             const member = await api.member.update({name});
-            if (!member) throw new Error('Failed to update member');
-            return {member, success: true};
+            if (!member) {
+                throw new Error('Failed to update member');
+            }
+            return {
+                member,
+                success: true
+            };
         } catch (err) {
-            return {success: false, error: err};
+            return {
+                success: false,
+                error: err
+            };
         }
     }
     return null;
 }
 
 async function refreshMemberData({state, api}) {
-    if (!state.member) return null;
-    try {
-        const member = await api.member.sessionData();
-        if (member) {
-            return {member, success: true, action: 'refreshMemberData:success'};
+    if (state.member) {
+        try {
+            const member = await api.member.sessionData();
+            if (member) {
+                return {
+                    member,
+                    success: true,
+                    action: 'refreshMemberData:success'
+                };
+            }
+            return null;
+        } catch (err) {
+            return {
+                success: false,
+                error: err,
+                action: 'refreshMemberData:failed'
+            };
         }
-        return null;
-    } catch (err) {
-        return {success: false, error: err, action: 'refreshMemberData:failed'};
     }
+    return null;
+}
+
+/* Helper to build popupNotification objects */
+function buildPopup({type, status, message, autoHide, state}) {
+    return {
+        popupNotification: createPopupNotification({
+            type,
+            status,
+            message,
+            autoHide,
+            closeable: true,
+            state
+        })
+    };
 }
 
 async function updateProfile({data, state, api}) {
-    const [dataUpdate, emailUpdate] = await Promise.all([
+    const [dataResult, emailResult] = await Promise.all([
         updateMemberData({data, state, api}),
         updateMemberEmail({data, state, api})
     ]);
 
-    if (dataUpdate && emailUpdate) {
-        if (emailUpdate.success) {
-            return {
-                action: 'updateProfile:success',
-                ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
-                page: 'accountHome',
-                popupNotification: createPopupNotification({
-                    type: 'updateProfile:success',
-                    autoHide: true,
-                    closeable: true,
-                    status: 'success',
-                    state,
-                    message: t('Check your inbox to verify email update')
-                })
-            };
-        }
-        const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
+    // No changes
+    if (!dataResult && !emailResult) {
         return {
-            action: 'updateProfile:failed',
-            ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
-            popupNotification: createPopupNotification({
-                type: 'updateProfile:failed',
+            action: 'updateProfile:success',
+            page: 'accountHome',
+            ...buildPopup({
+                type: 'updateProfile:success',
+                status: 'success',
+                message: t('Account details updated successfully'),
                 autoHide: true,
-                closeable: true,
-                status: 'error',
-                message,
                 state
             })
         };
     }
 
-    if (dataUpdate) {
-        const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
-        const status = dataUpdate.success ? 'success' : 'error';
-        const message = dataUpdate.success
+    // Both updates present
+    if (dataResult && emailResult) {
+        if (emailResult.success) {
+            return {
+                action: 'updateProfile:success',
+                ...(dataResult.success ? {member: dataResult.member} : {}),
+                page: 'accountHome',
+                ...buildPopup({
+                    type: 'updateProfile:success',
+                    status: 'success',
+                    message: t('Check your inbox to verify email update'),
+                    autoHide: true,
+                    state
+                })
+            };
+        }
+
+        const message = dataResult.success
+            ? t('Failed to send verification email')
+            : t('Failed to update account data');
+
+        return {
+            action: 'updateProfile:failed',
+            ...(dataResult.success ? {member: dataResult.member} : {}),
+            ...buildPopup({
+                type: 'updateProfile:failed',
+                status: 'error',
+                message,
+                autoHide: true,
+                state
+            })
+        };
+    }
+
+    // Only data update
+    if (dataResult) {
+        const success = dataResult.success;
+        const action = success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = success ? 'success' : 'error';
+        const message = success
             ? t('Account details updated successfully')
             : t('Failed to update account details');
+
         return {
             action,
-            ...(dataUpdate.success ? {member: dataUpdate.member, page: 'accountHome'} : {}),
-            popupNotification: createPopupNotification({
+            ...(success ? {member: dataResult.member, page: 'accountHome'} : {}),
+            ...buildPopup({
                 type: action,
-                autoHide: dataUpdate.success,
-                closeable: true,
                 status,
-                state,
-                message
+                message,
+                autoHide: success,
+                state
             })
         };
     }
 
-    if (emailUpdate) {
-        const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
-        const status = emailUpdate.success ? 'success' : 'error';
-        const message = emailUpdate.error
-            ? chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'))
-            : t('Check your inbox to verify email update');
+    // Only email update
+    if (emailResult) {
+        const success = emailResult.success;
+        const action = success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = success ? 'success' : 'error';
+        const message = success
+            ? t('Check your inbox to verify email update')
+            : emailResult.error
+                ? chooseBestErrorMessage(emailResult.error, t('Failed to send verification email'))
+                : t('Failed to send verification email');
+
         return {
             action,
-            ...(emailUpdate.success ? {page: 'accountHome'} : {}),
-            popupNotification: createPopupNotification({
+            ...(success ? {page: 'accountHome'} : {}),
+            ...buildPopup({
                 type: action,
-                autoHide: emailUpdate.success,
-                closeable: true,
                 status,
-                state,
-                message
+                message,
+                autoHide: success,
+                state
             })
         };
     }
 
-    return {
-        action: 'updateProfile:success',
-        page: 'accountHome',
-        popupNotification: createPopupNotification({
-            type: 'updateProfile:success',
-            autoHide: true,
-            closeable: true,
-            status: 'success',
-            state,
-            message: t('Account details updated successfully')
-        })
-    };
+    // Fallback (should not reach)
+    return {};
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {
     const externalSiteApi = setupGhostApi({siteUrl, apiUrl: 'not-defined', contentApiKey: 'not-defined'});
     const {member} = state;
+
     const referrerUrl = window.location.href;
     const referrerSource = getRefDomain();
 
@@ -676,12 +752,13 @@ function trackRecommendationClicked({data: {recommendationId}, api}) {
     try {
         const existing = localStorage.getItem('ghost-recommendations-clicked');
         const clicked = existing ? JSON.parse(existing) : [];
-        if (!clicked.includes(recommendationId)) {
-            clicked.push(recommendationId);
-            localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
+        if (clicked.includes(recommendationId)) {
+            return;
         }
+        clicked.push(recommendationId);
+        localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
     } catch (e) {
-        // ignore storage errors
+        // Ignore localstorage errors
     }
     api.recommendations.trackClicked({recommendationId});
     return {};

@@ -34,7 +34,7 @@ define([
      * 6. channel: `encrypt`, request: `decrypt:models`
      * 7. channel: `encrypt`, request: `encrypt:models`
      */
-    const Controller = Marionette.Object.extend({
+    var Controller = Marionette.Object.extend({
 
         // Collections to encrypt
         collectionNames : ['notes', 'tags', 'notebooks'],
@@ -172,15 +172,15 @@ define([
             const self = this;
 
             // Fetch options
-            options          = options || this.options;
-            options.pageSize = 0;
+            const opts = options || this.options;
+            opts.pageSize = 0;
 
-            this.rawData[options.profile] = this.rawData[options.profile] || {};
+            this.rawData[opts.profile] = this.rawData[opts.profile] || {};
 
             // Fetch all collections in a profile
             _.each(this.collectionNames, function(name) {
                 promises.push(
-                    new Q(Radio.request(name, 'fetch', options))
+                    new Q(Radio.request(name, 'fetch', opts))
                 );
             });
 
@@ -191,7 +191,7 @@ define([
             .spread(function() {
                 // Re-encrypt the collections that are not empty
                 self.collections = _.filter(arguments, function(collection) {
-                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
+                    self.rawData[opts.profile][collection.storeName] = collection.toJSON();
                     return collection.length > 0;
                 });
                 self.view.trigger('encrypt:init', self.collections.length);

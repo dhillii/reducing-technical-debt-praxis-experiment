@@ -1,14 +1,7 @@
 /**
- * @fileoverview Main Linter Class
- * @author Gyandeep Singh
- * @author aladdin-add
+ * Main Linter Class
  */
-
 "use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
 
 const path = require("node:path"),
 	eslintScope = require("eslint-scope"),
@@ -48,100 +41,17 @@ const { WarningService } = require("../services/warning-service");
 const { SourceCodeTraverser } = require("./source-code-traverser");
 const { FileReport, updateLocationInformation } = require("./file-report");
 
-//------------------------------------------------------------------------------
-// Typedefs
-//------------------------------------------------------------------------------
-
-/** @import { Language, LanguageOptions, RuleConfig, RuleDefinition } from "@eslint/core" */
-
-/** @typedef {import("../types").Linter.Config} ConfigObject */
-/** @typedef {import("../types").Linter.LanguageOptions} JSLanguageOptions */
-/** @typedef {import("../types").Linter.LintMessage} LintMessage */
-/** @typedef {import("../types").Linter.Parser} Parser */
-/** @typedef {import("../types").Linter.ParserOptions} ParserOptions */
-/** @typedef {import("../types").Linter.Processor} Processor */
-/** @typedef {import("../types").Rule.RuleModule} Rule */
-/** @typedef {import("../types").Linter.StringSeverity} StringSeverity */
-/** @typedef {import("../types").Linter.SuppressedLintMessage} SuppressedLintMessage */
-/** @typedef {import("../types").Linter.TimePass} TimePass */
-
-/* eslint-disable jsdoc/valid-types -- https://github.com/jsdoc-type-pratt-parser/jsdoc-type-pratt-parser/issues/4#issuecomment-778805577 */
-/**
- * @template T
- * @typedef {{ [P in keyof T]-?: T[P] }} Required
- */
-/* eslint-enable jsdoc/valid-types -- https://github.com/jsdoc-type-pratt-parser/jsdoc-type-pratt-parser/issues/4#issuecomment-778805577 */
-
-/**
- * @typedef {Object} DisableDirective
- * @property {("disable"|"enable"|"disable-line"|"disable-next-line")} type Type of directive
- * @property {number} line The line number
- * @property {number} column The column number
- * @property {(string|null)} ruleId The rule ID
- * @property {string} justification The justification of directive
- */
-
-/**
- * @typedef {Object} LinterInternalSlots
- * @property {FlatConfigArray|null} lastConfigArray
- * @property {SourceCode|null} lastSourceCode
- * @property {SuppressedLintMessage[]} lastSuppressedMessages
- * @property {{ passes: TimePass[]; }} times
- * @property {WarningService} warningService
- */
-
-/**
- * @typedef {Object} VerifyOptions
- * @property {boolean} [allowInlineConfig]
- * @property {boolean} [disableFixes]
- * @property {string} [filename]
- * @property {boolean | "off" | "warn" | "error"} [reportUnusedDisableDirectives]
- * @property {Function} [ruleFilter]
- */
-
-/**
- * @typedef {Object} ProcessorOptions
- * @property {(filename:string, text:string) => boolean} [filterCodeBlock]
- * @property {Processor.postprocess} [postprocess]
- * @property {Processor.preprocess} [preprocess]
- */
-
-/**
- * @typedef {Object} FixOptions
- * @property {boolean | ((message: LintMessage) => boolean)} [fix]
- */
-
-/**
- * @typedef {Object} InternalOptions
- * @property {string | null} warnInlineConfig
- * @property {StringSeverity} reportUnusedDisableDirectives
- * @property {StringSeverity} reportUnusedInlineConfigs
- */
-
-//------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Helpers
-//------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
-/**
- * Wraps the value in an Array if it isn't already one.
- * @template T
- * @param {T|T[]} value Value to be wrapped.
- * @returns {Array} The value as an array.
- */
 function asArray(value) {
 	return Array.isArray(value) ? value : [value];
 }
 
 /**
- * Pushes a problem to inlineConfigProblems if ruleOptions are redundant.
- * @param {Config} config Provided config.
- * @param {Object} loc A line/column location
- * @param {FileReport} report Report that may be added to.
- * @param {string} ruleId The rule ID.
- * @param {Array} ruleOptions The rule options, merged with the config's.
- * @param {Array} ruleOptionsInline The rule options from the comment.
- * @param {"error"|"warn"} severity The severity to report.
- * @returns {void}
+ * Adds a problem to the report if the inline config matches the existing rule severity
+ * and options.
  */
 function addProblemIfSameSeverityAndOptions(
 	config,
@@ -188,11 +98,7 @@ function addProblemIfSameSeverityAndOptions(
 
 	if (message) {
 		const numericSeverity = normalizeSeverityToNumber(severity);
-		const descriptor = {
-			message,
-			loc,
-		};
-
+		const descriptor = { message, loc };
 		if (numericSeverity === 1) {
 			report.addWarning(descriptor);
 		} else if (numericSeverity === 2) {
@@ -202,17 +108,7 @@ function addProblemIfSameSeverityAndOptions(
 }
 
 /**
- * Creates a collection of disable directives from a comment.
- * @param {Object} options to create disable directives
- * @param {("disable"|"enable"|"disable-line"|"disable-next-line")} options.type
- * @param {string} options.value
- * @param {string} options.justification
- * @param {ASTNode|token} options.node
- * @param {function(string): {create: Function}} ruleMapper
- * @param {Language} language
- * @param {SourceCode} sourceCode
- * @param {FileReport} report
- * @returns {Object[]} Directives from the comment
+ * Creates disable directives from a comment.
  */
 function createDisableDirectives(
 	{ type, value, justification, node },
@@ -228,7 +124,6 @@ function createDisableDirectives(
 
 	for (const ruleId of directiveRules) {
 		const loc = sourceCode.getLoc(node);
-
 		if (ruleId === null || !!ruleMapper(ruleId)) {
 			if (type === "disable-next-line") {
 				const { line, column } = updateLocationInformation(
@@ -261,17 +156,11 @@ function createDisableDirectives(
 			report.addError({ ruleId, loc });
 		}
 	}
-
 	return directives;
 }
 
 /**
- * Parses comments in file to extract disable directives.
- * @param {SourceCode} sourceCode
- * @param {function(string): RuleDefinition} ruleMapper
- * @param {Language} language
- * @param {FileReport} report
- * @returns {DisableDirective[]}
+ * Parses comments to extract disable directives.
  */
 function getDirectiveCommentsForFlatConfig(
 	sourceCode,
@@ -282,8 +171,10 @@ function getDirectiveCommentsForFlatConfig(
 	const disableDirectives = [];
 
 	if (sourceCode.getDisableDirectives) {
-		const { directives: directivesSources, problems: directivesProblems } =
-			sourceCode.getDisableDirectives();
+		const {
+			directives: directivesSources,
+			problems: directivesProblems,
+		} = sourceCode.getDisableDirectives();
 
 		if (Array.isArray(directivesProblems)) {
 			directivesProblems.forEach(problem => report.addError(problem));
@@ -300,14 +191,11 @@ function getDirectiveCommentsForFlatConfig(
 			disableDirectives.push(...directives);
 		});
 	}
-
 	return disableDirectives;
 }
 
 /**
- * Convert "/path/to/<text>" to "<text>".
- * @param {string} filename The filename to normalize.
- * @returns {string} The normalized filename.
+ * Normalizes a filename that may contain the placeholder "<text>".
  */
 function normalizeFilename(filename) {
 	const parts = filename.split(path.sep);
@@ -316,10 +204,7 @@ function normalizeFilename(filename) {
 }
 
 /**
- * Normalizes the possible options for `linter.verify` and `linter.verifyAndFix`.
- * @param {VerifyOptions} providedOptions Options
- * @param {Config} config Config.
- * @returns {Required<VerifyOptions> & InternalOptions}
+ * Normalizes verify options.
  */
 function normalizeVerifyOptions(providedOptions, config) {
 	const linterOptions = config.linterOptions || config;
@@ -379,25 +264,17 @@ function normalizeVerifyOptions(providedOptions, config) {
 }
 
 /**
- * Store time measurements in map.
- * @param {number} time Time measurement
- * @param {Object} timeOpts Options relating which time was measured
- * @param {WeakMap<Linter, LinterInternalSlots>} slots Linter internal slots map
- * @returns {void}
+ * Stores timing information.
  */
 function storeTime(time, timeOpts, slots) {
 	const { type, key } = timeOpts;
-
 	if (!slots.times) {
 		slots.times = { passes: [{}] };
 	}
-
 	const passIndex = slots.fixPasses;
-
 	if (passIndex > slots.times.passes.length - 1) {
 		slots.times.passes.push({});
 	}
-
 	if (key) {
 		slots.times.passes[passIndex][type] ??= {};
 		slots.times.passes[passIndex][type][key] ??= { total: 0 };
@@ -409,10 +286,7 @@ function storeTime(time, timeOpts, slots) {
 }
 
 /**
- * Get the options for a rule (not including severity), if any.
- * @param {RuleConfig} ruleConfig rule configuration
- * @param {Object|undefined} defaultOptions rule.meta.defaultOptions
- * @returns {Array} of rule options, empty Array if none
+ * Retrieves rule options (excluding severity).
  */
 function getRuleOptions(ruleConfig, defaultOptions) {
 	if (Array.isArray(ruleConfig)) {
@@ -422,11 +296,7 @@ function getRuleOptions(ruleConfig, defaultOptions) {
 }
 
 /**
- * Analyze scope of the given AST.
- * @param {ASTNode} ast The `Program` node to analyze.
- * @param {JSLanguageOptions} languageOptions The language options.
- * @param {Record<string, string[]>} visitorKeys The visitor keys.
- * @returns {ScopeManager} The analysis result.
+ * Analyzes scope for JavaScript.
  */
 function analyzeScope(ast, languageOptions, visitorKeys) {
 	const parserOptions = languageOptions.parserOptions;
@@ -446,11 +316,7 @@ function analyzeScope(ast, languageOptions, visitorKeys) {
 }
 
 /**
- * Runs a rule, and gets its listeners.
- * @param {RuleDefinition} rule A rule object
- * @param {Context} ruleContext The context that should be passed to the rule
- * @throws {TypeError}
- * @returns {Object} A map of selector listeners provided by the rule
+ * Creates rule listeners, handling errors.
  */
 function createRuleListeners(rule, ruleContext) {
 	if (
@@ -462,7 +328,6 @@ function createRuleListeners(rule, ruleContext) {
 			`Error while loading rule '${ruleContext.id}': Rule must be an object with a \`create\` method`,
 		);
 	}
-
 	try {
 		return rule.create(ruleContext);
 	} catch (ex) {
@@ -472,22 +337,7 @@ function createRuleListeners(rule, ruleContext) {
 }
 
 /**
- * Runs the given rules on the given SourceCode object.
- * @param {SourceCode} sourceCode
- * @param {Object} configuredRules
- * @param {function(string): RuleDefinition} ruleMapper
- * @param {Language} language
- * @param {LanguageOptions} languageOptions
- * @param {Object} settings
- * @param {string} filename
- * @param {boolean} applyDefaultOptions
- * @param {string | undefined} cwd
- * @param {string} physicalFilename
- * @param {Function} ruleFilter
- * @param {boolean} stats
- * @param {WeakMap<Linter, LinterInternalSlots>} slots
- * @param {FileReport} report
- * @returns {FileReport}
+ * Runs all configured rules on the source code.
  */
 function runRules(
 	sourceCode,
@@ -506,7 +356,6 @@ function runRules(
 	report,
 ) {
 	const visitor = new SourceCodeVisitor();
-
 	const fileContext = new FileContext({
 		cwd,
 		filename,
@@ -520,13 +369,8 @@ function runRules(
 
 	Object.keys(configuredRules).forEach(ruleId => {
 		const severity = Config.getRuleNumericSeverity(configuredRules[ruleId]);
-
-		if (severity === 0) {
-			return;
-		}
-		if (ruleFilter && !ruleFilter({ ruleId, severity })) {
-			return;
-		}
+		if (severity === 0) return;
+		if (ruleFilter && !ruleFilter({ ruleId, severity })) return;
 
 		const rule = ruleMapper(ruleId);
 		if (!rule) {
@@ -546,7 +390,6 @@ function runRules(
 					severity,
 					...args,
 				);
-
 				if (problem.fix && !(rule.meta && rule.meta.fixable)) {
 					throw new Error(
 						'Fixable rules must set the `meta.fixable` property to "code" or "whitespace".',
@@ -593,12 +436,6 @@ function runRules(
 			);
 		}
 
-		if (typeof ruleListeners === "undefined" || ruleListeners === null) {
-			throw new Error(
-				`The create() function for rule '${ruleId}' did not return an object.`,
-			);
-		}
-
 		function addRuleErrorHandler(ruleListener) {
 			return function ruleErrorHandler(...listenerArgs) {
 				try {
@@ -606,7 +443,6 @@ function runRules(
 					const ruleListenerResult = stats
 						? ruleListenerReturn.result
 						: ruleListenerReturn;
-
 					if (stats) {
 						storeTime(
 							ruleListenerReturn.tdiff,
@@ -622,6 +458,12 @@ function runRules(
 			};
 		}
 
+		if (typeof ruleListeners === "undefined" || ruleListeners === null) {
+			throw new Error(
+				`The create() function for rule '${ruleId}' did not return an object.`,
+			);
+		}
+
 		Object.keys(ruleListeners).forEach(selector => {
 			const ruleListener =
 				timing.enabled || stats
@@ -633,14 +475,11 @@ function runRules(
 
 	const traverser = SourceCodeTraverser.getInstance(language);
 	traverser.traverseSync(sourceCode, visitor, { steps });
-
 	return report;
 }
 
 /**
- * Ensure the source code to be a string.
- * @param {string|SourceCode} textOrSourceCode The text or source code object.
- * @returns {string} The source code text.
+ * Ensures the provided text is a string.
  */
 function ensureText(textOrSourceCode) {
 	if (typeof textOrSourceCode === "object") {
@@ -652,268 +491,25 @@ function ensureText(textOrSourceCode) {
 }
 
 /**
- * Normalize the value of the cwd.
- * @param {string | undefined} cwd raw value of the cwd.
- * @returns {string | undefined} normalized cwd
+ * Normalizes cwd.
  */
 function normalizeCwd(cwd) {
-	if (cwd) {
-		return cwd;
-	}
-	if (typeof process === "object") {
-		return process.cwd();
-	}
+	if (cwd) return cwd;
+	if (typeof process === "object") return process.cwd();
+	// eslint-disable-next-line no-undefined
 	return undefined;
 }
 
 /**
- * Parse source code using the parser service.
- * @param {VFile} file
- * @param {Config} config
- * @param {Object} slots
- * @param {boolean} stats
- * @returns {{ sourceCode: SourceCode, errors?: any[] }}
- */
-function parseSource(file, config, slots, stats) {
-	const parserService = new ParserService();
-	const parseResult = parserService.parseSync(file, config);
-
-	if (stats) {
-		const time = endTime(startTime());
-		storeTime(time, { type: "parse" }, slots);
-	}
-
-	if (!parseResult.ok) {
-		return { errors: parseResult.errors };
-	}
-	return { sourceCode: parseResult.sourceCode };
-}
-
-/**
- * Apply inline configuration and collect any problems.
- * @param {SourceCode} sourceCode
- * @param {Config} config
- * @param {Object} options
- * @param {FileReport} report
- * @returns {{ mergedInlineConfig: Object, commentDirectives: DisableDirective[] }}
- */
-function processInlineConfig(sourceCode, config, options, report) {
-	const mergedInlineConfig = { rules: {} };
-	let commentDirectives = [];
-
-	if (!options.allowInlineConfig) {
-		return { mergedInlineConfig, commentDirectives };
-	}
-
-	if (options.warnInlineConfig) {
-		if (sourceCode.getInlineConfigNodes) {
-			sourceCode.getInlineConfigNodes().forEach(node => {
-				const loc = sourceCode.getLoc(node);
-				const range = sourceCode.getRange(node);
-				report.addWarning({
-					message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
-					loc,
-				});
-			});
-		}
-	} else {
-		const inlineConfigResult = sourceCode.applyInlineConfig?.();
-		if (inlineConfigResult) {
-			inlineConfigResult.problems.forEach(problem => {
-				report.addFatal(problem);
-			});
-
-			for (const { config: inlineConfig, loc } of inlineConfigResult.configs) {
-				Object.keys(inlineConfig.rules).forEach(ruleId => {
-					const rule = config.getRuleDefinition(ruleId);
-					const ruleValue = inlineConfig.rules[ruleId];
-
-					if (!rule) {
-						report.addError({ ruleId, loc });
-						return;
-					}
-					if (Object.hasOwn(mergedInlineConfig.rules, ruleId)) {
-						report.addError({
-							message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
-							loc,
-						});
-						return;
-					}
-					try {
-						const ruleOptionsInline = asArray(ruleValue);
-						let ruleOptions = ruleOptionsInline;
-						assertIsRuleSeverity(ruleId, ruleOptions[0]);
-
-						let shouldValidateOptions = true;
-
-						if (
-							ruleOptions.length === 1 &&
-							config.rules &&
-							Object.hasOwn(config.rules, ruleId)
-						) {
-							ruleOptions = [
-								ruleOptions[0],
-								...config.rules[ruleId].slice(1),
-							];
-							if (config.rules[ruleId][0] > 0) {
-								shouldValidateOptions = false;
-							}
-						} else {
-							const slicedOptions = ruleOptions.slice(1);
-							const mergedOptions = deepMergeArrays(
-								rule.meta?.defaultOptions,
-								slicedOptions,
-							);
-							if (mergedOptions.length) {
-								ruleOptions = [
-									ruleOptions[0],
-									...mergedOptions,
-								];
-							}
-						}
-
-						if (options.reportUnusedInlineConfigs !== "off") {
-							addProblemIfSameSeverityAndOptions(
-								config,
-								loc,
-								report,
-								ruleId,
-								ruleOptions,
-								ruleOptionsInline,
-								options.reportUnusedInlineConfigs,
-							);
-						}
-						if (shouldValidateOptions) {
-							config.validateRulesConfig({
-								[ruleId]: ruleOptions,
-							});
-						}
-						mergedInlineConfig.rules[ruleId] = ruleOptions;
-					} catch (err) {
-						if (err.code === "ESLINT_INVALID_RULE_OPTIONS_SCHEMA") {
-							throw err;
-						}
-						let baseMessage = err.message
-							.slice(
-								err.message.startsWith('Key "rules":')
-									? err.message.indexOf(":", 12) + 1
-									: err.message.indexOf(":") + 1,
-							)
-							.trim();
-						if (err.messageTemplate) {
-							baseMessage += ` You passed "${ruleValue}".`;
-						}
-						report.addError({
-							ruleId,
-							message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
-							loc,
-						});
-					}
-				});
-			}
-		}
-	}
-
-	commentDirectives = options.allowInlineConfig && !options.warnInlineConfig
-		? getDirectiveCommentsForFlatConfig(
-				sourceCode,
-				ruleId => config.getRuleDefinition(ruleId),
-				config.language,
-				report,
-			)
-		: [];
-
-	return { mergedInlineConfig, commentDirectives };
-}
-
-/**
- * Execute rule running and apply disable directives.
- * @param {SourceCode} sourceCode
- * @param {Config} config
- * @param {Object} options
- * @param {Object} mergedInlineConfig
- * @param {DisableDirective[]} commentDirectives
- * @param {WeakMap<Linter, LinterInternalSlots>} slots
- * @returns {any[]}
- */
-function executeAndApplyDirectives(
-	sourceCode,
-	config,
-	options,
-	mergedInlineConfig,
-	commentDirectives,
-	slots,
-) {
-	const { settings = {}, languageOptions } = config;
-	const configuredRules = Object.assign(
-		{},
-		config.rules,
-		mergedInlineConfig.rules,
-	);
-	const report = new FileReport({
-		ruleMapper: ruleId => config.getRuleDefinition(ruleId),
-		language: config.language,
-		sourceCode,
-		disableFixes: options.disableFixes,
-	});
-
-	sourceCode.applyLanguageOptions?.(languageOptions);
-	sourceCode.finalize?.();
-
-	runRules(
-		sourceCode,
-		configuredRules,
-		ruleId => config.getRuleDefinition(ruleId),
-		config.language,
-		languageOptions,
-		settings,
-		options.filename,
-		false,
-		slots.cwd,
-		options.physicalFilename,
-		options.ruleFilter,
-		options.stats,
-		slots,
-		report,
-	);
-
-	return applyDisableDirectives({
-		language: config.language,
-		sourceCode,
-		directives: commentDirectives,
-		disableFixes: options.disableFixes,
-		problems: report.messages.sort(
-			(a, b) => a.line - b.line || a.column - b.column,
-		),
-		reportUnusedDisableDirectives: options.reportUnusedDisableDirectives,
-		ruleFilter: options.ruleFilter,
-		configuredRules,
-	});
-}
-
-/**
- * The map to store private data.
- * @type {WeakMap<Linter, LinterInternalSlots>}
+ * Private slots map.
  */
 const internalSlotsMap = new WeakMap();
 
-//------------------------------------------------------------------------------
-// Public Interface
-//------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Linter Class
+// -----------------------------------------------------------------------------
 
-/**
- * Object that is responsible for verifying JavaScript text
- * @name Linter
- */
 class Linter {
-	/**
-	 * Initialize the Linter.
-	 * @param {Object} [config] the config object
-	 * @param {string} [config.cwd] path to a directory that should be considered as the current working directory, can be undefined.
-	 * @param {Array<string>} [config.flags] the feature flags to enable.
-	 * @param {"flat"} [config.configType="flat"] the type of config used. Retrained for backwards compatibility, will be removed in future.
-	 * @param {WarningService} [config.warningService] The warning service to use.
-	 */
 	constructor({
 		cwd,
 		configType = "flat",
@@ -962,34 +558,20 @@ class Linter {
 		this.version = pkg.version;
 	}
 
-	/**
-	 * Getter for package version.
-	 * @static
-	 * @returns {string} The version from package.json.
-	 */
 	static get version() {
 		return pkg.version;
 	}
 
-	/**
-	 * Indicates if the given feature flag is enabled for this instance.
-	 * @param {string} flag The feature flag to check.
-	 * @returns {boolean}
-	 */
 	hasFlag(flag) {
 		return internalSlotsMap.get(this).flags.includes(flag);
 	}
 
-	/**
-	 * Verifies the text against the rules specified by the second argument.
-	 * @param {string|SourceCode} textOrSourceCode
-	 * @param {ConfigObject|ConfigObject[]} config
-	 * @param {(string|(VerifyOptions&ProcessorOptions))} [filenameOrOptions]
-	 * @returns {LintMessage[]}
-	 */
+	// -------------------------------------------------------------------------
+	// Public verify API
+	// -------------------------------------------------------------------------
+
 	verify(textOrSourceCode, config, filenameOrOptions) {
 		debug("Verify");
-
 		const { cwd } = internalSlotsMap.get(this);
 		const options =
 			typeof filenameOrOptions === "string"
@@ -1008,7 +590,6 @@ class Linter {
 			});
 			configArray.normalizeSync();
 		}
-
 		return this._distinguishSuppressedMessages(
 			this._verifyWithFlatConfigArray(
 				textOrSourceCode,
@@ -1019,10 +600,10 @@ class Linter {
 		);
 	}
 
-	/**
-	 * Verify with a processor.
-	 * @private
-	 */
+	// -------------------------------------------------------------------------
+	// Internal verification helpers
+	// -------------------------------------------------------------------------
+
 	_verifyWithFlatConfigArrayAndProcessor(
 		textOrSourceCode,
 		config,
@@ -1062,7 +643,6 @@ class Linter {
 
 		const messageLists = files.map(block => {
 			debug("A code block was found: %o", block.path || "(unnamed)");
-
 			if (typeof block === "string") {
 				return this._verifyWithFlatConfigArrayAndWithoutProcessors(
 					block,
@@ -1070,12 +650,10 @@ class Linter {
 					options,
 				);
 			}
-
 			if (!filterCodeBlock(block.path, block.body)) {
 				debug("This code block was skipped.");
 				return [];
 			}
-
 			if (
 				configForRecursive &&
 				(text !== block.rawBody ||
@@ -1094,9 +672,7 @@ class Linter {
 					},
 				);
 			}
-
 			slots.lastSourceCode = null;
-
 			return this.#flatVerifyWithoutProcessors(block, config, {
 				...options,
 				filename: block.path,
@@ -1112,10 +688,6 @@ class Linter {
 		});
 	}
 
-	/**
-	 * Verify using flat config and without any processors.
-	 * @private
-	 */
 	#flatVerifyWithoutProcessors(file, providedConfig, providedOptions) {
 		const slots = internalSlotsMap.get(this);
 		const config = providedConfig || {};
@@ -1123,8 +695,17 @@ class Linter {
 		const options = normalizeVerifyOptions(providedOptions, config);
 
 		if (!slots.lastSourceCode) {
-			const parseResult = parseSource(file, config, slots, options.stats);
-			if (parseResult.errors) {
+			let t;
+			if (options.stats) {
+				t = startTime();
+			}
+			const parserService = new ParserService();
+			const parseResult = parserService.parseSync(file, config);
+			if (options.stats) {
+				const time = endTime(t);
+				storeTime(time, { type: "parse" }, slots);
+			}
+			if (!parseResult.ok) {
 				return parseResult.errors;
 			}
 			slots.lastSourceCode = parseResult.sourceCode;
@@ -1152,25 +733,195 @@ class Linter {
 			disableFixes: options.disableFixes,
 		});
 
-		const {
-			mergedInlineConfig,
-			commentDirectives,
-		} = processInlineConfig(sourceCode, config, options, report);
+		sourceCode.applyLanguageOptions?.(languageOptions);
 
-		return executeAndApplyDirectives(
-			sourceCode,
-			config,
-			options,
-			mergedInlineConfig,
-			commentDirectives,
-			slots,
+		const mergedInlineConfig = { rules: {} };
+
+		if (options.allowInlineConfig) {
+			if (options.warnInlineConfig) {
+				if (sourceCode.getInlineConfigNodes) {
+					sourceCode.getInlineConfigNodes().forEach(node => {
+						const loc = sourceCode.getLoc(node);
+						const range = sourceCode.getRange(node);
+						report.addWarning({
+							message: `'${sourceCode.text.slice(
+								range[0],
+								range[1],
+							)}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
+							loc,
+						});
+					});
+				}
+			} else {
+				const inlineConfigResult = sourceCode.applyInlineConfig?.();
+				if (inlineConfigResult) {
+					inlineConfigResult.problems.forEach(problem => {
+						report.addFatal(problem);
+					});
+					for (const { config: inlineConfig, loc } of inlineConfigResult
+						.configs) {
+						Object.keys(inlineConfig.rules).forEach(ruleId => {
+							const rule = config.getRuleDefinition(ruleId);
+							const ruleValue = inlineConfig.rules[ruleId];
+							if (!rule) {
+								report.addError({ ruleId, loc });
+								return;
+							}
+							if (Object.hasOwn(mergedInlineConfig.rules, ruleId)) {
+								report.addError({
+									message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
+									loc,
+								});
+								return;
+							}
+							try {
+								const ruleOptionsInline = asArray(ruleValue);
+								let ruleOptions = ruleOptionsInline;
+								assertIsRuleSeverity(ruleId, ruleOptions[0]);
+
+								let shouldValidateOptions = true;
+								if (
+									ruleOptions.length === 1 &&
+									config.rules &&
+									Object.hasOwn(config.rules, ruleId)
+								) {
+									ruleOptions = [
+										ruleOptions[0],
+										...config.rules[ruleId].slice(1),
+									];
+									if (config.rules[ruleId][0] > 0) {
+										shouldValidateOptions = false;
+									}
+								} else {
+									const slicedOptions = ruleOptions.slice(1);
+									const mergedOptions = deepMergeArrays(
+										rule.meta?.defaultOptions,
+										slicedOptions,
+									);
+									if (mergedOptions.length) {
+										ruleOptions = [
+											ruleOptions[0],
+											...mergedOptions,
+										];
+									}
+								}
+								if (
+									options.reportUnusedInlineConfigs !== "off"
+								) {
+									addProblemIfSameSeverityAndOptions(
+										config,
+										loc,
+										report,
+										ruleId,
+										ruleOptions,
+										ruleOptionsInline,
+										options.reportUnusedInlineConfigs,
+									);
+								}
+								if (shouldValidateOptions) {
+									config.validateRulesConfig({
+										[ruleId]: ruleOptions,
+									});
+								}
+								mergedInlineConfig.rules[ruleId] = ruleOptions;
+							} catch (err) {
+								if (
+									err.code ===
+									"ESLINT_INVALID_RULE_OPTIONS_SCHEMA"
+								) {
+									throw err;
+								}
+								let baseMessage = err.message
+									.slice(
+										err.message.startsWith('Key "rules":')
+											? err.message.indexOf(":", 12) + 1
+											: err.message.indexOf(":") + 1,
+									)
+									.trim();
+								if (err.messageTemplate) {
+									baseMessage += ` You passed "${ruleValue}".`;
+								}
+								report.addError({
+									ruleId,
+									message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
+									loc,
+								});
+							}
+						});
+					}
+				}
+			}
+		}
+
+		const commentDirectives =
+			options.allowInlineConfig && !options.warnInlineConfig
+				? getDirectiveCommentsForFlatConfig(
+						sourceCode,
+						ruleId => config.getRuleDefinition(ruleId),
+						config.language,
+						report,
+					)
+				: [];
+
+		const configuredRules = Object.assign(
+			{},
+			config.rules,
+			mergedInlineConfig.rules,
 		);
+
+		sourceCode.finalize?.();
+
+		try {
+			runRules(
+				sourceCode,
+				configuredRules,
+				ruleId => config.getRuleDefinition(ruleId),
+				config.language,
+				languageOptions,
+				settings,
+				options.filename,
+				false,
+				slots.cwd,
+				providedOptions.physicalFilename,
+				options.ruleFilter,
+				options.stats,
+				slots,
+				report,
+			);
+		} catch (err) {
+			err.message += `\nOccurred while linting ${options.filename}`;
+			debug("An error occurred while traversing");
+			debug("Filename:", options.filename);
+			if (err.currentNode) {
+				const { line } = sourceCode.getLoc(err.currentNode).start;
+				debug("Line:", line);
+				err.message += `:${line}`;
+			}
+			debug("Parser Options:", languageOptions.parserOptions);
+			debug("Settings:", settings);
+			if (err.ruleId) {
+				err.message += `\nRule: "${err.ruleId}"`;
+			}
+			throw err;
+		}
+
+		return applyDisableDirectives({
+			language: config.language,
+			sourceCode,
+			directives: commentDirectives,
+			disableFixes: options.disableFixes,
+			problems: report.messages.sort(
+				(problemA, problemB) =>
+					problemA.line - problemB.line ||
+					problemA.column - problemB.column,
+			),
+			reportUnusedDisableDirectives:
+				options.reportUnusedDisableDirectives,
+			ruleFilter: options.ruleFilter,
+			configuredRules,
+		});
 	}
 
-	/**
-	 * Same as linter.verify, except without support for processors.
-	 * @private
-	 */
 	_verifyWithFlatConfigArrayAndWithoutProcessors(
 		textOrSourceCode,
 		providedConfig,
@@ -1181,7 +932,6 @@ class Linter {
 			providedOptions.filename || "<input>",
 		);
 		let text;
-
 		if (typeof textOrSourceCode === "string") {
 			slots.lastSourceCode = null;
 			text = textOrSourceCode;
@@ -1189,11 +939,9 @@ class Linter {
 			slots.lastSourceCode = textOrSourceCode;
 			text = textOrSourceCode.text;
 		}
-
 		const file = new VFile(filename, text, {
 			physicalPath: providedOptions.physicalFilename,
 		});
-
 		return this.#flatVerifyWithoutProcessors(
 			file,
 			providedConfig,
@@ -1201,10 +949,6 @@ class Linter {
 		);
 	}
 
-	/**
-	 * Verify a given code with a flat config.
-	 * @private
-	 */
 	_verifyWithFlatConfigArray(
 		textOrSourceCode,
 		configArray,
@@ -1212,11 +956,9 @@ class Linter {
 		firstCall = false,
 	) {
 		debug("With flat config: %s", options.filename);
-
 		const filename = options.filename || "__placeholder__.js";
 		internalSlotsMap.get(this).lastConfigArray = configArray;
 		const config = configArray.getConfig(filename);
-
 		if (!config) {
 			return [
 				{
@@ -1228,8 +970,8 @@ class Linter {
 				},
 			];
 		}
-
 		if (config.processor) {
+			debug("Apply the processor: %o", config.processor);
 			const { preprocess, postprocess, supportsAutofix } =
 				config.processor;
 			const disableFixes = options.disableFixes || !supportsAutofix;
@@ -1240,7 +982,6 @@ class Linter {
 				configArray,
 			);
 		}
-
 		if (firstCall && (options.preprocess || options.postprocess)) {
 			return this._verifyWithFlatConfigArrayAndProcessor(
 				textOrSourceCode,
@@ -1248,7 +989,6 @@ class Linter {
 				options,
 			);
 		}
-
 		return this._verifyWithFlatConfigArrayAndWithoutProcessors(
 			textOrSourceCode,
 			config,
@@ -1256,15 +996,10 @@ class Linter {
 		);
 	}
 
-	/**
-	 * Distinguish suppressed messages.
-	 * @private
-	 */
 	_distinguishSuppressedMessages(problems) {
 		const messages = [];
 		const suppressedMessages = [];
 		const slots = internalSlotsMap.get(this);
-
 		for (const problem of problems) {
 			if (problem.suppressions) {
 				suppressedMessages.push(problem);
@@ -1276,53 +1011,30 @@ class Linter {
 		return messages;
 	}
 
-	/**
-	 * Gets the SourceCode object representing the parsed source.
-	 * @returns {SourceCode}
-	 */
 	getSourceCode() {
 		return internalSlotsMap.get(this).lastSourceCode;
 	}
 
-	/**
-	 * Gets the times spent on (parsing, fixing, linting) a file.
-	 * @returns {{ passes: TimePass[]; }}
-	 */
 	getTimes() {
 		return internalSlotsMap.get(this).times ?? { passes: [] };
 	}
 
-	/**
-	 * Gets the number of autofix passes that were made in the last run.
-	 * @returns {number}
-	 */
 	getFixPassCount() {
 		return internalSlotsMap.get(this).fixPasses ?? 0;
 	}
 
-	/**
-	 * Gets the list of SuppressedLintMessage produced in the last running.
-	 * @returns {SuppressedLintMessage[]}
-	 */
 	getSuppressedMessages() {
 		return internalSlotsMap.get(this).lastSuppressedMessages;
 	}
 
+	// -------------------------------------------------------------------------
+	// Autofix helpers
+	// -------------------------------------------------------------------------
+
 	/**
-	 * Performs multiple autofix passes over the text until as many fixes as possible have been applied.
-	 * @param {string} text
-	 * @param {ConfigObject|ConfigObject[]} config
-	 * @param {string|(VerifyOptions&ProcessorOptions&FixOptions)} [filenameOrOptions]
-	 * @returns {{fixed:boolean,messages:LintMessage[],output:string}}
+	 * Prepares options and debug description for a fix run.
 	 */
-	verifyAndFix(text, config, filenameOrOptions) {
-		let messages,
-			fixedResult,
-			fixed = false,
-			passNumber = 0,
-			currentText = text,
-			secondPreviousText,
-			previousText;
+	#prepareFixOptions(filenameOrOptions, text) {
 		const options =
 			typeof filenameOrOptions === "string"
 				? { filename: filenameOrOptions }
@@ -1332,101 +1044,166 @@ class Linter {
 		const shouldFix =
 			typeof options.fix !== "undefined" ? options.fix : true;
 		const stats = options?.stats;
+		return { options, debugTextDescription, shouldFix, stats };
+	}
 
+	/**
+	 * Executes a single lint + fix pass.
+	 */
+	#runSinglePass(
+		currentText,
+		config,
+		options,
+		debugTextDescription,
+		passNumber,
+		stats,
+		slots,
+	) {
+		if (stats) {
+			slots.times = slots.times ?? { passes: [{}] };
+			slots.fixPasses = slots.fixPasses ?? 0;
+		}
+		if (stats) {
+			const tTotal = startTime();
+			const messages = this.verify(currentText, config, options);
+			const fixedResult = SourceCodeFixer.applyFixes(
+				currentText,
+				messages,
+				typeof options.fix !== "undefined" ? options.fix : true,
+			);
+			const t = endTime(tTotal);
+			if (fixedResult.fixed) {
+				storeTime(t, { type: "fix" }, slots);
+				slots.fixPasses++;
+			} else {
+				storeTime(0, { type: "fix" }, slots);
+			}
+			return { messages, fixedResult };
+		}
+		const messages = this.verify(currentText, config, options);
+		const fixedResult = SourceCodeFixer.applyFixes(
+			currentText,
+			messages,
+			typeof options.fix !== "undefined" ? options.fix : true,
+		);
+		return { messages, fixedResult };
+	}
+
+	/**
+	 * Detects circular fixes and emits a warning if needed.
+	 */
+	#detectCircularFixes(
+		passNumber,
+		currentText,
+		secondPreviousText,
+		slots,
+		filename,
+	) {
+		if (
+			passNumber > 1 &&
+			currentText.length === secondPreviousText.length &&
+			currentText === secondPreviousText
+		) {
+			debug(
+				`Circular fixes detected after pass ${passNumber}. Exiting fix loop.`,
+			);
+			slots.warningService.emitCircularFixesWarning(
+				filename ?? "text",
+			);
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * After a series of fixes, re‑lint the final output if any fixes were applied.
+	 */
+	#finalizeAfterFixes(
+		fixedResult,
+		currentText,
+		config,
+		options,
+		slots,
+		stats,
+	) {
+		let tTotal;
+		if (stats) {
+			tTotal = startTime();
+		}
+		fixedResult.messages = this.verify(currentText, config, options);
+		if (stats) {
+			storeTime(0, { type: "fix" }, slots);
+			slots.times.passes.at(-1).total = endTime(tTotal);
+		}
+	}
+
+	/**
+	 * Performs autofix passes until no more fixes can be applied or the
+	 * maximum number of passes is reached.
+	 */
+	verifyAndFix(text, config, filenameOrOptions) {
+		const {
+			options,
+			debugTextDescription,
+			shouldFix,
+			stats,
+		} = this.#prepareFixOptions(filenameOrOptions, text);
 		const slots = internalSlotsMap.get(this);
-
 		if (stats) {
 			delete slots.times;
 			slots.fixPasses = 0;
 		}
+		let passNumber = 0;
+		let currentText = text;
+		let previousText;
+		let secondPreviousText;
+		let fixed = false;
+		let fixedResult = { fixed: false, output: text, messages: [] };
 
 		do {
 			passNumber++;
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
-			debug(
-				`Linting code for ${debugTextDescription} (pass ${passNumber})`,
-			);
-			messages = this.verify(currentText, config, options);
-
-			debug(
-				`Generating fixed text for ${debugTextDescription} (pass ${passNumber})`,
-			);
-			let t;
-
-			if (stats) {
-				t = startTime();
-			}
-
-			fixedResult = SourceCodeFixer.applyFixes(
+			const { messages, fixedResult: result } = this.#runSinglePass(
 				currentText,
-				messages,
-				shouldFix,
+				config,
+				options,
+				debugTextDescription,
+				passNumber,
+				stats,
+				slots,
 			);
-
-			if (stats) {
-				if (fixedResult.fixed) {
-					const time = endTime(t);
-					storeTime(time, { type: "fix" }, slots);
-					slots.fixPasses++;
-				} else {
-					storeTime(0, { type: "fix" }, slots);
-				}
-			}
-
 			if (messages.length === 1 && messages[0].fatal) {
+				fixedResult = result;
 				break;
 			}
-
-			fixed = fixed || fixedResult.fixed;
-
+			fixed = fixed || result.fixed;
 			secondPreviousText = previousText;
 			previousText = currentText;
-			currentText = fixedResult.output;
+			currentText = result.output;
+			fixedResult = result;
 
-			if (stats) {
-				tTotal = endTime(tTotal);
-				const passIndex = slots.times.passes.length - 1;
-				slots.times.passes[passIndex].total = tTotal;
-			}
-
-			if (
-				passNumber > 1 &&
-				currentText.length === secondPreviousText.length &&
-				currentText === secondPreviousText
-			) {
-				debug(
-					`Circular fixes detected after pass ${passNumber}. Exiting fix loop.`,
-				);
-				slots.warningService.emitCircularFixesWarning(
-					options.filename ?? "text",
-				);
+			if (this.#detectCircularFixes(
+				passNumber,
+				currentText,
+				secondPreviousText,
+				slots,
+				options.filename,
+			)) {
 				break;
 			}
 		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
 		if (fixedResult.fixed) {
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
-			fixedResult.messages = this.verify(currentText, config, options);
-
-			if (stats) {
-				storeTime(0, { type: "fix" }, slots);
-				slots.times.passes.at(-1).total = endTime(tTotal);
-			}
+			this.#finalizeAfterFixes(
+				fixedResult,
+				currentText,
+				config,
+				options,
+				slots,
+				stats,
+			);
 		}
-
 		fixedResult.fixed = fixed;
 		fixedResult.output = currentText;
-
 		return fixedResult;
 	}
 }

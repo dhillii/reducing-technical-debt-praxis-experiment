@@ -33,7 +33,7 @@ define([
      * 1. `start` on `sync` channel
      *     starts synchronizing.
      */
-    const Sync = Marionette.Object.extend({
+    var Sync = Marionette.Object.extend({
 
         configs  : {
             // Dropbox app key
@@ -124,7 +124,7 @@ define([
          */
         parseHash: function() {
             const hash = window.location.hash.replace('#', '').split('&');
-            let ret  = {};
+            const ret  = {};
 
             if (!hash.length) {
                 return ret;
@@ -197,8 +197,8 @@ define([
          * Check for changes.
          */
         checkChanges: function() {
-            let promises = [];
-            const self = this;
+            const promises = [],
+                  self     = this;
 
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
@@ -254,8 +254,8 @@ define([
          * @return promise
          */
         syncAll: function(localData, remoteData, module) {
-            let promises;
-            const encryptKeys = localData.model.prototype.encryptKeys;
+            let promises,
+                encryptKeys = localData.model.prototype.encryptKeys;
 
             localData = (localData.fullCollection || localData).toJSON();
 
@@ -272,15 +272,14 @@ define([
         },
 
         /**
-         * Save only models which don't exist locally or which were updated
-         * remotely.
+         * Save only models which don't exist locally or which were updated remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            const promises = [];
-            const newData  = _.filter(remoteData, function(rModel) {
-                const model = _.findWhere(localData, {id: rModel.id});
-                return !model || model.updated < rModel.updated;
-            });
+            const promises = [],
+                  newData  = _.filter(remoteData, function(rModel) {
+                      const model = _.findWhere(localData, {id: rModel.id});
+                      return !model || model.updated < rModel.updated;
+                  });
 
             if (newData.length) {
                 console.log('Dropbox changes:', newData);

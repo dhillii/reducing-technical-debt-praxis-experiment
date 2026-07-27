@@ -103,7 +103,9 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         delete options.strategy;
     }
 
-    if (path && !options.strategies) {
+    if (path &&
+        !options.strategies) {
+
         Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
         options = Hoek.applyToDefaults(this.settings.default, options);
     }
@@ -113,50 +115,26 @@ internals.Auth.prototype._setupRoute = function (options, path) {
 
     options.mode = options.mode || 'required';
 
-    this._normalizeLegacy(options);
-    this._processAccess(options);
-    this._normalizePayload(options);
-    this._validateStrategies(options, path);
+    if (options.entity !== undefined ||
+        options.scope !== undefined) {
 
-    return options;
-};
-
-
-internals.Auth.prototype._normalizeLegacy = function (options) {
-
-    if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
-};
 
-
-internals.Auth.prototype._processAccess = function (options) {
-
-    if (!options.access) {
-        return;
+    if (options.access) {
+        for (let i = 0; i < options.access.length; ++i) {
+            const access = options.access[i];
+            access.scope = internals.setupScope(access);
+        }
     }
-
-    for (let i = 0; i < options.access.length; ++i) {
-        const access = options.access[i];
-        access.scope = internals.setupScope(access);
-    }
-};
-
-
-internals.Auth.prototype._normalizePayload = function (options) {
 
     if (options.payload === true) {
         options.payload = 'required';
     }
-};
-
-
-internals.Auth.prototype._validateStrategies = function (options, path) {
 
     let hasAuthenticatePayload = false;
-
     for (let i = 0; i < options.strategies.length; ++i) {
         const name = options.strategies[i];
         const strategy = this._strategies[name];
@@ -168,6 +146,8 @@ internals.Auth.prototype._validateStrategies = function (options, path) {
     }
 
     Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+
+    return options;
 };
 
 
@@ -456,49 +436,28 @@ internals.access = function (request, config, credentials, name) {
     const requestEntity = (credentials.user ? 'user' : 'app');
 
     const scopeErrors = [];
+
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        // Check entity
-
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
-
+        if (!internals._entityMatches(access.entity, requestEntity)) {
             continue;
         }
 
-        // Check scope
-
-        let scope = access.scope;
-        if (scope) {
-            if (!credentials.scope) {
-                scopeErrors.push(scope);
-                continue;
-            }
-
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
-                continue;
-            }
+        const scopeCheck = internals._checkScope(access.scope, credentials, request);
+        if (scopeCheck.ok) {
+            return null;
         }
 
-        return null;
+        if (access.scope) {
+            scopeErrors.push(scopeCheck.scope);
+        }
     }
-
-    // Scope error
 
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
-
-    // Entity error
 
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
@@ -507,6 +466,36 @@ internals.access = function (request, config, credentials, name) {
     return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
 };
 
+internals._entityMatches = function (entity, requestEntity) {
+
+    if (!entity) {
+        return true;
+    }
+
+    if (entity === 'any') {
+        return true;
+    }
+
+    return entity === requestEntity;
+};
+
+internals._checkScope = function (accessScope, credentials, request) {
+
+    if (!accessScope) {
+        return { ok: true };
+    }
+
+    if (!credentials.scope) {
+        return { ok: false, scope: accessScope };
+    }
+
+    const expanded = internals.expandScope(request, accessScope);
+    const valid = internals.validateScope(credentials, expanded, 'required') &&
+        internals.validateScope(credentials, expanded, 'selection') &&
+        internals.validateScope(credentials, expanded, 'forbidden');
+
+    return { ok: valid, scope: expanded };
+};
 
 internals.expandScope = function (request, scope) {
 

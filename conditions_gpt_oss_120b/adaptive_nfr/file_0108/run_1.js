@@ -97,7 +97,7 @@ exports.files = function (dir, ext, ret) {
   readdirSync(dir)
     .filter(ignored)
     .forEach(function (path) {
-      path = join(dir, path);
+      let path = join(dir, path);
       if (lstatSync(path).isDirectory()) {
         exports.files(path, ext, ret);
       } else if (path.match(re)) {
@@ -152,7 +152,7 @@ exports.clean = function (str) {
  */
 exports.parseQuery = function (qs) {
   return qs.replace('?', '').split('&').reduce(function (obj, pair) {
-    const i = pair.indexOf('=');
+    let i = pair.indexOf('=');
     const key = pair.slice(0, i);
     const val = pair.slice(++i);
 
@@ -243,7 +243,7 @@ function emptyRepresentation (value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-const type = exports.type = function type (value) {
+var type = exports.type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -272,7 +272,7 @@ const type = exports.type = function type (value) {
  * @return {string}
  */
 exports.stringify = function (value) {
-  let typeHint = type(value);
+  const typeHint = type(value);
 
   if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
@@ -319,17 +319,18 @@ function jsonStringify (object, spaces, depth) {
     return _stringify(object);
   }
 
-  const depthVal = depth || 1;
-  const space = spaces * depthVal;
-  let str = Array.isArray(object) ? '[' : '{';
+  if (depth === undefined) depth = 1;
+  const space = spaces * depth;
+  let resultStr = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  let remaining = typeof object.length === 'number' ? object.length : Object.keys(object).length;
 
-  const repeat = (s, n) => {
+  // `.repeat()` polyfill
+  function repeat (s, n) {
     return new Array(n).join(s);
-  };
+  }
 
-  const _stringify = (val) => {
+  function _stringify (val) {
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -337,7 +338,7 @@ function jsonStringify (object, spaces, depth) {
         break;
       case 'array':
       case 'object':
-        val = jsonStringify(val, spaces, depthVal + 1);
+        val = jsonStringify(val, spaces, depth + 1);
         break;
       case 'boolean':
       case 'regexp':
@@ -348,14 +349,14 @@ function jsonStringify (object, spaces, depth) {
           : val.toString();
         break;
       case 'date':
-        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        var sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
-        let json = val.toJSON();
+        const json = val.toJSON();
         // Based on the toJSON result
-        json = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(json, 2, depthVal + 1) + ']';
+        const buf = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(buf, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -363,22 +364,22 @@ function jsonStringify (object, spaces, depth) {
           : JSON.stringify(val); // string
     }
     return val;
-  };
+  }
 
-  for (let i in object) {
+  for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue; // not my business
     }
-    --length;
-    str += '\n ' + repeat(' ', space) +
+    remaining--;
+    resultStr += '\n ' + repeat(' ', space) +
       (Array.isArray(object) ? '' : '"' + i + '": ') + // key
       _stringify(object[i]) + // value
-      (length ? ',' : ''); // comma
+      (remaining ? ',' : ''); // comma
   }
 
-  return str +
+  return resultStr +
     // [], {}
-    (str.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
+    (resultStr.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
 }
 
 /**
@@ -402,7 +403,6 @@ function jsonStringify (object, spaces, depth) {
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
-  let prop;
   typeHint = typeHint || type(value);
   function withStack (value, fn) {
     stack.push(value);
@@ -410,7 +410,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     stack.pop();
   }
 
-  stack = stack || [];
+  if (!stack) stack = [];
 
   if (stack.indexOf(value) !== -1) {
     return '[Circular]';
@@ -431,7 +431,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       break;
     case 'function':
       /* eslint-disable guard-for-in */
-      for (prop in value) {
+      for (const prop in value) {
         canonicalizedObj = {};
         break;
       }
@@ -565,21 +565,21 @@ exports.stackTraceFilter = function () {
     slash = '/';
   }
 
-  const isMochaInternal = (line) => {
+  function isMochaInternal (line) {
     return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
       (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
       (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
       (~line.indexOf(slash + 'mocha.js'));
-  };
+  }
 
-  const isNodeInternal = (line) => {
+  function isNodeInternal (line) {
     return (~line.indexOf('(timers.js:')) ||
       (~line.indexOf('(events.js:')) ||
       (~line.indexOf('(node.js:')) ||
       (~line.indexOf('(module.js:')) ||
       (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
       false;
-  };
+  }
 
   return function (stack) {
     stack = stack.split('\n');

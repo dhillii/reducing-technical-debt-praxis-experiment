@@ -379,6 +379,7 @@ class SignupPage extends React.Component {
             });
         }
 
+        // Handle the default plan if not set
         this.handleSelectedPlan();
     }
 
@@ -420,6 +421,7 @@ class SignupPage extends React.Component {
             const {name, email, plan, phonenumber, token, errors} = this.state;
             const hasFormErrors = errors && Object.values(errors).some(d => !!d);
 
+            // Only scroll checkbox into view if it's the only error
             const otherErrors = {...errors};
             delete otherErrors.checkbox;
             const hasOnlyCheckboxError = errors?.checkbox && Object.values(otherErrors).every(error => !error);
@@ -465,13 +467,15 @@ class SignupPage extends React.Component {
 
     handleSelectPlan = (e, priceId) => {
         e && e.preventDefault();
+        // Hack: React checkbox gets out of sync with dom state with instant update
         this.timeoutId = setTimeout(() => {
             this.setState({plan: priceId});
         }, 5);
     };
 
     onKeyDown(e) {
-        if (e.keyCode === 13) {
+        // Handles submit on Enter press
+        if (e.keyCode === 13){
             this.handleSignup(e);
         }
     }
@@ -481,16 +485,18 @@ class SignupPage extends React.Component {
             return 'free';
         }
         const hasSelectedPlan = prices.some(p => p.id === selectedPriceId);
+
         if (!hasSelectedPlan) {
             return prices[0].id || 'free';
         }
+
         return selectedPriceId;
     }
 
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
-        const errors = state.errors || {};
 
+        const errors = state.errors || {};
         const fields = [
             {
                 type: 'email',
@@ -506,6 +512,7 @@ class SignupPage extends React.Component {
                 type: 'text',
                 value: state.phonenumber,
                 placeholder: t('+1 (123) 456-7890'),
+                // Doesn't need translation, hidden field
                 label: t('Phone number'),
                 name: 'phonenumber',
                 required: false,
@@ -515,6 +522,7 @@ class SignupPage extends React.Component {
             }
         ];
 
+        /** Show Name field if portal option is set*/
         if (portalName) {
             fields.unshift({
                 type: 'text',
@@ -528,7 +536,6 @@ class SignupPage extends React.Component {
             });
         }
         fields[0].autoFocus = true;
-
         if (fieldNames && fieldNames.length > 0) {
             return fields.filter(f => fieldNames.includes(f.name));
         }
@@ -543,13 +550,15 @@ class SignupPage extends React.Component {
         }
 
         const handleCheckboxChange = (e) => {
-            this.setState({termsCheckboxChecked: e.target.checked});
+            this.setState({
+                termsCheckboxChecked: e.target.checked
+            });
         };
 
         const termsText = (
             <div className="gh-portal-signup-terms-content"
                 dangerouslySetInnerHTML={{__html: sanitizeHtml(site.portal_signup_terms_html)}}
-            />
+            ></div>
         );
 
         const signupTerms = site.portal_signup_checkbox_required ? (
@@ -566,6 +575,7 @@ class SignupPage extends React.Component {
         ) : termsText;
 
         const errorClassName = this.state.errors?.checkbox ? 'gh-portal-error' : '';
+
         const className = `gh-portal-signup-terms ${errorClassName}`;
 
         return (
@@ -582,24 +592,22 @@ class SignupPage extends React.Component {
             return null;
         }
 
+        let label = t('Continue');
         const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
-        const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
 
-        if (!hasOnlyFree) {
+        if (hasOnlyFreePlan({site}) || showOnlyFree) {
+            label = t('Sign up');
+        } else {
             return null;
         }
 
-        let label = t('Continue');
-        if (hasOnlyFree) {
-            label = t('Sign up');
-        }
-
         let isRunning = false;
-        let retry = false;
         if (action === 'signup:running') {
             label = t('Sending...');
             isRunning = true;
-        } else if (action === 'signup:failed') {
+        }
+        let retry = false;
+        if (action === 'signup:failed') {
             label = t('Retry');
             retry = true;
         }
@@ -626,17 +634,20 @@ class SignupPage extends React.Component {
         const errors = this.state.errors || {};
         const priceErrors = {};
 
+        // If we have at least one error, set an error message for the current selected plan
         if (Object.keys(errors).length > 0 && this.state.plan) {
             priceErrors[this.state.plan] = t('Please fill in required fields');
         }
 
         return (
-            <ProductsSection
-                handleChooseSignup={(...args) => this.handleChooseSignup(...args)}
-                products={products}
-                onPlanSelect={this.handleSelectPlan}
-                errors={priceErrors}
-            />
+            <>
+                <ProductsSection
+                    handleChooseSignup={(...args) => this.handleChooseSignup(...args)}
+                    products={products}
+                    onPlanSelect={this.handleSelectPlan}
+                    errors={priceErrors}
+                />
+            </>
         );
     }
 
@@ -681,28 +692,37 @@ class SignupPage extends React.Component {
             return (
                 <NewsletterSelectionPage
                     pageData={this.state.pageData}
-                    onBack={() => this.setState({showNewsletterSelection: false})}
+                    onBack={() => {
+                        this.setState({
+                            showNewsletterSelection: false
+                        });
+                    }}
                 />
             );
         }
 
+        // Invite-only site: block signups, offer to sign in
         if (isInviteOnly({site})) {
             return this.renderInviteOnlyMessage();
         }
 
+        // Paid-members-only site: block free signups, offer to sign in
         if (isPaidMembersOnly({site}) && pageQuery === 'free') {
             return this.renderPaidMembersOnlyMessage();
         }
 
+        // Signup is not allowed or no prices are available: block signup with the relevant message, offer signin when available
         if (!isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery})) {
             if (!isSigninAllowed({site})) {
                 return this.renderMembersDisabledMessage();
             }
+
             return this.renderInviteOnlyMessage();
         }
 
         const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
         const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+
         const signupTerms = this.renderSignupTerms();
 
         return (
@@ -716,36 +736,33 @@ class SignupPage extends React.Component {
                         />
                     </div>
                     <div>
-                        {hasOnlyFree ? (
+                        {(hasOnlyFree ?
                             <>
                                 {this.renderProducts()}
-                                {signupTerms && (
-                                    <div className='gh-portal-signup-terms-wrapper free-only'>
-                                        {signupTerms}
-                                    </div>
-                                )}
-                            </>
-                        ) : (
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper free-only'>
+                                    {signupTerms}
+                                </div>
+                                }
+                            </> :
                             <>
-                                {signupTerms && (
-                                    <div className='gh-portal-signup-terms-wrapper'>
-                                        {signupTerms}
-                                    </div>
-                                )}
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper'>
+                                    {signupTerms}
+                                </div>
+                                }
                                 {this.renderProducts()}
-                            </>
-                        )}
+                            </>)}
 
-                        {hasOnlyFree ? (
+                        {(hasOnlyFree ?
                             <div className='gh-portal-btn-container'>
                                 <div className='gh-portal-logged-out-form-container'>
                                     {this.renderSubmitButton()}
                                     {this.renderLoginMessage()}
                                 </div>
                             </div>
-                        ) : (
-                            this.renderLoginMessage()
-                        )}
+                            :
+                            this.renderLoginMessage())}
                     </div>
                 </div>
             </section>
@@ -855,14 +872,16 @@ class SignupPage extends React.Component {
     }
 
     render() {
-        const {sectionClass} = this.getClassNames();
+        let {sectionClass} = this.getClassNames();
         return (
             <>
                 <div className='gh-portal-back-sitetitle'>
                     <SiteTitleBackButton
                         onBack={() => {
                             if (this.state.showNewsletterSelection) {
-                                this.setState({showNewsletterSelection: false});
+                                this.setState({
+                                    showNewsletterSelection: false
+                                });
                             } else {
                                 this.context.doAction('closePopup');
                             }
@@ -879,4 +898,4 @@ class SignupPage extends React.Component {
     }
 }
 
-export default SignupPage;
+export default SignupPage

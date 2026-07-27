@@ -99,7 +99,6 @@ const InputModalStepper = ({
     // Redirect the user to the list modal from the upload one
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
       if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
         const confirm = globalThis.confirm(
           formatMessage({ id: getTrad('window.confirm.close-modal.files') })
         );
@@ -291,7 +290,6 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
       );
@@ -306,7 +304,6 @@ const InputModalStepper = ({
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
       );

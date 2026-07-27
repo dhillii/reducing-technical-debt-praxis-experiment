@@ -706,18 +706,18 @@ Runner.prototype.uncaught = function (err) {
   }
   err.uncaught = true;
 
-  let runnable = this.currentRunnable;
+  const runnable = this.currentRunnable;
 
   if (!runnable) {
-    runnable = new Runnable('Uncaught error outside test suite');
-    runnable.parent = this.suite;
+    const newRunnable = new Runnable('Uncaught error outside test suite');
+    newRunnable.parent = this.suite;
 
     if (this.started) {
-      this.fail(runnable, err);
+      this.fail(newRunnable, err);
     } else {
       // Can't recover from this failure
       this.emit('start');
-      this.fail(runnable, err);
+      this.fail(newRunnable, err);
       this.emit('end');
     }
 
@@ -861,7 +861,7 @@ Runner.prototype.run = function (fn) {
  * Cleanly abort execution.
  *
  * @api public
- * @return {Runner} Runner instance.
+ * @return {Runner} instance.
  */
 Runner.prototype.abort = function () {
   debug('aborting');
@@ -964,7 +964,7 @@ function filterLeaks (ok, globals) {
 function extraGlobals () {
   if (typeof process === 'object' && typeof process.version === 'string') {
     const parts = process.version.split('.');
-    const nodeVersion = parts.reduce(function (a, v) {
+    let nodeVersion = parts.reduce(function (a, v) {
       return a << 8 | v;
     });
 

@@ -6,25 +6,7 @@ import CloseButton from '../common/close-button';
 import BackButton from '../common/back-button';
 import {MultipleProductsPlansSection} from '../common/plans-section';
 import {getDateString} from '../../utils/date-time';
-import {
-    formatNumber,
-    getAvailablePrices,
-    getCurrencySymbol,
-    getFilteredPrices,
-    getMemberActivePrice,
-    getMemberActiveProduct,
-    getMemberSubscription,
-    getOfferOffAmount,
-    getPriceFromSubscription,
-    getProductFromId,
-    getProductFromPrice,
-    getSubscriptionFromId,
-    getUpdatedOfferPrice,
-    getUpgradeProducts,
-    hasMultipleProductsFeature,
-    isComplimentaryMember,
-    isPaidMember
-} from '../../utils/helpers';
+import {formatNumber, getAvailablePrices, getCurrencySymbol, getFilteredPrices, getMemberActivePrice, getMemberActiveProduct, getMemberSubscription, getOfferOffAmount, getPriceFromSubscription, getProductFromId, getProductFromPrice, getSubscriptionFromId, getUpdatedOfferPrice, getUpgradeProducts, hasMultipleProductsFeature, isComplimentaryMember, isPaidMember} from '../../utils/helpers';
 import Interpolate from '@doist/react-interpolate';
 import {t} from '../../utils/i18n';
 
@@ -147,7 +129,7 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
 CancelSubscriptionButton.propTypes = {
     member: PropTypes.object.isRequired,
     onCancelSubscription: PropTypes.func.isRequired,
-    action: PropTypes.string,
+    action: PropTypes.string.isRequired,
     brandColor: PropTypes.string
 };
 
@@ -352,7 +334,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
 
                 <div className="gh-portal-offer-details">
                     <div className="gh-portal-retention-offer-price">
-                        {offer.type !== 'free_months' && (
+                        {!(offer.type === 'free_months') && (
                             <>
                                 <div className="gh-portal-product-price">
                                     <span className="currency-sign">{currency}</span>
@@ -407,8 +389,8 @@ RetentionOfferSection.propTypes = {
     offer: PropTypes.object.isRequired,
     product: PropTypes.object.isRequired,
     price: PropTypes.shape({
-        currency: PropTypes.string.isRequired,
-        amount: PropTypes.number.isRequired
+        amount: PropTypes.number.isRequired,
+        currency: PropTypes.string.isRequired
     }).isRequired,
     onAcceptOffer: PropTypes.func.isRequired,
     onDeclineOffer: PropTypes.func.isRequired
@@ -440,7 +422,7 @@ UpgradePlanSection.propTypes = {
     plans: PropTypes.array.isRequired,
     selectedPlan: PropTypes.string,
     onPlanSelect: PropTypes.func.isRequired,
-    onPlanCheckout: PropTypes.func.isRequired
+    onPlanCheckout: PropTypes.func
 };
 
 const PlansContainer = ({

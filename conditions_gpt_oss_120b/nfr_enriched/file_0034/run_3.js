@@ -25,8 +25,12 @@ export default class PublishOptions {
 
     get willEmail() {
         return (
-            (this.publishType !== 'publish' && this.recipientFilter && this.post.isDraft && !this.post.email) ||
-            (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
+            (this.publishType !== 'publish'
+                && this.recipientFilter
+                && this.post.isDraft
+                && !this.post.email
+            )
+                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
         );
     }
 
@@ -70,6 +74,8 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
+        // API only stores seconds so providing non-zero milliseconds can
+        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -94,25 +100,21 @@ export default class PublishOptions {
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
-        return [
-            {
-                value: 'publish+send',
-                label: 'Publish and email',
-                display: 'Publish and email',
-                disabled: this.emailDisabled
-            },
-            {
-                value: 'publish',
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: 'send',
-                label: 'Email only',
-                display: 'Email',
-                disabled: this.emailDisabled
-            }
-        ];
+        return [{
+            value: 'publish+send',
+            label: 'Publish and email',
+            display: 'Publish and email',
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
     get selectedPublishTypeOption() {
@@ -120,8 +122,8 @@ export default class PublishOptions {
     }
 
     get emailDisabledInSettings() {
-        return this.settings.editorDefaultEmailRecipients === 'disabled' ||
-            this.settings.membersSignupAccess === 'none';
+        return this.settings.editorDefaultEmailRecipients === 'disabled'
+            || this.settings.membersSignupAccess === 'none';
     }
 
     // publish type dropdown is not shown at all
@@ -136,7 +138,8 @@ export default class PublishOptions {
     }
 
     get mailgunIsConfigured() {
-        return this.settings.mailgunIsConfigured || this.config.mailgunIsConfigured;
+        return this.settings.mailgunIsConfigured
+            || this.config.mailgunIsConfigured;
     }
 
     @action
@@ -170,19 +173,53 @@ export default class PublishOptions {
     get recipientFilter() {
         if (this.selectedRecipientFilter === undefined) {
             return (this.post.newsletter && this.post.emailSegment) || this.defaultRecipientFilter;
+        } else {
+            return this.selectedRecipientFilter;
         }
-        return this.selectedRecipientFilter;
     }
 
     get defaultRecipientFilter() {
-        return this._computeDefaultRecipientFilter();
+        const {editorDefaultEmailRecipients: recipients, editorDefaultEmailRecipientsFilter: filter} = this.settings;
+
+        if (recipients === 'disabled') {
+            return null;
+        }
+
+        // "Usually nobody" case or explicit filter
+        if (recipients === 'filter' && filter === null) {
+            return filter;
+        }
+
+        // Visibility based filters
+        if (recipients === 'visibility' || (recipients === 'filter' && filter === null)) {
+            return this._visibilityBasedFilter();
+        }
+
+        return filter;
+    }
+
+    /** Returns recipient filter based on post visibility */
+    _visibilityBasedFilter() {
+        switch (this.post.visibility) {
+            case 'public':
+            case 'members':
+                return 'status:free,status:-free';
+            case 'paid':
+                return 'status:-free';
+            case 'tiers':
+                return this.post.visibilitySegment;
+            default:
+                return this.post.visibility;
+        }
     }
 
     get fullRecipientFilter() {
         let filter = this.newsletter.recipientFilter;
+
         if (this.recipientFilter) {
             filter += `+(${this.recipientFilter})`;
         }
+
         return filter;
     }
 
@@ -207,6 +244,9 @@ export default class PublishOptions {
         this.user = user;
         this.membersCountCache = membersCountCache;
 
+        // this needs to be set here rather than a class-level property because
+        // unlike Ember-based classes the services are not injected so can't be
+        // used until after they are assigned above
         this.allNewsletters = this.store.peekAll('newsletter');
 
         this.setupTask.perform();
@@ -218,55 +258,41 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        this._determineInitialPublishType();
+        if (this.emailUnavailable || this.emailDisabled) {
+            this.publishType = 'publish';
+        }
+
+        if (
+            this.settings.editorDefaultEmailRecipients === 'filter' &&
+            this.settings.editorDefaultEmailRecipientsFilter === null
+        ) {
+            this.publishType = 'publish';
+        }
 
         if (this.post.isSent) {
             this.publishType = 'send';
         }
     }
 
-    /**
-     * Determines the initial publish type based on email availability and defaults.
-     */
-    _determineInitialPublishType() {
-        if (this.emailUnavailable || this.emailDisabled) {
-            this.publishType = 'publish';
-            return;
-        }
-
-        const {editorDefaultEmailRecipients, editorDefaultEmailRecipientsFilter} = this.settings;
-        if (editorDefaultEmailRecipients === 'filter' && editorDefaultEmailRecipientsFilter === null) {
-            this.publishType = 'publish';
-        }
-    }
-
     @task
     *fetchRequiredDataTask() {
-        let promises = [];
-
-        if (this.user.isAdmin) {
-            promises = [
-                ...promises,
-                this.membersCountCache.count({}).then(res => {
+        const promises = [
+            // total # of members - used to enable/disable email
+            ...(this.user.isAdmin
+                ? [this.membersCountCache.count({}).then(res => {
                     this.totalMemberCount = res;
-                })
-            ];
-        } else {
-            this.totalMemberCount = 1;
-        }
+                })]
+                : []),
 
-        promises = [
-            ...promises,
+            // limits
             this._checkSendingLimit(),
-            this._checkPublishingLimit()
-        ];
+            this._checkPublishingLimit(),
 
-        if (!this.user.isContributor) {
-            promises = [
-                ...promises,
-                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-            ];
-        }
+            // newsletters (exclude contributors)
+            ...(!this.user.isContributor
+                ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})]
+                : [])
+        ];
 
         yield Promise.all(promises);
     }
@@ -315,15 +341,25 @@ export default class PublishOptions {
         }
     }
 
-    // Model change helpers ----------------------------------------------------
-
+    // Publishing/scheduling is a side-effect of changing model properties.
+    // We don't want to get into a situation where we've applied these changes
+    // but they haven't been saved because that would result in confusing UI.
+    //
+    // Here we apply those changes from the selected publish options but keep
+    // track of the previous values in case saving fails. We can't use ED's
+    // rollbackAttributes() because it would also rollback any other unsaved edits
     _applyModelChanges() {
+        const willEmail = this.willEmail;
+
+        // store backup of original values in case we need to revert
+        this._originalModelValues = {};
+
+        // this only applies to the full publish flow which is only available for drafts
         if (!this.post.isDraft) {
             return;
         }
 
         const revertableModelProperties = ['status', 'publishedAtUTC', 'emailOnly'];
-        this._originalModelValues = {};
 
         revertableModelProperties.forEach(property => {
             this._originalModelValues[property] = this.post[property];
@@ -335,7 +371,7 @@ export default class PublishOptions {
             this.post.publishedAtUTC = this.scheduledAtUTC;
         }
 
-        if (this.willEmail) {
+        if (willEmail) {
             this.post.emailOnly = this.publishType === 'send';
         }
     }
@@ -345,8 +381,6 @@ export default class PublishOptions {
             this.post[property] = this._originalModelValues[property];
         });
     }
-
-    // Limit checks -------------------------------------------------------------
 
     async _checkSendingLimit() {
         await this.settings.reload();
@@ -375,32 +409,5 @@ export default class PublishOptions {
             const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
             this.publishDisabledError = linkedMessage;
         }
-    }
-
-    // Recipient filter computation --------------------------------------------
-
-    /**
-     * Computes the default recipient filter based on settings and post visibility.
-     * @returns {string|null}
-     */
-    _computeDefaultRecipientFilter() {
-        const {editorDefaultEmailRecipients: recipients, editorDefaultEmailRecipientsFilter: filter} = this.settings;
-        const usuallyNobody = recipients === 'filter' && filter === null;
-
-        if (recipients === 'disabled') {
-            return null;
-        }
-
-        if (recipients === 'visibility' || usuallyNobody) {
-            const visibilityMap = {
-                public: 'status:free,status:-free',
-                members: 'status:free,status:-free',
-                paid: 'status:-free',
-                tiers: this.post.visibilitySegment
-            };
-            return visibilityMap[this.post.visibility] || this.post.visibility;
-        }
-
-        return filter;
     }
 }

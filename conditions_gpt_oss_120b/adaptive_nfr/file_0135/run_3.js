@@ -10,48 +10,24 @@ import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
 /**
- * Determines if the user should be prompted to confirm closing the modal when files are pending upload.
- * @param {Array} filesToUpload
- * @returns {boolean}
+ * Shows a confirmation dialog for closing the modal when there are files to upload.
+ * @returns {boolean} true if the user confirmed, false otherwise.
  */
-const shouldConfirmCloseWithPendingFiles = filesToUpload => !isEmpty(filesToUpload);
+function confirmCloseModalFiles(formatMessage) {
+  return globalThis.confirm(
+    formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+  );
+}
 
 /**
- * Determines if the user should be prompted to confirm closing the modal when there are unsaved changes.
- * @param {string} currentStep
- * @param {Array} selectedFiles
- * @param {Array} initialSelectedFiles
- * @param {Object} fileToEdit
- * @param {Object} initialFileToEdit
- * @returns {boolean}
+ * Shows a confirmation dialog for closing the modal when there is a single file.
+ * @returns {boolean} true if the user confirmed, false otherwise.
  */
-const shouldConfirmCloseWithUnsavedChanges = (
-  currentStep,
-  selectedFiles,
-  initialSelectedFiles,
-  fileToEdit,
-  initialFileToEdit
-) => {
-  if (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) {
-    return true;
-  }
-  if (
-    currentStep === 'edit' &&
-    ((initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) || selectedFiles.length > 0)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-/**
- * Returns a function that confirms an action using globalThis.confirm with a formatted message.
- * @param {Function} formatMessage
- * @param {string} tradId
- * @returns {Function}
- */
-const createConfirm = (formatMessage, tradId) => () =>
-  globalThis.confirm(formatMessage({ id: getTrad(tradId) }));
+function confirmCloseModalFile(formatMessage) {
+  return globalThis.confirm(
+    formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+  );
+}
 
 const InputModalStepper = ({
   allowedActions,
@@ -99,7 +75,6 @@ const InputModalStepper = ({
     submitEditExistingFile,
     toggleModalWarning,
   } = useModalContext();
-
   const {
     backButtonDestination,
     Component,
@@ -110,7 +85,6 @@ const InputModalStepper = ({
     withBackButton,
     HeaderComponent,
   } = stepper[currentStep];
-
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
@@ -137,23 +111,19 @@ const InputModalStepper = ({
 
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
+    const isBackButton = elementName === 'backButton';
+    const canNavigateBack = isBackButton && backButtonDestination;
 
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        const confirm = createConfirm(formatMessage, 'window.confirm.close-modal.files')();
-        if (!confirm) return;
+    if (canNavigateBack && currentStep === 'upload') {
+      if (hasFilesToUpload && !confirmCloseModalFiles(formatMessage)) {
+        return;
       }
       goTo(backButtonDestination);
       handleClearFilesToUploadAndDownload();
       return;
     }
 
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
+    if (canNavigateBack && currentStep === 'browse' && hasFilesToUpload) {
       goTo(backButtonDestination);
       return;
     }
@@ -217,7 +187,6 @@ const InputModalStepper = ({
     if (!shouldDeleteFile) return;
 
     const { id } = fileToEdit;
-
     try {
       const requestURL = getRequestUrl(`files/${id}`);
       await request(requestURL, { method: 'DELETE' });
@@ -268,7 +237,6 @@ const InputModalStepper = ({
     if (didCropFile) {
       formData.append('files', file);
     }
-
     formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
@@ -283,7 +251,6 @@ const InputModalStepper = ({
         false,
         false
       );
-
       handleEditExistingFile(editedFile);
       goToList();
     } catch (err) {
@@ -306,14 +273,17 @@ const InputModalStepper = ({
   };
 
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
-      const confirm = createConfirm(formatMessage, 'window.confirm.close-modal.files')();
-      if (!confirm) return;
+    if (filesToUploadLength > 0 && !confirmCloseModalFiles(formatMessage)) {
+      return;
     }
 
-    if (shouldConfirmCloseWithUnsavedChanges(currentStep, selectedFiles, initialSelectedFiles, fileToEdit, initialFileToEdit)) {
-      const confirm = createConfirm(formatMessage, 'window.confirm.close-modal.file')();
-      if (!confirm) return;
+    const hasUnsavedListChanges =
+      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0);
+
+    if (hasUnsavedListChanges && !confirmCloseModalFile(formatMessage)) {
+      return;
     }
 
     onToggle(true);

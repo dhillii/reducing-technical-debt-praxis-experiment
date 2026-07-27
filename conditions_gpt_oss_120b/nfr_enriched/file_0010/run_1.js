@@ -9,15 +9,12 @@ import {type Tier, useAddTier, useBrowseTiers, useEditTier} from '@tryghost/admi
 import {currencies, currencySelectGroups, validateCurrencyAmount} from '../../../../utils/currency';
 import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api/settings';
 
-/**
- * State shape for the tier form.
- */
 export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
 /**
- * Determine the modal title based on tier existence and activation status.
+ * Returns the appropriate modal title based on tier state.
  */
 function getModalTitle(tier?: Tier): string {
     if (!tier) {
@@ -27,9 +24,9 @@ function getModalTitle(tier?: Tier): string {
 }
 
 /**
- * Build left button properties for the modal based on tier state.
+ * Generates left button properties for the modal based on tier state.
  */
-function getLeftButtonProps(tier?: Tier, confirmCallback?: () => void): ButtonProps {
+function getLeftButtonProps(tier: Tier | undefined, onClick: () => void): ButtonProps {
     if (!tier) {
         return {};
     }
@@ -38,7 +35,7 @@ function getLeftButtonProps(tier?: Tier, confirmCallback?: () => void): ButtonPr
             label: 'Archive tier',
             color: 'red',
             link: true,
-            onClick: confirmCallback
+            onClick
         };
     }
     if (!tier.active) {
@@ -46,36 +43,36 @@ function getLeftButtonProps(tier?: Tier, confirmCallback?: () => void): ButtonPr
             label: 'Reactivate tier',
             color: 'green',
             link: true,
-            onClick: confirmCallback
+            onClick
         };
     }
     return {};
 }
 
 /**
- * Generate confirmation modal details for tier status changes.
+ * Builds the confirmation dialog data for tier status changes.
  */
-function getPromptDetails(tier: Tier) {
-    const isActive = tier.active;
-    const title = isActive ? 'Archive tier' : 'Reactivate tier';
-    const prompt = isActive ? (
+function buildTierStatusDialog(tier: Tier) {
+    const title = tier.active ? 'Archive tier' : 'Reactivate tier';
+    const prompt = tier.active ? (
         <>
             <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
             <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
         </>
     ) : (
         <>
-            <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re‑enable it as an option in portal and allow new members to subscribe to this tier.</div>
+            <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
             <div>Existing members will remain unchanged.</div>
         </>
     );
-    const okLabel = isActive ? 'Archive' : 'Reactivate';
-    const okColor = isActive ? 'red' : 'black';
+    const okLabel = tier.active ? 'Archive' : 'Reactivate';
+    const okColor = tier.active ? 'red' : 'black';
     return {title, prompt, okLabel, okColor};
 }
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
+
     const {updateRoute} = useRouting();
     const {mutateAsync: updateTier} = useEditTier();
     const {mutateAsync: createTier} = useAddTier();
@@ -104,19 +101,24 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         savedDelay: 500,
         onValidate: () => {
             const newErrors: ErrorMessages = {};
+
             Object.entries(validators).forEach(([key, validator]) => {
                 newErrors[key as keyof Tier] = validator?.();
             });
+
             return newErrors;
         },
         onSave: async () => {
             const {trial_days: trialDays, currency, ...rest} = formState;
             const values: Partial<Tier> = rest;
+
             values.benefits = values.benefits?.filter(benefit => benefit);
+
             if (!isFreeTier) {
                 values.currency = currency;
                 values.trial_days = parseInt(trialDays);
             }
+
             if (tier?.id) {
                 await updateTier({...tier, ...values});
             } else {
@@ -125,14 +127,17 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             if (isFreeTier) {
                 const visible = formState.visibility === 'public';
                 let save = false;
+
                 if (portalPlans.includes('free') && !visible) {
                     portalPlans.splice(portalPlans.indexOf('free'), 1);
                     save = true;
                 }
+
                 if (!portalPlans.includes('free') && visible) {
                     portalPlans.push('free');
                     save = true;
                 }
+
                 if (save) {
                     await editSettings([
                         {
@@ -169,12 +174,15 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             validators.monthly_price?.();
             validators.yearly_price?.();
         }
+
         didInitialRender.current = true;
-    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [formState.currency]);
 
     const confirmTierStatusChange = () => {
-        if (!tier) return;
-        const {title, prompt, okLabel, okColor} = getPromptDetails(tier);
+        if (!tier) {
+            return;
+        }
+        const {title, prompt, okLabel, okColor} = buildTierStatusDialog(tier);
         NiceModal.show(ConfirmationModal, {
             title,
             prompt,
@@ -249,9 +257,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                                     containerClassName='font-medium'
                                                     controlClasses={{menu: 'w-18'}}
                                                     options={currencySelectGroups()}
-                                                    selectedOption={currencySelectGroups()
-                                                        .flatMap(group => group.options)
-                                                        .find(option => option.value === formState.currency)}
+                                                    selectedOption={currencySelectGroups().flatMap(group => group.options).find(option => option.value === formState.currency)}
                                                     size='xs'
                                                     clearBg
                                                     isSearchable
@@ -268,7 +274,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                                 title='Monthly price'
                                                 valueInCents={formState.monthly_price || ''}
                                                 hideTitle
-                                                onBlur={event => (event.target.value === '' ? updateForm(state => ({...state, monthly_price: 0})) : null)}
+                                                onBlur={event => ((event.target.value === '') ? updateForm(state => ({...state, monthly_price: 0})) : null)}
                                                 onChange={price => updateForm(state => ({...state, monthly_price: price}))}
                                                 onKeyDown={() => clearError('monthly_price')}
                                             />
@@ -280,7 +286,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                                 title='Yearly price'
                                                 valueInCents={formState.yearly_price || ''}
                                                 hideTitle
-                                                onBlur={event => (event.target.value === '' ? updateForm(state => ({...state, yearly_price: 0})) : null)}
+                                                onBlur={event => ((event.target.value === '') ? updateForm(state => ({...state, yearly_price: 0})) : null)}
                                                 onChange={price => updateForm(state => ({...state, yearly_price: price}))}
                                                 onKeyDown={() => clearError('yearly_price')}
                                             />
@@ -326,9 +332,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                 itemSeparator={false}
                                 renderItem={({id, item}) => (
                                     <div className='relative flex w-full items-center gap-5'>
-                                        <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'>
-                                            <Icon name='check' size='sm' />
-                                        </div>
+                                        <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                         <TextField
                                             maxLength={191}
                                             value={item}

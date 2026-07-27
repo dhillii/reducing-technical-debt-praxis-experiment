@@ -12,55 +12,6 @@ import stepper from './stepper';
 import init from './init';
 import reducer, { initialState } from './reducer';
 
-/**
- * Parse error response to extract a user‑friendly message.
- * @param {Error} err
- * @param {Function} formatMessage
- * @returns {{status: number|null, message: string}}
- */
-const parseError = (err, formatMessage) => {
-  const status = get(err, 'response.status', get(err, 'status', null));
-  const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-  let message = get(
-    err,
-    ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-    get(err, ['response', 'payload', 'message'], statusText)
-  );
-
-  if (status === 413) {
-    message = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-  }
-
-  return { status, message };
-};
-
-/**
- * Confirm modal close when there are unsaved changes.
- * @param {boolean} hasUploads
- * @param {boolean} hasEdits
- * @param {Function} formatMessage
- * @returns {Promise<boolean>}
- */
-const confirmClose = async (hasUploads, hasEdits, formatMessage) => {
-  if (hasUploads) {
-    // eslint-disable-next-line no-alert
-    const confirm = window.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-    );
-    if (!confirm) return false;
-  }
-
-  if (hasEdits) {
-    // eslint-disable-next-line no-alert
-    const confirm = window.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-    );
-    if (!confirm) return false;
-  }
-
-  return true;
-};
-
 const ModalStepper = ({
   initialFileToEdit,
   initialStep,
@@ -87,7 +38,6 @@ const ModalStepper = ({
   const editModalRef = useRef();
   const downloadFilesRef = useRef();
 
-  // ---------- Effects ----------
   useEffect(() => {
     if (currentStep === 'upload') {
       if (filesToUploadLength === 0) {
@@ -102,22 +52,34 @@ const ModalStepper = ({
   useEffect(() => {
     if (isOpen) {
       goTo(initialStep);
+
       if (initialFileToEdit) {
-        dispatch({ type: 'INIT_FILE_TO_EDIT', fileToEdit: initialFileToEdit });
+        dispatch({
+          type: 'INIT_FILE_TO_EDIT',
+          fileToEdit: initialFileToEdit,
+        });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // ---------- Handlers ----------
   const addFilesToUpload = ({ target: { value } }) => {
     emitEvent('didSelectFile', { source: 'computer', location: 'upload' });
-    dispatch({ type: 'ADD_FILES_TO_UPLOAD', filesToUpload: value });
+
+    dispatch({
+      type: 'ADD_FILES_TO_UPLOAD',
+      filesToUpload: value,
+    });
+
     goTo(next);
   };
 
-  const downloadFiles = async () => {
+  /**
+   * Downloads files from URLs and dispatches appropriate actions.
+   */
+  downloadFilesRef.current = async () => {
     const files = getFilesToDownload(filesToUpload);
+
     if (files.length > 0) {
       emitEvent('didSelectFile', { source: 'url', location: 'upload' });
     }
@@ -125,6 +87,7 @@ const ModalStepper = ({
     await Promise.all(
       files.map(file => {
         const { source } = file;
+
         return axios
           .get(file.fileURL, {
             responseType: 'blob',
@@ -132,7 +95,11 @@ const ModalStepper = ({
             timeout: 60000,
           })
           .then(({ data }) => {
-            const createdFile = new File([data], file.fileInfo.name, { type: data.type });
+            const fileName = file.fileInfo.name;
+            const createdFile = new File([data], fileName, {
+              type: data.type,
+            });
+
             dispatch({
               type: 'FILE_DOWNLOADED',
               blob: createdFile,
@@ -142,6 +109,7 @@ const ModalStepper = ({
           })
           .catch(err => {
             console.error('fetch file error', err);
+
             dispatch({
               type: 'SET_FILE_TO_DOWNLOAD_ERROR',
               originalIndex: file.originalIndex,
@@ -151,49 +119,70 @@ const ModalStepper = ({
       })
     );
   };
-  downloadFilesRef.current = downloadFiles;
 
   const handleAbortUpload = () => {
-    fileToEdit.abortController.abort();
-    dispatch({ type: 'ON_ABORT_UPLOAD' });
+    const { abortController } = fileToEdit;
+
+    abortController.abort();
+
+    dispatch({
+      type: 'ON_ABORT_UPLOAD',
+    });
   };
 
   const handleCancelFileToUpload = fileOriginalIndex => {
-    const fileToCancel = filesToUpload.find(f => f.originalIndex === fileOriginalIndex);
+    const fileToCancel = filesToUpload.find(file => file.originalIndex === fileOriginalIndex);
     const { source } = fileToCancel;
+
     if (source) {
       source.cancel('Operation canceled by the user.');
     } else {
       fileToCancel.abortController.abort();
     }
-    dispatch({ type: 'REMOVE_FILE_TO_UPLOAD', fileIndex: fileOriginalIndex });
+
+    dispatch({
+      type: 'REMOVE_FILE_TO_UPLOAD',
+      fileIndex: fileOriginalIndex,
+    });
   };
 
   const handleChange = ({ target: { name, value } }) => {
+    let val = value;
+    let type = 'ON_CHANGE';
+
     if (name === 'url') {
       setFormErrors(null);
-      dispatch({
-        type: 'ON_CHANGE_URLS_TO_DOWNLOAD',
-        keys: name,
-        value: value.split('\n'),
-      });
-    } else {
-      dispatch({ type: 'ON_CHANGE', keys: name, value });
+      val = value.split('\n');
+      type = 'ON_CHANGE_URLS_TO_DOWNLOAD';
     }
+
+    dispatch({
+      type,
+      keys: name,
+      value: val,
+    });
   };
 
   const handleConfirmDeleteFile = useCallback(async () => {
     const { id } = fileToEdit;
     onRemoveFileFromDataToDelete(id);
     setShowModalConfirmButtonLoading(true);
+
     try {
-      await request(`/${pluginId}/files/${id}`, { method: 'DELETE' });
+      await request(`/${pluginId}/files/${id}`, {
+        method: 'DELETE',
+      });
+
       setShouldRefetch(true);
     } catch (err) {
-      const { message } = parseError(err, formatMessage);
-      strapi.notification.toggle({ type: 'warning', message });
+      const errorMessage = get(err, 'response.payload.message', 'An error occured');
+
+      strapi.notification.toggle({
+        type: 'warning',
+        message: errorMessage,
+      });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,8 +194,12 @@ const ModalStepper = ({
         { filesToDownload: filesToDownload.filter(url => !isEmpty(url)) },
         { abortEarly: false }
       );
+
       setFormErrors(null);
-      dispatch({ type: 'ADD_URLS_TO_FILES_TO_UPLOAD', nextStep: next });
+      dispatch({
+        type: 'ADD_URLS_TO_FILES_TO_UPLOAD',
+        nextStep: next,
+      });
     } catch (err) {
       const formattedErrors = getYupError(err);
       setFormErrors(formattedErrors.filesToDownload);
@@ -218,9 +211,16 @@ const ModalStepper = ({
   };
 
   const handleClickDeleteFileToUpload = fileIndex => {
-    dispatch({ type: 'REMOVE_FILE_TO_UPLOAD', fileIndex });
+    dispatch({
+      type: 'REMOVE_FILE_TO_UPLOAD',
+      fileIndex,
+    });
+
     if (currentStep === 'edit-new') {
-      dispatch({ type: 'RESET_FILE_TO_EDIT' });
+      dispatch({
+        type: 'RESET_FILE_TO_EDIT',
+      });
+
       goNext();
     }
   };
@@ -231,7 +231,10 @@ const ModalStepper = ({
     setDisplayNextButton(false);
     setFormErrors(null);
     setShouldRefetch(false);
-    dispatch({ type: 'RESET_PROPS' });
+
+    dispatch({
+      type: 'RESET_PROPS',
+    });
   };
 
   const handleCloseModalWarning = async () => {
@@ -240,23 +243,38 @@ const ModalStepper = ({
   };
 
   const handleGoToEditNewFile = fileIndex => {
-    dispatch({ type: 'SET_FILE_TO_EDIT', fileIndex });
+    dispatch({
+      type: 'SET_FILE_TO_EDIT',
+      fileIndex,
+    });
+
     goTo('edit-new');
   };
 
   const handleGoToAddBrowseFiles = () => {
-    dispatch({ type: 'CLEAN_FILES_ERROR' });
+    dispatch({
+      type: 'CLEAN_FILES_ERROR',
+    });
+
     goBack();
   };
 
   const handleSetCropResult = blob => {
     emitEvent('didCropFile', { duplicatedFile: null, location: 'upload' });
-    dispatch({ type: 'SET_CROP_RESULT', blob });
+
+    dispatch({
+      type: 'SET_CROP_RESULT',
+      blob,
+    });
   };
 
   const handleSubmitEditNewFile = e => {
     e.preventDefault();
-    dispatch({ type: 'ON_SUBMIT_EDIT_NEW_FILE' });
+
+    dispatch({
+      type: 'ON_SUBMIT_EDIT_NEW_FILE',
+    });
+
     goNext();
   };
 
@@ -267,27 +285,60 @@ const ModalStepper = ({
     isSubmittingAfterCrop = false
   ) => {
     e.preventDefault();
+
     if (isSubmittingAfterCrop) {
       emitEvent('didCropFile', { duplicatedFile: shouldDuplicateMedia, location: 'upload' });
     }
-    dispatch({ type: 'ON_SUBMIT_EDIT_EXISTING_FILE' });
 
+    dispatch({
+      type: 'ON_SUBMIT_EDIT_EXISTING_FILE',
+    });
+
+    const headers = {};
     const formData = new FormData();
+
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
 
-    if (didCropFile) formData.append('files', file);
+    if (didCropFile) {
+      formData.append('files', file);
+    }
+
     formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
-      await request(requestURL, { method: 'POST', body: formData, signal: abortController.signal }, false, false);
+      await request(
+        requestURL,
+        {
+          method: 'POST',
+          headers,
+          body: formData,
+          signal: abortController.signal,
+        },
+        false,
+        false
+      );
       toggleRef.current(true);
     } catch (err) {
       console.error(err);
-      const { status, message } = parseError(err, formatMessage);
+      const status = get(err, 'response.status', get(err, 'status', null));
+      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+      let errorMessage = get(
+        err,
+        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+        get(err, ['response', 'payload', 'message'], statusText)
+      );
+
+      if (status === 413) {
+        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+      }
+
       if (status) {
-        dispatch({ type: 'SET_FILE_TO_EDIT_ERROR', errorMessage: message });
+        dispatch({
+          type: 'SET_FILE_TO_EDIT_ERROR',
+          errorMessage,
+        });
       }
     }
   };
@@ -297,59 +348,132 @@ const ModalStepper = ({
     editModalRef.current.click();
   };
 
-  const handleToggle = async () => {
-    const hasUploads = filesToUploadLength > 0;
-    const hasEdits = !isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit';
-    const confirmed = await confirmClose(hasUploads, hasEdits, formatMessage);
-    if (confirmed) {
-      onToggle(shouldRefetch);
+  const handleToggle = () => {
+    if (filesToUploadLength > 0) {
+      const confirm = window.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+
+      if (!confirm) {
+        return;
+      }
     }
+
+    if (!isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit') {
+      const confirm = window.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+      );
+
+      if (!confirm) {
+        return;
+      }
+    }
+
+    onToggle(shouldRefetch);
   };
 
   const handleUploadFiles = async () => {
-    dispatch({ type: 'SET_FILES_UPLOADING_STATE' });
+    dispatch({
+      type: 'SET_FILES_UPLOADING_STATE',
+    });
 
-    const requests = filesToUpload.map(async ({ file, fileInfo, originalName, originalIndex, abortController }) => {
-      const formData = new FormData();
-      if (originalName === fileInfo.name) set(fileInfo, 'name', null);
-      formData.append('files', file);
-      formData.append('fileInfo', JSON.stringify(fileInfo));
+    const requests = filesToUpload.map(
+      async ({ file, fileInfo, originalName, originalIndex, abortController }) => {
+        const formData = new FormData();
+        const headers = {};
 
-      try {
-        await request(`/${pluginId}`, { method: 'POST', body: formData, signal: abortController.signal }, false, false);
-        setShouldRefetch(true);
-        dispatch({ type: 'REMOVE_FILE_TO_UPLOAD', fileIndex: originalIndex });
-      } catch (err) {
-        console.error(err);
-        const { status, message } = parseError(err, formatMessage);
-        if (status) {
-          dispatch({ type: 'SET_FILE_ERROR', fileIndex: originalIndex, errorMessage: message });
+        if (originalName === fileInfo.name) {
+          set(fileInfo, 'name', null);
+        }
+
+        formData.append('files', file);
+        formData.append('fileInfo', JSON.stringify(fileInfo));
+
+        try {
+          await request(
+            `/${pluginId}`,
+            {
+              method: 'POST',
+              headers,
+              body: formData,
+              signal: abortController.signal,
+            },
+            false,
+            false
+          );
+
+          setShouldRefetch(true);
+
+          dispatch({
+            type: 'REMOVE_FILE_TO_UPLOAD',
+            fileIndex: originalIndex,
+          });
+        } catch (err) {
+          console.error(err);
+          const status = get(err, 'response.status', get(err, 'status', null));
+          const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+          let errorMessage = get(
+            err,
+            ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+            get(err, ['response', 'payload', 'message'], statusText)
+          );
+
+          if (status === 413) {
+            errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+          }
+
+          if (status) {
+            dispatch({
+              type: 'SET_FILE_ERROR',
+              fileIndex: originalIndex,
+              errorMessage,
+            });
+          }
         }
       }
-    });
+    );
 
     await Promise.all(requests);
   };
 
-  const goBack = () => goTo(prev);
+  const goBack = () => {
+    goTo(prev);
+  };
+
   const goNext = () => {
     if (next === null) {
       onToggle();
       return;
     }
+
     goTo(next);
   };
-  const goTo = to => dispatch({ type: 'GO_TO', to });
-  const toggleModalWarning = () => setIsWarningDeleteOpen(prev => !prev);
+
+  const goTo = to => {
+    dispatch({
+      type: 'GO_TO',
+      to,
+    });
+  };
+
+  const toggleModalWarning = () => {
+    setIsWarningDeleteOpen(prev => !prev);
+  };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
-  const isFinishButtonDisabled = filesToUpload.some(f => f.isDownloading || f.isUploading);
-  const areButtonsDisabledOnEditExistingFile = currentStep === 'edit' && fileToEdit.isUploading === true;
+  const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
+  const areButtonsDisabledOnEditExistingFile =
+    currentStep === 'edit' && fileToEdit.isUploading === true;
 
   return (
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleClose}>
-        <ModalHeader goBack={goBack} headerBreadcrumbs={headerBreadcrumbs} withBackButton={withBackButton} />
+        <ModalHeader
+          goBack={goBack}
+          headerBreadcrumbs={headerBreadcrumbs}
+          withBackButton={withBackButton}
+        />
+
         {Component && (
           <Component
             {...allowedActions}
@@ -364,10 +488,14 @@ const ModalStepper = ({
             isFormDisabled={isFormDisabled}
             onChange={handleChange}
             onClickCancelUpload={handleCancelFileToUpload}
-            onClickDeleteFileToUpload={currentStep === 'edit' ? handleClickDeleteFile : handleClickDeleteFileToUpload}
+            onClickDeleteFileToUpload={
+              currentStep === 'edit' ? handleClickDeleteFile : handleClickDeleteFileToUpload
+            }
             onClickEditNewFile={handleGoToEditNewFile}
             onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
-            onSubmitEdit={currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile}
+            onSubmitEdit={
+              currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
+            }
             onToggle={handleToggle}
             toggleDisableForm={setIsFormDisabled}
             ref={currentStep === 'edit' ? editModalRef : null}
@@ -376,22 +504,35 @@ const ModalStepper = ({
             withBackButton={withBackButton}
           />
         )}
+
         <ModalFooter>
           <section>
             <Button type="button" color="cancel" onClick={handleToggle}>
               {formatMessage({ id: 'app.components.Button.cancel' })}
             </Button>
             {shouldDisplayNextButton && (
-              <Button type="button" color="primary" onClick={handleClickNextButton} disabled={isEmpty(filesToDownload)}>
+              <Button
+                type="button"
+                color="primary"
+                onClick={handleClickNextButton}
+                disabled={isEmpty(filesToDownload)}
+              >
                 {formatMessage({ id: getTrad('button.next') })}
               </Button>
             )}
             {currentStep === 'upload' && (
-              <Button type="button" color="success" onClick={handleUploadFiles} disabled={isFinishButtonDisabled}>
+              <Button
+                type="button"
+                color="success"
+                onClick={handleUploadFiles}
+                disabled={isFinishButtonDisabled}
+              >
                 {formatMessage(
                   {
                     id: getTrad(
-                      `modal.upload-list.footer.button.${filesToUploadLength > 1 ? 'plural' : 'singular'}`
+                      `modal.upload-list.footer.button.${
+                        filesToUploadLength > 1 ? 'plural' : 'singular'
+                      }`
                     ),
                   },
                   { number: filesToUploadLength }
@@ -413,6 +554,7 @@ const ModalStepper = ({
                 >
                   {formatMessage({ id: getTrad('control-card.replace-media') })}
                 </Button>
+
                 <Button
                   disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
                   color="success"

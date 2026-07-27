@@ -2,8 +2,13 @@
 
 const grunt = require('../grunt');
 
-// Get/set config data. If value was passed, set. Otherwise, get.
-const config = module.exports = function (prop, value) {
+/**
+ * Get/set config data. If value was passed, set. Otherwise, get.
+ * @param {string|Array} prop
+ * @param {*} [value]
+ * @returns {*}
+ */
+const config = function (prop, value) {
   if (arguments.length === 2) {
     // Two arguments were passed, set the property's value.
     return config.set(prop, value);
@@ -12,6 +17,7 @@ const config = module.exports = function (prop, value) {
     return config.get(prop);
   }
 };
+module.exports = config;
 
 // The actual config data.
 config.data = {};
@@ -46,37 +52,22 @@ config.get = function (prop) {
   return config.process(config.getRaw(prop));
 };
 
-/**
- * Determines whether a value is a string.
- * @param {*} value The value to test.
- * @returns {boolean} True if the value is a string.
- */
-function isString(value) {
-  return typeof value === 'string';
-}
-
-/**
- * Determines whether a string matches the template regex.
- * @param {string} str The string to test.
- * @returns {RegExpMatchArray|null} The match result or null.
- */
-function getTemplateMatch(str) {
-  return str.match(propStringTmplRe);
-}
-
-/**
- * Processes a raw config value, expanding any template references.
- * @param {*} raw The raw config value.
- * @returns {*} The processed value.
- */
+// Expand a config value recursively. Used for post-processing raw values
+// already retrieved from the config.
 config.process = function (raw) {
   return grunt.util.recurse(raw, function (value) {
-    if (!isString(value)) {
+    // If the value is not a string, return it.
+    if (typeof value !== 'string') {
       return value;
     }
-    const matches = getTemplateMatch(value);
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
+    const matches = value.match(propStringTmplRe);
+    let result;
     if (matches) {
-      const result = config.get(matches[1]);
+      result = config.get(matches[1]);
+      // If the result retrieved from the config data wasn't null or undefined,
+      // return it.
       if (result != null) {
         return result;
       }
@@ -105,11 +96,28 @@ config.init = function (obj) {
 };
 
 /**
- * Formats the verification message for required properties.
- * @param {string[]} props Array of property strings.
- * @returns {string} Formatted message.
+ * Check if the configuration object exists.
+ * @returns {boolean}
  */
-function formatVerificationMessage(props) {
+function hasConfigData() {
+  return !!config.data;
+}
+
+/**
+ * Determine if there are no missing required properties.
+ * @param {Array<string>} failProps
+ * @returns {boolean}
+ */
+function hasNoFailures(failProps) {
+  return failProps.length === 0;
+}
+
+/**
+ * Build the verification message for required properties.
+ * @param {Array<string>} props
+ * @returns {string}
+ */
+function buildVerificationMessage(props) {
   const p = grunt.util.pluralize;
   return (
     'Verifying propert' +
@@ -122,30 +130,24 @@ function formatVerificationMessage(props) {
   );
 }
 
-/**
- * Returns an array of missing property names.
- * @param {string[]} props Array of property strings.
- * @returns {string[]} Missing properties formatted with quotes.
- */
-function getMissingProps(props) {
-  return props
-    .filter(function (prop) {
-      return config.get(prop) == null;
-    })
-    .map(function (prop) {
-      return '"' + prop + '"';
-    });
-}
-
 // Test to see if required config params have been defined. If not, throw an
 // exception (use this inside of a task).
 config.requires = function () {
-  const pluralize = grunt.util.pluralize;
-  const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = formatVerificationMessage(props);
+  const props = grunt.util
+    .toArray(arguments)
+    .map(config.getPropString);
+  const msg = buildVerificationMessage(props);
   grunt.verbose.write(msg);
-  const failProps = config.data && getMissingProps(props);
-  if (config.data && failProps.length === 0) {
+  const failProps =
+    config.data &&
+    props
+      .filter(function (prop) {
+        return config.get(prop) == null;
+      })
+      .map(function (prop) {
+        return '"' + prop + '"';
+      });
+  if (hasConfigData() && hasNoFailures(failProps)) {
     grunt.verbose.ok();
     return true;
   } else {
@@ -154,9 +156,10 @@ config.requires = function () {
     if (!config.data) {
       throw grunt.util.error('Unable to load config.');
     } else {
+      const p = grunt.util.pluralize;
       throw grunt.util.error(
         'Required config propert' +
-          pluralize(failProps.length, 'y/ies') +
+          p(failProps.length, 'y/ies') +
           ' ' +
           failProps.join(', ') +
           ' missing.'

@@ -65,8 +65,8 @@ function DollarIcon({...props}) {
 
 /**
  * Decorate a post search result with formatted date and visibility icons.
- * @param {Object} item - Search result item.
- * @param {Object} settings - Site settings.
+ * @param {Object} item
+ * @param {Object} settings
  */
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
@@ -76,38 +76,41 @@ export function decoratePostSearchResult(item, settings) {
         return;
     }
 
-    switch (item.visibility) {
-        case 'members':
-            item.MetaIcon = LockIcon;
-            item.metaIconTitle = 'Members only';
-            break;
-        case 'paid':
-            item.MetaIcon = DollarIcon;
-            item.metaIconTitle = 'Paid-members only';
-            break;
-        case 'tiers':
-            item.MetaIcon = DollarIcon;
-            item.metaIconTitle = 'Specific tiers only';
-            break;
-        default:
-            break;
+    if (item.visibility === 'members') {
+        item.MetaIcon = LockIcon;
+        item.metaIconTitle = 'Members only';
+        return;
+    }
+
+    if (item.visibility === 'paid') {
+        item.MetaIcon = DollarIcon;
+        item.metaIconTitle = 'Paid-members only';
+        return;
+    }
+
+    if (item.visibility === 'tiers') {
+        item.MetaIcon = DollarIcon;
+        item.metaIconTitle = 'Specific tiers only';
     }
 }
 
 /**
- * Fetch URLs of all active offers.
+ * Fetches the URLs of all active offers.
  * @returns {Promise<Array<{label:string,value:string}>>}
  */
 export async function offerUrls() {
+    let offers = [];
+
     try {
-        const offers = await this.fetchOffersTask.perform();
-        return offers.map((offer) => ({
-            label: `Offer — ${offer.name}`,
-            value: this.config.getSiteUrl(offer.code)
-        }));
-    } catch {
+        offers = await this.fetchOffersTask.perform();
+    } catch (e) {
         return [];
     }
+
+    return offers.map((offer) => ({
+        label: `Offer — ${offer.name}`,
+        value: this.config.getSiteUrl(offer.code)
+    }));
 }
 
 class ErrorHandler extends React.Component {
@@ -153,65 +156,46 @@ const TKCountPlugin = ({editorResource, ...props}) => {
 };
 
 /**
- * Determine if Stripe integration is enabled.
- * @param {Object} settings - Site settings.
- * @param {Object} config - Site config.
+ * Guard: checks if an event has a computable length.
+ * @param {ProgressEvent} event
  * @returns {boolean}
  */
-function isStripeEnabled(settings, config) {
-    const hasDirect = !!(settings.stripeSecretKey && settings.stripePublishableKey);
-    const hasConnect = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
-    return config.stripeDirect ? hasDirect : hasDirect || hasConnect;
+function isLengthComputable(event) {
+    return !!event.lengthComputable;
 }
 
 /**
- * Build member related autocomplete links.
- * @param {Object} membersUtils - Service.
- * @returns {Array<{label:string,value:string}>}
+ * Updates overall progress based on individual file progress.
+ * @param {Map} progressMap
+ * @param {Function} setProgress
  */
-function getMemberLinks(membersUtils) {
-    if (!membersUtils.paidMembersEnabled) {
-        return [];
+function updateOverallProgress(progressMap, setProgress) {
+    if (progressMap.size === 0) {
+        setProgress(0);
+        return;
     }
-    return [
-        {label: 'Paid signup', value: '#/portal/signup'},
-        {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-    ];
+    let total = 0;
+    progressMap.forEach((value) => (total += value));
+    setProgress(Math.round(total / progressMap.size));
 }
 
 /**
- * Build donation autocomplete link.
- * @param {Object} settings - Site settings.
- * @returns {Array<{label:string,value:string}>}
+ * Determines if the file type is allowed based on extensions.
+ * @param {File} file
+ * @param {string} type
+ * @returns {true|string} true if allowed, otherwise error message.
  */
-function getDonationLink(settings) {
-    return settings.donationsEnabled ? [{label: 'Tips and donations', value: '#/portal/support'}] : [];
-}
-
-/**
- * Build recommendation autocomplete link.
- * @param {Object} settings - Site settings.
- * @returns {Array<{label:string,value:string}>}
- */
-function getRecommendationLink(settings) {
-    return settings.recommendationsEnabled ? [{label: 'Recommendations', value: '#/portal/recommendations'}] : [];
-}
-
-/**
- * Validate file extensions against allowed types.
- * @param {File} file - File to validate.
- * @param {string} type - File type key.
- * @returns {true|string} True if valid, otherwise error message.
- */
-function defaultValidator(file, type) {
+function validateFileExtension(file, type) {
     if (type === 'file') {
         return true;
     }
     const extensions = fileTypes[type].extensions;
-    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name) || [];
+
     if (!extensions) {
         return true;
     }
+
     const extArray = Array.isArray(extensions) ? extensions : extensions.split(',');
     if (!extension || !extArray.includes(extension.toLowerCase())) {
         const valid = `.${extArray.join(', .').toUpperCase()}`;
@@ -221,261 +205,49 @@ function defaultValidator(file, type) {
 }
 
 /**
- * Validate an array of files.
- * @param {Array<File>} files - Files to validate.
- * @param {string} type - File type key.
- * @returns {Array<{fileName:string,message:string}>}
+ * Parses JSON response safely.
+ * @param {string} response
+ * @returns {Object|null}
  */
-function validateFiles(files, type) {
-    const results = [];
-    for (const file of files) {
-        const result = defaultValidator(file, type);
-        if (result !== true) {
-            results.push({fileName: file.name, message: result});
-        }
-    }
-    return results;
-}
-
-/**
- * Upload a single file.
- * @param {Object} context - Component instance.
- * @param {File} file - File to upload.
- * @param {Object} options - Additional options.
- * @param {string} type - File type key.
- * @param {Function} updateProgress - Progress updater.
- * @param {Map} progressTracker - Tracker map.
- * @returns {Promise<{url:string,fileName:string}>}
- */
-async function uploadFile(context, file, options = {}, type, updateProgress, progressTracker) {
-    progressTracker.set(file, 0);
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-    Object.entries(options.formData || {}).forEach(([key, value]) => formData.append(key, value));
-
-    const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-    const requestMethod = fileTypes[type].requestMethod || 'post';
-
+function safeParseJson(response) {
     try {
-        const response = await context.ajax[requestMethod](url, {
-            data: formData,
-            processData: false,
-            contentType: false,
-            dataType: 'text',
-            xhr: () => {
-                const xhr = new window.XMLHttpRequest();
-                xhr.upload.addEventListener('progress', (event) => {
-                    if (event.lengthComputable) {
-                        progressTracker.set(file, (event.loaded / event.total) * 100);
-                        updateProgress();
-                    }
-                }, false);
-                return xhr;
-            }
-        });
-
-        progressTracker.set(file, 100);
-        updateProgress();
-
-        let parsed;
-        try {
-            parsed = JSON.parse(response);
-        } catch (e) {
-            if (!(e instanceof SyntaxError)) {
-                throw e;
-            }
-        }
-
-        let responseUrl;
-        if (parsed) {
-            const resource = parsed[fileTypes[type].resourceName];
-            if (Array.isArray(resource) && resource[0]) {
-                responseUrl = resource[0].url;
-            }
-        }
-
-        return {url: responseUrl, fileName: file.name};
+        return JSON.parse(response);
     } catch (error) {
-        console.error(error); // eslint-disable-line
-        const message = error.payload?.errors?.[0]?.message || error.message || '';
-        const contextMsg = error.payload?.errors?.[0]?.context || '';
-        throw {message, context: contextMsg, fileName: file.name};
-    }
-}
-
-/**
- * Create a file uploader hook.
- * @param {Object} context - Component instance.
- * @param {string} type - File type.
- * @returns {{progress:number,isLoading:boolean,upload:Function,errors:Array,filesNumber:number}}
- */
-function useFileUpload(context, type = 'image') {
-    const [progress, setProgress] = React.useState(0);
-    const [isLoading, setLoading] = React.useState(false);
-    const [errors, setErrors] = React.useState([]);
-    const [filesNumber, setFilesNumber] = React.useState(0);
-    const progressTracker = React.useRef(new Map());
-
-    function updateProgress() {
-        if (progressTracker.current.size === 0) {
-            setProgress(0);
-            return;
-        }
-        let total = 0;
-        progressTracker.current.forEach((v) => (total += v));
-        setProgress(Math.round(total / progressTracker.current.size));
-    }
-
-    async function upload(files = [], options = {}) {
-        setFilesNumber(files.length);
-        setLoading(true);
-        const validation = validateFiles(files, type);
-        if (validation.length) {
-            setErrors(validation);
-            setLoading(false);
-            setProgress(100);
+        if (error instanceof SyntaxError) {
             return null;
         }
-
-        const promises = files.map((file) => uploadFile(context, file, options, type, updateProgress, progressTracker.current));
-        try {
-            const results = await Promise.all(promises);
-            setProgress(100);
-            progressTracker.current.clear();
-            setLoading(false);
-            setErrors([]);
-            return results;
-        } catch (err) {
-            console.error(err); // eslint-disable-line no-console
-            setErrors((prev) => [...prev, err]);
-            setLoading(false);
-            setProgress(100);
-            progressTracker.current.clear();
-            return null;
-        }
-    }
-
-    return {progress, isLoading, upload, errors, filesNumber};
-}
-
-/**
- * Fetch embed data via oEmbed.
- * @param {Object} context - Component instance.
- * @param {string} url - URL to embed.
- * @param {{type:string}} options - Options.
- * @returns {Promise<any>}
- */
-async function fetchEmbed(context, url, {type}) {
-    const endpoint = context.ghostPaths.url.api('oembed');
-    const response = await context.ajax.request(endpoint, {data: {url, type}});
-    return response;
-}
-
-/**
- * Build autocomplete links.
- * @param {Object} context - Component instance.
- * @returns {Promise<Array<{label:string,value:string}>>}
- */
-async function fetchAutocompleteLinks(context) {
-    const defaults = [
-        {label: 'Homepage', value: window.location.origin + '/'},
-        {label: 'Free signup', value: '#/portal/signup/free'}
-    ];
-    const memberLinks = getMemberLinks(context.membersUtils);
-    const donation = getDonationLink(context.settings);
-    const recommendation = getRecommendationLink(context.settings);
-    const offers = await offerUrls.call(context);
-    return [...defaults, ...memberLinks, ...donation, ...recommendation, ...offers];
-}
-
-/**
- * Fetch label names.
- * @param {Object} context - Component instance.
- * @returns {Promise<Array<string>>}
- */
-async function fetchLabels(context) {
-    try {
-        const labels = await context.fetchLabelsTask.perform();
-        return labels.map((l) => l.name);
-    } catch (e) {
-        if (didCancel(e)) {
-            return [];
-        }
-        throw e;
+        throw error;
     }
 }
 
 /**
- * Search links based on term.
- * @param {Object} context - Component instance.
- * @param {string} term - Search term.
- * @returns {Promise<Array>}
+ * Extracts the URL from a successful upload response.
+ * @param {Object} uploadResponse
+ * @param {string} type
+ * @returns {string|undefined}
  */
-async function searchLinks(context, term) {
-    if (!term) {
-        if (context.defaultLinks) {
-            return context.defaultLinks;
-        }
-        const posts = await context.store.query('post', {
-            filter: 'status:published',
-            fields: 'id,url,title,visibility,published_at',
-            order: 'published_at desc',
-            limit: 5
-        });
-        const results = posts.toArray().map((post) => ({
-            groupName: 'Latest posts',
-            id: post.id,
-            title: post.title,
-            url: post.url,
-            visibility: post.visibility,
-            publishedAt: post.publishedAtUTC.toISOString()
-        }));
-        results.forEach((item) => decoratePostSearchResult(item, context.settings));
-        context.defaultLinks = [{label: 'Latest posts', items: results}];
-        return context.defaultLinks;
+function extractResponseUrl(uploadResponse, type) {
+    if (!uploadResponse) {
+        return undefined;
     }
-
-    try {
-        const rawResults = await context.search.searchTask.perform(term);
-        const filtered = [];
-
-        for (const group of rawResults) {
-            let items = group.options;
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items = items.filter((i) => i.status === 'published');
-            }
-            if (group.groupName === 'Staff') {
-                items = items.filter((i) => !/\/404\//.test(i.url));
-            }
-            if (items.length === 0) {
-                continue;
-            }
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items.forEach((item) => decoratePostSearchResult(item, context.settings));
-            }
-            filtered.push({label: group.groupName, items});
-        }
-        return filtered;
-    } catch (error) {
-        if (!didCancel(error)) {
-            throw error;
-        }
-        return [];
+    const resource = uploadResponse[fileTypes[type].resourceName];
+    if (Array.isArray(resource) && resource[0]) {
+        return resource[0].url;
     }
+    return undefined;
 }
 
 /**
- * Unsplash configuration.
+ * Determines if Stripe is enabled based on configuration.
+ * @param {Object} settings
+ * @param {Object} config
+ * @returns {boolean}
  */
-const unsplashConfig = {
-    defaultHeaders: {
-        Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
-        'Accept-Version': 'v1',
-        'Content-Type': 'application/json',
-        'App-Pragma': 'no-cache',
-        'X-Unsplash-Cache': true
-    }
-};
+function isStripeEnabled(settings, config) {
+    const hasDirect = !!(settings.stripeSecretKey && settings.stripePublishableKey);
+    const hasConnect = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
+    return config.stripeDirect ? hasDirect : hasDirect || hasConnect;
+}
 
 export default class KoenigLexicalEditor extends Component {
     @service ajax;
@@ -575,17 +347,122 @@ export default class KoenigLexicalEditor extends Component {
     }
 
     ReactComponent = (props) => {
+        const fetchEmbed = async (url, {type}) => {
+            const oembedEndpoint = this.ghostPaths.url.api('oembed');
+            return await this.ajax.request(oembedEndpoint, {data: {url, type}});
+        };
+
+        const fetchAutocompleteLinks = async () => {
+            const defaults = [
+                {label: 'Homepage', value: window.location.origin + '/'},
+                {label: 'Free signup', value: '#/portal/signup/free'}
+            ];
+
+            const memberLinks = () => {
+                if (!this.membersUtils.paidMembersEnabled) {
+                    return [];
+                }
+                return [
+                    {label: 'Paid signup', value: '#/portal/signup'},
+                    {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
+                ];
+            };
+
+            const donationLink = () => this.settings.donationsEnabled ? [{label: 'Tips and donations', value: '#/portal/support'}] : [];
+
+            const recommendationLink = () => this.settings.recommendationsEnabled ? [{label: 'Recommendations', value: '#/portal/recommendations'}] : [];
+
+            const offersLinks = await offerUrls.call(this);
+            return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
+        };
+
+        const fetchLabels = async () => {
+            try {
+                const labels = await this.fetchLabelsTask.perform();
+                return labels.map((label) => label.name);
+            } catch (e) {
+                if (didCancel(e)) {
+                    return [];
+                }
+                throw e;
+            }
+        };
+
+        const searchLinks = async (term) => {
+            if (!term) {
+                if (this.defaultLinks) {
+                    return this.defaultLinks;
+                }
+                const posts = await this.store.query('post', {
+                    filter: 'status:published',
+                    fields: 'id,url,title,visibility,published_at',
+                    order: 'published_at desc',
+                    limit: 5
+                });
+                const results = posts.toArray().map((post) => ({
+                    groupName: 'Latest posts',
+                    id: post.id,
+                    title: post.title,
+                    url: post.url,
+                    visibility: post.visibility,
+                    publishedAt: post.publishedAtUTC.toISOString()
+                }));
+                results.forEach((item) => decoratePostSearchResult(item, this.settings));
+                this.defaultLinks = [{label: 'Latest posts', items: results}];
+                return this.defaultLinks;
+            }
+
+            try {
+                const results = await this.search.searchTask.perform(term);
+                const filtered = [];
+
+                results.forEach((group) => {
+                    let items = group.options;
+                    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                        items = items.filter((i) => i.status === 'published');
+                    }
+                    if (group.groupName === 'Staff') {
+                        items = items.filter((i) => !/\/404\//.test(i.url));
+                    }
+                    if (items.length === 0) {
+                        return;
+                    }
+                    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                        items.forEach((item) => decoratePostSearchResult(item, this.settings));
+                    }
+                    filtered.push({label: group.groupName, items});
+                });
+
+                return filtered;
+            } catch (error) {
+                if (!didCancel(error)) {
+                    throw error;
+                }
+                return [];
+            }
+        };
+
+        const unsplashConfig = {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        };
+
         const defaultCardConfig = {
             unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
             tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
-            fetchAutocompleteLinks: () => fetchAutocompleteLinks(this),
-            fetchEmbed: (url, opts) => fetchEmbed(this, url, opts),
-            fetchLabels: () => fetchLabels(this),
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
             renderLabels: !this.session.user.isContributor,
             feature: {transistor: this.feature.transistor},
             deprecated: {headerV1: true},
             membersEnabled: this.settings.membersSignupAccess === 'all',
-            searchLinks: (term) => searchLinks(this, term),
+            searchLinks,
             siteTitle: this.settings.title,
             siteDescription: this.settings.description,
             siteUrl: this.config.getSiteUrl('/'),
@@ -593,15 +470,101 @@ export default class KoenigLexicalEditor extends Component {
         };
         const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
+        const useFileUpload = (type = 'image') => {
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
+            const progressTracker = React.useRef(new Map());
+
+            const handleProgressEvent = (event, file) => {
+                if (!isLengthComputable(event)) {
+                    return;
+                }
+                progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                updateOverallProgress(progressTracker.current, setProgress);
+            };
+
+            const _uploadFile = async (file, {formData = {}} = {}) => {
+                progressTracker.current.set(file, 0);
+                const fileFormData = new FormData();
+                fileFormData.append('file', file, file.name);
+                Object.keys(formData).forEach((key) => fileFormData.append(key, formData[key]));
+
+                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+
+                try {
+                    const response = await this.ajax[requestMethod](url, {
+                        data: fileFormData,
+                        processData: false,
+                        contentType: false,
+                        dataType: 'text',
+                        xhr: () => {
+                            const xhr = new window.XMLHttpRequest();
+                            xhr.upload.addEventListener('progress', (event) => handleProgressEvent(event, file), false);
+                            return xhr;
+                        }
+                    });
+
+                    progressTracker.current.set(file, 100);
+                    updateOverallProgress(progressTracker.current, setProgress);
+
+                    const uploadResponse = safeParseJson(response);
+                    const responseUrl = extractResponseUrl(uploadResponse, type);
+                    return {url: responseUrl, fileName: file.name};
+                } catch (error) {
+                    console.error(error); // eslint-disable-line
+                    const message = error.payload?.errors?.[0]?.message || error.message || '';
+                    const context = error.payload?.errors?.[0]?.context || '';
+                    throw {message, context, fileName: file.name};
+                }
+            };
+
+            const upload = async (files = [], options = {}) => {
+                setFilesNumber(files.length);
+                setLoading(true);
+                const validationResult = files.map(validateFileExtension).filter((r) => r !== true);
+                if (validationResult.length) {
+                    const formatted = validationResult.map((msg, idx) => ({
+                        fileName: files[idx].name,
+                        message: msg
+                    }));
+                    setErrors(formatted);
+                    setLoading(false);
+                    setProgress(100);
+                    return null;
+                }
+
+                try {
+                    const results = await Promise.all(files.map((file) => _uploadFile(file, options)));
+                    setProgress(100);
+                    progressTracker.current.clear();
+                    setLoading(false);
+                    setErrors([]);
+                    return results;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+                    return null;
+                }
+            };
+
+            return {progress, isLoading, upload, errors, filesNumber};
+        };
+
         const KGEditorComponent = ({isInitInstance}) => {
-            const displayStyle = isInitInstance ? {display: 'none'} : {};
-            const secondary = isInitInstance ? true : false;
+            const secondary = !!isInitInstance;
+            const style = secondary ? {display: 'none'} : undefined;
             return (
-                <div data-secondary-instance={secondary} style={displayStyle}>
+                <div data-secondary-instance={secondary} style={style}>
                     <KoenigComposer
                         editorResource={this.editorResource}
                         cardConfig={cardConfig}
-                        fileUploader={{useFileUpload: (type) => useFileUpload(this, type), fileTypes}}
+                        fileUploader={{useFileUpload, fileTypes}}
                         initialEditorState={this.args.lexical}
                         onError={this.onError}
                         darkMode={this.feature.nightShift}
@@ -609,14 +572,14 @@ export default class KoenigLexicalEditor extends Component {
                     >
                         <KoenigEditor
                             editorResource={this.editorResource}
-                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
-                            placeholderText={isInitInstance ? null : this.args.placeholderText}
-                            darkMode={isInitInstance ? null : this.feature.nightShift}
-                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
-                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                            cursorDidExitAtTop={secondary ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={secondary ? null : this.args.placeholderText}
+                            darkMode={secondary ? null : this.feature.nightShift}
+                            onChange={secondary ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={secondary ? this.args.registerSecondaryAPI : this.args.registerAPI}
                         />
-                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
-                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={secondary ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={secondary ? () => {} : this.args.updatePostTkCount} />
                     </KoenigComposer>
                 </div>
             );

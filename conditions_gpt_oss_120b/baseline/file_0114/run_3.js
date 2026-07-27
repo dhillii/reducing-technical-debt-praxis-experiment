@@ -1,13 +1,19 @@
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
+
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
-var eachLimit   = require('async/eachLimit');
-var series      = require('async/series');
+var eachLimit       = require('async/eachLimit');
+var series       = require('async/series');
 var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-let conf        = require('./conf');
+const conf = require('./conf');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
@@ -1583,6 +1589,7 @@ API.prototype.describe = function(pm2_id, cb) {
 
   var found_proc = [];
 
+
   that.Client.executeRemote('getMonitorData', {}, function(err, list) {
     if (err) {
       Common.printError('Error retrieving process list: ' + err);
@@ -1612,4 +1619,19 @@ API.prototype.describe = function(pm2_id, cb) {
 };
 
 /**
- * API method
+ * API method to perform a deep update of PM2
+ * @method deepUpdate
+ */
+API.prototype.deepUpdate = function(cb) {
+  var that = this;
+
+  Common.printOut(conf.PREFIX_MSG + 'Updating PM2...');
+
+  var exec = require('shelljs').exec;
+  var child = exec("npm i -g pm2@latest; pm2 update", {async : true});
+
+  child.stdout.on('end', function() {
+    Common.printOut(conf.PREFIX_MSG + 'PM2 successfully updated');
+    cb ? cb(null, {success:true}) : that.exitCli(conf.SUCCESS_EXIT);
+  });
+};

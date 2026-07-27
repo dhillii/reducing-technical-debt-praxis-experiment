@@ -62,7 +62,10 @@ const previewPropsToValueConverter: {
   },
   array(props) {
     const values = props.elements.map(x => previewPropsToValue(x))
-    setKeysForArrayValue(values, props.elements.map(x => x.key))
+    setKeysForArrayValue(
+      values,
+      props.elements.map(x => x.key)
+    )
     return values
   },
   conditional(props) {
@@ -132,6 +135,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -161,25 +165,26 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   assertNever(props)
 }
 
-type ModalState =
-  | {
-      index: number
-      value: unknown
-      forceValidation: boolean
-    }
-  | 'closed'
+type ModalState = {
+  index: number
+  value: unknown
+  forceValidation: boolean
+}
 
-function ArrayFieldModal({
-  element,
+function ArrayItemModal({
+  elements,
   modalState,
   setModalState,
-  onChange,
+  onArrayChange,
 }: {
-  element: GenericPreviewProps<ComponentSchema, unknown>
-  modalState: Extract<ModalState, { index: number }>
-  setModalState: React.Dispatch<React.SetStateAction<ModalState>>
-  onChange: (value: any) => void
+  elements: GenericPreviewProps<ArrayField<ComponentSchema>, unknown>['elements']
+  modalState: ModalState
+  setModalState: React.Dispatch<React.SetStateAction<ModalState | 'closed'>>
+  onArrayChange: (value: any) => void
 }) {
+  const element = elements.at(modalState.index)
+  if (!element) return null
+
   const onModalChange = (cb: (value: unknown) => unknown) => {
     setModalState(state => {
       if (state === 'closed') return state
@@ -191,10 +196,14 @@ function ArrayFieldModal({
     })
   }
 
+  const handleCancel = () => {
+    setModalState('closed')
+  }
+
   const handleDone = () => {
     if (!clientSideValidateProp(element.schema, modalState.value)) {
       setModalState(state => ({
-        ...(state as any),
+        ...(state as ModalState),
         forceValidation: true,
       }))
       return
@@ -214,7 +223,7 @@ function ArrayFieldModal({
         />
       </Content>
       <ButtonGroup>
-        <Button prominence="low" onPress={() => setModalState('closed')}>
+        <Button prominence="low" onPress={handleCancel}>
           Cancel
         </Button>
         <Button prominence="high" onPress={handleDone}>
@@ -228,9 +237,9 @@ function ArrayFieldModal({
 function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
   const { elements, onChange, schema } = props
   const { label } = schema
-  const [modalState, setModalState] = useState<ModalState>('closed')
+  const [modalState, setModalState] = useState<ModalState | 'closed'>('closed')
 
-  const openItem = (index: number) => {
+  const handleOpenItem = (index: number) => {
     const element = elements.at(index)
     if (!element) return
     setModalState({
@@ -240,9 +249,6 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     })
   }
 
-  const currentElement =
-    modalState !== 'closed' ? elements.at(modalState.index) : undefined
-
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -250,7 +256,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={openItem}
+            onOpenItem={handleOpenItem}
           />
           <ActionButton
             alignSelf="start"
@@ -261,15 +267,19 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           >
             Add
           </ActionButton>
-          <DialogContainer onDismiss={() => setModalState('closed')}>
-            {modalState !== 'closed' && currentElement && currentElement.schema.kind !== 'child' ? (
-              <ArrayFieldModal
-                element={currentElement}
-                modalState={modalState as Extract<ModalState, { index: number }>}
+          <DialogContainer
+            onDismiss={() => {
+              setModalState('closed')
+            }}
+          >
+            {modalState !== 'closed' && (
+              <ArrayItemModal
+                elements={elements}
+                modalState={modalState}
                 setModalState={setModalState}
-                onChange={onChange}
+                onArrayChange={onChange}
               />
-            ) : null}
+            )}
           </DialogContainer>
         </VStack>
       )}
@@ -526,15 +536,16 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     },
     async onDrop(e) {
       if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
-        const keys: any[] = []
+        let keys = []
         for (let item of e.items) {
           if (item.kind === 'text') {
+            let key
             if (item.types.has(dragType)) {
-              const key = JSON.parse(await item.getText(dragType))
+              key = JSON.parse(await item.getText(dragType))
               keys.push(key)
             } else if (item.types.has('text/plain')) {
-              const key = await item.getText('text/plain')
-              keys.push(...key.split('\n').map(val => val.replaceAll('"', '')))
+              key = await item.getText('text/plain')
+              keys = key.split('\n').map(val => val.replaceAll('"', ''))
             }
           }
         }

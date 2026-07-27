@@ -39,11 +39,6 @@ const FIND_ONE_QUERY_ARGUMENTS = {
   publicationState: 'PublicationState',
 };
 
-/**
- * Builds a graphql schema from all the contentTypes & components loaded
- * @param {{ schema: object }} ctx
- * @returns {object}
- */
 const buildShadowCrud = ctx => {
   const models = Object.values(strapi.contentTypes).filter(model => model.plugin !== 'admin');
   const components = Object.values(strapi.components);
@@ -98,7 +93,6 @@ const buildTypeDefObj = model => {
     [primaryKey]: 'ID!',
   };
 
-  // Add timestamps attributes.
   if (_.isArray(_.get(model, 'options.timestamps'))) {
     const [createdAtKey, updatedAtKey] = model.options.timestamps;
     typeDef[createdAtKey] = 'DateTime!';
@@ -110,7 +104,6 @@ const buildTypeDefObj = model => {
     .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
     .forEach(attributeName => {
       const attribute = attributes[attributeName];
-      // Convert our type to the GraphQL type.
       typeDef[attributeName] = types.convertType({
         attribute,
         modelName: globalId,
@@ -118,7 +111,6 @@ const buildTypeDefObj = model => {
       });
     });
 
-  // Change field definition for collection relations
   associations
     .filter(association => association.type === 'collection')
     .filter(association => isNotPrivate(model, association.alias))
@@ -157,7 +149,6 @@ const generateDynamicZoneDefinitions = (attributes, globalId, schema) => {
       const typeName = `${globalId}${_.upperFirst(_.camelCase(attribute))}DynamicZone`;
 
       if (components.length === 0) {
-        // Create dummy type because graphql doesn't support empty ones
         schema.definition += `type ${typeName} { _:Boolean}`;
       } else {
         const componentsTypeNames = components.map(componentUID => {
@@ -205,7 +196,7 @@ const initQueryOptions = (targetModel, parent) => {
 };
 
 /**
- * Determines if a relation nature belongs to morph types.
+ * Determines if the association nature belongs to morph relations.
  * @param {string} nature
  * @returns {boolean}
  */
@@ -213,45 +204,60 @@ const isMorphNature = nature =>
   ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
 
 /**
- * Creates a resolver for morph relations.
- * @param {object} params
- * @param {object} params.model
- * @param {object} params.association
- * @param {object} params.targetModel
- * @param {string} params.primaryKey
- * @returns {Function}
+ * Determines if the association nature is a single side relation.
+ * @param {string} nature
+ * @returns {boolean}
  */
-const createMorphResolver = ({ model, association, targetModel, primaryKey }) => {
-  const { alias } = association;
-  return async obj => {
-    if (obj[alias]) {
-      return assignOptions(obj[alias], obj);
-    }
-
-    const params = {
-      ...initQueryOptions(targetModel, obj),
-      id: obj[primaryKey],
-    };
-
-    const entry = await strapi.query(model.uid).findOne(params, [alias]);
-
-    return assignOptions(entry[alias], obj);
-  };
-};
+const isSingleRelation = nature => ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
 
 /**
- * Creates a resolver for non‑morph relations.
- * @param {object} params
- * @param {object} params.model
- * @param {object} params.association
- * @param {object} params.targetModel
- * @param {string} params.primaryKey
+ * Determines if the association nature is a one-to-many or non‑dominant many‑to‑many.
+ * @param {string} nature
+ * @param {object} association
+ * @returns {boolean}
+ */
+const isOneToManyOrNonDominantManyToMany = (nature, association) =>
+  nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true);
+
+/**
+ * Determines if the association nature is a many‑way or dominant many‑to‑many.
+ * @param {string} nature
+ * @param {object} association
+ * @returns {boolean}
+ */
+const isManyWayOrDominantManyToMany = (nature, association) =>
+  nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true);
+
+/**
+ * Creates a resolver for a given association.
+ * @param {object} association
+ * @param {object} model
  * @returns {Function}
  */
-const createDefaultResolver = ({ model, association, targetModel, primaryKey }) => {
-  const { nature, alias, dominant, via } = association;
+const createAssociationResolver = (association, model) => {
+  const { nature, alias } = association;
+  const target = association.model || association.collection;
+  const targetModel = strapi.getModel(target, association.plugin);
+  const { primaryKey } = model;
+
+  if (isMorphNature(nature)) {
+    return async obj => {
+      if (obj[alias]) {
+        return assignOptions(obj[alias], obj);
+      }
+
+      const params = {
+        ...initQueryOptions(targetModel, obj),
+        id: obj[primaryKey],
+      };
+
+      const entry = await strapi.query(model.uid).findOne(params, [alias]);
+
+      return assignOptions(entry[alias], obj);
+    };
+  }
+
   return async (obj, options) => {
-    // force component relations to be refetched
     if (model.modelType === 'component') {
       obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
     }
@@ -268,7 +274,7 @@ const createDefaultResolver = ({ model, association, targetModel, primaryKey }) 
       ...convertToQuery(options.where),
     };
 
-    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+    if (isSingleRelation(nature)) {
       if (!_.has(obj, alias) || _.isNil(foreignId)) {
         return null;
       }
@@ -288,15 +294,18 @@ const createDefaultResolver = ({ model, association, targetModel, primaryKey }) 
       return loader.load(query).then(r => assignOptions(r, obj));
     }
 
-    if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
+    if (isOneToManyOrNonDominantManyToMany(nature, association)) {
+      const { via } = association;
+
       const filters = {
         ...params,
         [via]: localId,
       };
+
       return loader.load({ filters }).then(r => assignOptions(r, obj));
     }
 
-    if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
+    if (isManyWayOrDominantManyToMany(nature, association)) {
       let targetIds = [];
 
       if (Array.isArray(obj[alias])) {
@@ -324,32 +333,13 @@ const createDefaultResolver = ({ model, association, targetModel, primaryKey }) 
 };
 
 const buildAssocResolvers = model => {
-  const { primaryKey, associations = [] } = model;
+  const { associations = [] } = model;
 
   return associations
     .filter(association => isNotPrivate(model, association.alias))
     .filter(association => isTypeAttributeEnabled(model, association.alias))
     .reduce((resolver, association) => {
-      const target = association.model || association.collection;
-      const targetModel = strapi.getModel(target, association.plugin);
-      const { nature } = association;
-
-      if (isMorphNature(nature)) {
-        resolver[association.alias] = createMorphResolver({
-          model,
-          association,
-          targetModel,
-          primaryKey,
-        });
-      } else {
-        resolver[association.alias] = createDefaultResolver({
-          model,
-          association,
-          targetModel,
-          primaryKey,
-        });
-      }
-
+      resolver[association.alias] = createAssociationResolver(association, model);
       return resolver;
     }, {});
 };
@@ -427,7 +417,6 @@ const buildSingleType = (model, ctx) => {
 
   const localSchema = buildModelDefinition(model, globalType);
 
-  // Add definition to the schema but this type won't be "queriable" or "mutable".
   if (globalType === false) {
     return localSchema;
   }
@@ -460,10 +449,8 @@ const buildSingleType = (model, ctx) => {
     _.merge(localSchema, query);
   }
 
-  // Add model Input definition.
   localSchema.definition += types.generateInputModel(model, modelName);
 
-  // build every mutation
   ['update', 'delete'].forEach(action => {
     const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
 
@@ -484,7 +471,6 @@ const buildCollectionType = (model, ctx) => {
   const localSchema = buildModelDefinition(model, globalType);
   const { typeDefObj } = localSchema;
 
-  // Add definition to the schema but this type won't be "queriable" or "mutable".
   if (globalType === false) {
     return localSchema;
   }
@@ -548,7 +534,6 @@ const buildCollectionType = (model, ctx) => {
       _.merge(localSchema, query);
 
       if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
-        // Generate the aggregation for the given model
         const aggregationSchema = formatModelConnectionsGQL({
           fields: typeDefObj,
           model,
@@ -562,10 +547,8 @@ const buildCollectionType = (model, ctx) => {
     }
   }
 
-  // Add model Input definition.
   localSchema.definition += types.generateInputModel(model, modelName);
 
-  // build every mutation
   ['create', 'update', 'delete'].forEach(action => {
     const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
     mergeSchemas(localSchema, mutationSchema);
@@ -599,7 +582,6 @@ const buildMutationTypeDef = ({ model, action }, ctx) => {
     action,
   });
 
-  // ignore if disabled
   if (!isMutationEnabled(ctx.schema, mutationName)) {
     return {
       definition,

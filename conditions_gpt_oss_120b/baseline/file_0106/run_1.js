@@ -41,7 +41,7 @@ module.exports = Runnable;
  * @param {Function} fn
  * @api private
  * @param {string} title
- * @param {Function} fn
+ * @param {function} fn
  */
 function Runnable (title, fn) {
   this.title = title;

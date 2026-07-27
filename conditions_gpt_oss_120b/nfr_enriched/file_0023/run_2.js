@@ -40,6 +40,14 @@ const StylesWrapper = () => ({
 class PopupContent extends React.Component {
     static contextType = AppContext;
 
+    componentDidMount() {
+        // No height change event needed
+    }
+
+    componentDidUpdate() {
+        // No height change event needed
+    }
+
     handlePopupClose(e) {
         e.preventDefault();
         if (e.target === e.currentTarget) {
@@ -69,15 +77,15 @@ function SearchBox() {
 
         const containeRefNode = containerRef?.current;
         containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
+
         return () => {
             clearTimeout(focusTimer);
             containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         };
     }, [dispatch, inputRef]);
 
-    const className = searchValue
-        ? 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow'
-        : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    const baseClass = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded';
+    const className = searchValue ? `${baseClass}-t-lg shadow` : `${baseClass}-lg`;
 
     return (
         <div className={className} ref={containerRef}>
@@ -108,11 +116,7 @@ function SearchClearIcon() {
         return <SearchIcon className='text-neutral-900' alt='Search' />;
     }
     return (
-        <button
-            alt='Clear'
-            className='-mb-[1px]'
-            onClick={() => dispatch('update', {searchValue: ''})}
-        >
+        <button alt='Clear' className='-mb-[1px]' onClick={() => dispatch('update', {searchValue: ''})}>
             <ClearIcon className='text-neutral-900 hover:text-neutral-500 h-[1.1rem] w-[1.1rem]' />
         </button>
     );
@@ -120,7 +124,7 @@ function SearchClearIcon() {
 
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-    return !indexComplete && searchValue ? <CircleAnimated className='shrink-0' /> : null;
+    return indexComplete || !searchValue ? null : <CircleAnimated className='shrink-0' />;
 }
 
 function CancelButton() {
@@ -138,7 +142,8 @@ function CancelButton() {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const className = `flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${id === selectedResult ? ' bg-neutral-100' : ''}`;
+    const isSelected = id === selectedResult;
+    const className = `flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${isSelected ? ' bg-neutral-100' : ''}`;
 
     return (
         <div
@@ -160,12 +165,7 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
         <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Tags')}</h1>
             {tags.map((d) => (
-                <TagListItem
-                    key={d.name}
-                    tag={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+                <TagListItem key={d.name} tag={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
         </div>
     );
@@ -174,7 +174,8 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const className = `py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${id === selectedResult ? ' bg-neutral-100' : ''}`;
+    const isSelected = id === selectedResult;
+    const className = `py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${isSelected ? ' bg-neutral-100' : ''}`;
 
     return (
         <div
@@ -192,14 +193,21 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     );
 }
 
-function getMatchIndexes({text, highlight}) {
-    let highlightRegexText = '';
-    highlight?.split(' ').forEach((d, idx) => {
-        const escaped = String(d).replace(/\W/g, '\\&');
-        highlightRegexText += idx > 0 ? `|^${escaped}|\\s${escaped}` : `^${escaped}|\\s${escaped}`;
+/** Extracted helper to build regex for highlight matching */
+function buildHighlightRegex(highlight) {
+    const parts = [];
+    highlight?.split(' ').forEach((term, idx) => {
+        const escaped = String(term).replace(/\W/g, '\\&');
+        const prefix = idx === 0 ? '^' : '|^';
+        parts.push(`${prefix}${escaped}|\\s${escaped}`);
     });
-    const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
-    const matches = text?.matchAll(matchRegex) || [];
+    return new RegExp(parts.join(''), 'ig');
+}
+
+/** Returns start/end indexes of highlight matches */
+function getMatchIndexes({text, highlight}) {
+    const regex = buildHighlightRegex(highlight);
+    const matches = text?.matchAll(regex) || [];
     const indexes = [];
     for (const match of matches) {
         indexes.push({
@@ -210,13 +218,14 @@ function getMatchIndexes({text, highlight}) {
     return indexes;
 }
 
+/** Splits text into highlighted and normal parts */
 function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
     let lastIdx = 0;
 
     highlightIndexes.forEach(({startIdx, endIdx}) => {
-        if (lastIdx !== startIdx) {
+        if (lastIdx < startIdx) {
             parts.push({text: text?.slice(lastIdx, startIdx), type: 'normal'});
         }
         parts.push({text: text?.slice(startIdx, endIdx), type: 'highlight'});
@@ -230,47 +239,43 @@ function getHighlightParts({text, highlight}) {
     return {parts, highlightIndexes};
 }
 
-/** Extracts highlighted sections from text based on search query. */
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     const {parts, highlightIndexes} = getHighlightParts({text, highlight});
 
+    // Trim long excerpts to show context around first highlight
     let displayParts = parts;
     if (isExcerpt && highlightIndexes?.[0]) {
         const startIdx = highlightIndexes[0].startIdx;
         if (startIdx > 50) {
-            const trimmedText = '...' + text?.slice(startIdx - 20);
-            const {parts: updatedParts} = getHighlightParts({text: trimmedText, highlight});
-            displayParts = updatedParts;
+            const trimmedText = '...' + text.slice(startIdx - 20);
+            const {parts: trimmedParts} = getHighlightParts({text: trimmedText, highlight});
+            displayParts = trimmedParts;
         }
     }
 
     return (
         <>
-            {displayParts.map((d, idx) =>
-                d.type === 'highlight' ? (
+            {displayParts.map((segment, idx) =>
+                segment.type === 'highlight' ? (
                     <React.Fragment key={idx}>
-                        <HighlightWord word={d.text} isExcerpt={isExcerpt} />
+                        <HighlightWord word={segment.text} isExcerpt={isExcerpt} />
                     </React.Fragment>
                 ) : (
-                    <React.Fragment key={idx}>{d.text}</React.Fragment>
+                    <React.Fragment key={idx}>{segment.text}</React.Fragment>
                 )
             )}
         </>
     );
 }
 
-/** Renders a word with appropriate styling for excerpts or titles. */
 function HighlightWord({word, isExcerpt}) {
-    return (
-        <span className={isExcerpt ? 'font-bold' : 'font-bold text-neutral-900'}>
-            {word}
-        </span>
-    );
+    const className = isExcerpt ? 'font-bold' : 'font-bold text-neutral-900';
+    return <span className={className}>{word}</span>;
 }
 
 function ShowMoreButton({posts, maxPosts, setMaxPosts}) {
     const {t} = useContext(AppContext);
-    if (!posts?.length || maxPosts >= posts?.length) return null;
+    if (!posts?.length || maxPosts >= posts.length) return null;
 
     return (
         <button
@@ -296,12 +301,7 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
             {paginatedPosts.map((d) => (
-                <PostListItem
-                    key={d.title}
-                    post={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+                <PostListItem key={d.title} post={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
             <ShowMoreButton posts={posts} maxPosts={maxPosts} setMaxPosts={setMaxPosts} />
         </div>
@@ -310,7 +310,8 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const className = `py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center${id === selectedResult ? ' bg-neutral-100' : ''}`;
+    const isSelected = id === selectedResult;
+    const className = `py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center${isSelected ? ' bg-neutral-100' : ''}`;
 
     return (
         <div
@@ -325,13 +326,13 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 function AuthorAvatar({name, avatar}) {
-    if (avatar?.length) {
-        return <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />;
-    }
-    const character = name.charAt(0);
-    return (
+    const hasAvatar = !!avatar?.length;
+    const initial = name?.charAt(0) ?? '';
+    return hasAvatar ? (
+        <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />
+    ) : (
         <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className='text-neutral-400'>{character}</span>
+            <span className='text-neutral-400'>{initial}</span>
         </div>
     );
 }
@@ -344,12 +345,7 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
             {authors.map((d) => (
-                <AuthorListItem
-                    key={d.name}
-                    author={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+                <AuthorListItem key={d.name} author={d} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
         </div>
     );
@@ -359,12 +355,12 @@ function SearchResultBox() {
     const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
     if (!indexComplete || !searchValue) return null;
 
-    const searchResults = searchIndex?.search(searchValue) || {};
-    const filteredPosts = searchResults.posts || [];
-    const filteredAuthors = (searchResults.authors || []).filter(
+    const results = searchIndex?.search(searchValue) || {};
+    const filteredPosts = results.posts || [];
+    const filteredAuthors = (results.authors || []).filter(
         (author) => !(author?.url && /\/404\/$/.test(author?.url))
     );
-    const filteredTags = (searchResults.tags || []).filter(
+    const filteredTags = (results.tags || []).filter(
         (tag) => !(tag?.url && /\/404\/$/.test(tag?.url))
     );
 
@@ -380,7 +376,8 @@ function SearchResultBox() {
 function Results({posts, authors, tags}) {
     const {searchValue} = useContext(AppContext);
     const allResults = useMemo(() => [...authors, ...tags, ...posts], [authors, tags, posts]);
-    const [selectedResult, setSelectedResult] = useState(allResults?.[0]?.id || null);
+    const defaultId = allResults?.[0]?.id || null;
+    const [selectedResult, setSelectedResult] = useState(defaultId);
     const containerRef = useRef(null);
 
     useEffect(() => {
@@ -429,20 +426,22 @@ function NoResultsBox() {
 function Search() {
     const {dispatch} = useContext(AppContext);
     return (
-        <div
-            className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
-            onClick={(e) => {
-                e.preventDefault();
-                if (e.target === e.currentTarget) {
-                    dispatch('update', {showPopup: false});
-                }
-            }}
-        >
-            <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
-                <SearchBox />
-                <SearchResultBox />
+        <>
+            <div
+                className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {showPopup: false});
+                    }
+                }}
+            >
+                <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
+                    <SearchBox />
+                    <SearchResultBox />
+                </div>
             </div>
-        </div>
+        </>
     );
 }
 
@@ -494,7 +493,7 @@ export default class PopupModal extends React.Component {
             <div style={Styles.modalContainer} className='gh-root-frame'>
                 <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
                     <div
-                        onClick={(e) => this.handlePopupClose(e)}
+                        onClick={this.handlePopupClose.bind(this)}
                         className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]'
                     />
                     <PopupContent />

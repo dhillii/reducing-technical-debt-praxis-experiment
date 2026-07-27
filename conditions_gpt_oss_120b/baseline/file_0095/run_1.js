@@ -36,7 +36,7 @@ define([
      * 10. `encrypt:models` - encrypt a Backbone collection
      * 11. `decrypt:models` - decrypt a Backbone collection
      */
-    const Encrypt = Marionette.Object.extend({
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
 
@@ -144,7 +144,7 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self  = this;
+            const self = this;
 
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
@@ -239,7 +239,7 @@ define([
             }
 
             const promises = [];
-            const self     = this;
+            const self = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
@@ -318,7 +318,7 @@ define([
          */
         _decryptModelKeys: function(model) {
             const promises = [];
-            const self     = this;
+            const self = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
@@ -365,7 +365,7 @@ define([
                 return null;
             }
 
-            let keys  = window.sessionStorage.getItem(this._getSessionKey());
+            let keys = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;

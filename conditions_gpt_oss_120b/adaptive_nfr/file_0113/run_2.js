@@ -486,73 +486,134 @@ exports.expires = function expires(object) {
 
 /*!
  * populate helper
+ *
+ * New API: accepts a path (string) or an options object as the first argument.
+ * Legacy signatures with up to 8 positional arguments are still supported.
+ *
+ * @param {String|Object} pathOrObj - path string or options object
+ * @param {Object} [opts] - optional options object for legacy compatibility
+ * @return {Array<PopulateOptions>}
  */
 
-/**
- * Public populate function supporting legacy signatures.
- *
- * @param {...any} args Variable arguments matching legacy signatures.
- * @returns {Array<PopulateOptions>}
- */
-exports.populate = function populate(...args) {
-  // Legacy handling: single argument may be object, PopulateOptions, or array
-  if (args.length === 1) {
-    const path = args[0];
-    if (path instanceof PopulateOptions) {
-      return [path];
+exports.populate = function populate(pathOrObj, opts) {
+  // Legacy positional arguments handling
+  if (arguments.length > 2) {
+    const [path, select, model, match, options, subPopulate, justOne, count] = arguments;
+    if (typeof model === 'object' && model !== null && !(model instanceof String) && !(model instanceof Number)) {
+      // model argument actually holds match object
+      opts = {
+        path,
+        select,
+        match: model,
+        options: match
+      };
+    } else {
+      opts = {
+        path,
+        select,
+        model,
+        match,
+        options,
+        populate: subPopulate,
+        justOne,
+        count
+      };
     }
-    if (Array.isArray(path)) {
-      const singles = makeSingles(path);
+  } else if (arguments.length === 1) {
+    // Single argument handling (path string, array, object, or PopulateOptions)
+    if (pathOrObj instanceof PopulateOptions) {
+      return [pathOrObj];
+    }
+
+    if (Array.isArray(pathOrObj)) {
+      const singles = makeSingles(pathOrObj);
       return singles.map(o => exports.populate(o)[0]);
     }
-    if (exports.isObject(path)) {
-      return _populateParams(Object.assign({}, path));
+
+    if (exports.isObject(pathOrObj)) {
+      opts = Object.assign({}, pathOrObj);
+    } else {
+      opts = { path: pathOrObj };
     }
-    return _populateParams({ path });
+  } else {
+    // Two-argument call where second argument is an options object
+    opts = Object.assign({ path: pathOrObj }, opts);
   }
 
-  // Multiple arguments: map to parameter object
-  const [path, select, model, match, options, subPopulate, justOne, count] = args;
-  if (typeof model === 'object' && model !== null && !(model instanceof PopulateOptions)) {
-    // signature: (path, select, matchObj, optionsObj)
-    return _populateParams({
-      path,
-      select,
-      match: model,
-      options: match
-    });
+  if (typeof opts.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof opts.path + '`');
   }
 
-  // full signature
-  return _populateParams({
-    path,
-    select,
-    model,
-    match,
-    options,
-    populate: subPopulate,
-    justOne,
-    count
-  });
+  return _populateObj(opts);
 };
 
 /**
- * Internal helper that builds PopulateOptions from a parameter object.
+ * Builder for Populate options.
  *
- * @param {Object} params Parameter object containing populate configuration.
- * @returns {Array<PopulateOptions>}
+ * Allows incremental construction of a populate options object.
+ *
+ * @class
  */
-function _populateParams(params) {
-  if (typeof params.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof params.path + '`');
+class PopulateBuilder {
+  /**
+   * @param {String} path
+   */
+  constructor(path) {
+    this._obj = { path };
   }
-  return _populateObj(params);
+
+  /** @param {String|Array} select */
+  setSelect(select) {
+    this._obj.select = select;
+    return this;
+  }
+
+  /** @param {String|Object} model */
+  setModel(model) {
+    this._obj.model = model;
+    return this;
+  }
+
+  /** @param {Object} match */
+  setMatch(match) {
+    this._obj.match = match;
+    return this;
+  }
+
+  /** @param {Object} options */
+  setOptions(options) {
+    this._obj.options = options;
+    return this;
+  }
+
+  /** @param {Array|Object} populate */
+  setPopulate(populate) {
+    this._obj.populate = populate;
+    return this;
+  }
+
+  /** @param {Boolean} justOne */
+  setJustOne(justOne) {
+    this._obj.justOne = justOne;
+    return this;
+  }
+
+  /** @param {Boolean} count */
+  setCount(count) {
+    this._obj.count = count;
+    return this;
+  }
+
+  /** @returns {Object} */
+  build() {
+    return this._obj;
+  }
 }
 
 /**
- * Constructs PopulateOptions instances handling nested populate definitions.
+ * Internal helper to process a populate options object.
  *
- * @param {Object} obj Normalized populate configuration object.
+ * @param {Object} obj
  * @returns {Array<PopulateOptions>}
  */
 function _populateObj(obj) {
@@ -589,9 +650,9 @@ function _populateObj(obj) {
 }
 
 /**
- * Helper to split array of populate objects with space-separated paths into singles.
+ * Splits array of populate objects with space-separated paths into single-path objects.
  *
- * @param {Array<Object>} arr Array of populate specifications.
+ * @param {Array<Object>} arr
  * @returns {Array<Object>}
  */
 function makeSingles(arr) {
@@ -628,9 +689,21 @@ exports.getValue = function(path, obj, map) {
  * @param {String} path
  * @param {Anything} val
  * @param {Object} obj
+ * @param {Object} [options] - optional map and copying flag
  */
 
-exports.setValue = function(path, val, obj, map, _copying) {
+exports.setValue = function setValue(path, val, obj, mapOrOpts, maybeCopying) {
+  let map = mapOrOpts;
+  let _copying = maybeCopying;
+
+  if (arguments.length === 5) {
+    map = mapOrOpts;
+    _copying = maybeCopying;
+  } else if (arguments.length === 4 && typeof mapOrOpts === 'object' && mapOrOpts !== null) {
+    map = mapOrOpts.map;
+    _copying = mapOrOpts._copying;
+  }
+
   mpath.set(path, val, obj, '_doc', map, _copying);
 };
 

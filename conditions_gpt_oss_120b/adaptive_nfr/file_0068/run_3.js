@@ -11,10 +11,10 @@
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
- * Load the first batch of rule modules.
- * @returns {Object<string, () => any>} Mapping of rule names to loader functions.
+ * Returns a subset of rule entries.
+ * @returns {Object<string, () => any>}
  */
-function loadRuleBatchA() {
+function getRuleEntriesPart1() {
   return {
     "accessor-pairs": () => require("./accessor-pairs"),
     "array-bracket-newline": () => require("./array-bracket-newline"),
@@ -312,21 +312,12 @@ function loadRuleBatchA() {
 }
 
 /**
- * Merge multiple rule batch objects into a single object.
- * @param {...Object<string, () => any>} batches Rule batch objects.
- * @returns {Object<string, () => any>} Combined rule map.
- */
-function mergeRuleBatches(...batches) {
-  return Object.assign({}, ...batches);
-}
-
-/**
- * Build the complete rule map entries.
- * @returns {Array<[string, () => any]>} Array of [ruleName, loader] pairs.
+ * Orchestrates the construction of the full rule entry map.
+ * @returns {Array<[string, () => any]>}
  */
 function buildRuleEntries() {
-  const combined = mergeRuleBatches(loadRuleBatchA());
-  return Object.entries(combined);
+  const entries = Object.assign({}, getRuleEntriesPart1());
+  return Object.entries(entries);
 }
 
 /** @type {Map<string, import("../types").Rule.RuleModule>} */

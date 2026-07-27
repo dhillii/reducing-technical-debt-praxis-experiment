@@ -60,6 +60,9 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
   return cb as any
 }
 
+/**
+ * Renders a delete confirmation dialog with corrected spacing after the strong element.
+ */
 function DeleteButton({
   list,
   itemId,
@@ -108,9 +111,8 @@ function DeleteButton({
           }}
         >
           <Text>
-            Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be
-            undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>?
+            This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -124,6 +126,9 @@ function DeleteButton({
   )
 }
 
+/**
+ * Simple placeholder UI for when an item cannot be found.
+ */
 function ItemNotFound(props: PropsWithChildren) {
   return (
     <VStack
@@ -144,6 +149,9 @@ function ItemNotFound(props: PropsWithChildren) {
   )
 }
 
+/**
+ * Renders a reset confirmation dialog.
+ */
 function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   return (
     <DialogTrigger>
@@ -164,63 +172,8 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
 }
 
 /**
- * Renders the appropriate not‑found message based on list configuration and the requested ID.
+ * Form component for editing an item.
  */
-function NotFoundMessage({
-  list,
-  itemId,
-  hideCreate,
-}: {
-  list: ListMeta
-  itemId: string | undefined
-  hideCreate: boolean
-}) {
-  if (list.isSingleton) {
-    if (itemId === '1') {
-      return (
-        <>
-          <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-          {!hideCreate && <CreateButtonLink list={list} />}
-        </>
-      )
-    }
-    return (
-      <Text>
-        An item with ID <strong>“{itemId}”</strong> does not exist.
-      </Text>
-    )
-  }
-
-  return (
-    <Text>
-      The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to it.
-    </Text>
-  )
-}
-
-/**
- * Handles navigation after an item action based on the action's navigation mode.
- */
-function handleActionNavigation({
-  navigation,
-  resultId,
-  itemId,
-  list,
-}: {
-  navigation: ActionMeta['itemView']['navigation']
-  resultId: string | null
-  itemId: string | undefined
-  list: ListMeta
-}) {
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    return 'refetch'
-  }
-  if (navigation === 'follow' && resultId) {
-    return `/${list.path}/${resultId}`
-  }
-  return list.isSingleton ? '/' : `/${list.path}`
-}
-
 function ItemForm({
   listKey,
   initialValue,
@@ -296,7 +249,11 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
-        {/* Workaround for react-aria "bug" where pressing enter in a form field moves focus to the submit button. */}
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -361,6 +318,78 @@ function ItemForm({
   )
 }
 
+/**
+ * Determines the appropriate not-found UI based on list configuration and item ID.
+ */
+function renderItemNotFound(list: ListMeta, itemId: string | undefined): JSX.Element {
+  if (list.isSingleton) {
+    if (itemId === '1') {
+      return (
+        <ItemNotFound>
+          <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
+          {!list.hideCreate && <CreateButtonLink list={list} />}
+        </ItemNotFound>
+      )
+    }
+    return (
+      <ItemNotFound>
+        <Text>
+          An item with ID <strong>“{itemId}”</strong> does not exist.
+        </Text>
+      </ItemNotFound>
+    )
+  }
+
+  return (
+    <ItemNotFound>
+      <Text>
+        The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+        access to it.
+      </Text>
+    </ItemNotFound>
+  )
+}
+
+/**
+ * Handles navigation after an action is performed.
+ */
+function handleActionNavigation(
+  navigation: ActionMeta['itemView']['navigation'],
+  resultId: string | null,
+  itemId: string | undefined,
+  list: ListMeta,
+  router: ReturnType<typeof useRouter>,
+  refetch: () => void
+) {
+  const navigationMap: Record<
+    ActionMeta['itemView']['navigation'],
+    () => void
+  > = {
+    follow: () => {
+      if (resultId === itemId) {
+        refetch()
+      } else if (resultId) {
+        router.push(`/${list.path}/${resultId}`)
+      } else {
+        router.push(list.isSingleton ? '/' : `/${list.path}`)
+      }
+    },
+    refetch: () => {
+      refetch()
+    },
+    // default fallback
+    none: () => {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    },
+  }
+
+  const navigate = navigationMap[navigation] ?? navigationMap.none
+  navigate()
+}
+
+/**
+ * Page component for displaying a single item.
+ */
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -430,17 +459,14 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [data?.keystone?.adminMeta, list.fields])
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    const navigationTarget = handleActionNavigation({
-      navigation: action.itemView.navigation,
+    handleActionNavigation(
+      action.itemView.navigation,
       resultId,
       itemId,
       list,
-    })
-    if (navigationTarget === 'refetch') {
-      refetch()
-    } else {
-      router.push(navigationTarget)
-    }
+      router,
+      refetch
+    )
   }
 
   return (
@@ -465,11 +491,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && (
-              <ItemNotFound>
-                <NotFoundMessage list={list} itemId={itemId} hideCreate={list.hideCreate} />
-              </ItemNotFound>
-            )}
+            {item == null && renderItemNotFound(list, itemId)}
           </Box>
           {initialValue && (
             <ItemForm

@@ -34,7 +34,7 @@ define([
      * 6. channel: `encrypt`, request: `decrypt:models`
      * 7. channel: `encrypt`, request: `encrypt:models`
      */
-    const Controller = Marionette.Object.extend({
+    var Controller = Marionette.Object.extend({
 
         // Collections to encrypt
         collectionNames : ['notes', 'tags', 'notebooks'],
@@ -140,7 +140,7 @@ define([
             })};
 
             // Re-encrypt every profile
-            _.each(this.profiles, function(p) {
+            _.each(this.profiles, function(profile) {
                 promises.push(function() {
                     // Use backup configs
                     self.vent.request('change:configs', self.backup);
@@ -149,7 +149,7 @@ define([
                     return self.vent.request('save:secureKey', self.passwords.old)
                     .then(function() {
                         return self.encryptProfile({
-                            profile: p
+                            profile: profile
                         });
                     });
                 });
@@ -165,22 +165,22 @@ define([
         },
 
         /**
-         * Start encryption process for a given profile.
+         * Start encryption process
          */
         encryptProfile: function(options) {
-            const self = this;
             const promises = [];
+            const self = this;
 
             // Fetch options
-            options = options || this.options;
-            options.pageSize = 0;
+            let opts = options || this.options;
+            opts.pageSize = 0;
 
-            this.rawData[options.profile] = this.rawData[options.profile] || {};
+            this.rawData[opts.profile] = this.rawData[opts.profile] || {};
 
             // Fetch all collections in a profile
             _.each(this.collectionNames, function(name) {
                 promises.push(
-                    new Q(Radio.request(name, 'fetch', options))
+                    new Q(Radio.request(name, 'fetch', opts))
                 );
             });
 
@@ -191,7 +191,7 @@ define([
             .spread(function() {
                 // Re-encrypt the collections that are not empty
                 self.collections = _.filter(arguments, function(collection) {
-                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
+                    self.rawData[opts.profile][collection.storeName] = collection.toJSON();
                     return collection.length > 0;
                 });
                 self.view.trigger('encrypt:init', self.collections.length);
@@ -204,7 +204,6 @@ define([
          * Encrypt every collection with new encryption configs.
          */
         encrypt: function() {
-            const self = this;
 
             // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
@@ -217,6 +216,7 @@ define([
             }
 
             const promises = [];
+            const self = this;
 
             // Use new encryption configs
             this.vent.request('change:configs', this.configs);

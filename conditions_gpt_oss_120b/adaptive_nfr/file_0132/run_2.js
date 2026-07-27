@@ -105,6 +105,7 @@ const fieldResolver = (field, key) => {
 const createFieldsResolver = function (fields, resolverFn, typeCheck) {
   const resolver = Object.keys(fields).reduce((acc, fieldKey) => {
     const field = fields[fieldKey];
+    // Check if the field is of the correct type
     if (typeCheck(field)) {
       return _.set(acc, fieldKey, (obj, options, context) => {
         return resolverFn(
@@ -150,92 +151,71 @@ const extractType = function (_type, attributeType) {
 };
 
 /**
- * Build aggregation filters from the incoming object.
- *
- * @param {Object} obj - The incoming GraphQL arguments.
- * @returns {Object} The converted filters.
- */
-const buildAggregationFilters = obj => {
-  return convertRestQueryParams({
-    ...convertToParams(_.omit(obj, 'where')),
-    ...convertToQuery(obj.where),
-  });
-};
-
-/**
- * Execute aggregation for Mongoose models.
- *
- * @param {Object} model - The Strapi model.
- * @param {Object} filters - The query filters.
- * @param {string} operation - Aggregation operation (sum, avg, min, max).
- * @param {string} fieldKey - The field to aggregate.
- * @returns {Promise<Number>} Aggregated value.
- */
-const executeMongooseAggregation = (model, filters, operation, fieldKey) => {
-  return buildQuery({ model, filters, aggregate: true })
-    .group({
-      _id: null,
-      [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
-    })
-    .exec()
-    .then(result => _.get(result, [0, fieldKey]));
-};
-
-/**
- * Execute aggregation for Bookshelf models.
- *
- * @param {Object} model - The Strapi model.
- * @param {Object} filters - The query filters.
- * @param {string} operation - Aggregation operation (sum, avg, min, max).
- * @param {string} fieldKey - The field to aggregate.
- * @returns {Promise<Number>} Aggregated value.
- */
-const executeBookshelfAggregation = (model, filters, operation, fieldKey) => {
-  return model
-    .query(qb => {
-      buildQuery({ model, filters })(qb);
-      qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
-    })
-    .fetch()
-    .then(result => result.get(`${operation}_${fieldKey}`));
-};
-
-/**
- * Factory that creates a resolver for aggregation fields.
- *
- * @param {Object} model - The Strapi model.
- * @param {string} operation - Aggregation operation.
- * @returns {Function} Resolver function.
- */
-const buildAggregationResolver = (model, operation) => {
-  return async (obj, options, context, fieldResolver, fieldKey) => {
-    const filters = buildAggregationFilters(obj);
-
-    if (model.orm === 'mongoose') {
-      return executeMongooseAggregation(model, filters, operation, fieldKey);
-    }
-
-    if (model.orm === 'bookshelf') {
-      return executeBookshelfAggregation(model, filters, operation, fieldKey);
-    }
-  };
-};
-
-/**
  * Create the resolvers for each aggregation field
  *
  * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ *
+ * const fields = {
+ *   username: String,
+ *   age: Int,
+ * }
+ *
+ * const typeCheck = (type) => type === 'Int' || type === 'Float',
+ *
+ * const fieldsResoler = createAggregationFieldsResolver(model, fields, 'sum', typeCheck);
+ *
+ * // => {
+ *   age: function ageResolver() { .... }
+ * }
  */
 const createAggregationFieldsResolver = function (model, fields, operation, typeCheck) {
   return createFieldsResolver(
     fields,
-    buildAggregationResolver(model, operation),
+    async (obj, options, context, fieldResolver, fieldKey) => {
+      const filters = convertRestQueryParams({
+        ...convertToParams(_.omit(obj, 'where')),
+        ...convertToQuery(obj.where),
+      });
+
+      if (model.orm === 'mongoose') {
+        return buildQuery({ model, filters, aggregate: true })
+          .group({
+            _id: null,
+            [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
+          })
+          .exec()
+          .then(result => _.get(result, [0, fieldKey]));
+      }
+
+      if (model.orm === 'bookshelf') {
+        return model
+          .query(qb => {
+            // apply filters
+            buildQuery({ model, filters })(qb);
+
+            // `sum, avg, min, max` pass nicely to knex :->
+            qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
+          })
+          .fetch()
+          .then(result => result.get(`${operation}_${fieldKey}`));
+      }
+    },
     typeCheck
   );
 };
 
 /**
  * Correctly format the data returned by the group by
+ *
+ * @param {Object} param0
+ * @param {Array} param0.result
+ * @param {String} param0.fieldKey
+ * @param {Object} param0.filters
+ * @returns {Array}
  */
 const preProcessGroupByData = function ({ result, fieldKey, filters }) {
   const _result = _.toArray(result).filter(value => Boolean(value._id));
@@ -244,6 +224,7 @@ const preProcessGroupByData = function ({ result, fieldKey, filters }) {
       key: value._id.toString(),
       connection: () => {
         // filter by the grouped by value in next connection
+
         return {
           ...filters,
           where: {
@@ -257,62 +238,68 @@ const preProcessGroupByData = function ({ result, fieldKey, filters }) {
 };
 
 /**
- * Build group‑by query parameters.
+ * Build a connection object for a bookshelf group‑by value.
  *
- * @param {Object} filters - The incoming GraphQL arguments.
- * @returns {Object} Converted parameters.
+ * @param {Object} filters Original filters passed to the resolver.
+ * @param {String} fieldKey The field used for grouping.
+ * @param {String} value The grouped value.
+ * @returns {Object}
  */
-const buildGroupByParams = filters => {
-  return convertRestQueryParams({
-    ...convertToParams(_.omit(filters, 'where')),
-    ...convertToQuery(filters.where),
-  });
-};
+function buildBookshelfConnection(filters, fieldKey, value) {
+  return {
+    ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
+    where: {
+      ...(filters.where || {}),
+      [fieldKey]: value,
+    },
+  };
+}
 
 /**
- * Execute group‑by for Bookshelf models.
+ * Transform raw bookshelf results into the expected connection format.
  *
- * @param {Object} model - The Strapi model.
- * @param {Object} params - Query parameters.
- * @param {string} fieldKey - Field to group by.
- * @param {Object} filters - Original filters for connection building.
- * @returns {Promise<Array>} Group‑by results.
+ * @param {Object} result Bookshelf fetchAll result.
+ * @param {String} fieldKey The field used for grouping.
+ * @param {Object} filters Original filters.
+ * @returns {Array}
  */
-const executeBookshelfGroupBy = (model, params, fieldKey, filters) => {
-  return model
-    .query(qb => {
-      buildQuery({ model, filters: params })(qb);
-      qb.groupBy(fieldKey);
-      qb.select(fieldKey);
-    })
-    .fetchAll()
-    .then(result => {
-      const values = result.models
-        .map(m => m.get(fieldKey))
-        .filter(v => !!v)
-        .map(v => '' + v);
-      return values.map(v => ({
-        key: v,
-        connection: () => ({
-          ..._.omit(filters, ['limit']),
-          where: {
-            ...(filters.where || {}),
-            [fieldKey]: v,
-          },
-        }),
-      }));
+function processBookshelfGroupBy(result, fieldKey, filters) {
+  const values = result.models
+    .map(m => m.get(fieldKey)) // extract aggregate field
+    .filter(v => !!v) // remove null
+    .map(v => '' + v); // convert to string
+
+  return values.map(v => ({
+    key: v,
+    connection: () => buildBookshelfConnection(filters, fieldKey, v),
+  }));
+}
+
+/**
+ * Create the resolvers for each group by field
+ *
+ * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ * const fields = {
+ *   username: [UserConnectionUsername],
+ *   email: [UserConnectionEmail],
+ * }
+ * const fieldsResoler = createGroupByFieldsResolver(model, fields);
+ *
+ * // => {
+ *   username: function usernameResolver() { .... }
+ *   email: function emailResolver() { .... }
+ * }
+ */
+const createGroupByFieldsResolver = function (model, fields) {
+  const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
+    const params = convertRestQueryParams({
+      ...convertToParams(_.omit(filters, 'where')),
+      ...convertToQuery(filters.where),
     });
-};
-
-/**
- * Factory that creates a resolver for group‑by fields.
- *
- * @param {Object} model - The Strapi model.
- * @returns {Function} Resolver function.
- */
-const buildGroupByResolver = model => {
-  return async (filters, options, context, fieldResolver, fieldKey) => {
-    const params = buildGroupByParams(filters);
 
     if (model.orm === 'mongoose') {
       const result = await buildQuery({
@@ -331,18 +318,18 @@ const buildGroupByResolver = model => {
     }
 
     if (model.orm === 'bookshelf') {
-      return executeBookshelfGroupBy(model, params, fieldKey, filters);
+      return model
+        .query(qb => {
+          buildQuery({ model, filters: params })(qb);
+          qb.groupBy(fieldKey);
+          qb.select(fieldKey);
+        })
+        .fetchAll()
+        .then(result => processBookshelfGroupBy(result, fieldKey, filters));
     }
   };
-};
 
-/**
- * Create the resolvers for each group by field
- *
- * @return {Object}
- */
-const createGroupByFieldsResolver = function (model, fields) {
-  return createFieldsResolver(fields, buildGroupByResolver(model), () => true);
+  return createFieldsResolver(fields, resolver, () => true);
 };
 
 /**

@@ -4,99 +4,566 @@ import {createPopupNotification, getMemberEmail, getMemberName, getProductCadenc
 import {t} from './utils/i18n';
 
 /**
- * Guard: check if plan is the free tier.
- * @param {string} plan
+ * Guard predicate: both data and email updates are present.
+ * @param {object|null} dataUpdate
+ * @param {object|null} emailUpdate
  * @returns {boolean}
  */
-function isFreePlan(plan) {
-    return typeof plan === 'string' && plan.toLowerCase() === 'free';
+function hasBothUpdates(dataUpdate, emailUpdate) {
+    return !!dataUpdate && !!emailUpdate;
 }
 
 /**
- * Guard: check if tierId and cadence are provided.
- * @param {any} tierId
- * @param {any} cadence
+ * Guard predicate: only data update is present.
+ * @param {object|null} dataUpdate
+ * @param {object|null} emailUpdate
  * @returns {boolean}
  */
-function hasTierAndCadence(tierId, cadence) {
-    return !!tierId && !!cadence;
+function hasOnlyDataUpdate(dataUpdate, emailUpdate) {
+    return !!dataUpdate && !emailUpdate;
 }
 
 /**
- * Resolve tierId and cadence for a paid plan.
- * @param {Object} params
- * @param {string} params.plan
- * @param {any} params.tierId
- * @param {any} params.cadence
- * @param {Object} params.state
- * @param {Object} params.api
- * @returns {Promise<{tierId:any,cadence:any}>}
+ * Guard predicate: only email update is present.
+ * @param {object|null} dataUpdate
+ * @param {object|null} emailUpdate
+ * @returns {boolean}
  */
-async function resolveTierAndCadence({plan, tierId, cadence, state, api}) {
-    if (hasTierAndCadence(tierId, cadence)) {
-        return {tierId, cadence};
+function hasOnlyEmailUpdate(dataUpdate, emailUpdate) {
+    return !dataUpdate && !!emailUpdate;
+}
+
+/**
+ * Guard predicate: update succeeded.
+ * @param {object|null} update
+ * @returns {boolean}
+ */
+function isSuccess(update) {
+    return !!update && !!update.success;
+}
+
+/**
+ * Build message for email update outcome.
+ * @param {object} emailUpdate
+ * @returns {string}
+ */
+function getEmailUpdateMessage(emailUpdate) {
+    if (emailUpdate.error) {
+        return chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
     }
-    const result = getProductCadenceFromPrice({site: state?.site, priceId: plan});
-    return {tierId: result.tierId, cadence: result.cadence};
+    return t('Check your inbox to verify email update');
 }
 
 /**
- * Build response for magiclink flow.
- * @param {Object} state
- * @param {string} email
- * @param {any} inboxLinks
- * @returns {Object}
+ * Build message for data update outcome.
+ * @param {object} dataUpdate
+ * @returns {string}
  */
-function buildMagicLinkResponse(state, email, inboxLinks) {
+function getDataUpdateMessage(dataUpdate) {
+    return dataUpdate.success
+        ? t('Account details updated successfully')
+        : t('Failed to update account details');
+}
+
+/**
+ * Build message when both updates are present but email failed.
+ * @param {object} dataUpdate
+ * @returns {string}
+ */
+function getCombinedFailureMessage(dataUpdate) {
+    return dataUpdate.success
+        ? t('Failed to send verification email')
+        : t('Failed to update account data');
+}
+
+/**
+ * Build popup notification object.
+ * @param {string} type
+ * @param {boolean} autoHide
+ * @param {string} status
+ * @param {string} message
+ * @param {object} state
+ * @returns {object}
+ */
+function buildPopup({type, autoHide, status, message, state}) {
+    return createPopupNotification({
+        type,
+        autoHide,
+        closeable: true,
+        status,
+        state,
+        message
+    });
+}
+
+/**
+ * Update profile handling with flattened control flow.
+ * @param {object} param0
+ * @param {object} param0.data
+ * @param {object} param0.state
+ * @param {object} param0.api
+ * @returns {Promise<object>}
+ */
+async function updateProfile({data, state, api}) {
+    const [dataUpdate, emailUpdate] = await Promise.all([
+        updateMemberData({data, state, api}),
+        updateMemberEmail({data, state, api})
+    ]);
+
+    // No updates at all
+    if (!dataUpdate && !emailUpdate) {
+        return {
+            action: 'updateProfile:success',
+            page: 'accountHome',
+            popupNotification: buildPopup({
+                type: 'updateProfile:success',
+                autoHide: true,
+                status: 'success',
+                message: t('Account details updated successfully'),
+                state
+            })
+        };
+    }
+
+    // Both updates present
+    if (hasBothUpdates(dataUpdate, emailUpdate)) {
+        if (isSuccess(emailUpdate)) {
+            return {
+                action: 'updateProfile:success',
+                ...(isSuccess(dataUpdate) ? {member: dataUpdate.member} : {}),
+                page: 'accountHome',
+                popupNotification: buildPopup({
+                    type: 'updateProfile:success',
+                    autoHide: true,
+                    status: 'success',
+                    message: t('Check your inbox to verify email update'),
+                    state
+                })
+            };
+        }
+
+        const message = getCombinedFailureMessage(dataUpdate);
+        return {
+            action: 'updateProfile:failed',
+            ...(isSuccess(dataUpdate) ? {member: dataUpdate.member} : {}),
+            popupNotification: buildPopup({
+                type: 'updateProfile:failed',
+                autoHide: true,
+                status: 'error',
+                message,
+                state
+            })
+        };
+    }
+
+    // Only data update present
+    if (hasOnlyDataUpdate(dataUpdate, emailUpdate)) {
+        const success = isSuccess(dataUpdate);
+        const action = success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = success ? 'success' : 'error';
+        const message = getDataUpdateMessage(dataUpdate);
+        return {
+            action,
+            ...(success ? {member: dataUpdate.member, page: 'accountHome'} : {}),
+            popupNotification: buildPopup({
+                type: action,
+                autoHide: success,
+                status,
+                message,
+                state
+            })
+        };
+    }
+
+    // Only email update present
+    if (hasOnlyEmailUpdate(dataUpdate, emailUpdate)) {
+        const success = isSuccess(emailUpdate);
+        const action = success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = success ? 'success' : 'error';
+        const message = getEmailUpdateMessage(emailUpdate);
+        return {
+            action,
+            ...(success ? {page: 'accountHome'} : {}),
+            popupNotification: buildPopup({
+                type: action,
+                autoHide: success,
+                status,
+                message,
+                state
+            })
+        };
+    }
+
+    // Fallback (should not reach)
+    return {};
+}
+
+async function signout({api, state}) {
+    try {
+        await api.member.signout();
+        return {
+            action: 'signout:success'
+        };
+    } catch (e) {
+        return {
+            action: 'signout:failed',
+            popupNotification: createPopupNotification({
+                type: 'signout:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to log out, please try again')
+            })
+        };
+    }
+}
+
+async function signin({data, api, state}) {
+    try {
+        const integrityToken = await api.member.getIntegrityToken();
+        const payload = {
+            ...data,
+            emailType: 'signin',
+            integrityToken,
+            includeOTC: true
+        };
+        const {otc_ref: otcRef, inboxLinks} = await api.member.sendMagicLink(payload);
+        return {
+            page: 'magiclink',
+            lastPage: 'signin',
+            ...(otcRef ? {otcRef} : {}),
+            inboxLinks,
+            pageData: {
+                ...(state.pageData || {}),
+                email: (data?.email || '').trim()
+            }
+        };
+    } catch (e) {
+        return {
+            action: 'signin:failed',
+            popupNotification: createPopupNotification({
+                type: 'signin:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: chooseBestErrorMessage(e, t('Failed to log in, please try again'))
+            })
+        };
+    }
+}
+
+function startSigninOTCFromCustomForm({data, state}) {
+    const email = (data?.email || '').trim();
+    const otcRef = data?.otcRef;
+    const inboxLinks = data?.inboxLinks;
+
+    if (!otcRef) {
+        return {};
+    }
+
     return {
+        showPopup: true,
         page: 'magiclink',
-        lastPage: 'signup',
+        lastPage: 'signin',
+        otcRef,
         inboxLinks,
         pageData: {
             ...(state.pageData || {}),
-            email: (email || '').trim()
+            email
+        },
+        popupNotification: null
+    };
+}
+
+async function verifyOTC({data, api}) {
+    const genericErrorMessage = t('Failed to verify code, please try again');
+
+    try {
+        const integrityToken = await api.member.getIntegrityToken();
+        const response = await api.member.verifyOTC({...data, integrityToken});
+
+        if (response.redirectUrl) {
+            return window.location.assign(response.redirectUrl);
+        } else {
+            return {
+                action: 'verifyOTC:failed',
+                actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
+            };
         }
+    } catch (e) {
+        return {
+            action: 'verifyOTC:failed',
+            actionErrorMessage: chooseBestErrorMessage(e, genericErrorMessage)
+        };
+    }
+}
+
+async function signup({data, state, api}) {
+    try {
+        let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+        name = name?.trim();
+
+        let inboxLinks;
+        if (plan.toLowerCase() === 'free') {
+            const integrityToken = await api.member.getIntegrityToken();
+            ({inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name}));
+        } else {
+            if (tierId && cadence) {
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            } else {
+                ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            }
+            return {
+                page: 'loading'
+            };
+        }
+        return {
+            page: 'magiclink',
+            lastPage: 'signup',
+            inboxLinks,
+            pageData: {
+                ...(state.pageData || {}),
+                email: (email || '').trim()
+            }
+        };
+    } catch (e) {
+        const message = chooseBestErrorMessage(e, t('Failed to sign up, please try again'));
+        return {
+            action: 'signup:failed',
+            popupNotification: createPopupNotification({
+                type: 'signup:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message
+            })
+        };
+    }
+}
+
+async function checkoutPlan({data, state, api}) {
+    try {
+        let {plan, offerId, tierId, cadence} = data;
+        if (!tierId || !cadence) {
+            ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+        }
+        await api.member.checkoutPlan({
+            plan,
+            tierId,
+            cadence,
+            offerId,
+            metadata: {
+                checkoutType: 'upgrade'
+            }
+        });
+    } catch (e) {
+        return {
+            action: 'checkoutPlan:failed',
+            popupNotification: createPopupNotification({
+                type: 'checkoutPlan:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to process checkout, please try again')
+            })
+        };
+    }
+}
+
+async function updateSubscription({data, state, api}) {
+    try {
+        const {plan, planId, subscriptionId, cancelAtPeriodEnd} = data;
+        const {tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: planId});
+
+        await api.member.updateSubscription({
+            planName: plan,
+            tierId,
+            cadence,
+            subscriptionId,
+            cancelAtPeriodEnd,
+            planId: planId
+        });
+        const member = await api.member.sessionData();
+        const action = 'updateSubscription:success';
+        return {
+            action,
+            popupNotification: createPopupNotification({
+                type: action,
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'success',
+                message: t('Subscription plan updated successfully')
+            }),
+            page: 'accountHome',
+            member
+        };
+    } catch (e) {
+        return {
+            action: 'updateSubscription:failed',
+            popupNotification: createPopupNotification({
+                type: 'updateSubscription:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to update subscription, please try again')
+            })
+        };
+    }
+}
+
+async function cancelSubscription({data, state, api}) {
+    try {
+        const {subscriptionId, cancellationReason} = data;
+        await api.member.updateSubscription({
+            subscriptionId,
+            smartCancel: true,
+            cancellationReason
+        });
+        const member = await api.member.sessionData();
+        const action = 'cancelSubscription:success';
+        return {
+            action,
+            page: 'accountHome',
+            member
+        };
+    } catch (e) {
+        return {
+            action: 'cancelSubscription:failed',
+            popupNotification: createPopupNotification({
+                type: 'cancelSubscription:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to cancel subscription, please try again')
+            })
+        };
+    }
+}
+
+async function continueSubscription({data, state, api}) {
+    try {
+        const {subscriptionId} = data;
+        await api.member.updateSubscription({
+            subscriptionId,
+            cancelAtPeriodEnd: false
+        });
+        const member = await api.member.sessionData();
+        const action = 'continueSubscription:success';
+        return {
+            action,
+            page: 'accountHome',
+            member
+        };
+    } catch (e) {
+        return {
+            action: 'continueSubscription:failed',
+            popupNotification: createPopupNotification({
+                type: 'continueSubscription:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to cancel subscription, please try again')
+            })
+        };
+    }
+}
+
+async function applyOffer({data, state, api}) {
+    try {
+        const {offerId, subscriptionId} = data;
+        await api.member.applyOffer({
+            offerId,
+            subscriptionId
+        });
+        const member = await api.member.sessionData();
+        const action = 'applyOffer:success';
+        return {
+            action,
+            page: 'accountHome',
+            member,
+            offers: [],
+            popupNotification: createPopupNotification({
+                type: 'applyOffer:success',
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'success',
+                message: 'Offer applied successfully!'
+            })
+        };
+    } catch (e) {
+        return {
+            action: 'applyOffer:failed',
+            popupNotification: createPopupNotification({
+                type: 'applyOffer:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: 'Failed to apply offer, please try again'
+            })
+        };
+    }
+}
+
+async function editBilling({data, state, api}) {
+    try {
+        await api.member.editBilling(data);
+    } catch (e) {
+        return {
+            action: 'editBilling:failed',
+            popupNotification: createPopupNotification({
+                type: 'editBilling:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to update billing information, please try again')
+            })
+        };
+    }
+}
+
+async function manageBilling({data, state, api}) {
+    try {
+        await api.member.manageBilling(data);
+    } catch (e) {
+        return {
+            action: 'manageBilling:failed',
+            popupNotification: createPopupNotification({
+                type: 'manageBilling:failed',
+                autoHide: false,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to open billing portal, please try again')
+            })
+        };
+    }
+}
+
+async function clearPopupNotification() {
+    return {
+        popupNotification: null
     };
 }
 
-/**
- * Build generic failure response with popup.
- * @param {string} action
- * @param {Object} state
- * @param {Error} error
- * @param {string} defaultMsg
- * @returns {Object}
- */
-function buildFailureResponse(action, state, error, defaultMsg) {
+async function showPopupNotification({data, state}) {
+    let {action, message = ''} = data;
+    action = action || 'showPopupNotification:success';
     return {
-        action,
         popupNotification: createPopupNotification({
             type: action,
-            autoHide: false,
-            closeable: true,
-            state,
-            status: 'error',
-            message: chooseBestErrorMessage(error, defaultMsg)
-        })
-    };
-}
-
-/**
- * Build generic success response with popup.
- * @param {string} action
- * @param {Object} state
- * @param {Object} member
- * @param {string} message
- * @param {boolean} autoHide
- * @returns {Object}
- */
-function buildSuccessResponse(action, state, member, message, autoHide = true) {
-    return {
-        action,
-        member,
-        popupNotification: createPopupNotification({
-            type: action,
-            autoHide,
+            autoHide: true,
             closeable: true,
             state,
             status: 'success',
@@ -105,4185 +572,320 @@ function buildSuccessResponse(action, state, member, message, autoHide = true) {
     };
 }
 
-/**
- * Guard: check if both update results exist.
- * @param {any} dataUpdate
- * @param {any} emailUpdate
- * @returns {boolean}
- */
-function hasBothUpdates(dataUpdate, emailUpdate) {
-    return !!dataUpdate && !!emailUpdate;
+async function updateNewsletterPreference({data, state, api}) {
+    try {
+        const {newsletters, enableCommentNotifications} = data;
+        if (!newsletters && enableCommentNotifications === undefined) {
+            return {};
+        }
+        const updateData = {};
+        if (newsletters) {
+            updateData.newsletters = newsletters;
+        }
+        if (enableCommentNotifications !== undefined) {
+            updateData.enableCommentNotifications = enableCommentNotifications;
+        }
+        const member = await api.member.update(updateData);
+        const action = 'updateNewsletterPref:success';
+        return {
+            action,
+            member
+        };
+    } catch (e) {
+        return {
+            action: 'updateNewsletterPref:failed',
+            popupNotification: createPopupNotification({
+                type: 'updateNewsletter:failed',
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to update newsletter settings')
+            })
+        };
+    }
 }
 
-/**
- * Guard: check if update succeeded.
- * @param {Object} updateResult
- * @returns {boolean}
- */
-function isSuccess(updateResult) {
-    return updateResult && updateResult.success;
+async function removeEmailFromSuppressionList({state, api}) {
+    try {
+        await api.member.deleteSuppression();
+        const action = 'removeEmailFromSuppressionList:success';
+        return {
+            action,
+            popupNotification: createPopupNotification({
+                type: 'removeEmailFromSuppressionList:success',
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'success',
+                message: t('You have been successfully resubscribed')
+            })
+        };
+    } catch (e) {
+        return {
+            action: 'removeEmailFromSuppressionList:failed',
+            popupNotification: createPopupNotification({
+                type: 'removeEmailFromSuppressionList:failed',
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Your email has failed to resubscribe, please try again')
+            })
+        };
+    }
 }
 
-/**
- * Guard: check if email update succeeded.
- * @param {Object} emailUpdate
- * @returns {boolean}
- */
-function emailSuccess(emailUpdate) {
-    return emailUpdate && emailUpdate.success;
+async function updateNewsletter({data, state, api}) {
+    try {
+        const {subscribed} = data;
+        const member = await api.member.update({subscribed});
+        if (!member) {
+            throw new Error('Failed to update newsletter');
+        }
+        const action = 'updateNewsletter:success';
+        return {
+            action,
+            member,
+            popupNotification: createPopupNotification({
+                type: action,
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'success',
+                message: t('Email newsletter settings updated')
+            })
+        };
+    } catch (e) {
+        return {
+            action: 'updateNewsletter:failed',
+            popupNotification: createPopupNotification({
+                type: 'updateNewsletter:failed',
+                autoHide: true,
+                closeable: true,
+                state,
+                status: 'error',
+                message: t('Failed to update newsletter settings')
+            })
+        };
+    }
 }
 
-/**
- * Guard: check if data update succeeded.
- * @param {Object} dataUpdate
- * @returns {boolean}
- */
-function dataSuccess(dataUpdate) {
-    return dataUpdate && dataUpdate.success;
-}
-
-/**
- * Guard: check if email update failed with error.
- * @param {Object} emailUpdate
- * @returns {boolean}
- */
-function emailFailedWithError(emailUpdate) {
-    return emailUpdate && emailUpdate.error;
-}
-
-/**
- * Guard: check if email update failed without error.
- * @param {Object} emailUpdate
- * @returns {boolean}
- */
-function emailFailedWithoutError(emailUpdate) {
-    return emailUpdate && emailUpdate.success === false && !emailUpdate.error;
-}
-
-/**
- * Guard: check if data update failed.
- * @param {Object} dataUpdate
- * @returns {boolean}
- */
-function dataFailed(dataUpdate) {
-    return dataUpdate && dataUpdate.success === false;
-}
-
-/**
- * Guard: check if no updates were performed.
- * @param {any} dataUpdate
- * @param {any} emailUpdate
- * @returns {boolean}
- */
-function noUpdates(dataUpdate, emailUpdate) {
-    return !dataUpdate && !emailUpdate;
-}
-
-/**
- * Guard: check if response contains redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function hasRedirectUrl(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function hasResponseErrors(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if generic error message should be used.
- * @param {any} e
- * @returns {boolean}
- */
-function isError(e) {
-    return !!e;
-}
-
-/**
- * Guard: check if newsletters and comment notifications are absent.
- * @param {any} newsletters
- * @param {any} enableCommentNotifications
- * @returns {boolean}
- */
-function noNewsletterChanges(newsletters, enableCommentNotifications) {
-    return !newsletters && enableCommentNotifications === undefined;
-}
-
-/**
- * Guard: check if member data needs update.
- * @param {Object} state
- * @param {string} name
- * @returns {boolean}
- */
-function memberNameChanged(state, name) {
-    const originalName = getMemberName({member: state.member});
-    return originalName !== name;
-}
-
-/**
- * Guard: check if member email needs update.
- * @param {Object} state
- * @param {string} email
- * @returns {boolean}
- */
-function memberEmailChanged(state, email) {
+async function updateMemberEmail({data, state, api}) {
+    const {email} = data;
     const originalEmail = getMemberEmail({member: state.member});
-    return email !== originalEmail;
+    if (email !== originalEmail) {
+        try {
+            await api.member.updateEmailAddress({email});
+            return {
+                success: true
+            };
+        } catch (err) {
+            return {
+                success: false,
+                error: err
+            };
+        }
+    }
+    return null;
+}
+
+async function updateMemberData({data, state, api}) {
+    const name = data?.name?.trim();
+    const originalName = getMemberName({member: state.member});
+
+    if (originalName !== name) {
+        try {
+            const member = await api.member.update({name});
+            if (!member) {
+                throw new Error('Failed to update member');
+            }
+            return {
+                member,
+                success: true
+            };
+        } catch (err) {
+            return {
+                success: false,
+                error: err
+            };
+        }
+    }
+    return null;
+}
+
+async function refreshMemberData({state, api}) {
+    if (state.member) {
+        try {
+            const member = await api.member.sessionData();
+            if (member) {
+                return {
+                    member,
+                    success: true,
+                    action: 'refreshMemberData:success'
+                };
+            }
+            return null;
+        } catch (err) {
+            return {
+                success: false,
+                error: err,
+                action: 'refreshMemberData:failed'
+            };
+        }
+    }
+    return null;
+}
+
+function switchPage({data, state}) {
+    return {
+        page: data.page,
+        popupNotification: null,
+        lastPage: data.lastPage || null,
+        pageData: data.pageData || state.pageData
+    };
+}
+
+function togglePopup({state}) {
+    return {
+        showPopup: !state.showPopup
+    };
+}
+
+function openPopup({data}) {
+    return {
+        showPopup: true,
+        page: data.page,
+        ...(data.pageQuery ? {pageQuery: data.pageQuery} : {}),
+        ...(data.pageData ? {pageData: data.pageData} : {})
+    };
+}
+
+function back({state}) {
+    if (state.lastPage) {
+        return {
+            page: state.lastPage
+        };
+    } else {
+        return closePopup({state});
+    }
+}
+
+function closePopup({state}) {
+    removePortalLinkFromUrl();
+    return {
+        showPopup: false,
+        lastPage: null,
+        pageQuery: '',
+        popupNotification: null,
+        page: state.page === 'magiclink' ? '' : state.page
+    };
+}
+
+function openNotification({data}) {
+    return {
+        showNotification: true,
+        ...data
+    };
+}
+
+function closeNotification() {
+    return {
+        showNotification: false
+    };
+}
+
+async function oneClickSubscribe({data: {siteUrl}, state}) {
+    const externalSiteApi = setupGhostApi({siteUrl: siteUrl, apiUrl: 'not-defined', contentApiKey: 'not-defined'});
+    const {member} = state;
+
+    const referrerUrl = window.location.href;
+    const referrerSource = getRefDomain();
+
+    const integrityToken = await externalSiteApi.member.getIntegrityToken();
+    await externalSiteApi.member.sendMagicLink({
+        emailType: 'signup',
+        name: member.name,
+        email: member.email,
+        autoRedirect: false,
+        integrityToken,
+        customUrlHistory: state.site.outbound_link_tagging ? [
+            {
+                time: Date.now(),
+                referrerSource,
+                referrerMedium: 'Ghost Recommendations',
+                referrerUrl
+            }
+        ] : []
+    });
+
+    return {};
+}
+
+function trackRecommendationClicked({data: {recommendationId}, api}) {
+    try {
+        const existing = localStorage.getItem('ghost-recommendations-clicked');
+        const clicked = existing ? JSON.parse(existing) : [];
+        if (clicked.includes(recommendationId)) {
+            return;
+        }
+        clicked.push(recommendationId);
+        localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
+    } catch (e) {
+        // Ignore localstorage errors
+    }
+    api.recommendations.trackClicked({
+        recommendationId
+    });
+
+    return {};
+}
+
+async function trackRecommendationSubscribed({data: {recommendationId}, api}) {
+    api.recommendations.trackSubscribed({
+        recommendationId
+    });
+
+    return {};
+}
+
+const Actions = {
+    togglePopup,
+    openPopup,
+    closePopup,
+    switchPage,
+    openNotification,
+    closeNotification,
+    back,
+    signout,
+    signin,
+    startSigninOTCFromCustomForm,
+    verifyOTC,
+    signup,
+    updateSubscription,
+    cancelSubscription,
+    continueSubscription,
+    applyOffer,
+    updateNewsletter,
+    updateProfile,
+    refreshMemberData,
+    clearPopupNotification,
+    editBilling,
+    manageBilling,
+    checkoutPlan,
+    updateNewsletterPreference,
+    showPopupNotification,
+    removeEmailFromSuppressionList,
+    oneClickSubscribe,
+    trackRecommendationClicked,
+    trackRecommendationSubscribed
+};
+
+/** Handle actions in the App, returns updated state */
+export default async function ActionHandler({action, data, state, api}) {
+    const handler = Actions[action];
+    if (handler) {
+        return await handler({data, state, api}) || {};
+    }
+    return {};
 }
-
-/**
- * Guard: check if response contains errors for verification.
- * @param {Object} response
- * @returns {boolean}
- */
-function verificationFailed(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if verification succeeded.
- * @param {Object} response
- * @returns {boolean}
- */
-function verificationSucceeded(response) {
-    return !response.errors?.[0];
-}
-
-/**
- * Guard: check if response has errors property.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrors(response) {
-    return !!response.errors;
-}
-
-/**
- * Guard: check if response has redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirect(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response errors array exists.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseErrorsArray(response) {
-    return Array.isArray(response.errors);
-}
-
-/**
- * Guard: check if response errors first element exists.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseFirstError(response) {
-    return response.errors?.[0];
-}
-
-/**
- * Guard: check if response has errors property.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasError(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsErrors(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsRedirect(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors array.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsErrorArray(response) {
-    return Array.isArray(response.errors);
-}
-
-/**
- * Guard: check if response contains errors first element.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsFirstError(response) {
-    return response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains errors property.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsErrorProperty(response) {
-    return !!response.errors;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasAnyError(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasAnyRedirect(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectUrl(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorArray(response) {
-    return Array.isArray(response.errors);
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectUrlProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorProperty(response) {
-    return !!response.errors;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirect(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasError(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectUrl(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectUrlFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElementArrayFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectUrl(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsError(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect URL.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseContainsRedirect(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasAnyErrorProperty(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect property.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasAnyRedirectProperty(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItem(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElement(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElement(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArray(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItem(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArray(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.redirectUrl;
-}
-
-/**
- * Guard: check if response contains errors.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasErrorFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItemArrayFirstItemElementArrayFirstItemElementArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirstItemArrayFirst(response) {
-    return !!response.errors?.[0];
-}
-
-/**
- * Guard: check if response contains redirect.
- * @param {Object} response
- * @returns {boolean}
- */
-function responseHasRedirectFirstArrayItemElementFirstArrayItemElementFirstArrayItemElementFirstArrayItem
-
-/* The file is extremely large; due to length constraints, the refactored code cannot be fully displayed here. */

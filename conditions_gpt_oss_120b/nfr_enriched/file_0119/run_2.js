@@ -11,37 +11,34 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-class ABSTRACT {
-  constructor() {
-    this.dialectTypes = '';
-  }
-
-  toString(options) {
-    return this.toSql(options);
-  }
-
-  toSql() {
-    return this.key;
-  }
-
-  stringify(value, options) {
-    if (this._stringify) {
-      return this._stringify(value, options);
-    }
-    return value;
-  }
-
-  static warn(link, text) {
-    if (!warnings[text]) {
-      warnings[text] = true;
-      Utils.warn(`${text}, '\n>> Check:', ${link}`);
-    }
-  }
+function ABSTRACT() {
+  // Base constructor for all data types
+  this._isAbstract = true;
 }
+
 ABSTRACT.prototype.dialectTypes = '';
 
+ABSTRACT.prototype.toString = function toString(options) {
+  return this.toSql(options);
+};
+ABSTRACT.prototype.toSql = function toSql() {
+  return this.key;
+};
+ABSTRACT.warn = function warn(link, text) {
+  if (!warnings[text]) {
+    warnings[text] = true;
+    Utils.warn(`${text}, '\n>> Check:', ${link}`);
+  }
+};
+ABSTRACT.prototype.stringify = function stringify(value, options) {
+  if (this._stringify) {
+    return this._stringify(value, options);
+  }
+  return value;
+};
+
 function STRING(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof STRING)) return new STRING(options);
 
@@ -74,7 +71,7 @@ Object.defineProperty(STRING.prototype, 'BINARY', {
 });
 
 function CHAR(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof CHAR)) return new CHAR(options);
   STRING.apply(this, arguments);
@@ -87,7 +84,7 @@ CHAR.prototype.toSql = function toSql() {
 };
 
 function TEXT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TEXT)) return new TEXT(options);
   this.options = options;
   this._length = options.length || '';
@@ -145,7 +142,7 @@ NUMBER.prototype.toSql = function toSql() {
   return result;
 };
 
-NUMBER.prototype.validate = function (value) {
+NUMBER.prototype.validate = function(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
@@ -179,7 +176,7 @@ Object.defineProperty(NUMBER.prototype, 'ZEROFILL', {
 });
 
 function INTEGER(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof INTEGER)) return new INTEGER(options);
   NUMBER.call(this, options);
 }
@@ -195,7 +192,7 @@ INTEGER.prototype.validate = function validate(value) {
 };
 
 function TINYINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TINYINT)) return new TINYINT(options);
   NUMBER.call(this, options);
 }
@@ -204,7 +201,7 @@ inherits(TINYINT, INTEGER);
 TINYINT.prototype.key = TINYINT.key = 'TINYINT';
 
 function SMALLINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof SMALLINT)) return new SMALLINT(options);
   NUMBER.call(this, options);
 }
@@ -213,7 +210,7 @@ inherits(SMALLINT, INTEGER);
 SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
 
 function MEDIUMINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof MEDIUMINT)) return new MEDIUMINT(options);
   NUMBER.call(this, options);
 }
@@ -222,7 +219,7 @@ inherits(MEDIUMINT, INTEGER);
 MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
 
 function BIGINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BIGINT)) return new BIGINT(options);
   NUMBER.call(this, options);
 }
@@ -231,7 +228,7 @@ inherits(BIGINT, INTEGER);
 BIGINT.prototype.key = BIGINT.key = 'BIGINT';
 
 function FLOAT(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof FLOAT)) return new FLOAT(options);
   NUMBER.call(this, options);
 }
@@ -247,7 +244,7 @@ FLOAT.prototype.validate = function validate(value) {
 };
 
 function REAL(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof REAL)) return new REAL(options);
   NUMBER.call(this, options);
 }
@@ -256,7 +253,7 @@ inherits(REAL, NUMBER);
 REAL.prototype.key = REAL.key = 'REAL';
 
 function DOUBLE(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof DOUBLE)) return new DOUBLE(options);
   NUMBER.call(this, options);
 }
@@ -265,7 +262,7 @@ inherits(DOUBLE, NUMBER);
 DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
 
 function DECIMAL(precision, scale) {
-  const options = typeof precision === 'object' && precision || { precision, scale };
+  const options = typeof precision === 'object' && precision || {precision, scale};
   if (!(this instanceof DECIMAL)) return new DECIMAL(options);
   NUMBER.call(this, options);
 }
@@ -273,6 +270,7 @@ inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
 DECIMAL.prototype.toSql = function toSql() {
+
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
@@ -321,12 +319,16 @@ BOOLEAN.prototype.validate = function validate(value) {
 BOOLEAN.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
+      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
+      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
+
     } else if (_.isNumber(value)) {
+      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
@@ -346,7 +348,7 @@ TIME.prototype.toSql = function toSql() {
 };
 
 function DATE(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
 
   if (!(this instanceof DATE)) return new DATE(options);
 
@@ -386,6 +388,7 @@ DATE.prototype._isChanged = function _isChanged(value, originalValue) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -409,6 +412,8 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
 
 DATE.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
+
+  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
@@ -418,7 +423,7 @@ function DATEONLY() {
 util.inherits(DATEONLY, ABSTRACT);
 
 DATEONLY.prototype.key = DATEONLY.key = 'DATEONLY';
-DATEONLY.prototype.toSql = function () {
+DATEONLY.prototype.toSql = function() {
   return 'DATE';
 };
 
@@ -439,6 +444,7 @@ DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -490,7 +496,7 @@ inherits(NOW, ABSTRACT);
 NOW.prototype.key = NOW.key = 'NOW';
 
 function BLOB(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BLOB)) return new BLOB(options);
   this.options = options;
   this._length = options.length || '';
@@ -522,9 +528,9 @@ BLOB.prototype.escape = false;
 BLOB.prototype._stringify = function _stringify(value) {
   if (!Buffer.isBuffer(value)) {
     if (Array.isArray(value)) {
-      value = Buffer.from(value);
+      value = new Buffer(value);
     } else {
-      value = Buffer.from(value.toString());
+      value = new Buffer(value.toString());
     }
   }
   const hex = value.toString('hex');
@@ -537,7 +543,7 @@ BLOB.prototype._hexify = function _hexify(hex) {
 };
 
 function RANGE(subtype) {
-  const options = _.isPlainObject(subtype) ? subtype : { subtype };
+  const options = _.isPlainObject(subtype) ? subtype : {subtype};
 
   if (!options.subtype) options.subtype = new INTEGER();
 
@@ -668,7 +674,7 @@ ENUM.prototype.validate = function validate(value) {
 };
 
 function ARRAY(type) {
-  const options = _.isPlainObject(type) ? type : { type };
+  const options = _.isPlainObject(type) ? type : {type};
   if (!(this instanceof ARRAY)) return new ARRAY(options);
   this.type = typeof options.type === 'function' ? new options.type() : options.type;
 }
@@ -698,7 +704,7 @@ const helpers = {
 };
 
 function GEOMETRY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOMETRY)) return new GEOMETRY(options);
 
@@ -716,7 +722,7 @@ GEOMETRY.prototype._stringify = function _stringify(value, options) {
 };
 
 function GEOGRAPHY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOGRAPHY)) return new GEOGRAPHY(options);
 
@@ -893,8 +899,6 @@ for (const helper of Object.keys(helpers)) {
  *                   [100.0, 1.0], [100.0, 0.0] ]
  *                 ]};
  *
- * User.create({username: 'username', geometry: polygon });
- *
  * // Create a new point with a custom SRID:
  * const point = {
  *   type: 'Point',
@@ -918,12 +922,12 @@ for (const helper of Object.keys(helpers)) {
  *        this.setDataValue('password', val);
  *        this.setDataValue('password_hash', this.salt + val);
  *      },
- *     validate: {
- *        isLongEnough: function (val) {
- *          if (val.length < 7) {
- *            throw new Error("Please choose a longer password")
+ *      validate: {
+ *         isLongEnough: function (val) {
+ *           if (val.length < 7) {
+ *             throw new Error("Please choose a longer password")
  *          }
- *        }
+ *       }
  *     }
  *   }
  * })

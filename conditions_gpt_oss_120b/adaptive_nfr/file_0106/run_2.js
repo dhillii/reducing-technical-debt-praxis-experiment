@@ -3,7 +3,6 @@
 /**
  * Module dependencies.
  */
-
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const debug = require('debug')('mocha:runnable');
@@ -13,7 +12,6 @@ const utils = require('./utils');
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
-
 /* eslint-disable no-unused-vars, no-native-reassign */
 const Date = global.Date;
 const setTimeout = global.setTimeout;
@@ -25,13 +23,11 @@ const clearInterval = global.clearInterval;
 /**
  * Object#toString().
  */
-
 const toString = Object.prototype.toString;
 
 /**
  * Expose `Runnable`.
  */
-
 module.exports = Runnable;
 
 /**
@@ -73,7 +69,6 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
-  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
@@ -222,20 +217,18 @@ Runnable.prototype.inspect = function () {
  * @api private
  */
 Runnable.prototype.resetTimeout = function () {
-  const self = this;
   const ms = this.timeout() || 1e9;
-
   if (!this._enableTimeouts) {
     return;
   }
   this.clearTimeout();
-  this.timer = setTimeout(function () {
-    if (!self._enableTimeouts) {
+  this.timer = setTimeout(() => {
+    if (!this._enableTimeouts) {
       return;
     }
-    self.callback(new Error('Timeout of ' + ms +
+    this.callback(new Error('Timeout of ' + ms +
       'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.'));
-    self.timedOut = true;
+    this.timedOut = true;
   }, ms);
 };
 
@@ -259,136 +252,106 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
-  const self = this;
   const start = new Date();
   const ctx = this.ctx;
-  const state = { finished: false, emitted: false };
+  let finished = false;
+  let emitted = false;
 
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  /**
-   * Emit an error only once.
-   *
-   * @param {Error} [err]
-   */
-  function multiple (err) {
-    if (state.emitted) {
+  const multiple = (err) => {
+    if (emitted) {
       return;
     }
-    state.emitted = true;
-    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  }
+    emitted = true;
+    this.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+  };
 
-  /**
-   * Final callback for the runnable.
-   *
-   * @param {Error} [err]
-   */
-  function done (err) {
-    const ms = self.timeout();
-    if (self.timedOut) {
+  const done = (err) => {
+    const ms = this.timeout();
+    if (this.timedOut) {
       return;
     }
-    if (state.finished) {
-      return multiple(err || self._trace);
+    if (finished) {
+      return multiple(err || this._trace);
     }
-
-    self.clearTimeout();
-    self.duration = new Date() - start;
-    state.finished = true;
-    if (!err && self.duration > ms && self._enableTimeouts) {
+    this.clearTimeout();
+    this.duration = new Date() - start;
+    finished = true;
+    if (!err && this.duration > ms && this._enableTimeouts) {
       err = new Error('Timeout of ' + ms +
         'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
     fn(err);
-  }
+  };
 
-  // expose for resetTimeout()
   this.callback = done;
 
   if (this.async) {
-    return this._runAsyncPath(state, ctx, done, multiple);
+    this._runAsync(done, multiple, ctx);
+    return;
   }
 
-  if (this.allowUncaught) {
-    return this._runAllowUncaughtPath(state, ctx, done, multiple);
-  }
-
-  return this._runSyncPath(state, ctx, done, multiple);
+  this._runSync(done, multiple, ctx);
 };
 
 /**
  * Execute an async test (callback style).
  *
  * @private
- * @param {Object} state
- * @param {Object} ctx
  * @param {Function} done
  * @param {Function} multiple
+ * @param {Object} ctx
  */
-Runnable.prototype._runAsyncPath = function (state, ctx, done, multiple) {
-  const self = this;
+Runnable.prototype._runAsync = function (done, multiple, ctx) {
   this.resetTimeout();
 
-  // allows skip() to be used in an explicit async context
-  this.skip = function asyncSkip () {
+  this.skip = () => {
     done(new Pending('async skip call'));
-    // halt execution.  the Runnable will be marked pending
-    // by the previous call, and the uncaught handler will ignore
-    // the failure.
     throw new Pending('async skip; aborting execution');
   };
 
   if (this.allowUncaught) {
-    this._callFnAsync(this.fn, ctx, done, state);
+    this._callFnAsync(this.fn, ctx, done, multiple);
     return;
   }
 
   try {
-    this._callFnAsync(this.fn, ctx, done, state);
+    this._callFnAsync(this.fn, ctx, done, multiple);
   } catch (err) {
-    state.emitted = true;
+    multiple(err);
     done(utils.getError(err));
   }
 };
 
 /**
- * Execute a test when `allowUncaught` is true.
+ * Execute a sync or promise-returning test.
  *
  * @private
- * @param {Object} state
- * @param {Object} ctx
  * @param {Function} done
  * @param {Function} multiple
+ * @param {Object} ctx
  */
-Runnable.prototype._runAllowUncaughtPath = function (state, ctx, done, multiple) {
-  if (this.isPending()) {
-    done();
-  } else {
-    this._callFn(this.fn, ctx, done, state);
+Runnable.prototype._runSync = function (done, multiple, ctx) {
+  if (this.allowUncaught) {
+    if (this.isPending()) {
+      done();
+    } else {
+      this._callFn(this.fn, ctx, done, multiple);
+    }
+    return;
   }
-};
 
-/**
- * Execute a normal sync or promise-returning test.
- *
- * @private
- * @param {Object} state
- * @param {Object} ctx
- * @param {Function} done
- * @param {Function} multiple
- */
-Runnable.prototype._runSyncPath = function (state, ctx, done, multiple) {
   try {
     if (this.isPending()) {
       done();
     } else {
-      this._callFn(this.fn, ctx, done, state);
+      this._callFn(this.fn, ctx, done, multiple);
     }
   } catch (err) {
-    state.emitted = true;
+    multiple(err);
     done(utils.getError(err));
   }
 };
@@ -400,40 +363,40 @@ Runnable.prototype._runSyncPath = function (state, ctx, done, multiple) {
  * @param {Function} fn
  * @param {Object} ctx
  * @param {Function} done
- * @param {Object} state
+ * @param {Function} multiple
  */
-Runnable.prototype._callFn = function (fn, ctx, done, state) {
+Runnable.prototype._callFn = function (fn, ctx, done, multiple) {
   const result = fn.call(ctx);
   if (result && typeof result.then === 'function') {
     this.resetTimeout();
     result
-      .then(function () {
+      .then(() => {
         done();
-        // Return null so libraries like bluebird do not warn about
-        // subsequently constructed Promises.
         return null;
-      }, function (reason) {
+      })
+      .catch((reason) => {
         done(reason || new Error('Promise rejected with no or falsy reason'));
       });
   } else {
     if (this.asyncOnly) {
-      return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+      done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+      return;
     }
     done();
   }
 };
 
 /**
- * Call an async test function (callback style).
+ * Call an async test function that receives a `done` callback.
  *
  * @private
  * @param {Function} fn
  * @param {Object} ctx
  * @param {Function} done
- * @param {Object} state
+ * @param {Function} multiple
  */
-Runnable.prototype._callFnAsync = function (fn, ctx, done, state) {
-  const result = fn.call(ctx, function (err) {
+Runnable.prototype._callFnAsync = function (fn, ctx, done, multiple) {
+  const result = fn.call(ctx, (err) => {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
       return done(err);
     }

@@ -127,17 +127,11 @@ export default class GhPostSettingsMenu extends Component {
     get seoURL() {
         const urlParts = [];
 
-        if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').filter(p => p));
-            } catch (e) {
-                // Invalid canonical URL – fallback to blog URL handling below
-            }
-        }
-
-        if (urlParts.length === 0) {
+        const canonicalUrl = this._parseUrl(this.post.canonicalUrl);
+        if (canonicalUrl) {
+            urlParts.push(canonicalUrl.host);
+            urlParts.push(...canonicalUrl.pathname.split('/').filter(p => p));
+        } else {
             const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
             urlParts.push(...blogUrl.pathname.split('/').filter(p => p));
@@ -201,12 +195,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleFeatured() {
         this.post.featured = !this.post.featured;
-
         if (this.post.isNew) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -215,12 +207,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
-
         if (this.post.isNew) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -240,7 +230,7 @@ export default class GhPostSettingsMenu extends Component {
     updateSlug(newSlug) {
         return this.updateSlugTask
             .perform(newSlug)
-            .catch((error) => {
+            .catch(error => {
                 this.showError(error);
                 this.post.rollbackAttributes();
             });
@@ -302,7 +292,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('customExcerpt', excerpt);
-
         return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
@@ -316,7 +305,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('codeinjectionHead', code);
-
         return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
@@ -330,7 +318,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('codeinjectionFoot', code);
-
         return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
@@ -344,7 +331,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('metaTitle', metaTitle);
-
         return post.validate({property: 'metaTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -363,7 +349,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('metaDescription', metaDescription);
-
         return post.validate({property: 'metaDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -382,7 +367,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('canonicalUrl', value);
-
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -401,7 +385,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('ogTitle', ogTitle);
-
         return post.validate({property: 'ogTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -420,7 +403,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('ogDescription', ogDescription);
-
         return post.validate({property: 'ogDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -439,7 +421,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('twitterTitle', twitterTitle);
-
         return post.validate({property: 'twitterTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -458,7 +439,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('twitterDescription', twitterDescription);
-
         return post.validate({property: 'twitterDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -470,12 +450,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -484,12 +462,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -498,12 +474,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -512,12 +486,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -526,12 +498,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -540,12 +510,10 @@ export default class GhPostSettingsMenu extends Component {
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
-
         if (this.get('post.isNew')) {
             return;
         }
-
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -566,7 +534,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             post.rollbackAttributes();
         });
@@ -574,7 +542,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     savePost() {
-        this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch(error => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -602,5 +570,17 @@ export default class GhPostSettingsMenu extends Component {
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
+    }
+
+    _parseUrl(urlString) {
+        if (!urlString) {
+            return null;
+        }
+        try {
+            return new URL(urlString);
+        } catch (e) {
+            console.warn('Invalid URL encountered:', urlString, e);
+            return null;
+        }
     }
 }

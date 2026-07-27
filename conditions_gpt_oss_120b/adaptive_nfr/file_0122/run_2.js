@@ -186,19 +186,26 @@ const QueryGenerator = {
   },
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
-    return this._handleSequelizeMethod(smth, { tableName, factory, options, prepend });
+    return this._handleSequelizeMethod({
+      smth,
+      tableName,
+      factory,
+      options,
+      prepend
+    });
   },
 
-  _handleSequelizeMethod(smth, params) {
-    const { tableName, factory, options, prepend } = params;
+  _handleSequelizeMethod({ smth, tableName, factory, options, prepend }) {
     if (smth instanceof Utils.Json) {
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
+
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
+
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
@@ -206,9 +213,11 @@ const QueryGenerator = {
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
         }
+
         if (smth.value) {
           str += util.format(' = %s', this.escape(smth.value));
         }
+
         return str;
       }
     }
@@ -320,22 +329,17 @@ const QueryGenerator = {
   },
 
   fn(fnName, tableName, parameters, body, returns, language) {
-    return this._fn({ fnName, tableName, parameters, body, returns, language });
+    return this._fn({
+      fnName,
+      tableName,
+      parameters,
+      body,
+      returns,
+      language
+    });
   },
 
-  /**
-   * Internal implementation of fn using a parameter object.
-   * @param {Object} opts
-   * @param {string} [opts.fnName]
-   * @param {string} [opts.tableName]
-   * @param {string} [opts.parameters]
-   * @param {string} [opts.body]
-   * @param {string} [opts.returns]
-   * @param {string} [opts.language]
-   * @returns {string}
-   */
-  _fn(opts) {
-    let { fnName, tableName, parameters, body, returns, language } = opts;
+  _fn({ fnName, tableName, parameters, body, returns, language }) {
     fnName = fnName || 'testfunc';
     language = language || 'plpgsql';
     returns = returns ? `RETURNS ${returns}` : '';
@@ -345,32 +349,35 @@ const QueryGenerator = {
   },
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
-    return this._exceptionFn({ fnName, tableName, parameters, main, then, when, returns, language });
+    return this._exceptionFn({
+      fnName,
+      tableName,
+      parameters,
+      main,
+      then,
+      when,
+      returns,
+      language
+    });
   },
 
-  /**
-   * Internal implementation of exceptionFn using a parameter object.
-   * @param {Object} opts
-   * @returns {string}
-   */
-  _exceptionFn(opts) {
-    let { fnName, tableName, parameters, main, then, when, returns, language } = opts;
-    when = when || 'unique_violation';
+  _exceptionFn({ fnName, tableName, parameters, main, then, when = 'unique_violation', returns, language }) {
     const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
     return this._fn({ fnName, tableName, parameters, body, returns, language });
   },
 
   upsertQuery(tableName, insertValues, updateValues, where, model, options) {
-    return this._upsertQuery({ tableName, insertValues, updateValues, where, model, options });
+    return this._upsertQuery({
+      tableName,
+      insertValues,
+      updateValues,
+      where,
+      model,
+      options
+    });
   },
 
-  /**
-   * Internal implementation of upsertQuery using a parameter object.
-   * @param {Object} opts
-   * @returns {string}
-   */
-  _upsertQuery(opts) {
-    const { tableName, insertValues, updateValues, where, model, options } = opts;
+  _upsertQuery({ tableName, insertValues, updateValues, where, model, options }) {
     const primaryField = this.quoteIdentifier(model.primaryKeyField);
 
     let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
@@ -486,12 +493,15 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
   },
 
@@ -614,16 +624,23 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
-    return this._createTrigger({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray });
+    return this._createTrigger({
+      tableName,
+      triggerName,
+      eventType,
+      fireOnSpec,
+      functionName,
+      functionParams,
+      optionsArray
+    });
   },
 
   /**
-   * Internal implementation of createTrigger using a parameter object.
+   * Internal implementation of createTrigger using a single options object.
    * @param {Object} opts
-   * @returns {string}
+   * @returns {String}
    */
-  _createTrigger(opts) {
-    const { tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray } = opts;
+  _createTrigger({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray }) {
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
@@ -645,16 +662,22 @@ const QueryGenerator = {
   },
 
   createFunction(functionName, params, returnType, language, body, options) {
-    return this._createFunction({ functionName, params, returnType, language, body, options });
+    return this._createFunction({
+      functionName,
+      params,
+      returnType,
+      language,
+      body,
+      options
+    });
   },
 
   /**
-   * Internal implementation of createFunction using a parameter object.
+   * Internal implementation of createFunction using a single options object.
    * @param {Object} opts
-   * @returns {string}
+   * @returns {String}
    */
-  _createFunction(opts) {
-    const { functionName, params, returnType, language, body, options } = opts;
+  _createFunction({ functionName, params, returnType, language, body, options }) {
     if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
 
     const paramList = this.expandFunctionParamList(params);
@@ -809,7 +832,7 @@ const QueryGenerator = {
     }
 
     let sql = 'CREATE TYPE ' + enumName + ' AS ' + values + ';';
-    if (!!options && options.force === true) {
+    if (options && options.force === true) {
       sql = this.pgEnumDrop(tableName, attr) + sql;
     }
     return sql;
@@ -824,9 +847,9 @@ const QueryGenerator = {
     }
     sql += this.escape(value);
 
-    if (options.before) {
+    if (options && options.before) {
       sql += ' BEFORE ' + this.escape(options.before);
-    } else if (options.after) {
+    } else if (options && options.after) {
       sql += ' AFTER ' + this.escape(options.after);
     }
 

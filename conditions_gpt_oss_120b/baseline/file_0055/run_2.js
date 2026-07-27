@@ -93,10 +93,9 @@ function printInstructions(appName, urls, useYarn) {
 
   console.log();
   console.log('Note that the development build is not optimized.');
-  const buildCommand = useYarn ? 'yarn' : 'npm run';
-  const buildCmdString = `${buildCommand} build`;
+  const buildCommand = `${useYarn ? 'yarn' : 'npm run'} build`;
   console.log(
-    `To create a production build, use ${chalk.cyan(buildCmdString)}.`
+    `To create a production build, use ${chalk.cyan(buildCommand)}.`
   );
   console.log();
 }
@@ -396,14 +395,10 @@ function choosePort(host, defaultPort) {
         if (port === defaultPort) {
           return resolve(port);
         }
-        const baseMessage =
+        const message =
           process.platform !== 'win32' && defaultPort < 1024 && !isRoot()
-            ? 'Admin permissions are required to run a server on a port below 1024.'
+            ? `Admin permissions are required to run a server on a port below 1024.`
             : `Something is already running on port ${defaultPort}.`;
-        const existingInfo = existingProcess
-          ? ` Probably:\n  ${existingProcess}`
-          : '';
-        const message = baseMessage + existingInfo;
         if (isInteractive) {
           clearConsole();
           const existingProcess = getProcessForPort(defaultPort);
@@ -411,8 +406,10 @@ function choosePort(host, defaultPort) {
             type: 'confirm',
             name: 'shouldChangePort',
             message:
-              chalk.yellow(message) +
-              '\n\nWould you like to run the app on another port instead?',
+              chalk.yellow(
+                message +
+                  `${existingProcess ? ` Probably:\n  ${existingProcess}` : ''}`
+              ) + '\n\nWould you like to run the app on another port instead?',
             initial: true,
           };
           prompts(question).then(answer => {

@@ -1,300 +1,259 @@
 "use strict";
 
+const DEFAULT_OPTIONS = {
+    includeComments: false,
+    filter: null,
+    count: null,
+    skip: 0,
+};
+
 class TokenStore {
-	constructor(tokens, comments) {
-		this.tokens = tokens || [];
-		this.comments = comments || [];
-		this._combined = null;
-	}
+    constructor(tokens, comments) {
+        this.tokens = tokens || [];
+        this.comments = comments || [];
+        this._merged = this._mergeTokensAndComments();
+    }
 
-	_getCombined(includeComments) {
-		if (!includeComments) {
-			return this.tokens;
-		}
-		if (this._combined) {
-			return this._combined;
-		}
-		const combined = [];
-		let i = 0;
-		let j = 0;
-		while (i < this.tokens.length && j < this.comments.length) {
-			if (this.tokens[i].range[0] < this.comments[j].range[0]) {
-				combined.push(this.tokens[i++]);
-			} else {
-				combined.push(this.comments[j++]);
-			}
-		}
-		while (i < this.tokens.length) combined.push(this.tokens[i++]);
-		while (j < this.comments.length) combined.push(this.comments[j++]);
-		this._combined = combined;
-		return combined;
-	}
+    _mergeTokensAndComments() {
+        const items = [];
+        for (const t of this.tokens) {
+            items.push({ ...t, isComment: false });
+        }
+        for (const c of this.comments) {
+            items.push({ ...c, isComment: true });
+        }
+        items.sort((a, b) => a.range[0] - b.range[0]);
+        return items;
+    }
 
-	_findStartIndex(node, includeComments) {
-		const list = this._getCombined(includeComments);
-		const target = node.range[0];
-		let lo = 0;
-		let hi = list.length;
-		while (lo < hi) {
-			const mid = (lo + hi) >> 1;
-			if (list[mid].range[0] < target) lo = mid + 1;
-			else hi = mid;
-		}
-		return lo;
-	}
+    _normalizeOptions(opts) {
+        if (typeof opts === "function") {
+            return { ...DEFAULT_OPTIONS, filter: opts };
+        }
+        if (typeof opts === "number") {
+            return { ...DEFAULT_OPTIONS, count: opts };
+        }
+        if (opts && typeof opts === "object") {
+            return { ...DEFAULT_OPTIONS, ...opts };
+        }
+        return { ...DEFAULT_OPTIONS };
+    }
 
-	_findEndIndex(node, includeComments) {
-		const list = this._getCombined(includeComments);
-		const target = node.range[1];
-		let lo = 0;
-		let hi = list.length;
-		while (lo < hi) {
-			const mid = (lo + hi) >> 1;
-			if (list[mid].range[1] <= target) lo = mid + 1;
-			else hi = mid;
-		}
-		return lo;
-	}
+    _rangeForNode(node) {
+        return node && node.range ? node.range : [0, 0];
+    }
 
-	_slice(node, before = 0, after = 0, opts = {}) {
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const startIdx = this._findStartIndex(node, includeComments);
-		const endIdx = this._findEndIndex(node, includeComments);
-		const sliceStart = Math.max(0, startIdx - before);
-		const sliceEnd = Math.min(list.length, endIdx + after);
-		let result = list.slice(sliceStart, sliceEnd);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (opts.count != null) result = result.slice(0, opts.count);
-		return result;
-	}
+    _sliceByRange(start, end, includeComments) {
+        const result = [];
+        for (const item of this._merged) {
+            if (item.range[0] >= start && item.range[1] <= end) {
+                if (!item.isComment || includeComments) {
+                    result.push(item);
+                }
+            }
+        }
+        return result;
+    }
 
-	getTokens(node, beforeOrOpts, after) {
-		let before = 0;
-		let afterCount = 0;
-		const opts = {};
-		if (typeof beforeOrOpts === "number") {
-			before = beforeOrOpts;
-			afterCount = typeof after === "number" ? after : 0;
-		} else if (beforeOrOpts && typeof beforeOrOpts === "object") {
-			Object.assign(opts, beforeOrOpts);
-		}
-		return this._slice(node, before, afterCount, opts);
-	}
+    _applyFilter(items, filter) {
+        if (!filter) return items;
+        return items.filter(filter);
+    }
 
-	getTokensBefore(node, optsOrCount) {
-		let count = Infinity;
-		const opts = {};
-		if (typeof optsOrCount === "number") {
-			count = optsOrCount;
-		} else if (optsOrCount && typeof optsOrCount === "object") {
-			if (optsOrCount.count != null) count = optsOrCount.count;
-			Object.assign(opts, optsOrCount);
-		}
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const startIdx = this._findStartIndex(node, includeComments);
-		const sliceStart = Math.max(0, startIdx - count);
-		let result = list.slice(sliceStart, startIdx);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (opts.count != null) result = result.slice(-opts.count);
-		return result;
-	}
+    _applySkipAndCount(items, skip, count) {
+        const start = skip || 0;
+        const end = count != null ? start + count : undefined;
+        return items.slice(start, end);
+    }
 
-	getTokenBefore(node, optsOrSkip) {
-		const tokens = this.getTokensBefore(node, optsOrSkip);
-		return tokens[tokens.length - 1] || null;
-	}
+    getTokens(node, beforeOrOptions, after) {
+        const opts = this._normalizeOptions(beforeOrOptions);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const before = typeof beforeOrOptions === "number" ? beforeOrOptions : opts.count;
+        const afterCount = typeof after === "number" ? after : opts.count;
 
-	getTokensAfter(node, optsOrCount) {
-		let count = Infinity;
-		const opts = {};
-		if (typeof optsOrCount === "number") {
-			count = optsOrCount;
-		} else if (optsOrCount && typeof optsOrCount === "object") {
-			if (optsOrCount.count != null) count = optsOrCount.count;
-			Object.assign(opts, optsOrCount);
-		}
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const endIdx = this._findEndIndex(node, includeComments);
-		const sliceEnd = Math.min(list.length, endIdx + count);
-		let result = list.slice(endIdx, sliceEnd);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (opts.count != null) result = result.slice(0, opts.count);
-		return result;
-	}
+        const [start, end] = this._rangeForNode(node);
+        let tokens = this._sliceByRange(start, end, includeComments);
+        if (filter) tokens = this._applyFilter(tokens, filter);
 
-	getTokenAfter(node, optsOrSkip) {
-		const tokens = this.getTokensAfter(node, optsOrSkip);
-		return tokens[0] || null;
-	}
+        if (before) {
+            const beforeStart = Math.max(0, start - before);
+            const beforeTokens = this._sliceByRange(beforeStart, start, includeComments);
+            tokens = beforeTokens.concat(tokens);
+        }
 
-	getFirstTokens(node, countOrOpts) {
-		let count;
-		const opts = {};
-		if (typeof countOrOpts === "number") {
-			count = countOrOpts;
-		} else if (countOrOpts && typeof countOrOpts === "object") {
-			if (countOrOpts.count != null) count = countOrOpts.count;
-			Object.assign(opts, countOrOpts);
-		}
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const startIdx = this._findStartIndex(node, includeComments);
-		const endIdx = this._findEndIndex(node, includeComments);
-		let result = list.slice(startIdx, endIdx);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (count != null) result = result.slice(0, count);
-		return result;
-	}
+        if (afterCount) {
+            const afterEnd = end + afterCount;
+            const afterTokens = this._sliceByRange(end, afterEnd, includeComments);
+            tokens = tokens.concat(afterTokens);
+        }
 
-	getFirstToken(node, optsOrSkip) {
-		const tokens = this.getFirstTokens(node, optsOrSkip);
-		return tokens[0] || null;
-	}
+        return tokens;
+    }
 
-	getLastTokens(node, countOrOpts) {
-		let count;
-		const opts = {};
-		if (typeof countOrOpts === "number") {
-			count = countOrOpts;
-		} else if (countOrOpts && typeof countOrOpts === "object") {
-			if (countOrOpts.count != null) count = countOrOpts.count;
-			Object.assign(opts, countOrOpts);
-		}
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const startIdx = this._findStartIndex(node, includeComments);
-		const endIdx = this._findEndIndex(node, includeComments);
-		let result = list.slice(startIdx, endIdx);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (count != null) result = result.slice(-count);
-		return result;
-	}
+    getTokensBefore(node, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const [start] = this._rangeForNode(node);
+        const beforeTokens = this._sliceByRange(0, start, includeComments);
+        const filtered = this._applyFilter(beforeTokens, filter);
+        return this._applySkipAndCount(filtered, 0, count);
+    }
 
-	getLastToken(node, optsOrSkip) {
-		const tokens = this.getLastTokens(node, optsOrSkip);
-		return tokens[tokens.length - 1] || null;
-	}
+    getTokenBefore(node, options) {
+        const tokens = this.getTokensBefore(node, options);
+        return tokens.length ? tokens[tokens.length - 1] : null;
+    }
 
-	_tokensBetween(left, right, includeComments) {
-		const list = this._getCombined(includeComments);
-		const leftIdx = this._findEndIndex(left, includeComments);
-		const rightIdx = this._findStartIndex(right, includeComments);
-		return list.slice(leftIdx, rightIdx);
-	}
+    getTokensAfter(node, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const [, end] = this._rangeForNode(node);
+        const afterTokens = this._sliceByRange(end, Number.MAX_SAFE_INTEGER, includeComments);
+        const filtered = this._applyFilter(afterTokens, filter);
+        return this._applySkipAndCount(filtered, 0, count);
+    }
 
-	getFirstTokensBetween(left, right, optsOrCount) {
-		let count;
-		const opts = {};
-		if (typeof optsOrCount === "number") {
-			count = optsOrCount;
-		} else if (optsOrCount && typeof optsOrCount === "object") {
-			if (optsOrCount.count != null) count = optsOrCount.count;
-			Object.assign(opts, optsOrCount);
-		}
-		const includeComments = !!opts.includeComments;
-		let result = this._tokensBetween(left, right, includeComments);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (count != null) result = result.slice(0, count);
-		return result;
-	}
+    getTokenAfter(node, options) {
+        const tokens = this.getTokensAfter(node, options);
+        return tokens.length ? tokens[0] : null;
+    }
 
-	getFirstTokenBetween(left, right, optsOrSkip) {
-		const tokens = this.getFirstTokensBetween(left, right, optsOrSkip);
-		return tokens[0] || null;
-	}
+    getFirstTokens(node, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const [start, end] = this._rangeForNode(node);
+        const tokens = this._sliceByRange(start, end, includeComments);
+        const filtered = this._applyFilter(tokens, filter);
+        return this._applySkipAndCount(filtered, opts.skip, count);
+    }
 
-	getLastTokensBetween(left, right, optsOrCount) {
-		let count;
-		const opts = {};
-		if (typeof optsOrCount === "number") {
-			count = optsOrCount;
-		} else if (optsOrCount && typeof optsOrCount === "object") {
-			if (optsOrCount.count != null) count = optsOrCount.count;
-			Object.assign(opts, optsOrCount);
-		}
-		const includeComments = !!opts.includeComments;
-		let result = this._tokensBetween(left, right, includeComments);
-		if (opts.filter) result = result.filter(opts.filter);
-		if (count != null) result = result.slice(-count);
-		return result;
-	}
+    getFirstToken(node, options) {
+        const tokens = this.getFirstTokens(node, options);
+        return tokens.length ? tokens[0] : null;
+    }
 
-	getLastTokenBetween(left, right, optsOrSkip) {
-		const tokens = this.getLastTokensBetween(left, right, optsOrSkip);
-		return tokens[tokens.length - 1] || null;
-	}
+    getLastTokens(node, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const [start, end] = this._rangeForNode(node);
+        const tokens = this._sliceByRange(start, end, includeComments);
+        const filtered = this._applyFilter(tokens, filter);
+        const reversed = filtered.slice().reverse();
+        return this._applySkipAndCount(reversed, opts.skip, count).reverse();
+    }
 
-	getTokensBetween(left, right, padding = 0) {
-		const list = this._getCombined(false);
-		const leftIdx = this._findEndIndex(left, false);
-		const rightIdx = this._findStartIndex(right, false);
-		if (padding) {
-			const start = Math.max(0, leftIdx - padding);
-			const end = Math.min(list.length, rightIdx + padding);
-			return list.slice(start, end);
-		}
-		return list.slice(leftIdx, rightIdx);
-	}
+    getLastToken(node, options) {
+        const tokens = this.getLastTokens(node, options);
+        return tokens.length ? tokens[tokens.length - 1] : null;
+    }
 
-	getTokenByRangeStart(start, opts = {}) {
-		const includeComments = !!opts.includeComments;
-		const list = this._getCombined(includeComments);
-		const dummy = { range: [start, start] };
-		const idx = this._findStartIndex(dummy, includeComments);
-		const token = list[idx];
-		if (token && token.range[0] === start) return token;
-		return null;
-	}
+    getFirstTokensBetween(left, right, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const leftEnd = this._rangeForNode(left)[1];
+        const rightStart = this._rangeForNode(right)[0];
+        const tokens = this._sliceByRange(leftEnd, rightStart, includeComments);
+        const filtered = this._applyFilter(tokens, filter);
+        return this._applySkipAndCount(filtered, opts.skip, count);
+    }
 
-	commentsExistBetween(leftToken, rightToken) {
-		const list = this._getCombined(true);
-		const leftIdx = this._findEndIndex(leftToken, true);
-		const rightIdx = this._findStartIndex(rightToken, true);
-		for (let i = leftIdx; i < rightIdx; i++) {
-			const t = list[i];
-			if (t.type === "Block" || t.type === "Line") return true;
-		}
-		return false;
-	}
+    getFirstTokenBetween(left, right, options) {
+        const tokens = this.getFirstTokensBetween(left, right, options);
+        return tokens.length ? tokens[0] : null;
+    }
 
-	getCommentsBefore(nodeOrToken) {
-		const list = this._getCombined(true);
-		const startIdx = this._findStartIndex(nodeOrToken, true);
-		const result = [];
-		for (let i = startIdx - 1; i >= 0; i--) {
-			const t = list[i];
-			if (t.type === "Block" || t.type === "Line") result.unshift(t);
-			else break;
-		}
-		return result;
-	}
+    getLastTokensBetween(left, right, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        const filter = opts.filter;
+        const count = opts.count != null ? opts.count : Number.MAX_SAFE_INTEGER;
+        const leftEnd = this._rangeForNode(left)[1];
+        const rightStart = this._rangeForNode(right)[0];
+        const tokens = this._sliceByRange(leftEnd, rightStart, includeComments);
+        const filtered = this._applyFilter(tokens, filter);
+        const reversed = filtered.slice().reverse();
+        return this._applySkipAndCount(reversed, opts.skip, count).reverse();
+    }
 
-	getCommentsAfter(nodeOrToken) {
-		const list = this._getCombined(true);
-		const endIdx = this._findEndIndex(nodeOrToken, true);
-		const result = [];
-		for (let i = endIdx; i < list.length; i++) {
-			const t = list[i];
-			if (t.type === "Block" || t.type === "Line") result.push(t);
-			else break;
-		}
-		return result;
-	}
+    getLastTokenBetween(left, right, options) {
+        const tokens = this.getLastTokensBetween(left, right, options);
+        return tokens.length ? tokens[tokens.length - 1] : null;
+    }
 
-	getCommentsInside(node) {
-		const list = this._getCombined(true);
-		const startIdx = this._findStartIndex(node, true);
-		const endIdx = this._findEndIndex(node, true);
-		const result = [];
-		for (let i = startIdx; i < endIdx; i++) {
-			const t = list[i];
-			if (t.type === "Block" || t.type === "Line") result.push(t);
-		}
-		return result;
-	}
+    getTokensBetween(left, right, padding = 0) {
+        const leftEnd = this._rangeForNode(left)[1];
+        const rightStart = this._rangeForNode(right)[0];
+        const start = Math.max(0, leftEnd - padding);
+        const end = rightStart + padding;
+        return this._sliceByRange(start, end, false);
+    }
+
+    getTokenByRangeStart(index, options) {
+        const opts = this._normalizeOptions(options);
+        const includeComments = opts.includeComments;
+        for (const item of this._merged) {
+            if (item.range[0] === index && (!item.isComment || includeComments)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    commentsExistBetween(left, right) {
+        const leftEnd = this._rangeForNode(left)[1];
+        const rightStart = this._rangeForNode(right)[0];
+        for (const c of this.comments) {
+            if (c.range[0] >= leftEnd && c.range[1] <= rightStart) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    getCommentsBefore(nodeOrToken) {
+        const start = this._rangeForNode(nodeOrToken)[0];
+        const result = [];
+        for (const c of this.comments) {
+            if (c.range[1] <= start) {
+                result.push(c);
+            }
+        }
+        return result;
+    }
+
+    getCommentsAfter(nodeOrToken) {
+        const end = this._rangeForNode(nodeOrToken)[1];
+        const result = [];
+        for (const c of this.comments) {
+            if (c.range[0] >= end) {
+                result.push(c);
+            }
+        }
+        return result;
+    }
+
+    getCommentsInside(node) {
+        const [start, end] = this._rangeForNode(node);
+        const result = [];
+        for (const c of this.comments) {
+            if (c.range[0] >= start && c.range[1] <= end) {
+                result.push(c);
+            }
+        }
+        return result;
+    }
 }
 
 module.exports = TokenStore;

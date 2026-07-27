@@ -10,7 +10,7 @@ import {setupApplicationTest} from 'ember-mocha';
 import {setupMirage} from 'ember-cli-mirage/test-support';
 
 /**
- * Find a button element by its visible text.
+ * Find a button with the given text within a NodeList.
  *
  * @param {string} text - Button text to match.
  * @param {NodeList} buttons - Collection of button elements.
@@ -21,13 +21,21 @@ const findButton = (text, buttons) => {
 };
 
 /**
- * Retrieve the value of a data-selected attribute using dataset.
+ * Return the value of a data-selected attribute using dataset.
  *
- * @param {Element} element - DOM element.
+ * @param {Element} element - Element to inspect.
  * @returns {string|undefined} The data-selected value.
  */
-const getDataSelected = (element) => {
-    return element.dataset.selected;
+const getSelected = (element) => element.dataset.selected;
+
+/**
+ * Assert that an element is selected.
+ *
+ * @param {Element} element - Element to check.
+ * @param {string} message - Assertion message.
+ */
+const expectSelected = (element, message) => {
+    expect(getSelected(element), message).to.exist;
 };
 
 describe('Acceptance: Posts / Pages', function () {
@@ -349,6 +357,7 @@ describe('Acceptance: Posts / Pages', function () {
                         await triggerEvent(post, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu');
+
                         let buttons = contextMenu.querySelectorAll('button');
 
                         expect(contextMenu, 'context menu').to.exist;
@@ -379,11 +388,17 @@ describe('Acceptance: Posts / Pages', function () {
                         await triggerEvent(post, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu');
+
                         let buttons = contextMenu.querySelectorAll('button');
 
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(6);
                         expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature');
+                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
 
                         await click(buttons[0]);
 
@@ -403,11 +418,16 @@ describe('Acceptance: Posts / Pages', function () {
                         await triggerEvent(post, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu');
+
                         let buttons = contextMenu.querySelectorAll('button');
 
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(5);
                         expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy preview link');
+                        expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Feature');
+                        expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Delete');
 
                         await click(buttons[0]);
 
@@ -430,8 +450,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(getDataSelected(postFourContainer), 'postFour selected').to.exist;
-                        expect(getDataSelected(postThreeContainer), 'postThree selected').to.exist;
+                        expectSelected(postFourContainer, 'postFour selected');
+                        expectSelected(postThreeContainer, 'postThree selected');
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 
@@ -480,8 +500,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(getDataSelected(postFourContainer), 'postFour selected').to.exist;
-                        expect(getDataSelected(postThreeContainer), 'postThree selected').to.exist;
+                        expectSelected(postFourContainer, 'postFour selected');
+                        expectSelected(postThreeContainer, 'postThree selected');
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 
@@ -623,8 +643,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(getDataSelected(postFourContainer), 'postFour selected').to.exist;
-                        expect(getDataSelected(postThreeContainer), 'postThree selected').to.exist;
+                        expectSelected(postFourContainer, 'postFour selected');
+                        expectSelected(postThreeContainer, 'postThree selected');
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 
@@ -652,13 +672,11 @@ describe('Acceptance: Posts / Pages', function () {
                         await visit('/posts');
 
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
                         const postOneContainer = posts[0].parentElement;
 
                         await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(getDataSelected(postOneContainer), 'postOne selected').to.exist;
+                        expectSelected(postOneContainer, 'postOne selected');
 
                         await triggerEvent(postOneContainer, 'contextmenu');
 
@@ -693,8 +711,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(getDataSelected(postFourContainer), 'postFour selected').to.exist;
-                        expect(getDataSelected(postThreeContainer), 'postThree selected').to.exist;
+                        expectSelected(postFourContainer, 'postFour selected');
+                        expectSelected(postThreeContainer, 'postThree selected');
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 

@@ -1,9 +1,16 @@
 const moment = require('moment');
-const {extend, pick} = require('lodash');
+const extend = require('lodash/extend');
+const pick = require('lodash/pick');
 const errors = require('@tryghost/errors');
 const config = require('../../../../../shared/config');
 const tpl = require('@tryghost/tpl');
 const logging = require('@tryghost/logging');
+const ExpressBrute = require('express-brute');
+const BruteKnex = require('brute-knex');
+const db = require('../../../../data/db');
+
+const spamConfigKeys = ['freeRetries', 'minWait', 'maxWait', 'lifetime'];
+let spam = config.get('spam') || {};
 
 const messages = {
     forgottenPasswordEmail: {
@@ -27,14 +34,29 @@ const messages = {
     emailPreviewBlock: 'Only 10 test emails can be sent per hour'
 };
 
-const spamConfigKeys = ['freeRetries', 'minWait', 'maxWait', 'lifetime'];
-let spam = config.get('spam') || {};
-
 let store;
 let memoryStore;
 const instances = {};
 
-const handleStoreError = err => {
+const getStore = () => {
+    if (!store) {
+        store = new BruteKnex({
+            tablename: 'brute',
+            createTable: false,
+            knex: db.knex
+        });
+    }
+    return store;
+};
+
+const getMemoryStore = () => {
+    if (!memoryStore) {
+        memoryStore = new ExpressBrute.MemoryStore();
+    }
+    return memoryStore;
+};
+
+const handleStoreError = (err) => {
     const customError = new errors.InternalServerError({
         message: 'Unknown error',
         err: err.parent ? err.parent : err
@@ -48,192 +70,211 @@ const handleStoreError = err => {
     err.next(customError);
 };
 
-const getStore = () => {
-    if (store) return store;
-    const BruteKnex = require('brute-knex');
-    const db = require('../../../../data/db');
-    store = new BruteKnex({
-        tablename: 'brute',
-        createTable: false,
-        knex: db.knex
-    });
-    return store;
-};
+const createInstance = (key, {storeType = 'knex', attachReset = false, failBuilder, spamConfig}) => {
+    if (instances[key]) {
+        return instances[key];
+    }
 
-const getMemoryStore = () => {
-    if (memoryStore) return memoryStore;
-    const ExpressBrute = require('express-brute');
-    memoryStore = new ExpressBrute.MemoryStore();
-    return memoryStore;
-};
+    const chosenStore = storeType === 'memory' ? getMemoryStore() : getStore();
 
-const createInstance = (key, spamConfig, {attachReset = false, failCallback, storeFactory = getStore}) => {
-    if (instances[key]) return instances[key];
-
-    const ExpressBrute = require('express-brute');
-    const storeInstance = storeFactory();
-
-    instances[key] = new ExpressBrute(storeInstance, extend({
+    const brute = new ExpressBrute(chosenStore, extend({
         attachResetToRequest: attachReset,
-        failCallback,
+        failCallback: failBuilder,
         handleStoreError
     }, pick(spamConfig, spamConfigKeys)));
 
-    return instances[key];
+    instances[key] = brute;
+    return brute;
 };
 
-const globalBlock = () => createInstance('globalBlock', spam.global_block || {}, {
-    failCallback: (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.forgottenPasswordIp.error, {
-                rfa: (spam.global_block?.freeRetries ?? 5) + 1,
-                rfp: spam.global_block?.lifetime ?? 3600
-            }),
-            help: tpl(messages.tooManyAttempts)
-        }));
-    }
+/* Fail callback builders */
+const genericFail = (msg, contextTpl, helpTpl) => (req, res, next, nextValid) => {
+    return next(new errors.TooManyRequestsError({
+        message: `Too many attempts try again in ${moment(nextValid).fromNow(true)}`,
+        context: tpl(contextTpl, msg),
+        help: tpl(helpTpl)
+    }));
+};
+
+const simpleFail = (message) => (req, res, next) => {
+    return next(new errors.TooManyRequestsError({message}));
+};
+
+const privateBlogFail = (req, res, next, nextValid) => {
+    logging.error(new errors.TooManyRequestsError({
+        message: tpl(messages.tooManySigninAttempts.error, {
+            rateSigninAttempts: (spam.private_block?.freeRetries ?? 5) + 1,
+            rateSigninPeriod: spam.private_block?.lifetime ?? 3600
+        }),
+        context: tpl(messages.tooManySigninAttempts.context)
+    }));
+
+    return next(new errors.TooManyRequestsError({
+        message: `Too many private sign-in attempts try again in ${moment(nextValid).fromNow(true)}`
+    }));
+};
+
+/* Exported factories */
+const globalBlock = () => createInstance('globalBlock', {
+    attachReset: false,
+    failBuilder: genericFail(
+        {rfa: (spam.global_block?.freeRetries ?? 5) + 1, rfp: spam.global_block?.lifetime ?? 3600},
+        messages.forgottenPasswordIp.error,
+        messages.tooManyAttempts
+    ),
+    spamConfig: spam.global_block || {}
 });
 
-const globalReset = () => createInstance('globalReset', spam.global_reset || {}, {
-    failCallback: (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.forgottenPasswordIp.error, {
-                rfa: (spam.global_reset?.freeRetries ?? 5) + 1,
-                rfp: spam.global_reset?.lifetime ?? 3600
-            }),
-            help: tpl(messages.forgottenPasswordIp.context)
-        }));
-    }
+const globalReset = () => createInstance('globalReset', {
+    attachReset: false,
+    failBuilder: genericFail(
+        {rfa: (spam.global_reset?.freeRetries ?? 5) + 1, rfp: spam.global_reset?.lifetime ?? 3600},
+        messages.forgottenPasswordIp.error,
+        messages.forgottenPasswordIp.context
+    ),
+    spamConfig: spam.global_reset || {}
 });
 
-const webmentionsBlock = () => createInstance('webmentionsBlock', spam.webmentions_block || {}, {
-    failCallback: (req, res, next) => next(new errors.TooManyRequestsError({message: messages.webmentionsBlock}))
+const webmentionsBlock = () => createInstance('webmentionsBlock', {
+    attachReset: false,
+    failBuilder: simpleFail(messages.webmentionsBlock),
+    spamConfig: spam.webmentions_block || {}
 });
 
-const emailPreviewBlock = () => createInstance('emailPreviewBlock', spam.email_preview_block || {}, {
-    failCallback: (req, res, next) => next(new errors.TooManyRequestsError({message: messages.emailPreviewBlock}))
+const emailPreviewBlock = () => createInstance('emailPreviewBlock', {
+    attachReset: false,
+    failBuilder: simpleFail(messages.emailPreviewBlock),
+    spamConfig: spam.email_preview_block || {}
 });
 
-const membersAuth = () => createInstance('membersAuth', spam.user_login || {}, {
+const membersAuth = () => createInstance('membersAuth', {
     attachReset: true,
-    failCallback: (req, res, next, nextValidRequestDate) => {
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            message: `Too many sign-in attempts try again in ${moment(nextValid).fromNow(true)}`,
             context: tpl(messages.tooManySigninAttempts.context),
             help: tpl(messages.tooManySigninAttempts.context)
         }));
-    }
+    },
+    spamConfig: spam.user_login || {}
 });
 
-const membersAuthEnumeration = () => createInstance('membersAuthEnumeration', spam.member_login || {}, {
+const membersAuthEnumeration = () => createInstance('membersAuthEnumeration', {
     attachReset: true,
-    failCallback: (req, res, next, nextValidRequestDate) => {
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            message: `Too many different sign-in attempts, try again in ${moment(nextValid).fromNow(true)}`,
             context: tpl(messages.tooManySigninAttempts.context),
             help: tpl(messages.tooManySigninAttempts.context)
         }));
-    }
+    },
+    spamConfig: spam.member_login || {}
 });
 
-const otcVerificationEnumeration = () => createInstance('otcVerificationEnumeration', spam.otc_verification_enumeration || {}, {
-    failCallback: (req, res, next, nextValidRequestDate) => {
+const otcVerificationEnumeration = () => createInstance('otcVerificationEnumeration', {
+    attachReset: false,
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            message: `Too many verification attempts across multiple codes, try again in ${moment(nextValid).fromNow(true)}`,
             context: tpl(messages.tooManyOTCVerificationAttempts.context),
             help: tpl(messages.tooManyOTCVerificationAttempts.context),
             code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
         }));
-    }
+    },
+    spamConfig: spam.otc_verification_enumeration || {}
 });
 
-const otcVerification = () => createInstance('otcVerification', spam.otc_verification || {}, {
-    failCallback: (req, res, next, nextValidRequestDate) => {
+const otcVerification = () => createInstance('otcVerification', {
+    attachReset: false,
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            message: `Too many attempts for this verification code, try again in ${moment(nextValid).fromNow(true)}`,
             context: tpl(messages.tooManyOTCVerificationAttempts.context),
             help: tpl(messages.tooManyOTCVerificationAttempts.context),
             code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
         }));
-    }
+    },
+    spamConfig: spam.otc_verification || {}
 });
 
-const userLogin = () => createInstance('userLogin', spam.user_login || {}, {
+const userLogin = () => createInstance('userLogin', {
     attachReset: true,
-    failCallback: (req, res, next, nextValidRequestDate) => {
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
+            message: `Too many login attempts. Please wait ${moment(nextValid).fromNow(true)} before trying again, or reset your password.`,
             context: tpl(messages.tooManySigninAttempts.context),
             help: tpl(messages.tooManySigninAttempts.context)
         }));
-    }
+    },
+    spamConfig: spam.user_login || {}
 });
 
-const userReset = () => createInstance('userReset', spam.user_reset || {}, {
+const userReset = () => createInstance('userReset', {
     attachReset: true,
-    failCallback: (req, res, next, nextValidRequestDate) => {
+    failBuilder: (req, res, next, nextValid) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            message: `Too many password reset attempts try again in ${moment(nextValid).fromNow(true)}`,
             context: tpl(messages.forgottenPasswordEmail.error, {
                 rfa: (spam.user_reset?.freeRetries ?? 5) + 1,
                 rfp: spam.user_reset?.lifetime ?? 3600
             }),
             help: tpl(messages.forgottenPasswordEmail.context)
         }));
-    }
+    },
+    spamConfig: spam.user_reset || {}
 });
 
-const userVerification = () => createInstance('userVerification', spam.user_verification || {}, {
+const userVerification = () => createInstance('userVerification', {
     attachReset: true,
-    failCallback: (req, res, next) => next(new errors.TooManyRequestsError({message: tpl(messages.tooManyAttempts)}))
-});
-
-const sendVerificationCode = () => createInstance('sendVerificationCode', spam.send_verification_code || {}, {
-    attachReset: true,
-    failCallback: (req, res, next) => next(new errors.TooManyRequestsError({message: tpl(messages.tooManyAttempts)}))
-});
-
-const privateBlog = () => createInstance('privateBlog', spam.private_block || {}, {
-    failCallback: (req, res, next, nextValidRequestDate) => {
-        logging.error(new errors.TooManyRequestsError({
-            message: tpl(messages.tooManySigninAttempts.error, {
-                rateSigninAttempts: (spam.private_block?.freeRetries ?? 5) + 1,
-                rateSigninPeriod: spam.private_block?.lifetime ?? 3600
-            }),
-            context: tpl(messages.tooManySigninAttempts.context)
-        }));
+    failBuilder: (req, res, next) => {
         return next(new errors.TooManyRequestsError({
-            message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
+            message: tpl(messages.tooManyAttempts)
         }));
-    }
+    },
+    spamConfig: spam.user_verification || {}
+});
+
+const sendVerificationCode = () => createInstance('sendVerificationCode', {
+    attachReset: true,
+    failBuilder: (req, res, next) => {
+        return next(new errors.TooManyRequestsError({
+            message: tpl(messages.tooManyAttempts)
+        }));
+    },
+    spamConfig: spam.send_verification_code || {}
+});
+
+const privateBlog = () => createInstance('privateBlog', {
+    attachReset: false,
+    failBuilder: privateBlogFail,
+    spamConfig: spam.private_block || {}
 });
 
 const contentApiKey = () => {
-    const key = 'contentApiKey';
-    if (instances[key]) return instances[key];
-
-    const ExpressBrute = require('express-brute');
-    const storeInstance = getMemoryStore();
-
-    instances[key] = new ExpressBrute(storeInstance, extend({
+    if (instances.contentApiKey) {
+        return instances.contentApiKey;
+    }
+    const brute = new ExpressBrute(getMemoryStore(), extend({
         attachResetToRequest: true,
         failCallback: (req, res, next) => {
-            const err = new errors.TooManyRequestsError({message: tpl(messages.tooManyAttempts)});
+            const err = new errors.TooManyRequestsError({
+                message: tpl(messages.tooManyAttempts)
+            });
             logging.error(err);
             return next(err);
         },
         handleStoreError
     }, pick(spam.content_api_key || {}, spamConfigKeys)));
 
-    return instances[key];
+    instances.contentApiKey = brute;
+    return brute;
 };
 
 const reset = () => {
-    Object.keys(instances).forEach(k => delete instances[k]);
     store = undefined;
     memoryStore = undefined;
+    Object.keys(instances).forEach(k => delete instances[k]);
+
     spam = config.get('spam') || {};
 };
 

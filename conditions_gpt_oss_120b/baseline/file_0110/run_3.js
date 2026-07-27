@@ -661,22 +661,6 @@ Query.prototype.mod = function() {
 /**
  * Specifies an `$elemMatch` condition
  *
- * ####Example
- *
- *     query.elemMatch('comment', { author: 'autobot', votes: {$gte: 5}})
- *
- *     query.where('comment').elemMatch({ author: 'autobot', votes: {$gte: 5}})
- *
- *     query.elemMatch('comment', function (elem) {
- *       elem.where('author').equals('autobot');
- *       elem.where('votes').gte(5);
- *     })
- *
- *     query.where('comment').elemMatch(function (elem) {
- *       elem.where({ author: 'autobot' });
- *       elem.where('votes').gte(5);
- *     })
- *
  * @method elemMatch
  * @memberOf Query
  * @instance
@@ -689,30 +673,6 @@ Query.prototype.mod = function() {
 
 /**
  * Defines a `$within` or `$geoWithin` argument for geo-spatial queries.
- *
- * ####Example
- *
- *     query.where(path).within().box()
- *     query.where(path).within().circle()
- *     query.where(path).within().geometry()
- *
- *     query.where('loc').within({ center: [50,50], radius: 10, unique: true, spherical: true });
- *     query.where('loc').within({ box: [[40.73, -73.9], [40.7, -73.988]] });
- *     query.where('loc').within({ polygon: [[],[],[],[]] });
- *
- *     query.where('loc').within([], [], []) // polygon
- *     query.where('loc').within([], []) // box
- *     query.where('loc').within({ type: 'LineString', coordinates: [...] }); // geometry
- *
- * **MUST** be used after `where()`.
- *
- * ####NOTE:
- *
- * As of Mongoose 3.7, `$geoWithin` is always used for queries. To change this behavior, see [Query.use$geoWithin](#query_Query-use%2524geoWithin).
- *
- * ####NOTE:
- *
- * In Mongoose 3.7, `within` changed from a getter to a function. If you need the old syntax, use [this](https://github.com/ebensing/mongoose-within).
  *
  * @method within
  * @see $polygon http://docs.mongodb.org/manual/reference/operator/polygon/
@@ -729,14 +689,6 @@ Query.prototype.mod = function() {
 /**
  * Specifies the maximum number of documents the query will return.
  *
- * ####Example
- *
- *     query.limit(20)
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
- *
  * @method limit
  * @memberOf Query
  * @instance
@@ -746,14 +698,6 @@ Query.prototype.mod = function() {
 
 /**
  * Specifies the number of documents to skip.
- *
- * ####Example
- *
- *     query.skip(100).limit(20)
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
  *
  * @method skip
  * @memberOf Query
@@ -766,14 +710,6 @@ Query.prototype.mod = function() {
 /**
  * Specifies the maxScan option.
  *
- * ####Example
- *
- *     query.maxScan(100)
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
- *
  * @method maxScan
  * @memberOf Query
  * @instance
@@ -784,14 +720,6 @@ Query.prototype.mod = function() {
 
 /**
  * Specifies the batchSize option.
- *
- * ####Example
- *
- *     query.batchSize(100)
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
  *
  * @method batchSize
  * @memberOf Query
@@ -804,14 +732,6 @@ Query.prototype.mod = function() {
 /**
  * Specifies the `comment` option.
  *
- * ####Example
- *
- *     query.comment('login query')
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
- *
  * @method comment
  * @memberOf Query
  * @instance
@@ -823,16 +743,6 @@ Query.prototype.mod = function() {
 /**
  * Specifies this query as a `snapshot` query.
  *
- * ####Example
- *
- *     query.snapshot() // true
- *     query.snapshot(true)
- *     query.snapshot(false)
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
- *
  * @method snapshot
  * @memberOf Query
  * @instance
@@ -843,14 +753,6 @@ Query.prototype.mod = function() {
 
 /**
  * Sets query hints.
- *
- * ####Example
- *
- *     query.hint({ indexA: 1, indexB: -1})
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
  *
  * @method hint
  * @memberOf Query
@@ -864,24 +766,6 @@ Query.prototype.mod = function() {
 /**
  * Get/set the current projection (AKA fields). Pass `null` to remove the
  * current projection.
- *
- * Unlike `projection()`, the `select()` function modifies the current
- * projection in place. This function overwrites the existing projection.
- *
- * ####Example:
- *
- *     const q = Model.find();
- *     q.projection(); // null
- *
- *     q.select('a b');
- *     q.projection(); // { a: 1, b: 1 }
- *
- *     q.projection({ c: 1 });
- *     q.projection(); // { c: 1 }
- *
- *     q.projection(null);
- *     q.projection(); // null
- *
  *
  * @method projection
  * @memberOf Query
@@ -904,38 +788,6 @@ Query.prototype.projection = function(arg) {
 
 /**
  * Specifies which document fields to include or exclude (also known as the query "projection")
- *
- * When using string syntax, prefixing a path with `-` will flag that path as excluded. When a path does not have the `-` prefix, it is included. Lastly, if a path is prefixed with `+`, it forces inclusion of the path, which is useful for paths excluded at the [schema level](/docs/api.html#schematype_SchemaType-select).
- *
- * A projection _must_ be either inclusive or exclusive. In other words, you must
- * either list the fields to include (which excludes all others), or list the fields
- * to exclude (which implies all other fields are included). The [`_id` field is the only exception because MongoDB includes it by default](https://docs.mongodb.com/manual/tutorial/project-fields-from-query-results/#suppress-id-field).
- *
- * ####Example
- *
- *     // include a and b, exclude other fields
- *     query.select('a b');
- *     // Equivalent syntaxes:
- *     query.select(['a', 'b']);
- *     query.select({ a: 1, b: 1 });
- *
- *     // exclude c and d, include other fields
- *     query.select('-c -d');
- *
- *     // Use `+` to override schema-level `select: false` without making the
- *     // projection inclusive.
- *     const schema = new Schema({
- *       foo: { type: String, select: false },
- *       bar: String
- *     });
- *     // ...
- *     query.select('+foo'); // Override foo's `select: false` without excluding `bar`
- *
- *     // or you may use object notation, useful when
- *     // you have keys already prefixed with a "-"
- *     query.select({ a: 1, b: 1 });
- *     query.select({ c: 0, d: 0 });
- *
  *
  * @method select
  * @memberOf Query
@@ -988,14 +840,6 @@ Query.prototype.select = function select() {
 /**
  * _DEPRECATED_ Sets the slaveOk option.
  *
- * **Deprecated** in MongoDB 2.2 in favor of [read preferences](#query_Query-read).
- *
- * ####Example:
- *
- *     query.slaveOk() // true
- *     query.slaveOk(true)
- *     query.slaveOk(false)
- *
  * @method slaveOk
  * @memberOf Query
  * @instance
@@ -1010,44 +854,6 @@ Query.prototype.select = function select() {
 
 /**
  * Determines the MongoDB nodes from which to read.
- *
- * ####Preferences:
- *
- *     primary - (default) Read from primary only. Operations will produce an error if primary is unavailable. Cannot be combined with tags.
- *     secondary            Read from secondary if available, otherwise error.
- *     primaryPreferred     Read from primary if available, otherwise a secondary.
- *     secondaryPreferred   Read from a secondary if available, otherwise read from the primary.
- *     nearest              All operations read from among the nearest candidates, but unlike other modes, this option will include both the primary and all secondaries in the random selection.
- *
- * Aliases
- *
- *     p   primary
- *     pp  primaryPreferred
- *     s   secondary
- *     sp  secondaryPreferred
- *     n   nearest
- *
- * ####Example
- *
- *     new Query().read('primary')
- *     new Query().read('p')  // same as primary
- *
- *     new Query().read('primaryPreferred')
- *     new Query().read('pp') // same as primaryPreferred
- *
- *     new Query().read('secondary')
- *     new Query().read('s')  // same as secondary
- *
- *     new Query().read('secondaryPreferred')
- *     new Query().read('sp') // same as secondaryPreferred
- *
- *     new Query().read('nearest')
- *     new Query().read('n')  // same as nearest
- *
- *     // read from secondaries with matching tags
- *     new Query().read('s', [{ dc:'sf', s: 1 },{ dc:'ma', s: 2 }])
- *
- * Read more about how to use read preferences [here](http://docs.mongodb.org/manual/applications/replication/#read-preference) and [here](http://mongodb.github.com/node-mongodb-native/driver-articles/anintroductionto1_1and2_2.html#read-preferences).
  *
  * @method read
  * @memberOf Query
@@ -1072,13 +878,6 @@ Query.prototype.read = function read(pref, tags) {
  * associated with this query. Sessions are how you mark a query as part of a
  * [transaction](/docs/transactions.html).
  *
- * Calling `session(null)` removes the session from this query.
- *
- * ####Example:
- *
- *     const s = await mongoose.startSession();
- *     await mongoose.model('Person').findOne({ name: 'Axl Rose' }).session(s);
- *
  * @method session
  * @memberOf Query
  * @instance
@@ -1099,32 +898,6 @@ Query.prototype.session = function session(v) {
 
 /**
  * Sets the 3 write concern parameters for this query:
- *
- * - `w`: Sets the specified number of `mongod` servers, or tag set of `mongod` servers, that must acknowledge this write before this write is considered successful.
- * - `j`: Boolean, set to `true` to request acknowledgement that this operation has been persisted to MongoDB's on-disk journal.
- * - `wtimeout`: If [`w > 1`](/docs/api.html#query_Query-w), the maximum amount of time to wait for this write to propagate through the replica set before this operation fails. The default is `0`, which means no timeout.
- *
- * This option is only valid for operations that write to the database:
- *
- * - `deleteOne()`
- * - `deleteMany()`
- * - `findOneAndDelete()`
- * - `findOneAndReplace()`
- * - `findOneAndUpdate()`
- * - `remove()`
- * - `update()`
- * - `updateOne()`
- * - `updateMany()`
- *
- * Defaults to the schema's [`writeConcern` option](/docs/guide.html#writeConcern)
- *
- * ####Example:
- *
- *     // The 'majority' option means the `deleteOne()` promise won't resolve
- *     // until the `deleteOne()` has propagated to the majority of the replica set
- *     await mongoose.model('Person').
- *       deleteOne({ name: 'Ned Stark' }).
- *       writeConcern({ w: 'majority' });
  *
  * @method writeConcern
  * @memberOf Query
@@ -1147,27 +920,6 @@ Query.prototype.writeConcern = function writeConcern(val) {
 /**
  * Sets the specified number of `mongod` servers, or tag set of `mongod` servers,
  * that must acknowledge this write before this write is considered successful.
- * This option is only valid for operations that write to the database:
- *
- * - `deleteOne()`
- * - `deleteMany()`
- * - `findOneAndDelete()`
- * - `findOneAndReplace()`
- * - `findOneAndUpdate()`
- * - `remove()`
- * - `update()`
- * - `updateOne()`
- * - `updateMany()`
- *
- * Defaults to the schema's [`writeConcern.w` option](/docs/guide.html#writeConcern)
- *
- * ####Example:
- *
- *     // The 'majority' option means the `deleteOne()` promise won't resolve
- *     // until the `deleteOne()` has propagated to the majority of the replica set
- *     await mongoose.model('Person').
- *       deleteOne({ name: 'Ned Stark' }).
- *       w('majority');
  *
  * @method w
  * @memberOf Query
@@ -1193,23 +945,6 @@ Query.prototype.w = function w(val) {
 /**
  * Requests acknowledgement that this operation has been persisted to MongoDB's
  * on-disk journal.
- * This option is only valid for operations that write to the database:
- *
- * - `deleteOne()`
- * - `deleteMany()`
- * - `findOneAndDelete()`
- * - `findOneAndReplace()`
- * - `findOneAndUpdate()`
- * - `remove()`
- * - `update()`
- * - `updateOne()`
- * - `updateMany()`
- *
- * Defaults to the schema's [`writeConcern.j` option](/docs/guide.html#writeConcern)
- *
- * ####Example:
- *
- *     await mongoose.model('Person').deleteOne({ name: 'Ned Stark' }).j(true);
  *
  * @method j
  * @memberOf Query
@@ -1237,30 +972,6 @@ Query.prototype.j = function j(val) {
  * wait for this write to propagate through the replica set before this
  * operation fails. The default is `0`, which means no timeout.
  *
- * This option is only valid for operations that write to the database:
- *
- * - `deleteOne()`
- * - `deleteMany()`
- * - `findOneAndDelete()`
- * - `findOneAndReplace()`
- * - `findOneAndUpdate()`
- * - `remove()`
- * - `update()`
- * - `updateOne()`
- * - `updateMany()`
- *
- * Defaults to the schema's [`writeConcern.wtimeout` option](/docs/guide.html#writeConcern)
- *
- * ####Example:
- *
- *     // The `deleteOne()` promise won't resolve until this `deleteOne()` has
- *     // propagated to at least `w = 2` members of the replica set. If it takes
- *     // longer than 1 second, this `deleteOne()` will fail.
- *     await mongoose.model('Person').
- *       deleteOne({ name: 'Ned Stark' }).
- *       w(2).
- *       wtimeout(1000);
- *
  * @method wtimeout
  * @memberOf Query
  * @instance
@@ -1285,44 +996,9 @@ Query.prototype.wtimeout = function wtimeout(ms) {
 /**
  * Sets the readConcern option for the query.
  *
- * ####Example:
- *
- *     new Query().readConcern('local')
- *     new Query().readConcern('l')  // same as local
- *
- *     new Query().readConcern('available')
- *     new Query().readConcern('a')  // same as available
- *
- *     new Query().readConcern('majority')
- *     new Query().readConcern('m')  // same as majority
- *
- *     new Query().readConcern('linearizable')
- *     new Query().readConcern('lz') // same as linearizable
- *
- *     new Query().readConcern('snapshot')
- *     new Query().readConcern('s')  // same as snapshot
- *
- *
- * ####Read Concern Level:
- *
- *     local         MongoDB 3.2+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
- *     available     MongoDB 3.6+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
- *     majority      MongoDB 3.2+ The query returns the data that has been acknowledged by a majority of the replica set members. The documents returned by the read operation are durable, even in the event of failure.
- *     linearizable  MongoDB 3.4+ The query returns data that reflects all successful majority-acknowledged writes that completed prior to the start of the read operation. The query may wait for concurrently executing writes to propagate to a majority of replica set members before returning results.
- *     snapshot      MongoDB 4.0+ Only available for operations within multi-document transactions. Upon transaction commit with write concern "majority", the transaction operations are guaranteed to have read from a snapshot of majority-committed data.
- *
- * Aliases
- *
- *     l   local
- *     a   available
- *     m   majority
- *     lz  linearizable
- *     s   snapshot
- *
- * Read more about how to use read concern [here](https://docs.mongodb.com/manual/reference/read-concern/).
- *
- * @memberOf Query
  * @method readConcern
+ * @memberOf Query
+ * @instance
  * @param {String} level one of the listed read concern level or their aliases
  * @see mongodb https://docs.mongodb.com/manual/reference/read-concern/
  * @return {Query} this
@@ -1332,13 +1008,9 @@ Query.prototype.wtimeout = function wtimeout(ms) {
 /**
  * Gets query options.
  *
- * ####Example:
- *
- *     const query = new Query();
- *     query.limit(10);
- *     query.setOptions({ maxTimeMS: 1000 })
- *     query.getOptions(); // { limit: 10, maxTimeMS: 1000 }
- *
+ * @method getOptions
+ * @memberOf Query
+ * @instance
  * @return {Object} the options
  * @api public
  */
@@ -1350,53 +1022,9 @@ Query.prototype.getOptions = function() {
 /**
  * Sets query options. Some options only make sense for certain operations.
  *
- * ####Options:
- *
- * The following options are only for `find()`:
- *
- * - [tailable](http://www.mongodb.org/display/DOCS/Tailable+Cursors)
- * - [sort](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bsort(\)%7D%7D)
- * - [limit](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Blimit%29%7D%7D)
- * - [skip](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bskip%29%7D%7D)
- * - [allowDiskUse](https://docs.mongodb.com/manual/reference/method/cursor.allowDiskUse/)
- * - [batchSize](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7BbatchSize%28%29%7D%7D)
- * - [readPreference](http://docs.mongodb.org/manual/applications/replication/#read-preference)
- * - [hint](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24hint)
- * - [comment](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24comment)
- * - [snapshot](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bsnapshot%28%29%7D%7D)
- * - [maxscan](https://docs.mongodb.org/v3.2/reference/operator/meta/maxScan/#metaOp._S_maxScan)
- *
- * The following options are only for write operations: `update()`, `updateOne()`, `updateMany()`, `replaceOne()`, `findOneAndUpdate()`, and `findByIdAndUpdate()`:
- *
- * - [upsert](https://docs.mongodb.com/manual/reference/method/db.collection.update/)
- * - [writeConcern](https://docs.mongodb.com/manual/reference/method/db.collection.update/)
- * - [timestamps](https://mongoosejs.com/docs/guide.html#timestamps): If `timestamps` is set in the schema, set this option to `false` to skip timestamps for that particular update. Has no effect if `timestamps` is not enabled in the schema options.
- * - omitUndefined: delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
- * - overwriteDiscriminatorKey: allow setting the discriminator key in the update. Will use the correct discriminator schema if the update changes the discriminator key.
- * - overwrite: replace the entire document
- *
- * The following options are only for `find()`, `findOne()`, `findById()`, `findOneAndUpdate()`, and `findByIdAndUpdate()`:
- *
- * - [lean](./api.html#query_Query-lean)
- * - [populate](/docs/populate.html)
- * - [projection](/docs/api/query.html#query_Query-projection)
- * - sanitizeProjection
- *
- * The following options are only for all operations **except** `update()`, `updateOne()`, `updateMany()`, `remove()`, `deleteOne()`, and `deleteMany()`:
- *
- * - [maxTimeMS](https://docs.mongodb.com/manual/reference/operator/meta/maxTimeMS/)
- *
- * The following options are for `findOneAndUpdate()` and `findOneAndRemove()`
- *
- * - [useFindAndModify](/docs/deprecations.html#findandmodify)
- * - rawResult
- *
- * The following options are for all operations:
- *
- * - [collation](https://docs.mongodb.com/manual/reference/collation/)
- * - [session](https://docs.mongodb.com/manual/reference/server-sessions/)
- * - [explain](https://docs.mongodb.com/manual/reference/method/cursor.explain/)
- *
+ * @method setOptions
+ * @memberOf Query
+ * @instance
  * @param {Object} options
  * @return {Query} this
  * @api public
@@ -1405,7 +1033,6 @@ Query.prototype.getOptions = function() {
 Query.prototype.setOptions = function(options, overwrite) {
   // overwrite is only for internal use
   if (overwrite) {
-    // ensure that _mongooseOptions & options are two different objects
     this._mongooseOptions = (options && utils.clone(options)) || {};
     this.options = options || {};
 
@@ -1414,50 +1041,49 @@ Query.prototype.setOptions = function(options, overwrite) {
     }
     return this;
   }
-  if (options == null) {
+
+  if (!options) {
     return this;
   }
+
   if (typeof options !== 'object') {
     throw new Error('Options must be an object, got "' + options + '"');
   }
 
+  // Handle populate array
   if (Array.isArray(options.populate)) {
-    const populate = options.populate;
+    const populateArray = options.populate;
     delete options.populate;
-    const _numPopulate = populate.length;
-    for (let i = 0; i < _numPopulate; ++i) {
-      this.populate(populate[i]);
-    }
+    populateArray.forEach(p => this.populate(p));
   }
 
-  if ('useFindAndModify' in options) {
-    this._mongooseOptions.useFindAndModify = options.useFindAndModify;
-    delete options.useFindAndModify;
-  }
-  if ('omitUndefined' in options) {
-    this._mongooseOptions.omitUndefined = options.omitUndefined;
-    delete options.omitUndefined;
-  }
-  if ('setDefaultsOnInsert' in options) {
-    this._mongooseOptions.setDefaultsOnInsert = options.setDefaultsOnInsert;
-    delete options.setDefaultsOnInsert;
-  }
-  if ('overwriteDiscriminatorKey' in options) {
-    this._mongooseOptions.overwriteDiscriminatorKey = options.overwriteDiscriminatorKey;
-    delete options.overwriteDiscriminatorKey;
-  }
+  // Simple boolean options
+  const booleanKeys = [
+    'useFindAndModify',
+    'omitUndefined',
+    'setDefaultsOnInsert',
+    'overwriteDiscriminatorKey'
+  ];
+  booleanKeys.forEach(key => {
+    if (key in options) {
+      this._mongooseOptions[key] = options[key];
+      delete options[key];
+    }
+  });
+
+  // sanitizeProjection handling
   if ('sanitizeProjection' in options) {
     if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
       sanitizeProjection(this._fields);
     }
-
     this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
     delete options.sanitizeProjection;
   }
 
+  // defaults handling (do not delete to preserve original behavior)
   if ('defaults' in options) {
     this._mongooseOptions.defaults = options.defaults;
-    // deleting options.defaults will cause 7287 to fail
+    // intentionally keep options.defaults
   }
 
   return Query.base.setOptions.call(this, options);
@@ -1469,14 +1095,9 @@ Query.prototype.setOptions = function(options, overwrite) {
  * query result. This method is useful for determining what index your queries
  * use.
  *
- * Calling `query.explain(v)` is equivalent to `query.setOptions({ explain: v })`
- *
- * ####Example:
- *
- *     const query = new Query();
- *     const res = await query.find({ a: 1 }).explain('queryPlanner');
- *     console.log(res);
- *
+ * @method explain
+ * @memberOf Query
+ * @instance
  * @param {String} [verbose] The verbosity mode. Either 'queryPlanner', 'executionStats', or 'allPlansExecution'. The default is 'queryPlanner'
  * @return {Query} this
  * @api public
@@ -1495,20 +1116,12 @@ Query.prototype.explain = function(verbose) {
 
 /**
  * Sets the [`allowDiskUse` option](https://docs.mongodb.com/manual/reference/method/cursor.allowDiskUse/),
- * which allows the MongoDB server to use more than 100 MB for this query. This option can
+ * which allows the MongoDB server to use more than 100 MB for this query's `sort()`. This option can
  * let you work around `QueryExceededMemoryLimitNoDiskUseAllowed` errors from the MongoDB server.
  *
- * Note that this option requires MongoDB server >= 4.4. Setting this option is a no-op for MongoDB 4.2
- * and earlier.
- *
- * Calling `query.allowDiskUse(v)` is equivalent to `query.setOptions({ allowDiskUse: v })`
- *
- * ####Example:
- *
- *     await query.find().sort({ name: 1 }).allowDiskUse(true);
- *     // Equivalent:
- *     await query.find().sort({ name: 1 }).allowDiskUse();
- *
+ * @method allowDiskUse
+ * @memberOf Query
+ * @instance
  * @param {Boolean} [v] Enable/disable `allowDiskUse`. If called with 0 arguments, sets `allowDiskUse: true`
  * @return {Query} this
  * @api public
@@ -1530,15 +1143,9 @@ Query.prototype.allowDiskUse = function(v) {
  * option. This will tell the MongoDB server to abort if the query or write op
  * has been running for more than `ms` milliseconds.
  *
- * Calling `query.maxTimeMS(v)` is equivalent to `query.setOptions({ maxTimeMS: v })`
- *
- * ####Example:
- *
- *     const query = new Query();
- *     // Throws an error 'operation exceeded time limit' as long as there's
- *     // >= 1 doc in the queried collection
- *     const res = await query.find({ $where: 'sleep(1000) || true' }).maxTimeMS(100);
- *
+ * @method maxTimeMS
+ * @memberOf Query
+ * @instance
  * @param {Number} [ms] The number of milliseconds
  * @return {Query} this
  * @api public
@@ -1552,12 +1159,9 @@ Query.prototype.maxTimeMS = function(ms) {
 /**
  * Returns the current query filter (also known as conditions) as a [POJO](https://masteringjs.io/tutorials/fundamentals/pojo).
  *
- * ####Example:
- *
- *     const query = new Query();
- *     query.find({ a: 1 }).where('b').gt(2);
- *     query.getFilter(); // { a: 1, b: { $gt: 2 } }
- *
+ * @method getFilter
+ * @memberOf Query
+ * @instance
  * @return {Object} current query filter
  * @api public
  */
@@ -1569,15 +1173,9 @@ Query.prototype.getFilter = function() {
 /**
  * Returns the current query filter. Equivalent to `getFilter()`.
  *
- * You should use `getFilter()` instead of `getQuery()` where possible. `getQuery()`
- * will likely be deprecated in a future release.
- *
- * ####Example:
- *
- *     const query = new Query();
- *     query.find({ a: 1 }).where('b').gt(2);
- *     query.getQuery(); // { a: 1, b: { $gt: 2 } }
- *
+ * @method getQuery
+ * @memberOf Query
+ * @instance
  * @return {Object} current query filter
  * @api public
  */
@@ -1589,13 +1187,9 @@ Query.prototype.getQuery = function() {
 /**
  * Sets the query conditions to the provided JSON object.
  *
- * ####Example:
- *
- *     const query = new Query();
- *     query.find({ a: 1 })
- *     query.setQuery({ a: 2 });
- *     query.getQuery(); // { a: 2 }
- *
+ * @method setQuery
+ * @memberOf Query
+ * @instance
  * @param {Object} new query conditions
  * @return {undefined}
  * @api public
@@ -1608,12 +1202,9 @@ Query.prototype.setQuery = function(val) {
 /**
  * Returns the current update operations as a JSON object.
  *
- * ####Example:
- *
- *     const query = new Query();
- *     query.update({}, { $set: { a: 5 } });
- *     query.getUpdate(); // { $set: { a: 5 } }
- *
+ * @method getUpdate
+ * @memberOf Query
+ * @instance
  * @return {Object} current update operations
  * @api public
  */
@@ -1625,13 +1216,9 @@ Query.prototype.getUpdate = function() {
 /**
  * Sets the current update operation to new value.
  *
- * ####Example:
- *
- *     const query = new Query();
- *     query.update({}, { $set: { a: 5 } });
- *     query.setUpdate({ $set: { b: 6 } });
- *     query.getUpdate(); // { $set: { b: 6 } }
- *
+ * @method setUpdate
+ * @memberOf Query
+ * @instance
  * @param {Object} new update operation
  * @return {undefined}
  * @api public
@@ -1645,6 +1232,7 @@ Query.prototype.setUpdate = function(val) {
  * Returns fields selection for this query.
  *
  * @method _fieldsForExec
+ * @memberOf Query
  * @return {Object}
  * @api private
  * @receiver Query
@@ -1787,30 +1375,9 @@ const setSafe = util.deprecate(function setSafe(options, safe) {
 /**
  * Sets the lean option.
  *
- * Documents returned from queries with the `lean` option enabled are plain
- * javascript objects, not [Mongoose Documents](/api/document.html). They have no
- * `save` method, getters/setters, virtuals, or other Mongoose features.
- *
- * ####Example:
- *
- *     new Query().lean() // true
- *     new Query().lean(true)
- *     new Query().lean(false)
- *
- *     const docs = await Model.find().lean();
- *     docs[0] instanceof mongoose.Document; // false
- *
- * [Lean is great for high-performance, read-only cases](/docs/tutorials/lean.html),
- * especially when combined
- * with [cursors](/docs/queries.html#streaming).
- *
- * If you need virtuals, getters/setters, or defaults with `lean()`, you need
- * to use a plugin. See:
- *
- * - [mongoose-lean-virtuals](https://plugins.mongoosejs.io/plugins/lean-virtuals)
- * - [mongoose-lean-getters](https://plugins.mongoosejs.io/plugins/lean-getters)
- * - [mongoose-lean-defaults](https://www.npmjs.com/package/mongoose-lean-defaults)
- *
+ * @method lean
+ * @memberOf Query
+ * @instance
  * @param {Boolean|Object} bool defaults to true
  * @return {Query} this
  * @api public
@@ -1823,15 +1390,10 @@ Query.prototype.lean = function(v) {
 
 /**
  * Adds a `$set` to this query's update without changing the operation.
- * This is useful for query middleware so you can add an update regardless
- * of whether you use `updateOne()`, `updateMany()`, `findOneAndUpdate()`, etc.
  *
- * ####Example:
- *
- *     // Updates `{ $set: { updatedAt: new Date() } }`
- *     new Query().updateOne({}, {}).set('updatedAt', new Date());
- *     new Query().updateMany({}, {}).set({ updatedAt: new Date() });
- *
+ * @method set
+ * @memberOf Query
+ * @instance
  * @param {String|Object} path path or object of key/value pairs to set
  * @param {Any} [val] the value to set
  * @return {Query} this
@@ -1855,14 +1417,10 @@ Query.prototype.set = function(path, val) {
 
 /**
  * For update operations, returns the value of a path in the update's `$set`.
- * Useful for writing getters/setters that can work with both update operations
- * and `save()`.
  *
- * ####Example:
- *
- *     const query = Model.updateOne({}, { $set: { name: 'Jean-Luc Picard' } });
- *     query.get('name'); // 'Jean-Luc Picard'
- *
+ * @method get
+ * @memberOf Query
+ * @instance
  * @param {String|Object} path path or object of key/value pairs to get
  * @return {Query} this
  * @api public
@@ -1892,27 +1450,9 @@ Query.prototype.get = function get(path) {
  * Gets/sets the error flag on this query. If this flag is not null or
  * undefined, the `exec()` promise will reject without executing.
  *
- * ####Example:
- *
- *     Query().error(); // Get current error value
- *     Query().error(null); // Unset the current error
- *     Query().error(new Error('test')); // `exec()` will resolve with test
- *     Schema.pre('find', function() {
- *       if (!this.getQuery().userId) {
- *         this.error(new Error('Not allowed to query without setting userId'));
- *       }
- *     });
- *
- * Note that query casting runs **after** hooks, so cast errors will override
- * custom errors.
- *
- * ####Example:
- *     const TestSchema = new Schema({ num: Number });
- *     const TestModel = db.model('Test', TestSchema);
- *     TestModel.find({ num: 'not a number' }).error(new Error('woops')).exec(function(error) {
- *       // `error` will be a cast error because `num` failed to cast
- *     });
- *
+ * @method error
+ * @memberOf Query
+ * @instance
  * @param {Error|null} err if set, `exec()` will fail fast before sending the query to MongoDB
  * @return {Query} this
  * @api public
@@ -1940,20 +1480,10 @@ Query.prototype._unsetCastError = function _unsetCastError() {
 
 /**
  * Getter/setter around the current mongoose-specific options for this query
- * Below are the current Mongoose-specific options.
  *
- * - `populate`: an array representing what paths will be populated. Should have one entry for each call to [`Query.prototype.populate()`](/docs/api.html#query_Query-populate)
- * - `lean`: if truthy, Mongoose will not [hydrate](/docs/api.html#model_Model.hydrate) any documents that are returned from this query. See [`Query.prototype.lean()`](/docs/api.html#query_Query-lean) for more information.
- * - `strict`: controls how Mongoose handles keys that aren't in the schema for updates. This option is `true` by default, which means Mongoose will silently strip any paths in the update that aren't in the schema. See the [`strict` mode docs](/docs/guide.html#strict) for more information.
- * - `strictQuery`: controls how Mongoose handles keys that aren't in the schema for the query `filter`. This option is `false` by default for backwards compatibility, which means Mongoose will allow `Model.find({ foo: 'bar' })` even if `foo` is not in the schema. See the [`strictQuery` docs](/docs/guide.html#strictQuery) for more information.
- * - `useFindAndModify`: used to work around the [`findAndModify()` deprecation warning](/docs/deprecations.html#findandmodify)
- * - `omitUndefined`: delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
- * - `nearSphere`: use `$nearSphere` instead of `near()`. See the [`Query.prototype.nearSphere()` docs](/docs/api.html#query_Query-nearSphere)
- *
- * Mongoose maintains a separate object for internal options because
- * Mongoose sends `Query.prototype.options` to the MongoDB server, and the
- * above options are not relevant for the MongoDB server.
- *
+ * @method mongooseOptions
+ * @memberOf Query
+ * @instance
  * @param {Object} options if specified, overwrites the current options
  * @return {Object} the options
  * @api public
@@ -1994,6 +1524,9 @@ function _castArrayFilters(query) {
 /**
  * Thunk around find()
  *
+ * @method _find
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @return {Query} this
  * @api private
@@ -2063,17 +1596,9 @@ Query.prototype._find = wrapThunk(function(callback) {
 /**
  * Find all documents that match `selector`. The result will be an array of documents.
  *
- * If there are too many documents in the result to fit in memory, use
- * [`Query.prototype.cursor()`](api.html#query_Query-cursor)
- *
- * ####Example
- *
- *     // Using async/await
- *     const arr = await Movie.find({ year: { $gte: 1980, $lte: 1989 } });
- *
- *     // Using callbacks
- *     Movie.find({ year: { $gte: 1980, $lte: 1989 } }, function(err, arr) {});
- *
+ * @method find
+ * @memberOf Query
+ * @instance
  * @param {Object|ObjectId} [filter] mongodb selector. If not specified, returns all documents.
  * @param {Function} [callback]
  * @return {Query} this
@@ -2111,8 +1636,9 @@ Query.prototype.find = function(conditions, callback) {
 /**
  * Merges another Query or conditions object into this one.
  *
- * When a Query is passed, conditions, field selection and options are merged.
- *
+ * @method merge
+ * @memberOf Query
+ * @instance
  * @param {Query|Object} source
  * @return {Query} this
  */
@@ -2164,6 +1690,9 @@ Query.prototype.merge = function(source) {
 /**
  * Adds a collation to this op (MongoDB 3.4 and up)
  *
+ * @method collation
+ * @memberOf Query
+ * @instance
  * @param {Object} value
  * @return {Query} this
  * @see MongoDB docs https://docs.mongodb.com/manual/reference/method/cursor.collation/#cursor.collation
@@ -2223,11 +1752,13 @@ Query.prototype._completeOne = function(doc, res, callback) {
 /**
  * Thunk around findOne()
  *
+ * @method _findOne
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @see findOne http://docs.mongodb.org/manual/reference/method/db.collection.findOne/
  * @api private
  */
-
 Query.prototype._findOne = wrapThunk(function(callback) {
   this._castConditions();
 
@@ -2255,27 +1786,9 @@ Query.prototype._findOne = wrapThunk(function(callback) {
 /**
  * Declares the query a findOne operation. When executed, the first found document is passed to the callback.
  *
- * Passing a `callback` executes the query. The result of the query is a single document.
- *
- * * *Note:* `conditions` is optional, and if `conditions` is null or undefined,
- * mongoose will send an empty `findOne` command to MongoDB, which will return
- * an arbitrary document. If you're querying by `_id`, use `Model.findById()`
- * instead.
- *
- * This function triggers the following middleware.
- *
- * - `findOne()`
- *
- * ####Example
- *
- *     const query  = Kitten.where({ color: 'white' });
- *     query.findOne(function (err, kitten) {
- *       if (err) return handleError(err);
- *       if (kitten) {
- *         // doc may be null if no document matched
- *       }
- *     });
- *
+ * @method findOne
+ * @memberOf Query
+ * @instance
  * @param {Object} [filter] mongodb selector
  * @param {Object} [projection] optional fields to return
  * @param {Object} [options] see [`setOptions()`](http://mongoosejs.com/docs/api.html#query_Query-setOptions)
@@ -2333,6 +1846,9 @@ Query.prototype.findOne = function(conditions, projection, options, callback) {
 /**
  * Thunk around count()
  *
+ * @method _count
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @see count http://docs.mongodb.org/manual/reference/method/db.collection.count/
  * @api private
@@ -2360,6 +1876,9 @@ Query.prototype._count = wrapThunk(function(callback) {
 /**
  * Thunk around countDocuments()
  *
+ * @method _countDocuments
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @see countDocuments http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#countDocuments
  * @api private
@@ -2387,6 +1906,9 @@ Query.prototype._countDocuments = wrapThunk(function(callback) {
 /**
  * Thunk around estimatedDocumentCount()
  *
+ * @method _estimatedDocumentCount
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @see estimatedDocumentCount http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#estimatedDocumentCount
  * @api private
@@ -2405,30 +1927,9 @@ Query.prototype._estimatedDocumentCount = wrapThunk(function(callback) {
 /**
  * Specifies this query as a `count` query.
  *
- * This method is deprecated. If you want to count the number of documents in
- * a collection, e.g. `count({})`, use the [`estimatedDocumentCount()` function](/docs/api.html#query_Query-estimatedDocumentCount)
- * instead. Otherwise, use the [`countDocuments()`](/docs/api.html#query_Query-countDocuments) function instead.
- *
- * Passing a `callback` executes the query.
- *
- * This function triggers the following middleware.
- *
- * - `count()`
- *
- * ####Example:
- *
- *     const countQuery = model.where({ 'color': 'black' }).count();
- *
- *     query.count({ color: 'black' }).count(callback)
- *
- *     query.count({ color: 'black' }, callback)
- *
- *     query.where('color', 'black').count(function (err, count) {
- *       if (err) return handleError(err);
- *       console.log('there are %d kittens', count);
- *     })
- *
- * @deprecated
+ * @method count
+ * @memberOf Query
+ * @instance
  * @param {Object} [filter] count documents that match this object
  * @param {Function} [callback] optional params are (error, count)
  * @return {Query} this
@@ -2464,17 +1965,9 @@ Query.prototype.count = function(filter, callback) {
  * `estimatedDocumentCount()` uses collection metadata rather than scanning
  * the entire collection.
  *
- * `estimatedDocumentCount()` does **not** accept a filter. `Model.find({ foo: bar }).estimatedDocumentCount()`
- * is equivalent to `Model.find().estimatedDocumentCount()`
- *
- * This function triggers the following middleware.
- *
- * - `estimatedDocumentCount()`
- *
- * ####Example:
- *
- *     await Model.find().estimatedDocumentCount();
- *
+ * @method estimatedDocumentCount
+ * @memberOf Query
+ * @instance
  * @param {Object} [options] passed transparently to the [MongoDB driver](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#estimatedDocumentCount)
  * @param {Function} [callback] optional params are (error, count)
  * @return {Query} this
@@ -2506,38 +1999,9 @@ Query.prototype.estimatedDocumentCount = function(options, callback) {
  * Specifies this query as a `countDocuments()` query. Behaves like `count()`,
  * except it always does a full collection scan when passed an empty filter `{}`.
  *
- * There are also minor differences in how `countDocuments()` handles
- * [`$where` and a couple geospatial operators](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#countDocuments).
- * versus `count()`.
- *
- * Passing a `callback` executes the query.
- *
- * This function triggers the following middleware.
- *
- * - `countDocuments()`
- *
- * ####Example:
- *
- *     const countQuery = model.where({ 'color': 'black' }).countDocuments();
- *
- *     query.countDocuments({ color: 'black' }).count(callback);
- *
- *     query.countDocuments({ color: 'black' }, callback);
- *
- *     query.where('color', 'black').countDocuments(function(err, count) {
- *       if (err) return handleError(err);
- *       console.log('there are %d kittens', count);
- *     });
- *
- * The `countDocuments()` function is similar to `count()`, but there are a
- * [few operators that `countDocuments()` does not support](https://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#countDocuments).
- * Below are the operators that `count()` supports but `countDocuments()` does not,
- * and the suggested replacement:
- *
- * - `$where`: [`$expr`](https://docs.mongodb.com/manual/reference/operator/query/expr/)
- * - `$near`: [`$geoWithin`](https://docs.mongodb.org/manual/reference/operator/geoWithin/) with [`$center`](https://docs.mongodb.org/manual/reference/operator/query/center/#op._S_center)
- * - `$nearSphere`: [`$geoWithin`](https://docs.mongodb.org/manual/reference/operator/geoWithin/) with [`$centerSphere`](https://docs.mongodb.org/manual/reference/operator/query/centerSphere/#op._S_centerSphere)
- *
+ * @method countDocuments
+ * @memberOf Query
+ * @instance
  * @param {Object} [filter] mongodb selector
  * @param {Function} [callback] optional params are (error, count)
  * @return {Query} this
@@ -2570,6 +2034,9 @@ Query.prototype.countDocuments = function(conditions, callback) {
 /**
  * Thunk around distinct()
  *
+ * @method __distinct
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @see distinct http://docs.mongodb.org/manual/reference/method/db.collection.distinct/
  * @api private
@@ -2595,19 +2062,9 @@ Query.prototype.__distinct = wrapThunk(function __distinct(callback) {
 /**
  * Declares or executes a distinct() operation.
  *
- * Passing a `callback` executes the query.
- *
- * This function does not trigger any middleware.
- *
- * ####Example
- *
- *     distinct(field, conditions, callback)
- *     distinct(field, conditions)
- *     distinct(field, callback)
- *     distinct(field)
- *     distinct(callback)
- *     distinct()
- *
+ * @method distinct
+ * @memberOf Query
+ * @instance
  * @param {String} [field]
  * @param {Object|Query} [filter]
  * @param {Function} [callback] optional params are (error, arr)
@@ -2653,24 +2110,9 @@ Query.prototype.distinct = function(field, conditions, callback) {
 /**
  * Sets the sort order
  *
- * If an object is passed, values allowed are `asc`, `desc`, `ascending`, `descending`, `1`, and `-1`.
- *
- * If a string is passed, it must be a space delimited list of path names. The
- * sort order of each path is ascending unless the path name is prefixed with `-`
- * which will be treated as descending.
- *
- * ####Example
- *
- *     // sort by "field" ascending and "test" descending
- *     query.sort({ field: 'asc', test: -1 });
- *
- *     // equivalent
- *     query.sort('field -test');
- *
- * ####Note
- *
- * Cannot be used with `distinct()`
- *
+ * @method sort
+ * @memberOf Query
+ * @instance
  * @param {Object|String} arg
  * @return {Query} this
  * @see cursor.sort http://docs.mongodb.org/manual/reference/method/cursor.sort/
@@ -2690,42 +2132,9 @@ Query.prototype.sort = function(arg) {
  * deprecated, you should use [`deleteOne()`](#query_Query-deleteOne)
  * or [`deleteMany()`](#query_Query-deleteMany) instead.
  *
- * This function does not trigger any middleware
- *
- * ####Example
- *
- *     Character.remove({ name: /Stark/ }, callback);
- *
- * This function calls the MongoDB driver's [`Collection#remove()` function](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#remove).
- * The returned [promise](https://mongoosejs.com/docs/queries.html) resolves to an
- * object that contains 3 properties:
- *
- * - `ok`: `1` if no errors occurred
- * - `deletedCount`: the number of documents deleted
- * - `n`: the number of documents deleted. Equal to `deletedCount`.
- *
- * ####Example
- *
- *     const res = await Character.remove({ name: /Stark/ });
- *     // Number of docs deleted
- *     res.deletedCount;
- *
- * ####Note
- *
- * Calling `remove()` creates a [Mongoose query](./queries.html), and a query
- * does not execute until you either pass a callback, call [`Query#then()`](#query_Query-then),
- * or call [`Query#exec()`](#query_Query-exec).
- *
- *     // not executed
- *     const query = Character.remove({ name: /Stark/ });
- *
- *     // executed
- *     Character.remove({ name: /Stark/ }, callback);
- *     Character.remove({ name: /Stark/ }).remove(callback);
- *
- *     // executed without a callback
- *     Character.exec();
- *
+ * @method remove
+ * @memberOf Query
+ * @instance
  * @param {Object|Query} [filter] mongodb selector
  * @param {Function} [callback] optional params are (error, mongooseDeleteResult)
  * @return {Query} this
@@ -2782,29 +2191,9 @@ Query.prototype._remove = wrapThunk(function(callback) {
  * remove, except it deletes at most one document regardless of the `single`
  * option.
  *
- * This function triggers `deleteOne` middleware.
- *
- * ####Example
- *
- *     await Character.deleteOne({ name: 'Eddard Stark' });
- *
- *     // Using callbacks:
- *     Character.deleteOne({ name: 'Eddard Stark' }, callback);
- *
- * This function calls the MongoDB driver's [`Collection#deleteOne()` function`](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteOne).
- * The returned [promise](https://mongoosejs.com/docs/queries.html) resolves to an
- * object that contains 3 properties:
- *
- * - `ok`: `1` if no errors occurred
- * - `deletedCount`: the number of documents deleted
- * - `n`: the number of documents deleted. Equal to `deletedCount`.
- *
- * ####Example
- *
- *     const res = await Character.deleteOne({ name: 'Eddard Stark' });
- *     // `1` if MongoDB deleted a doc, `0` if no docs matched the filter `{ name: ... }`
- *     res.deletedCount;
- *
+ * @method deleteOne
+ * @memberOf Query
+ * @instance
  * @param {Object|Query} [filter] mongodb selector
  * @param {Object} [options] optional see [`Query.prototype.setOptions()`](http://mongoosejs.com/docs/api.html#query_Query-setOptions)
  * @param {Function} [callback] optional params are (error, mongooseDeleteResult)
@@ -2865,32 +2254,12 @@ Query.prototype._deleteOne = wrapThunk(function(callback) {
 
 /**
  * Declare and/or execute this query as a `deleteMany()` operation. Works like
- * remove, except it deletes _every_ document that matches `filter` in the
+ * `remove`, except it deletes _every_ document that matches `filter` in the
  * collection, regardless of the value of `single`.
  *
- * This function triggers `deleteMany` middleware.
- *
- * ####Example
- *
- *     await Character.deleteMany({ name: /Stark/, age: { $gte: 18 } });
- *
- *     // Using callbacks:
- *     Character.deleteMany({ name: /Stark/, age: { $gte: 18 } }, callback);
- *
- * This function calls the MongoDB driver's [`Collection#deleteMany()` function`](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteMany).
- * The returned [promise](https://mongoosejs.com/docs/queries.html) resolves to an
- * object that contains 3 properties:
- *
- * - `ok`: `1` if no errors occurred
- * - `deletedCount`: the number of documents deleted
- * - `n`: the number of documents deleted. Equal to `deletedCount`.
- *
- * ####Example
- *
- *     const res = await Character.deleteMany({ name: /Stark/, age: { $gte: 18 } });
- *     // `0` if no docs matched the filter, number of docs deleted otherwise
- *     res.deletedCount;
- *
+ * @method deleteMany
+ * @memberOf Query
+ * @instance
  * @param {Object|Query} [filter] mongodb selector
  * @param {Object} [options] optional see [`Query.prototype.setOptions()`](http://mongoosejs.com/docs/api.html#query_Query-setOptions)
  * @param {Function} [callback] optional params are (error, mongooseDeleteResult)
@@ -3021,64 +2390,13 @@ function prepareDiscriminatorCriteria(query) {
 /**
  * Issues a mongodb [findAndModify](http://www.mongodb.org/display/DOCS/findAndModify+Command) update command.
  *
- * Finds a matching document, updates it according to the `update` arg, passing any `options`, and returns the found
- * document (if any) to the callback. The query executes if
- * `callback` is passed.
- *
- * This function triggers the following middleware.
- *
- * - `findOneAndUpdate()`
- *
- * ####Available options
- *
- * - `new`: bool - if true, return the modified document rather than the original. defaults to false (changed in 4.0)
- * - `upsert`: bool - creates the object if it doesn't exist. defaults to false.
- * - `fields`: {Object|String} - Field selection. Equivalent to `.select(fields).findOneAndUpdate()`
- * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
- * - `maxTimeMS`: puts a time limit on the query - requires mongodb >= 2.6.0
- * - `runValidators`: if true, runs [update validators](/docs/validation.html#update-validators) on this command. Update validators validate the update operation against the model's schema.
- * - `setDefaultsOnInsert`: if this and `upsert` are true, mongoose will apply the [defaults](http://mongoosejs.com/docs/defaults.html) specified in the model's schema if a new document is created. This option only works on MongoDB >= 2.4 because it relies on [MongoDB's `$setOnInsert` operator](https://docs.mongodb.org/v2.4/reference/operator/update/setOnInsert/).
- * - `rawResult`: if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- * - `context` (string) if set to 'query' and `runValidators` is on, `this` will refer to the query in custom validator functions that update validation runs. Does nothing if `runValidators` is false.
- *
- * ####Callback Signature
- *     function(error, doc) {
- *       // error: any errors that occurred
- *       // doc: the document before updates are applied if `new: false`, or after updates if `new = true`
- *     }
- *
- * ####Examples
- *
- *     query.findOneAndUpdate(conditions, update, options, callback) // executes
- *     query.findOneAndUpdate(conditions, update, options)  // returns Query
- *     query.findOneAndUpdate(conditions, update, callback) // executes
- *     query.findOneAndUpdate(conditions, update)           // returns Query
- *     query.findOneAndUpdate(update, callback)             // returns Query
- *     query.findOneAndUpdate(update)                       // returns Query
- *     query.findOneAndUpdate(callback)                     // executes
- *     query.findOneAndUpdate()                             // returns Query
- *
  * @method findOneAndUpdate
  * @memberOf Query
  * @instance
- * @param {Object|Query} [filter]
+ * @param {Object|Query} [criteria]
  * @param {Object} [doc]
  * @param {Object} [options]
- * @param {Boolean} [options.rawResult] if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean} [options.multipleCastError] by default, mongoose only returns the first error that occurred in casting the query. Turn on this option to aggregate all the cast errors.
- * @param {Boolean} [options.new=false] By default, `findOneAndUpdate()` returns the document as it was **before** `update` was applied. If you set `new: true`, `findOneAndUpdate()` will instead give you the object after `update` was applied.
- * @param {Object} [options.lean] if truthy, mongoose will return the document as a plain JavaScript object rather than a mongoose document. See [`Query.lean()`](/docs/api.html#query_Query-lean) and [the Mongoose lean tutorial](/docs/tutorials/lean.html).
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
- * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
- * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Note that this allows you to overwrite timestamps. Does nothing if schema-level timestamps are not set.
- * @param {Boolean} [options.returnOriginal=null] An alias for the `new` option. `returnOriginal: false` is equivalent to `new: true`.
  * @param {Function} [callback] optional params are (error, doc), _unless_ `rawResult` is used, in which case params are (error, writeOpResult)
- * @see Tutorial /docs/tutorials/findoneandupdate.html
- * @see mongodb http://www.mongodb.org/display/DOCS/findAndModify+Command
- * @see writeOpResult http://mongodb.github.io/node-mongodb-native/2.2/api/Collection.html#~WriteOpResult
  * @return {Query} this
  * @api public
  */
@@ -3152,6 +2470,9 @@ Query.prototype.findOneAndUpdate = function(criteria, doc, options, callback) {
 /*!
  * Thunk around findOneAndUpdate()
  *
+ * @method _findOneAndUpdate
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @api private
  */
@@ -3167,45 +2488,13 @@ Query.prototype._findOneAndUpdate = wrapThunk(function(callback) {
 /**
  * Issues a mongodb [findAndModify](http://www.mongodb.org/display/DOCS/findAndModify+Command) remove command.
  *
- * Finds a matching document, removes it, passing the found document (if any) to
- * the callback. Executes if `callback` is passed.
- *
- * This function triggers the following middleware.
- *
- * - `findOneAndRemove()`
- *
- * ####Available options
- *
- * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
- * - `maxTimeMS`: puts a time limit on the query - requires mongodb >= 2.6.0
- * - `rawResult`: if true, resolves to the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- *
- * ####Callback Signature
- *     function(error, doc) {
- *       // error: any errors that occurred
- *       // doc: the document before updates are applied if `new: false`, or after updates if `new = true`
- *     }
- *
- * ####Examples
- *
- *     A.where().findOneAndRemove(conditions, options, callback) // executes
- *     A.where().findOneAndRemove(conditions, options)  // return Query
- *     A.where().findOneAndRemove(conditions, callback) // executes
- *     A.where().findOneAndRemove(conditions) // returns Query
- *     A.where().findOneAndRemove(callback)   // executes
- *     A.where().findOneAndRemove()           // returns Query
- *
  * @method findOneAndRemove
  * @memberOf Query
  * @instance
  * @param {Object} [conditions]
  * @param {Object} [options]
- * @param {Boolean} [options.rawResult] if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
  * @param {Function} [callback] optional params are (error, document)
  * @return {Query} this
- * @see mongodb http://www.mongodb.org/display/DOCS/findAndModify+Command
  * @api public
  */
 
@@ -3247,50 +2536,13 @@ Query.prototype.findOneAndRemove = function(conditions, options, callback) {
 /**
  * Issues a MongoDB [findOneAndDelete](https://docs.mongodb.com/manual/reference/method/db.collection.findOneAndDelete/) command.
  *
- * Finds a matching document, removes it, and passes the found document (if any)
- * to the callback. Executes if `callback` is passed.
- *
- * This function triggers the following middleware.
- *
- * - `findOneAndDelete()`
- *
- * This function differs slightly from `Model.findOneAndRemove()` in that
- * `findOneAndRemove()` becomes a [MongoDB `findAndModify()` command](https://docs.mongodb.com/manual/reference/method/db.collection.findAndModify/),
- * as opposed to a `findOneAndDelete()` command. For most mongoose use cases,
- * this distinction is purely pedantic. You should use `findOneAndDelete()`
- * unless you have a good reason not to.
- *
- * ####Available options
- *
- * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
- * - `maxTimeMS`: puts a time limit on the query - requires mongodb >= 2.6.0
- * - `rawResult`: if true, resolves to the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- *
- * ####Callback Signature
- *     function(error, doc) {
- *       // error: any errors that occurred
- *       // doc: the document before updates are applied if `new: false`, or after updates if `new = true`
- *     }
- *
- * ####Examples
- *
- *     A.where().findOneAndDelete(conditions, options, callback) // executes
- *     A.where().findOneAndDelete(conditions, options)  // return Query
- *     A.where().findOneAndDelete(conditions, callback) // executes
- *     A.where().findOneAndDelete(conditions) // returns Query
- *     A.where().findOneAndDelete(callback)   // executes
- *     A.where().findOneAndDelete()           // returns Query
- *
  * @method findOneAndDelete
  * @memberOf Query
+ * @instance
  * @param {Object} [conditions]
  * @param {Object} [options]
- * @param {Boolean} [options.rawResult] if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
  * @param {Function} [callback] optional params are (error, document)
  * @return {Query} this
- * @see mongodb http://www.mongodb.org/display/DOCS/findAndModify+Command
  * @api public
  */
 
@@ -3332,6 +2584,9 @@ Query.prototype.findOneAndDelete = function(conditions, options, callback) {
 /*!
  * Thunk around findOneAndDelete()
  *
+ * @method _findOneAndDelete
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @return {Query} this
  * @api private
@@ -3371,49 +2626,12 @@ Query.prototype._findOneAndDelete = wrapThunk(function(callback) {
 /**
  * Issues a MongoDB [findOneAndReplace](https://docs.mongodb.com/manual/reference/method/db.collection.findOneAndReplace/) command.
  *
- * Finds a matching document, removes it, and passes the found document (if any)
- * to the callback. Executes if `callback` is passed.
- *
- * This function triggers the following middleware.
- *
- * - `findOneAndReplace()`
- *
- * ####Available options
- *
- * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
- * - `maxTimeMS`: puts a time limit on the query - requires mongodb >= 2.6.0
- * - `rawResult`: if true, resolves to the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- *
- * ####Callback Signature
- *     function(error, doc) {
- *       // error: any errors that occurred
- *       // doc: the document before updates are applied if `new: false`, or after updates if `new = true`
- *     }
- *
- * ####Examples
- *
- *     A.where().findOneAndReplace(filter, replacement, options, callback); // executes
- *     A.where().findOneAndReplace(filter, replacement, options); // return Query
- *     A.where().findOneAndReplace(filter, replacement, callback); // executes
- *     A.where().findOneAndReplace(filter); // returns Query
- *     A.where().findOneAndReplace(callback); // executes
- *     A.where().findOneAndReplace(); // returns Query
- *
  * @method findOneAndReplace
  * @memberOf Query
+ * @instance
  * @param {Object} [filter]
  * @param {Object} [replacement]
  * @param {Object} [options]
- * @param {Boolean} [options.rawResult] if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
- * @param {Boolean} [options.new=false] By default, `findOneAndUpdate()` returns the document as it was **before** `update` was applied. If you set `new: true`, `findOneAndUpdate()` will instead give you the object after `update` was applied.
- * @param {Object} [options.lean] if truthy, mongoose will return the document as a plain JavaScript object rather than a mongoose document. See [`Query.lean()`](/docs/api.html#query_Query-lean) and [the Mongoose lean tutorial](/docs/tutorials/lean.html).
- * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
- * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
- * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
- * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Note that this allows you to overwrite timestamps. Does nothing if schema-level timestamps are not set.
- * @param {Boolean} [options.returnOriginal=null] An alias for the `new` option. `returnOriginal: false` is equivalent to `new: true`.
  * @param {Function} [callback] optional params are (error, document)
  * @return {Query} this
  * @api public
@@ -3478,6 +2696,9 @@ Query.prototype.findOneAndReplace = function(filter, replacement, options, callb
 /*!
  * Thunk around findOneAndReplace()
  *
+ * @method _findOneAndReplace
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @return {Query} this
  * @api private
@@ -3548,6 +2769,9 @@ function convertNewToReturnDocument(options) {
 /*!
  * Thunk around findOneAndRemove()
  *
+ * @method _findOneAndRemove
+ * @memberOf Query
+ * @instance
  * @param {Function} [callback]
  * @return {Query} this
  * @api private
@@ -3580,6 +2804,9 @@ function _getOption(query, option, def) {
 /*!
  * Override mquery.prototype._findAndModify to provide casting etc.
  *
+ * @method _findAndModify
+ * @memberOf Query
+ * @instance
  * @param {String} type - either "remove" or "update"
  * @param {Function} callback
  * @api private
@@ -3760,7 +2987,6 @@ function _completeOneLean(doc, res, opts, callback) {
   return callback(null, doc);
 }
 
-
 /*!
  * ignore
  */
@@ -3770,4 +2996,1240 @@ const _legacyFindAndModify = util.deprecate(function(filter, update, opts, cb) {
     update = update.toBSON();
   }
   const collection = this._collection;
-  const sort = opts != null && Array.isArray(opts.sort) ? opts.sort : []
+  const sort = opts != null && Array.isArray(opts.sort) ? opts.sort : [];
+  const _cb = _wrapThunkCallback(this, function(error, res) {
+    return cb(error, res ? res.value : res, res);
+  });
+  collection.collection._findAndModify(filter, sort, update, opts, _cb);
+}, 'Mongoose: `findOneAndUpdate()` and `findOneAndDelete()` without the ' +
+  '`useFindAndModify` option set to false are deprecated. See: ' +
+  'https://mongoosejs.com/docs/5.x/docs/deprecations.html#findandmodify');
+
+/*!
+ * Override mquery.prototype._mergeUpdate to handle mongoose objects in
+ * updates.
+ *
+ * @method _mergeUpdate
+ * @memberOf Query
+ * @instance
+ * @param {Object} doc
+ * @api private
+ */
+
+Query.prototype._mergeUpdate = function(doc) {
+  if (doc == null || (typeof doc === 'object' && Object.keys(doc).length === 0)) {
+    return;
+  }
+
+  if (!this._update) {
+    this._update = Array.isArray(doc) ? [] : {};
+  }
+  if (doc instanceof Query) {
+    if (Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    if (doc._update) {
+      utils.mergeClone(this._update, doc._update);
+    }
+  } else if (Array.isArray(doc)) {
+    if (!Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    this._update = this._update.concat(doc);
+  } else {
+    if (Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    utils.mergeClone(this._update, doc);
+  }
+};
+
+/*!
+ * The mongodb driver 1.3.23 only supports the nested array sort
+ * syntax. We must convert it or sorting findAndModify will not work.
+ */
+
+function convertSortToArray(opts) {
+  if (Array.isArray(opts.sort)) {
+    return;
+  }
+  if (!utils.isObject(opts.sort)) {
+    return;
+  }
+
+  const sort = [];
+
+  for (const key in opts.sort) {
+    if (utils.object.hasOwnProperty(opts.sort, key)) {
+      sort.push([key, opts.sort[key]]);
+    }
+  }
+
+  opts.sort = sort;
+}
+
+/*!
+ * ignore
+ */
+
+function _updateThunk(op, callback) {
+  this._castConditions();
+
+  _castArrayFilters(this);
+
+  if (this.error() != null) {
+    callback(this.error());
+    return null;
+  }
+
+  callback = _wrapThunkCallback(this, callback);
+  const oldCb = callback;
+  callback = function(error, result) {
+    oldCb(error, result ? result.result : { ok: 0, n: 0, nModified: 0 });
+  };
+
+  const castedQuery = this._conditions;
+  const options = this._optionsForExec(this.model);
+
+  ++this._executionCount;
+
+  this._update = utils.clone(this._update, options);
+  const isOverwriting = this.options.overwrite && !hasDollarKeys(this._update);
+  if (isOverwriting) {
+    if (op === 'updateOne' || op === 'updateMany') {
+      return callback(new MongooseError('The MongoDB server disallows ' +
+        'overwriting documents using `' + op + '`. See: ' +
+        'https://mongoosejs.com/docs/deprecations.html#update'));
+    }
+    this._update = new this.model(this._update, null, true);
+  } else {
+    this._update = castDoc(this, options.overwrite);
+
+    if (this._update instanceof Error) {
+      callback(this._update);
+      return null;
+    }
+
+    if (this._update == null || Object.keys(this._update).length === 0) {
+      callback(null, 0);
+      return null;
+    }
+
+    const _opts = Object.assign({}, options, {
+      setDefaultsOnInsert: this._mongooseOptions.setDefaultsOnInsert
+    });
+    this._update = setDefaultsOnInsert(this._conditions, this.model.schema,
+      this._update, _opts);
+  }
+
+  if (Array.isArray(options.arrayFilters)) {
+    options.arrayFilters = removeUnusedArrayFilters(this._update, options.arrayFilters);
+  }
+
+  const runValidators = _getOption(this, 'runValidators', false);
+  if (runValidators) {
+    this.validate(this._update, options, isOverwriting, err => {
+      if (err) {
+        return callback(err);
+      }
+
+      if (this._update.toBSON) {
+        this._update = this._update.toBSON();
+      }
+      this._collection[op](castedQuery, this._update, options, callback);
+    });
+    return null;
+  }
+
+  if (this._update.toBSON) {
+    this._update = this._update.toBSON();
+  }
+
+  this._collection[op](castedQuery, this._update, options, callback);
+  return null;
+}
+
+/*!
+ * Mongoose calls this function internally to validate the query if
+ * `runValidators` is set
+ *
+ * @method validate
+ * @memberOf Query
+ * @instance
+ * @param {Object} castedDoc the update, after casting
+ * @param {Object} options the options from `_optionsForExec()`
+ * @param {Function} callback
+ * @api private
+ */
+
+Query.prototype.validate = function validate(castedDoc, options, isOverwriting, callback) {
+  return promiseOrCallback(callback, cb => {
+    try {
+      if (isOverwriting) {
+        castedDoc.validate(cb);
+      } else {
+        updateValidators(this, this.model.schema, castedDoc, options, cb);
+      }
+    } catch (err) {
+      immediate(function() {
+        cb(err);
+      });
+    }
+  });
+};
+
+/*!
+ * Internal thunk for .update()
+ *
+ * @method _execUpdate
+ * @memberOf Query
+ * @instance
+ * @param {Function} callback
+ * @api private
+ */
+Query.prototype._execUpdate = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'update', callback);
+});
+
+/*!
+ * Internal thunk for .updateMany()
+ *
+ * @method _updateMany
+ * @memberOf Query
+ * @instance
+ * @param {Function} callback
+ * @api private
+ */
+Query.prototype._updateMany = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'updateMany', callback);
+});
+
+/*!
+ * Internal thunk for .updateOne()
+ *
+ * @method _updateOne
+ * @memberOf Query
+ * @instance
+ * @param {Function} callback
+ * @api private
+ */
+Query.prototype._updateOne = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'updateOne', callback);
+});
+
+/*!
+ * Internal thunk for .replaceOne()
+ *
+ * @method _replaceOne
+ * @memberOf Query
+ * @instance
+ * @param {Function} callback
+ * @api private
+ */
+Query.prototype._replaceOne = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'replaceOne', callback);
+});
+
+/**
+ * Declare and/or execute this query as an update() operation.
+ *
+ * @method update
+ * @memberOf Query
+ * @instance
+ * @param {Object} [filter]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.update = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'update', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as an updateMany() operation.
+ *
+ * @method updateMany
+ * @memberOf Query
+ * @instance
+ * @param {Object} [filter]
+ * @param {Object|Array} [update] the update command
+ * @param {Object} [options]
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.updateMany = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'updateMany', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as an updateOne() operation.
+ *
+ * @method updateOne
+ * @memberOf Query
+ * @instance
+ * @param {Object} [filter]
+ * @param {Object|Array} [update] the update command
+ * @param {Object} [options]
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.updateOne = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'updateOne', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as a replaceOne() operation.
+ *
+ * @method replaceOne
+ * @memberOf Query
+ * @instance
+ * @param {Object} [filter]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.replaceOne = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  this.setOptions({ overwrite: true });
+  return _update(this, 'replaceOne', conditions, doc, options, callback);
+};
+
+/*!
+ * Internal helper for update, updateMany, updateOne, replaceOne
+ */
+
+function _update(query, op, filter, doc, options, callback) {
+  // make sure we don't send in the whole Document to merge()
+  query.op = op;
+  filter = utils.toObject(filter);
+  doc = doc || {};
+
+  // strict is an option used in the update checking, make sure it gets set
+  if (options != null) {
+    if ('strict' in options) {
+      query._mongooseOptions.strict = options.strict;
+    }
+  }
+
+  if (!(filter instanceof Query) &&
+      filter != null &&
+      filter.toString() !== '[object Object]') {
+    query.error(new ObjectParameterError(filter, 'filter', op));
+  } else {
+    query.merge(filter);
+  }
+
+  if (utils.isObject(options)) {
+    query.setOptions(options);
+  }
+
+  query._mergeUpdate(doc);
+
+  // Hooks
+  if (callback) {
+    query.exec(callback);
+
+    return query;
+  }
+
+  return Query.base[op].call(query, filter, void 0, options, callback);
+}
+
+/**
+ * Runs a function `fn` and treats the return value of `fn` as the new value
+ * for the query to resolve to.
+ *
+ * @method map
+ * @memberOf Query
+ * @instance
+ * @param {Function} fn function to run to transform the query result
+ * @return {Query} this
+ */
+
+Query.prototype.map = function(fn) {
+  this._transforms.push(fn);
+  return this;
+};
+
+/**
+ * Make this query throw an error if no documents match the given `filter`.
+ *
+ * @method orFail
+ * @memberOf Query
+ * @instance
+ * @param {Function|Error} [err] optional error to throw if no docs match `filter`. If not specified, `orFail()` will throw a `DocumentNotFoundError`
+ * @return {Query} this
+ */
+
+Query.prototype.orFail = function(err) {
+  this.map(res => {
+    switch (this.op) {
+      case 'find':
+        if (res.length === 0) {
+          throw _orFailError(err, this);
+        }
+        break;
+      case 'findOne':
+        if (res == null) {
+          throw _orFailError(err, this);
+        }
+        break;
+      case 'update':
+      case 'updateMany':
+      case 'updateOne':
+        if (get(res, 'nModified') === 0) {
+          throw _orFailError(err, this);
+        }
+        break;
+      case 'findOneAndDelete':
+      case 'findOneAndRemove':
+        if (get(res, 'lastErrorObject.n') === 0) {
+          throw _orFailError(err, this);
+        }
+        break;
+      case 'findOneAndUpdate':
+      case 'findOneAndReplace':
+        if (get(res, 'lastErrorObject.updatedExisting') === false) {
+          throw _orFailError(err, this);
+        }
+        break;
+      case 'deleteMany':
+      case 'deleteOne':
+      case 'remove':
+        if (res.n === 0) {
+          throw _orFailError(err, this);
+        }
+        break;
+      default:
+        break;
+    }
+
+    return res;
+  });
+  return this;
+};
+
+/*!
+ * Get the error to throw for `orFail()`
+ */
+
+function _orFailError(err, query) {
+  if (typeof err === 'function') {
+    err = err.call(query);
+  }
+
+  if (err == null) {
+    err = new DocumentNotFoundError(query.getQuery(), query.model.modelName);
+  }
+
+  return err;
+}
+
+/**
+ * Executes the query
+ *
+ * @method exec
+ * @memberOf Query
+ * @instance
+ * @param {String|Function} [operation]
+ * @param {Function} [callback] optional params depend on the function being called
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.exec = function exec(op, callback) {
+  const _this = this;
+  // Ensure that `exec()` is the first thing that shows up in
+  // the stack when cast errors happen.
+  const castError = new CastError();
+
+  if (typeof op === 'function') {
+    callback = op;
+    op = null;
+  } else if (typeof op === 'string') {
+    this.op = op;
+  }
+
+  callback = this.model.$handleCallbackError(callback);
+
+  return promiseOrCallback(callback, (cb) => {
+    cb = this.model.$wrapCallback(cb);
+
+    if (!_this.op) {
+      cb();
+      return;
+    }
+
+    this._hooks.execPre('exec', this, [], (error) => {
+      if (error != null) {
+        return cb(_cleanCastErrorStack(castError, error));
+      }
+      let thunk = '_' + this.op;
+      if (this.op === 'update') {
+        thunk = '_execUpdate';
+      } else if (this.op === 'distinct') {
+        thunk = '__distinct';
+      }
+      this[thunk].call(this, (error, res) => {
+        if (error) {
+          return cb(_cleanCastErrorStack(castError, error));
+        }
+
+        this._hooks.execPost('exec', this, [], {}, (error) => {
+          if (error) {
+            return cb(_cleanCastErrorStack(castError, error));
+          }
+
+          cb(null, res);
+        });
+      });
+    });
+  }, this.model.events);
+};
+
+/*!
+ * ignore
+ */
+
+function _cleanCastErrorStack(castError, error) {
+  if (error instanceof CastError) {
+    castError.copy(error);
+    return castError;
+  }
+
+  return error;
+}
+
+/*!
+ * ignore
+ */
+
+function _wrapThunkCallback(query, cb) {
+  return function(error, res) {
+    if (error != null) {
+      return cb(error);
+    }
+
+    for (const fn of query._transforms) {
+      try {
+        res = fn(res);
+      } catch (error) {
+        return cb(error);
+      }
+    }
+
+    return cb(null, res);
+  };
+}
+
+/**
+ * Executes the query returning a `Promise` which will be
+ * resolved with either the doc(s) or rejected with the error.
+ *
+ * @method then
+ * @memberOf Query
+ * @instance
+ * @param {Function} [resolve]
+ * @param {Function} [reject]
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.then = function(resolve, reject) {
+  return this.exec().then(resolve, reject);
+};
+
+/**
+ * Executes the query returning a `Promise` which will be
+ * resolved with either the doc(s) or rejected with the error.
+ * Like `.then()`, but only takes a rejection handler.
+ *
+ * @method catch
+ * @memberOf Query
+ * @instance
+ * @param {Function} [reject]
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.catch = function(reject) {
+  return this.exec().then(null, reject);
+};
+
+/**
+ * Add pre middleware to this query instance.
+ *
+ * @method pre
+ * @memberOf Query
+ * @instance
+ * @param {Function} fn
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.pre = function(fn) {
+  this._hooks.pre('exec', fn);
+  return this;
+};
+
+/**
+ * Add post middleware to this query instance.
+ *
+ * @method post
+ * @memberOf Query
+ * @instance
+ * @param {Function} fn
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.post = function(fn) {
+  this._hooks.post('exec', fn);
+  return this;
+};
+
+/*!
+ * Casts obj for an update command.
+ *
+ * @method _castUpdate
+ * @memberOf Query
+ * @instance
+ * @param {Object} obj
+ * @return {Object} obj after casting its values
+ * @api private
+ */
+
+Query.prototype._castUpdate = function _castUpdate(obj, overwrite) {
+  let strict;
+  let schema = this.schema;
+
+  const discriminatorKey = schema.options.discriminatorKey;
+  const baseSchema = schema._baseSchema ? schema._baseSchema : schema;
+  if (this._mongooseOptions.overwriteDiscriminatorKey &&
+      obj[discriminatorKey] != null &&
+      baseSchema.discriminators) {
+    const _schema = baseSchema.discriminators[obj[discriminatorKey]];
+    if (_schema != null) {
+      schema = _schema;
+    }
+  }
+
+  if ('strict' in this._mongooseOptions) {
+    strict = this._mongooseOptions.strict;
+  } else if (this.schema && this.schema.options) {
+    strict = this.schema.options.strict;
+  } else {
+    strict = true;
+  }
+
+  let omitUndefined = false;
+  if ('omitUndefined' in this._mongooseOptions) {
+    omitUndefined = this._mongooseOptions.omitUndefined;
+  }
+
+  let useNestedStrict;
+  if ('useNestedStrict' in this.options) {
+    useNestedStrict = this.options.useNestedStrict;
+  }
+
+  let upsert;
+  if ('upsert' in this.options) {
+    upsert = this.options.upsert;
+  }
+
+  const filter = this._conditions;
+  if (schema != null &&
+      utils.hasUserDefinedProperty(filter, schema.options.discriminatorKey) &&
+      typeof filter[schema.options.discriminatorKey] !== 'object' &&
+      schema.discriminators != null) {
+    const discriminatorValue = filter[schema.options.discriminatorKey];
+    const byValue = getDiscriminatorByValue(this.model.discriminators, discriminatorValue);
+    schema = schema.discriminators[discriminatorValue] ||
+      (byValue && byValue.schema) ||
+      schema;
+  }
+
+  return castUpdate(schema, obj, {
+    overwrite: overwrite,
+    strict: strict,
+    omitUndefined,
+    useNestedStrict: useNestedStrict,
+    upsert: upsert,
+    arrayFilters: this.options.arrayFilters
+  }, this, this._conditions);
+};
+
+/*!
+ * castQuery
+ * @api private
+ */
+
+function castQuery(query) {
+  try {
+    return query.cast(query.model);
+  } catch (err) {
+    return err;
+  }
+}
+
+/*!
+ * castDoc
+ * @api private
+ */
+
+function castDoc(query, overwrite) {
+  try {
+    return query._castUpdate(query._update, overwrite);
+  } catch (err) {
+    return err;
+  }
+}
+
+/**
+ * Specifies paths which should be populated with other documents.
+ *
+ * @method populate
+ * @memberOf Query
+ * @instance
+ * @param {Object|String} path either the path to populate or an object specifying all parameters
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.populate = function() {
+  // Bail when given no truthy arguments
+  if (!Array.from(arguments).some(Boolean)) {
+    return this;
+  }
+
+  const res = utils.populate.apply(null, arguments);
+
+  // Propagate readConcern and readPreference and lean from parent query,
+  // unless one already specified
+  if (this.options != null) {
+    const readConcern = this.options.readConcern;
+    const readPref = this.options.readPreference;
+
+    for (const populateOptions of res) {
+      if (readConcern != null && get(populateOptions, 'options.readConcern') == null) {
+        populateOptions.options = populateOptions.options || {};
+        populateOptions.options.readConcern = readConcern;
+      }
+      if (readPref != null && get(populateOptions, 'options.readPreference') == null) {
+        populateOptions.options = populateOptions.options || {};
+        populateOptions.options.readPreference = readPref;
+      }
+    }
+  }
+
+  const opts = this._mongooseOptions;
+
+  if (opts.lean != null) {
+    const lean = opts.lean;
+    for (const populateOptions of res) {
+      if (get(populateOptions, 'options.lean') == null) {
+        populateOptions.options = populateOptions.options || {};
+        populateOptions.options.lean = lean;
+      }
+    }
+  }
+
+  if (!utils.isObject(opts.populate)) {
+    opts.populate = {};
+  }
+
+  const pop = opts.populate;
+
+  for (const populateOptions of res) {
+    const path = populateOptions.path;
+    if (pop[path] && pop[path].populate && populateOptions.populate) {
+      populateOptions.populate = pop[path].populate.concat(populateOptions.populate);
+    }
+
+    pop[populateOptions.path] = populateOptions;
+  }
+  return this;
+};
+
+/**
+ * Gets a list of paths to be populated by this query
+ *
+ * @method getPopulatedPaths
+ * @memberOf Query
+ * @instance
+ * @return {Array} an array of strings representing populated paths
+ * @api public
+ */
+
+Query.prototype.getPopulatedPaths = function getPopulatedPaths() {
+  const obj = this._mongooseOptions.populate || {};
+  const ret = Object.keys(obj);
+  for (const path of Object.keys(obj)) {
+    const pop = obj[path];
+    if (!Array.isArray(pop.populate)) {
+      continue;
+    }
+    _getPopulatedPaths(ret, pop.populate, path + '.');
+  }
+  return ret;
+};
+
+/*!
+ * ignore
+ */
+
+function _getPopulatedPaths(list, arr, prefix) {
+  for (const pop of arr) {
+    list.push(prefix + pop.path);
+    if (!Array.isArray(pop.populate)) {
+      continue;
+    }
+    _getPopulatedPaths(list, pop.populate, prefix + pop.path + '.');
+  }
+}
+
+/**
+ * Casts this query to the schema of `model`
+ *
+ * @method cast
+ * @memberOf Query
+ * @instance
+ * @param {Model} [model] the model to cast to. If not set, defaults to `this.model`
+ * @param {Object} [obj]
+ * @return {Object}
+ * @api public
+ */
+
+Query.prototype.cast = function(model, obj) {
+  obj || (obj = this._conditions);
+
+  model = model || this.model;
+  const discriminatorKey = model.schema.options.discriminatorKey;
+  if (obj != null &&
+      obj.hasOwnProperty(discriminatorKey)) {
+    model = getDiscriminatorByValue(model.discriminators, obj[discriminatorKey]) || model;
+  }
+
+  try {
+    return cast(model.schema, obj, {
+      upsert: this.options && this.options.upsert,
+      strict: (this.options && 'strict' in this.options) ?
+        this.options.strict :
+        get(model, 'schema.options.strict', null),
+      strictQuery: (this.options && this.options.strictQuery) ||
+        get(model, 'schema.options.strictQuery', null)
+    }, this);
+  } catch (err) {
+    // CastError, assign model
+    if (typeof err.setModel === 'function') {
+      err.setModel(model);
+    }
+    throw err;
+  }
+};
+
+/**
+ * Casts selected field arguments for field selection with mongo 2.2
+ *
+ * @method _castFields
+ * @memberOf Query
+ * @private
+ */
+
+Query.prototype._castFields = function _castFields(fields) {
+  let selected,
+      elemMatchKeys,
+      keys,
+      key,
+      out,
+      i;
+
+  if (fields) {
+    keys = Object.keys(fields);
+    elemMatchKeys = [];
+    i = keys.length;
+
+    // collect $elemMatch args
+    while (i--) {
+      key = keys[i];
+      if (fields[key].$elemMatch) {
+        selected || (selected = {});
+        selected[key] = fields[key];
+        elemMatchKeys.push(key);
+      }
+    }
+  }
+
+  if (selected) {
+    // they passed $elemMatch, cast em
+    try {
+      out = this.cast(this.model, selected);
+    } catch (err) {
+      return err;
+    }
+
+    // apply the casted field args
+    i = elemMatchKeys.length;
+    while (i--) {
+      key = elemMatchKeys[i];
+      fields[key] = out[key];
+    }
+  }
+
+  return fields;
+};
+
+/**
+ * Applies schematype selected options to this query.
+ * @api private
+ */
+
+Query.prototype._applyPaths = function applyPaths() {
+  this._fields = this._fields || {};
+  helpers.applyPaths(this._fields, this.model.schema);
+
+  let _selectPopulatedPaths = true;
+
+  if ('selectPopulatedPaths' in this.model.base.options) {
+    _selectPopulatedPaths = this.model.base.options.selectPopulatedPaths;
+  }
+  if ('selectPopulatedPaths' in this.model.schema.options) {
+    _selectPopulatedPaths = this.model.schema.options.selectPopulatedPaths;
+  }
+
+  if (_selectPopulatedPaths) {
+    selectPopulatedFields(this._fields, this._userProvidedFields, this._mongooseOptions.populate);
+  }
+};
+
+/**
+ * Returns a wrapper around a [mongodb driver cursor](http://mongodb.github.io/node-mongodb-native/2.1/api/Cursor.html).
+ *
+ * @method cursor
+ * @memberOf Query
+ * @instance
+ * @param {Object} [options]
+ * @return {QueryCursor}
+ * @api public
+ */
+
+Query.prototype.cursor = function cursor(opts) {
+  this._applyPaths();
+  this._fields = this._castFields(this._fields);
+  this.setOptions({ projection: this._fieldsForExec() });
+  if (opts) {
+    this.setOptions(opts);
+  }
+
+  const options = Object.assign({}, this._optionsForExec(), {
+    projection: this.projection()
+  });
+  try {
+    this.cast(this.model);
+  } catch (err) {
+    return (new QueryCursor(this, options))._markError(err);
+  }
+
+  return new QueryCursor(this, options);
+};
+
+// the rest of these are basically to support older Mongoose syntax with mquery
+
+/**
+ * _DEPRECATED_ Alias of `maxScan`
+ *
+ * @deprecated
+ * @see maxScan #query_Query-maxScan
+ * @method maxscan
+ * @memberOf Query
+ * @instance
+ */
+
+Query.prototype.maxscan = Query.base.maxScan;
+
+/**
+ * Sets the tailable option (for use with capped collections).
+ *
+ * @method tailable
+ * @memberOf Query
+ * @instance
+ * @param {Boolean} bool defaults to true
+ * @param {Object} [opts] options to set
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.tailable = function(val, opts) {
+  // we need to support the tailable({ awaitdata : true }) as well as the
+  // tailable(true, {awaitdata :true}) syntax that mquery does not support
+  if (val != null && typeof val.constructor === 'function' && val.constructor.name === 'Object') {
+    opts = val;
+    val = true;
+  }
+
+  if (val === undefined) {
+    val = true;
+  }
+
+  if (opts && typeof opts === 'object') {
+    for (const key of Object.keys(opts)) {
+      if (key === 'awaitdata') {
+        // For backwards compatibility
+        this.options[key] = !!opts[key];
+      } else {
+        this.options[key] = opts[key];
+      }
+    }
+  }
+
+  return Query.base.tailable.call(this, val);
+};
+
+/**
+ * Declares an intersects query for `geometry()`.
+ *
+ * @method intersects
+ * @memberOf Query
+ * @instance
+ * @param {Object} [arg]
+ * @return {Query} this
+ * @api public
+ */
+
+/**
+ * Specifies a `$geometry` condition
+ *
+ * @method geometry
+ * @memberOf Query
+ * @instance
+ * @param {Object} object Must contain a `type` property which is a String and a `coordinates` property which is an Array. See the examples.
+ * @return {Query} this
+ * @api public
+ */
+
+/**
+ * Specifies a `$near` or `$nearSphere` condition
+ *
+ * @method near
+ * @memberOf Query
+ * @instance
+ * @param {String} [path]
+ * @param {Object} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.near = function() {
+  const params = [];
+  const sphere = this._mongooseOptions.nearSphere;
+
+  // TODO refactor
+
+  if (arguments.length === 1) {
+    if (Array.isArray(arguments[0])) {
+      params.push({ center: arguments[0], spherical: sphere });
+    } else if (typeof arguments[0] === 'string') {
+      // just passing a path
+      params.push(arguments[0]);
+    } else if (utils.isObject(arguments[0])) {
+      if (typeof arguments[0].spherical !== 'boolean') {
+        arguments[0].spherical = sphere;
+      }
+      params.push(arguments[0]);
+    } else {
+      throw new TypeError('invalid argument');
+    }
+  } else if (arguments.length === 2) {
+    if (typeof arguments[0] === 'number' && typeof arguments[1] === 'number') {
+      params.push({ center: [arguments[0], arguments[1]], spherical: sphere });
+    } else if (typeof arguments[0] === 'string' && Array.isArray(arguments[1])) {
+      params.push(arguments[0]);
+      params.push({ center: arguments[1], spherical: sphere });
+    } else if (typeof arguments[0] === 'string' && utils.isObject(arguments[1])) {
+      params.push(arguments[0]);
+      if (typeof arguments[1].spherical !== 'boolean') {
+        arguments[1].spherical = sphere;
+      }
+      params.push(arguments[1]);
+    } else {
+      throw new TypeError('invalid argument');
+    }
+  } else if (arguments.length === 3) {
+    if (typeof arguments[0] === 'string' && typeof arguments[1] === 'number'
+        && typeof arguments[2] === 'number') {
+      params.push(arguments[0]);
+      params.push({ center: [arguments[1], arguments[2]], spherical: sphere });
+    } else {
+      throw new TypeError('invalid argument');
+    }
+  } else {
+    throw new TypeError('invalid argument');
+  }
+
+  return Query.base.near.apply(this, params);
+};
+
+/**
+ * _DEPRECATED_ Specifies a `$nearSphere` condition
+ *
+ * @deprecated
+ * @see near() #query_Query-near
+ * @api public
+ */
+
+Query.prototype.nearSphere = function() {
+  this._mongooseOptions.nearSphere = true;
+  this.near.apply(this, arguments);
+  return this;
+};
+
+if (Symbol.asyncIterator != null) {
+  Query.prototype[Symbol.asyncIterator] = function() {
+    return this.cursor().transformNull()._transformForAsyncIterator();
+  };
+}
+
+/**
+ * Specifies a `$polygon` condition
+ *
+ * @method polygon
+ * @memberOf Query
+ * @instance
+ * @param {String|Array} [path]
+ * @param {Array|Object} [coordinatePairs...]
+ * @return {Query} this
+ * @api public
+ */
+
+/**
+ * Specifies a `$box` condition
+ *
+ * @method box
+ * @memberOf Query
+ * @instance
+ * @param {Object} val
+ * @param [Array] Upper Right Coords
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.box = function(ll, ur) {
+  if (!Array.isArray(ll) && utils.isObject(ll)) {
+    ur = ll.ur;
+    ll = ll.ll;
+  }
+  return Query.base.box.call(this, ll, ur);
+};
+
+/**
+ * Specifies a `$center` or `$centerSphere` condition.
+ *
+ * @method circle
+ * @memberOf Query
+ * @instance
+ * @param {String} [path]<|endoftext|>

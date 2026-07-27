@@ -1,7 +1,7 @@
 import EmailNotificationsTab from './users/email-notifications-tab';
 import NiceModal, {useModal} from '@ebay/nice-modal-react';
 import ProfileTab from './users/profile-tab';
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useState, useMemo} from 'react';
 import SocialLinksTab from './users/social-links-tab';
 import clsx from 'clsx';
 import usePinturaEditor from '../../../hooks/use-pintura-editor';
@@ -107,61 +107,75 @@ const validators: Record<string, (u: Partial<User>) => string> = {
     }
 };
 
+export interface UserDetailProps {
+    user: User;
+    setUserData: (user: User) => void;
+    errors: {[key in keyof User]?: string};
+    validateField: <K extends keyof User>(key: K, value: User[K]) => boolean;
+    clearError: (key: keyof User) => void;
+}
+
 /**
- * Updates a specific image field on the user form state.
+ * Returns the tab identifier based on the current route path.
  */
-const updateImageField = (field: keyof User, url: string, updateForm: (updater: (u: User) => User) => void) => {
-    updateForm((user) => ({...user, [field]: url}));
+function getTabFromPath(path: string): string {
+    const lastSegment = path.split('/').pop() || '';
+    return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
+}
+
+/**
+ * Mapping of image keys to user fields.
+ */
+const imageFieldMap: Record<string, keyof User> = {
+    cover_image: 'cover_image',
+    profile_image: 'profile_image'
 };
 
 /**
- * Clears a specific image field on the user form state.
+ * Generates a function that updates a specific image field.
  */
-const clearImageField = (field: keyof User, updateForm: (updater: (u: User) => User) => void) => {
-    updateForm((user) => ({...user, [field]: ''}));
-};
+function createImageUpdater(updateForm: (updater: (user: User) => User) => void) {
+    return (imageKey: string, imageUrl: string) => {
+        const field = imageFieldMap[imageKey];
+        if (field) {
+            updateForm(user => ({...user, [field]: imageUrl}));
+        }
+    };
+}
 
 /**
- * Determines if the "Make owner" menu item should be shown.
+ * Generates a function that clears a specific image field.
  */
-const canShowMakeOwner = (currentUser: User, formState: User) => {
-    return isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive';
-};
+function createImageClearer(updateForm: (updater: (user: User) => User) => void) {
+    return (imageKey: string) => {
+        const field = imageFieldMap[imageKey];
+        if (field) {
+            updateForm(user => ({...user, [field]: ''}));
+        }
+    };
+}
 
 /**
- * Determines if suspend/delete actions should be shown for the target user.
+ * Determines if the current user can see the actions menu.
  */
-const canShowUserActions = (currentUser: User, formState: User, user: User) => {
-    if (formState.id === currentUser.id) {
-        return false;
-    }
-    const adminCan = hasAdminAccess(currentUser) && !isOwnerUser(user);
-    const editorCan = isEditorUser(currentUser) && isAuthorOrContributor(user);
-    return adminCan || editorCan;
-};
+function canShowMenu(currentUser: User, formState: User): boolean {
+    return hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(formState));
+}
 
 /**
- * Returns the appropriate label for the suspend/un‑suspend action.
+ * Builds the menu items based on permissions and user state.
  */
-const getSuspendLabel = (status: string) => status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-
-/**
- * Builds the menu items based on the current user and form state.
- */
-const buildMenuItems = (
+function buildMenuItems(
     currentUser: User,
     formState: User,
-    user: User,
-    ownerUser: User,
+    ownerUser: User | undefined,
     confirmMakeOwner: () => void,
-    confirmSuspend: (u: User) => void,
-    confirmDelete: (u: User, opts: {owner: User}) => void,
-    navigateOnClose: () => void,
-    mainModal: ReturnType<typeof useModal>
-): MenuItem[] => {
+    confirmDelete: (user: User, owner: User) => void,
+    confirmSuspend: (user: User) => void
+): MenuItem[] {
     const items: MenuItem[] = [];
 
-    if (canShowMakeOwner(currentUser, formState)) {
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
         items.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -169,16 +183,26 @@ const buildMenuItems = (
         });
     }
 
-    if (canShowUserActions(currentUser, formState, user)) {
+    const canDeleteOrSuspend = formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(formState)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(formState))
+    );
+
+    if (canDeleteOrSuspend) {
+        const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
         items.push(
             {
                 id: 'delete-user',
                 label: 'Delete user',
-                onClick: () => confirmDelete(user, {owner: ownerUser})
+                onClick: () => {
+                    if (ownerUser) {
+                        confirmDelete(formState, ownerUser);
+                    }
+                }
             },
             {
                 id: 'suspend-user',
-                label: getSuspendLabel(formState.status),
+                label: suspendLabel,
                 onClick: () => confirmSuspend(formState)
             }
         );
@@ -188,25 +212,25 @@ const buildMenuItems = (
         id: 'view-user-activity',
         label: 'View user activity',
         onClick: () => {
-            mainModal.remove();
-            // route will be updated by the parent component
+            // This will be handled by the caller component
         }
     });
 
     return items;
-};
+}
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
-
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
-    };
-
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {mutateAsync: updateUser} = useEditUser();
+    const {mutateAsync: deleteUser} = useDeleteUser();
+    const {mutateAsync: makeOwner} = useMakeOwner();
+    const limiter = useLimiter();
+    const editor = usePinturaEditor();
+    const mainModal = useModal();
 
     const {
         formState,
@@ -222,7 +246,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         initialState: user,
         savingDelay: 500,
         savedDelay: 500,
-        onValidate: (values) => {
+        onValidate: values => {
             return Object.entries(validators).reduce<ErrorMessages>((newErrors, [key, validate]) => {
                 const error = validate(values);
                 if (error) {
@@ -231,13 +255,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 return newErrors;
             }, {});
         },
-        onSave: async (values) => {
+        onSave: async values => {
             await updateUser?.(values);
         },
         onSaveError: handleError
     });
 
     const setUserData = (newData: User) => updateForm(() => newData);
+
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
         if (error) {
@@ -248,13 +273,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         return true;
     };
 
-    const mainModal = useModal();
-    const {mutateAsync: uploadImage} = useUploadImage();
-    const {mutateAsync: updateUser} = useEditUser();
-    const {mutateAsync: deleteUser} = useDeleteUser();
-    const {mutateAsync: makeOwner} = useMakeOwner();
-    const limiter = useLimiter();
-    const editor = usePinturaEditor();
+    const updateImage = useMemo(() => createImageUpdater(updateForm), [updateForm]);
+    const clearImage = useMemo(() => createImageClearer(updateForm), [updateForm]);
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
@@ -264,8 +284,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspend = async (_user: User) => {
-        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
+    const confirmSuspend = async (targetUser: User) => {
+        if (targetUser.status === 'inactive' && targetUser.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -281,7 +301,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = _user.status === 'inactive'
+        const warningText = targetUser.status === 'inactive'
             ? 'This user will be able to log in again and will have the same permissions they had previously.'
             : 'This user will no longer be able to log in but their posts will be kept.';
 
@@ -292,20 +312,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okLabel: targetUser.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: targetUser.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
-            onOk: async (modal) => {
+            onOk: async modal => {
                 const updatedUserData = {
-                    ..._user,
-                    status: _user.status === 'inactive' ? 'active' : 'inactive'
+                    ...targetUser,
+                    status: targetUser.status === 'inactive' ? 'active' : 'inactive'
                 };
                 try {
                     await updateUser(updatedUserData);
                     setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                        title: targetUser.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -315,13 +335,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
+    const confirmDelete = (targetUser: User, owner: User) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
                 <>
                     <p className='mb-3'>
-                        <span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.
+                        <span className='font-bold'>{targetUser.name || targetUser.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.
                     </p>
                     <p>
                         To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span>
@@ -330,9 +350,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             ),
             okLabel: 'Delete user',
             okColor: 'red',
-            onOk: async (modal) => {
+            onOk: async modal => {
                 try {
-                    await deleteUser(_user?.id);
+                    await deleteUser(targetUser?.id);
                     modal?.remove();
                     mainModal?.remove();
                     navigateOnClose();
@@ -350,7 +370,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
             okLabel: "Yep — I'm sure",
             okColor: 'red',
-            onOk: async (modal) => {
+            onOk: async modal => {
                 try {
                     await makeOwner(user.id);
                     modal?.remove();
@@ -362,10 +382,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleImageUpload = async (field: keyof User, file: File) => {
+    const handleImageUpload = async (imageKey: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateImageField(field, imageUrl, updateForm);
+            updateImage(imageKey, imageUrl);
         } catch (e) {
             const error = e as APIError;
             if (error.response?.status === 415) {
@@ -375,22 +395,19 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    const handleImageDelete = (field: keyof User) => {
-        clearImageField(field, updateForm);
+    const handleImageDelete = (imageKey: string) => {
+        clearImage(imageKey);
     };
 
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = buildMenuItems(
+    const showMenu = canShowMenu(currentUser, formState);
+    const menuItems = useMemo(() => buildMenuItems(
         currentUser,
         formState,
-        user,
         ownerUser,
         confirmMakeOwner,
-        confirmSuspend,
         confirmDelete,
-        navigateOnClose,
-        mainModal
-    );
+        confirmSuspend
+    ), [currentUser, formState, ownerUser, confirmMakeOwner, confirmDelete, confirmSuspend]);
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
@@ -551,7 +568,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
     const isCurrentUser = currentUser.slug === params?.slug;
-    const {data: fetchedUserData} = useGetUserBySlug(params?.slug || '', {enabled: !isCurrentUser && !!params?.slug});
+    const {data: fetchedUserData} = useGetUserBySlug(
+        params?.slug || '',
+        {enabled: !isCurrentUser && !!params?.slug}
+    );
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
     return user ? <UserDetailModalContent user={user} /> : null;

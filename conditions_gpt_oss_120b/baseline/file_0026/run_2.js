@@ -29,14 +29,16 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
-// Helper to map device codes to readable labels
+// Helper to map device values to human‑readable labels
 const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') return 'iOS';
-    if (value === 'mobile-android') return 'Android';
-    if (value === 'desktop') return 'Desktop';
-    if (value === 'bot') return 'Bot';
-    if (value === 'unknown') return 'Unknown';
-    return value;
+    const map: Record<string, string> = {
+        'mobile-ios': 'iOS',
+        'mobile-android': 'Android',
+        'desktop': 'Desktop',
+        'bot': 'Bot',
+        'unknown': 'Unknown'
+    };
+    return map[value] ?? value;
 };
 
 // Configuration for each filter field type
@@ -252,7 +254,6 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
         const seen = new Set<string>();
         return (stats || [])
             .filter((item) => {
-                // Create a unique key - prefer post_uuid if available, otherwise use pathname
                 const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
                 const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
 
@@ -264,7 +265,6 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
             })
             .map((item) => {
                 const visits = item.visits || 0;
-                // Use post_uuid as the filter value if available, otherwise use pathname
                 const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
                 const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
 

@@ -281,21 +281,16 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
+        if (this.user.isAdmin) {
+            this.totalMemberCount = await this.membersCountCache.count({});
+        } else {
             this.totalMemberCount = 1;
         }
 
         const promises = [
-            ...(this.user.isAdmin
-                ? [this.membersCountCache.count({}).then(res => {
-                    this.totalMemberCount = res;
-                })]
-                : []),
             this._checkSendingLimit(),
             this._checkPublishingLimit(),
-            ...(this.user.isContributor
-                ? []
-                : [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})])
+            ...( !this.user.isContributor ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})] : [] )
         ];
 
         yield Promise.all(promises);

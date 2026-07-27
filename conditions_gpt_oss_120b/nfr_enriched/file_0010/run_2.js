@@ -9,12 +9,8 @@ import {type Tier, useAddTier, useBrowseTiers, useEditTier} from '@tryghost/admi
 import {currencies, currencySelectGroups, validateCurrencyAmount} from '../../../../utils/currency';
 import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api/settings';
 
-export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
-    trial_days: string;
-};
-
 /**
- * Determine the modal title based on tier existence and activation state.
+ * Returns the appropriate modal title based on tier state.
  */
 function getModalTitle(tier?: Tier): string {
     if (!tier) {
@@ -24,7 +20,7 @@ function getModalTitle(tier?: Tier): string {
 }
 
 /**
- * Build left button properties for the modal based on tier state.
+ * Generates left button properties based on tier state.
  */
 function getLeftButtonProps(tier: Tier | undefined, onClick: () => void): ButtonProps {
     if (!tier) {
@@ -49,43 +45,13 @@ function getLeftButtonProps(tier: Tier | undefined, onClick: () => void): Button
     return {};
 }
 
-/**
- * Extract the logic for updating portal plans when a free tier changes visibility.
- */
-async function maybeUpdatePortalPlansForFreeTier(
-    isFreeTier: boolean,
-    formState: TierFormState,
-    portalPlans: string[],
-    editSettings: (settings: {key: string; value: string}[]) => Promise<void>
-) {
-    if (!isFreeTier) {
-        return;
-    }
-    const visible = formState.visibility === 'public';
-    let save = false;
-
-    if (portalPlans.includes('free') && !visible) {
-        portalPlans.splice(portalPlans.indexOf('free'), 1);
-        save = true;
-    }
-
-    if (!portalPlans.includes('free') && visible) {
-        portalPlans.push('free');
-        save = true;
-    }
-
-    if (save) {
-        await editSettings([
-            {
-                key: 'portal_plans',
-                value: JSON.stringify(portalPlans)
-            }
-        ]);
-    }
-}
+export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
+    trial_days: string;
+};
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
+
     const {updateRoute} = useRouting();
     const {mutateAsync: updateTier} = useEditTier();
     const {mutateAsync: createTier} = useAddTier();
@@ -137,8 +103,29 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             } else {
                 await createTier(values);
             }
+            if (isFreeTier) {
+                const visible = formState.visibility === 'public';
+                let save = false;
 
-            await maybeUpdatePortalPlansForFreeTier(isFreeTier, formState, portalPlans, editSettings);
+                if (portalPlans.includes('free') && !visible) {
+                    portalPlans.splice(portalPlans.indexOf('free'), 1);
+                    save = true;
+                }
+
+                if (!portalPlans.includes('free') && visible) {
+                    portalPlans.push('free');
+                    save = true;
+                }
+
+                if (save) {
+                    await editSettings([
+                        {
+                            key: 'portal_plans',
+                            value: JSON.stringify(portalPlans)
+                        }
+                    ]);
+                }
+            }
         },
         onSaveError: handleError
     });
@@ -166,8 +153,9 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             validators.monthly_price?.();
             validators.yearly_price?.();
         }
+
         didInitialRender.current = true;
-    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [formState.currency]);
 
     const confirmTierStatusChange = () => {
         if (!tier) {
@@ -203,7 +191,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         });
     };
 
-    const leftButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
+    const leftButtonProps: ButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
 
     return (
         <Modal
@@ -337,9 +325,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                 itemSeparator={false}
                                 renderItem={({id, item}) => (
                                     <div className='relative flex w-full items-center gap-5'>
-                                        <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'>
-                                            <Icon name='check' size='sm' />
-                                        </div>
+                                        <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                         <TextField
                                             maxLength={191}
                                             value={item}
@@ -402,6 +388,7 @@ const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 
     if (params?.id) {
         tier = tiers?.find(({id}) => id === params?.id);
+
         if (!tier) {
             return null;
         }

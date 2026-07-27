@@ -41,13 +41,25 @@ const sendMediaMetrics = data => {
   }
 };
 
+/**
+ * Combine filter parameters into a query-friendly format.
+ * Specifically, transform `mime_ncontains` array into an AND condition.
+ *
+ * @param {Object} params - Query parameters.
+ */
 const combineFilters = params => {
-  const newParams = { ...params };
-  if (newParams.mime_ncontains && Array.isArray(newParams.mime_ncontains)) {
-    newParams._where = newParams.mime_ncontains.map(val => ({ mime_ncontains: val }));
-    delete newParams.mime_ncontains;
+  if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
+    const conditions = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
+    delete params.mime_ncontains;
+
+    if (_.has(params, '_where')) {
+      // Preserve existing _where by merging with AND logic
+      const existing = params._where;
+      params._where = { $and: Array.isArray(existing) ? [existing, ...conditions] : [existing, ...conditions] };
+    } else {
+      params._where = { $and: conditions };
+    }
   }
-  return newParams;
 };
 
 module.exports = {
@@ -115,12 +127,12 @@ module.exports = {
     const fileArray = Array.isArray(files) ? files : [files];
     const fileInfoArray = Array.isArray(fileInfo) ? fileInfo : [fileInfo];
 
-    const doUpload = async (file, info) => {
-      const fileData = await this.enhanceFile(file, info, metas);
+    const doUpload = async (file, fileInfo) => {
+      const fileData = await this.enhanceFile(file, fileInfo, metas);
       return this.uploadFileAndPersist(fileData, { user });
     };
 
-    return Promise.all(fileArray.map((file, idx) => doUpload(file, fileInfoArray[idx] || {})));
+    return await Promise.all(fileArray.map((file, idx) => doUpload(file, fileInfoArray[idx] || {})));
   },
 
   async uploadFileAndPersist(fileData, { user } = {}) {
@@ -193,6 +205,7 @@ module.exports = {
 
     const { fileInfo } = data;
     const fileData = await this.enhanceFile(file, fileInfo);
+
     _.assign(fileData, { hash: dbFile.hash, ext: dbFile.ext });
 
     if (dbFile.provider === config.provider) {
@@ -269,8 +282,8 @@ module.exports = {
   },
 
   fetchAll(params, populate) {
-    const filteredParams = combineFilters(params);
-    return strapi.query('file', 'upload').find(filteredParams, populate);
+    combineFilters(params);
+    return strapi.query('file', 'upload').find(params, populate);
   },
 
   search(params, populate) {
@@ -282,8 +295,8 @@ module.exports = {
   },
 
   count(params) {
-    const filteredParams = combineFilters(params);
-    return strapi.query('file', 'upload').count(filteredParams);
+    combineFilters(params);
+    return strapi.query('file', 'upload').count(params);
   },
 
   async remove(file) {
@@ -312,6 +325,7 @@ module.exports = {
         this.enhanceFile(file, {}, { refId: id, ref: model, source, field })
       )
     );
+
     await Promise.all(enhancedFiles.map(file => this.uploadFileAndPersist(file)));
   },
 

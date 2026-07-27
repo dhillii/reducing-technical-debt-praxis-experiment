@@ -224,6 +224,7 @@ Runnable.prototype.inspect = function () {
  * @api private
  */
 Runnable.prototype.resetTimeout = function () {
+  const self = this;
   const ms = this.timeout() || 1e9;
 
   if (!this._enableTimeouts) {
@@ -231,12 +232,12 @@ Runnable.prototype.resetTimeout = function () {
   }
   this.clearTimeout();
   this.timer = setTimeout(() => {
-    if (!this._enableTimeouts) {
+    if (!self._enableTimeouts) {
       return;
     }
-    this.callback(new Error('Timeout of ' + ms +
+    self.callback(new Error('Timeout of ' + ms +
       'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.'));
-    this.timedOut = true;
+    self.timedOut = true;
   }, ms);
 };
 
@@ -260,16 +261,12 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
-  const start = new Date();
   const ctx = this.ctx;
+  const start = new Date();
   let finished = false;
   let emitted = false;
 
-  if (ctx && ctx.runnable) {
-    ctx.runnable(this);
-  }
-
-  const multiple = (err) => {
+  const emitMultiple = (err) => {
     if (emitted) {
       return;
     }
@@ -283,9 +280,8 @@ Runnable.prototype.run = function (fn) {
       return;
     }
     if (finished) {
-      return multiple(err || this._trace);
+      return emitMultiple(err || this._trace);
     }
-
     this.clearTimeout();
     this.duration = new Date() - start;
     finished = true;
@@ -298,23 +294,27 @@ Runnable.prototype.run = function (fn) {
 
   this.callback = done;
 
-  if (this.async) {
-    this._runAsync(ctx, done, multiple);
-    return;
+  if (ctx && ctx.runnable) {
+    ctx.runnable(this);
   }
 
-  this._runSync(ctx, done, multiple);
+  if (this.async) {
+    return this._runAsync(fn, done, emitMultiple);
+  }
+
+  if (this.allowUncaught) {
+    return this._runAllowUncaught(fn, done, emitMultiple);
+  }
+
+  return this._runSync(fn, done, emitMultiple);
 };
 
 /**
- * Execute an async test/hook.
+ * Execute async test/hook.
  *
- * @param {Object} ctx
- * @param {Function} done
- * @param {Function} multiple
  * @private
  */
-Runnable.prototype._runAsync = function (ctx, done, multiple) {
+Runnable.prototype._runAsync = function (fn, done, emitMultiple) {
   this.resetTimeout();
 
   this.skip = () => {
@@ -323,101 +323,95 @@ Runnable.prototype._runAsync = function (ctx, done, multiple) {
   };
 
   if (this.allowUncaught) {
-    this._callFnAsync(this.fn, ctx, done, multiple);
+    this._callFnAsync(fn);
     return;
   }
 
   try {
-    this._callFnAsync(this.fn, ctx, done, multiple);
+    this._callFnAsync(fn);
   } catch (err) {
-    multiple(err);
+    emitMultiple();
     done(utils.getError(err));
   }
 };
 
 /**
- * Execute a sync or promise-returning test/hook.
+ * Execute when allowUncaught is true and test is sync.
  *
- * @param {Object} ctx
- * @param {Function} done
- * @param {Function} multiple
  * @private
  */
-Runnable.prototype._runSync = function (ctx, done, multiple) {
-  if (this.allowUncaught) {
-    if (this.isPending()) {
-      done();
-    } else {
-      this._callFn(this.fn, ctx, done, multiple);
-    }
-    return;
+Runnable.prototype._runAllowUncaught = function (fn, done, emitMultiple) {
+  if (this.isPending()) {
+    done();
+  } else {
+    this._callFn(fn);
   }
+};
 
+/**
+ * Execute sync test/hook.
+ *
+ * @private
+ */
+Runnable.prototype._runSync = function (fn, done, emitMultiple) {
   try {
     if (this.isPending()) {
       done();
     } else {
-      this._callFn(this.fn, ctx, done, multiple);
+      this._callFn(fn);
     }
   } catch (err) {
-    multiple(err);
+    emitMultiple();
     done(utils.getError(err));
   }
 };
 
 /**
- * Call a function that may return a promise.
+ * Call a function and handle promise returns.
  *
- * @param {Function} fn
- * @param {Object} ctx
- * @param {Function} done
- * @param {Function} multiple
  * @private
  */
-Runnable.prototype._callFn = function (fn, ctx, done, multiple) {
+Runnable.prototype._callFn = function (fn) {
+  const ctx = this.ctx;
   const result = fn.call(ctx);
   if (result && typeof result.then === 'function') {
     this.resetTimeout();
     result
       .then(() => {
-        done();
+        this.callback();
         return null;
       })
       .catch((reason) => {
-        done(reason || new Error('Promise rejected with no or falsy reason'));
+        this.callback(reason || new Error('Promise rejected with no or falsy reason'));
       });
   } else {
     if (this.asyncOnly) {
-      done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      return;
+      return this.callback(new Error('--async-only option in use without declaring `done()` or returning a promise'));
     }
-    done();
+    this.callback();
   }
 };
 
 /**
- * Call an async function with a callback.
+ * Call an async function with a done callback.
  *
- * @param {Function} fn
- * @param {Object} ctx
- * @param {Function} done
- * @param {Function} multiple
  * @private
  */
-Runnable.prototype._callFnAsync = function (fn, ctx, done, multiple) {
+Runnable.prototype._callFnAsync = function (fn) {
+  const ctx = this.ctx;
   const result = fn.call(ctx, (err) => {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
-      return done(err);
+      return this.callback(err);
     }
     if (err) {
       if (Object.prototype.toString.call(err) === '[object Object]') {
-        return done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
+        return this.callback(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
       }
-      return done(new Error('done() invoked with non-Error: ' + err));
+      return this.callback(new Error('done() invoked with non-Error: ' + err));
     }
     if (result && utils.isPromise(result)) {
-      return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+      return this.callback(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
     }
-    done();
+    this.callback();
   });
 };

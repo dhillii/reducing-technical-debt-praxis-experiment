@@ -89,13 +89,13 @@ file.isMatch = function() {
 
 // Return an array of all file paths that match the given wildcard patterns.
 file.expand = function() {
-  const args = grunt.util.toArray(arguments);
+  let args = grunt.util.toArray(arguments);
   // If the first argument is an options object, save those options to pass
   // into the file.glob.sync method.
-  const options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
+  let options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
   // Use the first argument if it's an Array, otherwise convert the arguments
   // object to an array and use that.
-  const patterns = Array.isArray(args[0]) ? args[0] : args;
+  let patterns = Array.isArray(args[0]) ? args[0] : args;
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0) { return []; }
   // Return all matching filepaths.
@@ -140,8 +140,8 @@ file.expandMapping = function(patterns, destBase, options) {
       return path.join(destBase || '', destPath);
     }
   });
-  const files = [];
-  const fileByDest = {};
+  let files = [];
+  let fileByDest = {};
   // Find all files matching pattern, using passed-in options.
   file.expand(options, patterns).forEach(function(src) {
     let destPath = src;
@@ -154,24 +154,24 @@ file.expandMapping = function(patterns, destBase, options) {
       destPath = destPath.replace(extDotRe[options.extDot], options.ext);
     }
     // Generate destination filename.
-    const dest = options.rename(destBase, destPath, options);
+    let dest = options.rename(destBase, destPath, options);
     // Prepend cwd to src path if necessary.
     if (options.cwd) { src = path.join(options.cwd, src); }
     // Normalize filepaths to be unix-style.
-    const normalizedDest = dest.replace(pathSeparatorRe, '/');
-    const normalizedSrc = src.replace(pathSeparatorRe, '/');
+    dest = dest.replace(pathSeparatorRe, '/');
+    src = src.replace(pathSeparatorRe, '/');
     // Map correct src path to dest path.
-    if (fileByDest[normalizedDest]) {
+    if (fileByDest[dest]) {
       // If dest already exists, push this src onto that dest's src array.
-      fileByDest[normalizedDest].src.push(normalizedSrc);
+      fileByDest[dest].src.push(src);
     } else {
       // Otherwise create a new src-dest file mapping object.
       files.push({
-        src: [normalizedSrc],
-        dest: normalizedDest,
+        src: [src],
+        dest: dest,
       });
       // And store a reference for later use.
-      fileByDest[normalizedDest] = files[files.length - 1];
+      fileByDest[dest] = files[files.length - 1];
     }
   });
   return files;
@@ -318,18 +318,12 @@ file._copy = function(srcpath, destpath, options) {
   // use an encoding of null to force the file to be read/written as a Buffer.
   const readWriteOptions = process ? options : {encoding: null};
   // Actually read the file.
-  const contents = file.read(srcpath, readWriteOptions);
+  let contents = file.read(srcpath, readWriteOptions);
   if (process) {
     grunt.verbose.write('Processing source...');
     try {
-      const processed = options.process(contents, srcpath, destpath);
+      contents = options.process(contents, srcpath, destpath);
       grunt.verbose.ok();
-      if (processed === false) {
-        grunt.verbose.writeln('Write aborted.');
-        return;
-      }
-      file.write(destpath, processed, readWriteOptions);
-      return;
     } catch (e) {
       grunt.verbose.error();
       throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);

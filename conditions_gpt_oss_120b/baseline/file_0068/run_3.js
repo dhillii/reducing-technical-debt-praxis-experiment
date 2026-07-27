@@ -6,6 +6,8 @@
 
 "use strict";
 
+/* eslint sort-keys: ["error", "asc"] -- More readable for long list */
+
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /** @type {Map<string, import("../types").Rule.RuleModule>} */

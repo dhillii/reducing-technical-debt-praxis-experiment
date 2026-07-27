@@ -2,147 +2,134 @@
 
 const grunt = require('../grunt');
 
-// Main config accessor: get or set based on arguments.
+// Get/set config data. If value was passed, set. Otherwise, get.
 function config(prop, value) {
   if (arguments.length === 2) {
-    // Set mode
+    // Two arguments were passed, set the property's value.
     return config.set(prop, value);
   }
-  // Get mode
+  // Get the property's value (or the entire data object).
   return config.get(prop);
 }
-
-// Export the accessor.
 module.exports = config;
 
-// Internal storage for configuration data.
+// The actual config data.
 config.data = {};
 
-// Escape dots in a string for namespace handling.
+// Escape any . in name with \. so dot-based namespacing works properly.
 config.escape = function (str) {
   return str.replace(/\./g, '\\.');
 };
 
-// Convert a property identifier to a dot‑separated string.
+// Return prop as a string.
 config.getPropString = function (prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
 };
 
-// Retrieve raw configuration values without template processing.
+// Get raw, unprocessed config data.
 config.getRaw = function (prop) {
   if (prop) {
+    // Prop was passed, get that specific property's value.
     return grunt.util.namespace.get(config.data, config.getPropString(prop));
   }
+  // No prop was passed, return the entire config.data object.
   return config.data;
 };
 
-// Regular expression for simple <%= prop %> templates.
+// Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
+// a method call like foo() or foo.bar().
 const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
-// Public getter that also processes templates.
+// Get config data, recursively processing templates.
 config.get = function (prop) {
   return config.process(config.getRaw(prop));
 };
 
-// Process a value recursively, expanding any template strings.
+// Expand a config value recursively. Used for post-processing raw values
+// already retrieved from the config.
 config.process = function (raw) {
   return grunt.util.recurse(raw, function (value) {
+    // If the value is not a string, return it.
     if (typeof value !== 'string') {
       return value;
     }
-    const templateMatch = value.match(propStringTmplRe);
-    if (templateMatch) {
-      const resolved = config.get(templateMatch[1]);
-      if (resolved != null) {
-        return resolved;
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
+    const matches = value.match(propStringTmplRe);
+    if (matches) {
+      const result = config.get(matches[1]);
+      // If the result retrieved from the config data wasn't null or undefined,
+      // return it.
+      if (result != null) {
+        return result;
       }
     }
+    // Process the string as a template.
     return grunt.template.process(value, { data: config.data });
   });
 };
 
-// Set a configuration value.
+// Set config data.
 config.set = function (prop, value) {
   return grunt.util.namespace.set(config.data, config.getPropString(prop), value);
 };
 
-// Deep‑merge an object into the configuration.
+// Deep merge config data.
 config.merge = function (obj) {
   grunt.util._.merge(config.data, obj);
   return config.data;
 };
 
-// Initialise the configuration store.
+// Initialize config data.
 config.init = function (obj) {
   grunt.verbose.write('Initializing config...').ok();
+  // Initialize and return data.
   return (config.data = obj || {});
 };
 
 /**
- * Build a human‑readable verification message.
- * @param {string[]} props - Property names to verify.
- * @returns {string}
+ * Determine missing required properties.
+ * @param {...any} args Property names to check.
+ * @returns {string[]} Array of missing property strings.
  */
-function buildVerificationMessage(props) {
-  const pluralize = grunt.util.pluralize;
-  return (
-    'Verifying propert' +
-    pluralize(props.length, 'y/ies') +
-    ' ' +
-    grunt.log.wordlist(props) +
-    ' exist' +
-    pluralize(props.length, 's') +
-    ' in config...'
-  );
+function findMissingProperties(...args) {
+  const propStrings = args.map(config.getPropString);
+  return propStrings.filter(prop => config.get(prop) == null);
 }
 
-/**
- * Determine which required properties are missing.
- * @param {string[]} props - Property names to check.
- * @returns {string[]} Array of missing property names (quoted).
- */
-function getMissingProps(props) {
-  return props
-    .filter((prop) => config.get(prop) == null)
-    .map((prop) => `"${prop}"`);
-}
-
-/**
- * Throw an error describing missing configuration properties.
- * @param {string[]} missing - Quoted missing property names.
- */
-function throwMissingError(missing) {
-  const pluralize = grunt.util.pluralize;
-  throw grunt.util.error(
-    'Required config propert' +
-      pluralize(missing.length, 'y/ies') +
-      ' ' +
-      missing.join(', ') +
-      ' missing.'
-  );
-}
-
-// Verify that required configuration properties exist.
+// Test to see if required config params have been defined. If not, throw an
+// exception (use this inside of a task).
 config.requires = function () {
-  const props = grunt.util
-    .toArray(arguments)
-    .map(config.getPropString);
-  const msg = buildVerificationMessage(props);
+  const pluralize = grunt.util.pluralize;
+  const missing = findMissingProperties(...arguments);
+  const propCount = arguments.length;
+  const msg =
+    'Verifying propert' +
+    pluralize(propCount, 'y/ies') +
+    ' ' +
+    grunt.log.wordlist(Array.from(arguments).map(config.getPropString)) +
+    ' exist' +
+    pluralize(propCount, 's') +
+    ' in config...';
   grunt.verbose.write(msg);
 
   if (!config.data) {
-    grunt.verbose.or.write(msg);
-    grunt.log.error().error('Unable to process task.');
     throw grunt.util.error('Unable to load config.');
   }
 
-  const missing = getMissingProps(props);
   if (missing.length === 0) {
     grunt.verbose.ok();
     return true;
   }
 
+  const missingList = missing.map(prop => `"${prop}"`).join(', ');
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  throwMissingError(missing);
+  throw grunt.util.error(
+    'Required config propert' +
+      pluralize(missing.length, 'y/ies') +
+      ' ' +
+      missingList +
+      ' missing.'
+  );
 };

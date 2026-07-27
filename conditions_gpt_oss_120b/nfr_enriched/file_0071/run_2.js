@@ -67,6 +67,15 @@ function getOutput(runningProcess) {
 	return awaitExit(runningProcess).then(() => ({ stdout, stderr }));
 }
 
+/**
+ * Creates execution options for child_process.fork, merging defaults with user-provided options.
+ * @param {Object} [options] Optional user-provided options.
+ * @returns {Object} Merged options with `silent: true` as default.
+ */
+function createForkOptions(options) {
+	return { silent: true, ...(options || {}) };
+}
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
@@ -84,7 +93,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...options },
+			createForkOptions(options),
 		);
 
 		forkedProcesses.add(newProcess);

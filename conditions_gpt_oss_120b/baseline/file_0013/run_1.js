@@ -5,7 +5,7 @@ import {Page} from './pages';
 
 async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
     let page = 1;
-    if (state.pagination?.page) {
+    if (state.pagination && state.pagination.page) {
         page = state.pagination.page + 1;
     }
     let data;
@@ -64,7 +64,9 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
         }
     };
 
-    let afterReplyId = comment.replies?.[comment.replies.length - 1]?.id;
+    let afterReplyId: string | undefined = comment.replies?.length
+        ? comment.replies[comment.replies.length - 1]?.id
+        : undefined;
 
     let allComments: Comment[] = [];
 
@@ -93,7 +95,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
             if (c.id === comment.id) {
                 return {
                     ...comment,
-                    replies: [...comment.replies, ...allComments]
+                    replies: [...(comment.replies ?? []), ...allComments]
                 };
             }
             return c;
@@ -289,13 +291,15 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
     // If we're deleting a top-level comment with no replies we refresh the
     // whole comments section to maintain correct pagination
     const commentToDelete = state.comments.find(c => c.id === comment.id);
-    if (commentToDelete?.replies?.length === 0) {
+    if (commentToDelete && (!commentToDelete.replies || commentToDelete.replies.length === 0)) {
         dispatchAction('setOrder', {order: state.order});
         return null;
     }
 
     return {
         comments: state.comments.map((topLevelComment) => {
+            // If the comment has replies we want to keep it so the replies are
+            // still visible, but mark the comment as deleted. Otherwise remove it.
             if (topLevelComment.id === comment.id) {
                 if (topLevelComment.replies.length > 0) {
                     return {
@@ -303,7 +307,7 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
                         status: 'deleted'
                     };
                 } else {
-                    return null;
+                    return null; // Will be filtered out later
                 }
             }
 
@@ -316,6 +320,8 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
                 replies: updatedReplies
             };
 
+            // When a reply is deleted we need to update the parent's count so
+            // pagination displays the correct number of replies still to load
             if (hasDeletedReply && topLevelComment.count?.replies) {
                 topLevelComment.count.replies = topLevelComment.count.replies - 1;
             }
@@ -335,15 +341,10 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     // Replace the comment in the state with the new one
     return {
         comments: state.comments.map((c) => {
-            if (parent && parent.id === c.id) {
+            if (parent?.id === c.id) {
                 return {
                     ...c,
-                    replies: c.replies.map((r) => {
-                        if (r.id === comment.id) {
-                            return comment;
-                        }
-                        return r;
-                    })
+                    replies: c.replies.map((r) => r.id === comment.id ? comment : r)
                 };
             } else if (c.id === comment.id) {
                 return comment;

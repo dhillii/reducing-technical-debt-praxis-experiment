@@ -27,7 +27,7 @@
   'use strict';
 
   function AnchorJS(options) {
-    const self = this;
+    var self = this;
     this.options = options || {};
     this.elements = [];
 
@@ -55,211 +55,250 @@
     };
 
     /**
-     * Resolve the effective visibility option.
-     * @param {String} visible - Original visible option
-     * @returns {String}
+     * Determines whether the visible option resolves to "always".
+     * @param {string} visibleOption - The raw visible option.
+     * @return {boolean}
      */
-    function _resolveVisibleOption(visible) {
-      if (visible === 'touch') {
-        return self.isTouchDevice() ? 'always' : 'hover';
+    function _resolveVisibleOption(visibleOption) {
+      if (visibleOption !== 'touch') {
+        return visibleOption;
       }
-      return visible;
+      return self.isTouchDevice() ? 'always' : 'hover';
     }
 
     /**
-     * Collect all existing IDs on the page.
-     * @returns {Array<string>}
-     */
-    function _collectExistingIds() {
-      const els = document.querySelectorAll('[id]');
-      return Array.prototype.map.call(els, el => el.id);
-    }
-
-    /**
-     * Ensure the element has an ID, generating one if necessary.
+     * Returns true if the element already contains an AnchorJS link.
      * @param {Element} el
-     * @param {Array<string>} idList
-     * @returns {String}
+     * @return {boolean}
      */
-    function _ensureElementId(el, idList) {
-      if (el.hasAttribute('id')) {
-        return el.getAttribute('id');
+    function _hasExistingAnchor(el) {
+      var hasLeft = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      var hasRight = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      return hasLeft || hasRight;
+    }
+
+    /**
+     * Generates a unique ID for an element based on its text content.
+     * @param {string} text - The element's text content.
+     * @param {Array<string>} existingIds - List of IDs already present on the page.
+     * @return {string}
+     */
+    function _generateUniqueId(text, existingIds) {
+      var base = self.urlify(text);
+      var candidate = base;
+      var counter = 0;
+      while (existingIds.indexOf(candidate) !== -1) {
+        counter += 1;
+        candidate = base + '-' + counter;
       }
-      const tidy = self.urlify(el.textContent);
-      let candidate = tidy;
-      let count = 0;
-      while (idList.includes(candidate)) {
-        count += 1;
-        candidate = `${tidy}-${count}`;
-      }
-      idList.push(candidate);
-      el.setAttribute('id', candidate);
+      existingIds.push(candidate);
       return candidate;
     }
 
     /**
-     * Create the anchor element for a given ID.
-     * @param {String} id
-     * @param {String} readableID
-     * @param {String} visibleOption
-     * @returns {HTMLAnchorElement}
+     * Creates an anchor element with base attributes.
+     * @param {string} elementID
+     * @param {string} readableID
+     * @return {HTMLAnchorElement}
      */
-    function _createAnchor(id, readableID, visibleOption) {
-      const anchor = document.createElement('a');
+    function _createAnchor(elementID, readableID) {
+      var anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + self.options.class;
-      anchor.href = '#' + id;
+      anchor.href = '#' + elementID;
       anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
       anchor.setAttribute('data-anchorjs-icon', self.options.icon);
+      return anchor;
+    }
+
+    /**
+     * Applies visibility styles to the anchor.
+     * @param {HTMLAnchorElement} anchor
+     * @param {string} visibleOption
+     */
+    function _applyVisibility(anchor, visibleOption) {
       if (visibleOption === 'always') {
         anchor.style.opacity = '1';
       }
+    }
+
+    /**
+     * Applies icon‑related styles to the anchor.
+     * @param {HTMLAnchorElement} anchor
+     */
+    function _applyIconStyles(anchor) {
       if (self.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
         if (self.options.placement === 'left') {
           anchor.style.lineHeight = 'inherit';
         }
       }
-      return anchor;
     }
 
     /**
-     * Apply placement styles and insert the anchor into the element.
+     * Inserts the anchor into the target element based on placement.
+     * @param {Element} target
      * @param {HTMLAnchorElement} anchor
-     * @param {Element} el
      */
-    function _applyPlacement(anchor, el) {
+    function _insertAnchor(target, anchor) {
       if (self.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
         anchor.style.paddingRight = '0.5em';
-        el.insertBefore(anchor, el.firstChild);
+        target.insertBefore(anchor, target.firstChild);
       } else {
         anchor.style.paddingLeft = '0.375em';
-        el.appendChild(anchor);
+        target.appendChild(anchor);
       }
     }
 
     /**
      * Add anchor links to page elements.
-     * @param {String|Array|Nodelist} selector
-     * @return {this|false}
+     * @param  {String|Array|Nodelist} selector - A CSS selector for targeting the elements you wish to add anchor links
+     *                                            to. Also accepts an array or nodeList containing the relavant elements.
+     * @return {this}                           - The AnchorJS object
      */
     this.add = function (selector) {
-      _applyRemainingDefaultOptions(self.options);
-      const visibleOption = _resolveVisibleOption(self.options.visible);
-      const effectiveSelector = selector || 'h1, h2, h3, h4, h5, h6';
-      const elements = _getElements(effectiveSelector);
+      var elements,
+          elsWithIds,
+          idList,
+          visibleOption,
+          indexesToDrop = [];
+
+      // Reapply defaults in case options were mutated.
+      _applyRemainingDefaultOptions(this.options);
+
+      visibleOption = _resolveVisibleOption(this.options.visible);
+
+      if (!selector) {
+        selector = 'h1, h2, h3, h4, h5, h6';
+      }
+
+      elements = _getElements(selector);
       if (elements.length === 0) {
         return false;
       }
+
       _addBaselineStyles();
 
-      const existingIds = _collectExistingIds();
-      const processedElements = [];
-
-      elements.forEach(el => {
-        if (self.hasAnchorJSLink(el)) {
-          return;
-        }
-        const elementID = _ensureElementId(el, existingIds);
-        const readableID = elementID.replace(/-/g, ' ');
-        const anchor = _createAnchor(elementID, readableID, visibleOption);
-        _applyPlacement(anchor, el);
-        processedElements.push(el);
+      elsWithIds = document.querySelectorAll('[id]');
+      idList = [].map.call(elsWithIds, function (el) {
+        return el.id;
       });
 
-      self.elements = self.elements.concat(processedElements);
-      return self;
+      for (var i = 0; i < elements.length; i++) {
+        var el = elements[i];
+
+        if (_hasExistingAnchor(el)) {
+          indexesToDrop.push(i);
+          continue;
+        }
+
+        var elementID;
+        if (el.hasAttribute('id')) {
+          elementID = el.getAttribute('id');
+        } else {
+          elementID = _generateUniqueId(el.textContent, idList);
+          el.setAttribute('id', elementID);
+        }
+
+        var readableID = elementID.replace(/-/g, ' ');
+        var anchor = _createAnchor(elementID, readableID);
+
+        _applyVisibility(anchor, visibleOption);
+        _applyIconStyles(anchor);
+        _insertAnchor(el, anchor);
+      }
+
+      // Remove elements that already had anchors.
+      elements = elements.filter(function (_, idx) {
+        return indexesToDrop.indexOf(idx) === -1;
+      });
+
+      this.elements = this.elements.concat(elements);
+      return this;
     };
 
     /**
      * Removes all anchorjs-links from elements targed by the selector.
-     * @param  {String|Array|Nodelist} selector
-     * @return {this}
+     * @param  {String|Array|Nodelist} selector - A CSS selector string targeting elements with anchor links,
+     *                                       	  	OR a nodeList / array containing the DOM elements.
+     * @return {this}                           - The AnchorJS object
      */
     this.remove = function (selector) {
-      const elements = _getElements(selector);
-      for (let i = 0; i < elements.length; i++) {
-        const domAnchor = elements[i].querySelector('.anchorjs-link');
+      var index,
+          domAnchor,
+          elements = _getElements(selector);
+
+      for (var i = 0; i < elements.length; i++) {
+        domAnchor = elements[i].querySelector('.anchorjs-link');
         if (domAnchor) {
-          const index = self.elements.indexOf(elements[i]);
+          index = this.elements.indexOf(elements[i]);
           if (index !== -1) {
-            self.elements.splice(index, 1);
+            this.elements.splice(index, 1);
           }
           elements[i].removeChild(domAnchor);
         }
       }
-      return self;
+      return this;
     };
 
     /**
      * Removes all anchorjs links. Mostly used for tests.
      */
     this.removeAll = function () {
-      self.remove(self.elements);
+      this.remove(this.elements);
     };
 
     /**
      * Urlify - Refine text so it makes a good ID.
      *
-     * @param  {String} text
-     * @return {String}
+     * To do this, we remove apostrophes, replace nonsafe characters with hyphens,
+     * remove extra hyphens, truncate, trim hyphens, and make lowercase.
+     *
+     * @param  {String} text - Any text. Usually pulled from the webpage element we are linking to.
+     * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function (text) {
-      const nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
-      if (!self.options.truncate) {
-        _applyRemainingDefaultOptions(self.options);
+      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
+          urlText;
+
+      if (!this.options.truncate) {
+        _applyRemainingDefaultOptions(this.options);
       }
-      const urlText = text.trim()
+
+      urlText = text.trim()
         .replace(/\'/gi, '')
         .replace(nonsafeChars, '-')
         .replace(/-{2,}/g, '-')
-        .substring(0, self.options.truncate)
+        .substring(0, this.options.truncate)
         .replace(/^-+|-+$/gm, '')
         .toLowerCase();
+
       return urlText;
     };
 
     /**
      * Determines if this element already has an AnchorJS link on it.
-     * @param {Element} el
-     * @return {Boolean}
+     * Uses this technique: http://stackoverflow.com/a/5898748/1154642
+     * @param    {HTMLElemnt}  el - a DOM node
+     * @return   {Boolean}     true/false
      */
     this.hasAnchorJSLink = function (el) {
-      return _hasLeftAnchor(el) || _hasRightAnchor(el);
+      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
+          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+
+      return hasLeftAnchor || hasRightAnchor || false;
     };
 
     /**
-     * @param {String} className
-     * @returns {Boolean}
-     */
-    function _hasAnchorLinkClass(className) {
-      return (' ' + className + ' ').indexOf(' anchorjs-link ') > -1;
-    }
-
-    /**
-     * @param {Element} el
-     * @returns {Boolean}
-     */
-    function _hasLeftAnchor(el) {
-      return el.firstChild && _hasAnchorLinkClass(el.firstChild.className);
-    }
-
-    /**
-     * @param {Element} el
-     * @returns {Boolean}
-     */
-    function _hasRightAnchor(el) {
-      return el.lastChild && _hasAnchorLinkClass(el.lastChild.className);
-    }
-
-    /**
-     * Turns a selector, nodeList, or array of elements into an array of elements.
-     * @param {String|Array|Nodelist} input
-     * @return {Array}
+     * Turns a selector, nodeList, or array of elements into an array of elements (so we can use array methods).
+     * It also throws errors on any other inputs. Used to handle inputs to .add and .remove.
+     * @param  {String|Array|Nodelist} input - A CSS selector string targeting elements with anchor links,
+     *                                       	 OR a nodeList / array containing the DOM elements.
+     * @return {Array} - An array containing the elements we want.
      */
     function _getElements(input) {
-      let elements;
+      var elements;
       if (typeof input === 'string' || input instanceof String) {
         elements = [].slice.call(document.querySelectorAll(input));
       } else if (Array.isArray(input) || input instanceof NodeList) {
@@ -271,41 +310,48 @@
     }
 
     /**
-     * Adds baseline styles to the page, used by all AnchorJS links regardless of configuration.
+     * _addBaselineStyles
+     * Adds baseline styles to the page, used by all AnchorJS links irregardless of configuration.
      */
     function _addBaselineStyles() {
       if (document.head.querySelector('style.anchorjs') !== null) {
         return;
       }
-      const style = document.createElement('style');
-      const linkRule =
-        ' .anchorjs-link {' +
-        '   opacity: 0;' +
-        '   text-decoration: none;' +
-        '   -webkit-font-smoothing: antialiased;' +
-        '   -moz-osx-font-smoothing: grayscale;' +
-        ' }';
-      const hoverRule =
-        ' *:hover > .anchorjs-link,' +
-        ' .anchorjs-link:focus  {' +
-        '   opacity: 1;' +
-        ' }';
-      const anchorjsLinkFontFace =
-        ' @font-face {' +
-        '   font-family: "anchorjs-icons";' +
-        '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP';
-      const pseudoElContent =
-        ' [data-anchorjs-icon]::after {' +
-        '   content: attr(data-anchorjs-icon);' +
-        ' }';
+
+      var style = document.createElement('style'),
+          linkRule =
+          ' .anchorjs-link {' +
+          '   opacity: 0;' +
+          '   text-decoration: none;' +
+          '   -webkit-font-smoothing: antialiased;' +
+          '   -moz-osx-font-smoothing: grayscale;' +
+          ' }',
+          hoverRule =
+          ' *:hover > .anchorjs-link,' +
+          ' .anchorjs-link:focus  {' +
+          '   opacity: 1;' +
+          ' }',
+          anchorjsLinkFontFace =
+          ' @font-face {' +
+          '   font-family: "anchorjs-icons";' +
+          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }',
+          pseudoElContent =
+          ' [data-anchorjs-icon]::after {' +
+          '   content: attr(data-anchorjs-icon);' +
+          ' }',
+          firstStyleEl;
+
       style.className = 'anchorjs';
       style.appendChild(document.createTextNode(''));
-      const firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+
+      firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
       if (firstStyleEl === undefined) {
         document.head.appendChild(style);
       } else {
         document.head.insertBefore(style, firstStyleEl);
       }
+
       style.sheet.insertRule(linkRule, style.sheet.cssRules.length);
       style.sheet.insertRule(hoverRule, style.sheet.cssRules.length);
       style.sheet.insertRule(pseudoElContent, style.sheet.cssRules.length);

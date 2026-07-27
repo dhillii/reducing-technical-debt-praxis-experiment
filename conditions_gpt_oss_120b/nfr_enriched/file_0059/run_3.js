@@ -1,12 +1,8 @@
-// @remove-file-on-eject
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
 'use strict';
 
+// Makes the script crash on unhandled rejections instead of silently
+// ignoring them. In the future, promise rejections that are not handled will
+// terminate the Node.js process with a non-zero exit code.
 process.on('unhandledRejection', err => {
   throw err;
 });
@@ -20,33 +16,27 @@ const { defaultBrowsers } = require('react-dev-utils/browsersHelper');
 const os = require('os');
 const verifyTypeScriptSetup = require('./utils/verifyTypeScriptSetup');
 
-/**
- * Checks if the current directory is inside a Git repository.
- */
+/* Helper: check if current directory is inside a Git repo */
 function isInGitRepository() {
   try {
     execSync('git rev-parse --is-inside-work-tree', { stdio: 'ignore' });
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 }
 
-/**
- * Checks if the current directory is inside a Mercurial repository.
- */
+/* Helper: check if current directory is inside a Mercurial repo */
 function isInMercurialRepository() {
   try {
     execSync('hg --cwd . root', { stdio: 'ignore' });
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 }
 
-/**
- * Attempts to initialize a new Git repository.
- */
+/* Helper: attempt to initialise a Git repository */
 function tryGitInit() {
   try {
     execSync('git --version', { stdio: 'ignore' });
@@ -61,9 +51,7 @@ function tryGitInit() {
   }
 }
 
-/**
- * Attempts to create an initial Git commit.
- */
+/* Helper: attempt to create an initial Git commit */
 function tryGitCommit(appPath) {
   try {
     execSync('git add -A', { stdio: 'ignore' });
@@ -76,62 +64,21 @@ function tryGitCommit(appPath) {
     console.warn('Removing .git directory...');
     try {
       fs.removeSync(path.join(appPath, '.git'));
-    } catch {}
+    } catch (removeErr) {
+      // ignore
+    }
     return false;
   }
 }
 
-/**
- * Determines whether React and ReactDOM are already listed as dependencies.
- */
-function isReactInstalled(appPackage) {
-  const dependencies = appPackage.dependencies || {};
-  return (
-    typeof dependencies.react !== 'undefined' &&
-    typeof dependencies['react-dom'] !== 'undefined'
-  );
-}
-
-/**
- * Validates that a template name was provided.
- */
-function validateTemplate(templateName) {
-  if (!templateName) {
-    console.log('');
-    console.error(
-      `A template was not provided. This is likely because you're using an outdated version of ${chalk.cyan(
-        'create-react-app'
-      )}.`
-    );
-    console.error(
-      `Please note that global installs of ${chalk.cyan(
-        'create-react-app'
-      )} are no longer supported.`
-    );
-    console.error(
-      `You can fix this by running ${chalk.cyan(
-        'npm uninstall -g create-react-app'
-      )} or ${chalk.cyan('yarn global remove create-react-app')} before using ${chalk.cyan(
-        'create-react-app'
-      )} again.`
-    );
-    return false;
-  }
-  return true;
-}
-
-/**
- * Resolves the absolute path to the template directory.
- */
+/* Resolve the absolute path of the selected template */
 function resolveTemplatePath(appPath, templateName) {
   return path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
 }
 
-/**
- * Loads and returns the template's JSON configuration, if present.
- */
+/* Load template.json if it exists */
 function loadTemplateJson(templatePath) {
   const jsonPath = path.join(templatePath, 'template.json');
   if (fs.existsSync(jsonPath)) {
@@ -140,9 +87,7 @@ function loadTemplateJson(templatePath) {
   return {};
 }
 
-/**
- * Warns about deprecated root-level keys in template.json.
- */
+/* Warn about deprecated root-level keys in template.json */
 function warnDeprecatedTemplateKeys(templateJson) {
   if (templateJson.dependencies || templateJson.scripts) {
     console.log();
@@ -156,10 +101,10 @@ function warnDeprecatedTemplateKeys(templateJson) {
   }
 }
 
-/**
- * Merges template package data into the app's package.json.
- */
-function mergePackageJson(appPackage, templatePackage, useYarn) {
+/* Process template package data and compute keys to replace */
+function processTemplatePackage(templateJson) {
+  const templatePackage = templateJson.package || {};
+
   const blacklist = [
     'name',
     'version',
@@ -185,11 +130,16 @@ function mergePackageJson(appPackage, templatePackage, useYarn) {
     'private',
     'publishConfig',
   ];
-  const toMerge = ['dependencies', 'scripts'];
-  const toReplace = Object.keys(templatePackage).filter(
-    key => !blacklist.includes(key) && !toMerge.includes(key)
+  const mergeKeys = ['dependencies', 'scripts'];
+  const replaceKeys = Object.keys(templatePackage).filter(
+    key => !blacklist.includes(key) && !mergeKeys.includes(key)
   );
 
+  return { templatePackage, replaceKeys };
+}
+
+/* Merge template data into the app's package.json */
+function mergePackageJson(appPackage, templatePackage, replaceKeys, useYarn) {
   appPackage.dependencies = appPackage.dependencies || {};
 
   const templateScripts = templatePackage.scripts || {};
@@ -216,14 +166,12 @@ function mergePackageJson(appPackage, templatePackage, useYarn) {
   appPackage.eslintConfig = { extends: 'react-app' };
   appPackage.browserslist = defaultBrowsers;
 
-  toReplace.forEach(key => {
+  replaceKeys.forEach(key => {
     appPackage[key] = templatePackage[key];
   });
 }
 
-/**
- * Writes the updated package.json back to disk.
- */
+/* Persist the updated package.json to disk */
 function writePackageJson(appPath, appPackage) {
   fs.writeFileSync(
     path.join(appPath, 'package.json'),
@@ -231,9 +179,7 @@ function writePackageJson(appPath, appPackage) {
   );
 }
 
-/**
- * Renames an existing README.md to README.old.md.
- */
+/* Rename existing README if present and return flag */
 function renameReadmeIfExists(appPath) {
   const readmePath = path.join(appPath, 'README.md');
   if (fs.existsSync(readmePath)) {
@@ -243,9 +189,7 @@ function renameReadmeIfExists(appPath) {
   return false;
 }
 
-/**
- * Copies template files into the new app directory.
- */
+/* Copy template files into the new app directory */
 function copyTemplateFiles(templatePath, appPath) {
   const templateDir = path.join(templatePath, 'template');
   if (fs.existsSync(templateDir)) {
@@ -258,64 +202,66 @@ function copyTemplateFiles(templatePath, appPath) {
   return false;
 }
 
-/**
- * Adjusts README commands for Yarn users.
- */
-function adjustReadmeForYarn(appPath) {
+/* Adjust README commands for Yarn users */
+function updateReadmeForYarn(appPath, useYarn) {
+  if (!useYarn) return;
   try {
     const readmePath = path.join(appPath, 'README.md');
-    const content = fs.readFileSync(readmePath, 'utf8');
+    const readme = fs.readFileSync(readmePath, 'utf8');
     fs.writeFileSync(
       readmePath,
-      content.replace(/(npm run |npm )/g, 'yarn '),
+      readme.replace(/(npm run |npm )/g, 'yarn '),
       'utf8'
     );
-  } catch {
-    // Silently ignore errors; fallback to npm commands.
+  } catch (err) {
+    // Silently ignore – fallback to npm commands.
   }
 }
 
-/**
- * Handles .gitignore file creation or merging.
- */
+/* Ensure .gitignore is correctly placed */
 function handleGitignore(appPath) {
   const gitignorePath = path.join(appPath, '.gitignore');
-  const gitignoreTemplate = path.join(appPath, 'gitignore');
+  const gitignoreTmp = path.join(appPath, 'gitignore');
 
   if (fs.existsSync(gitignorePath)) {
-    const data = fs.readFileSync(gitignoreTemplate);
+    const data = fs.readFileSync(gitignoreTmp);
     fs.appendFileSync(gitignorePath, data);
-    fs.unlinkSync(gitignoreTemplate);
+    fs.unlinkSync(gitignoreTmp);
   } else {
-    fs.moveSync(gitignoreTemplate, gitignorePath, []);
+    fs.moveSync(gitignoreTmp, gitignorePath, []);
   }
 }
 
-/**
- * Installs template and core dependencies using the appropriate package manager.
- */
-function installDependencies({
-  useYarn,
-  verbose,
-  templatePackage,
-  appPackage,
-  templateName,
-}) {
-  let command, remove, args;
+/* Initialise a Git repository if possible */
+function initGitRepoIfNeeded() {
+  if (tryGitInit()) {
+    console.log();
+    console.log('Initialized a git repository.');
+    return true;
+  }
+  return false;
+}
+
+/* Determine package manager command and base arguments */
+function preparePackageManager(useYarn, verbose) {
   if (useYarn) {
-    command = 'yarnpkg';
-    remove = 'remove';
-    args = ['add'];
-  } else {
-    command = 'npm';
-    remove = 'uninstall';
-    args = [
+    return { command: 'yarnpkg', remove: 'remove', baseArgs: ['add'] };
+  }
+  return {
+    command: 'npm',
+    remove: 'uninstall',
+    baseArgs: [
       'install',
       '--no-audit',
       '--save',
       verbose && '--verbose',
-    ].filter(Boolean);
-  }
+    ].filter(Boolean),
+  };
+}
+
+/* Build the final argument list for installing dependencies */
+function buildInstallArgs(baseArgs, templatePackage, appPackage, templateName) {
+  let args = [...baseArgs];
 
   const deps = Object.entries({
     ...templatePackage.dependencies,
@@ -323,7 +269,7 @@ function installDependencies({
   });
   if (deps.length) {
     args = args.concat(
-      deps.map(([dep, ver]) => `${dep}@${ver}`)
+      deps.map(([dep, version]) => `${dep}@${version}`)
     );
   }
 
@@ -331,58 +277,53 @@ function installDependencies({
     args = args.concat(['react', 'react-dom']);
   }
 
-  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
-    console.log();
-    console.log(`Installing template dependencies using ${command}...`);
-    const proc = spawn.sync(command, args, { stdio: 'inherit' });
-    if (proc.status !== 0) {
-      console.error(`\`${command} ${args.join(' ')}\` failed`);
-      return false;
-    }
-  }
+  const shouldInstall = (!isReactInstalled(appPackage) || templateName) && args.length > 1;
+  const hasTypescript = args.some(arg => arg.includes('typescript'));
 
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
-
-  // Remove the template package after installation
-  console.log(`Removing template package using ${command}...`);
-  console.log();
-  const removeProc = spawn.sync(command, [remove, templateName], {
-    stdio: 'inherit',
-  });
-  if (removeProc.status !== 0) {
-    console.error(`\`${command} ${args.join(' ')}\` failed`);
-    return false;
-  }
-
-  return true;
+  return { args, shouldInstall, hasTypescript };
 }
 
-/**
- * Creates an initial Git commit if a repository was initialized.
- */
-function createGitCommitIfNeeded(initializedGit, appPath) {
+/* Execute the dependency installation step */
+function installDependencies(command, args) {
+  console.log();
+  console.log(`Installing template dependencies using ${command}...`);
+  const proc = spawn.sync(command, args, { stdio: 'inherit' });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    process.exit(1);
+  }
+}
+
+/* Remove the template package after installation */
+function removeTemplatePackage(command, remove, templateName) {
+  console.log(`Removing template package using ${command}...`);
+  console.log();
+  const proc = spawn.sync(command, [remove, templateName], {
+    stdio: 'inherit',
+  });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${remove} ${templateName}\` failed`);
+    process.exit(1);
+  }
+}
+
+/* Create an initial Git commit if a repo was initialised */
+function createGitCommitIfPossible(appPath, initializedGit) {
   if (initializedGit && tryGitCommit(appPath)) {
     console.log();
     console.log('Created git commit.');
   }
 }
 
-/**
- * Determines the appropriate path to display for `cd` instructions.
- */
-function computeCdPath(originalDirectory, appName, appPath) {
+/* Compute the path to display for the cd command */
+function computeCdPath(originalDirectory, appPath, appName) {
   if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
     return appName;
   }
   return appPath;
 }
 
-/**
- * Displays the final success message with usage instructions.
- */
+/* Display the final success instructions */
 function displaySuccessMessage({
   appName,
   appPath,
@@ -432,9 +373,7 @@ function displaySuccessMessage({
   console.log('Happy hacking!');
 }
 
-/**
- * Main entry point exported by the module.
- */
+/* Main exported function */
 module.exports = function (
   appPath,
   appName,
@@ -442,53 +381,66 @@ module.exports = function (
   originalDirectory,
   templateName
 ) {
-  if (!validateTemplate(templateName)) {
-    return;
-  }
-
   const appPackage = require(path.join(appPath, 'package.json'));
   const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
 
+  if (!templateName) {
+    console.log('');
+    console.error(
+      `A template was not provided. This is likely because you're using an outdated version of ${chalk.cyan(
+        'create-react-app'
+      )}.`
+    );
+    console.error(
+      `Please note that global installs of ${chalk.cyan(
+        'create-react-app'
+      )} are no longer supported.`
+    );
+    console.error(
+      `You can fix this by running ${chalk.cyan(
+        'npm uninstall -g create-react-app'
+      )} or ${chalk.cyan(
+        'yarn global remove create-react-app'
+      )} before using ${chalk.cyan('create-react-app')} again.`
+    );
+    return;
+  }
+
   const templatePath = resolveTemplatePath(appPath, templateName);
   const templateJson = loadTemplateJson(templatePath);
-  const templatePackage = templateJson.package || {};
-
   warnDeprecatedTemplateKeys(templateJson);
-  mergePackageJson(appPackage, templatePackage, useYarn);
+  const { templatePackage, replaceKeys } = processTemplatePackage(templateJson);
+  mergePackageJson(appPackage, templatePackage, replaceKeys, useYarn);
   writePackageJson(appPath, appPackage);
 
   const readmeRenamed = renameReadmeIfExists(appPath);
-  if (!copyTemplateFiles(templatePath, appPath)) {
-    return;
-  }
-
-  if (useYarn) {
-    adjustReadmeForYarn(appPath);
-  }
-
+  if (!copyTemplateFiles(templatePath, appPath)) return;
+  updateReadmeForYarn(appPath, useYarn);
   handleGitignore(appPath);
 
-  const initializedGit = tryGitInit();
-  if (initializedGit) {
+  const initializedGit = initGitRepoIfNeeded();
+
+  const { command, remove, baseArgs } = preparePackageManager(useYarn, verbose);
+  const { args, shouldInstall, hasTypescript } = buildInstallArgs(
+    baseArgs,
+    templatePackage,
+    appPackage,
+    templateName
+  );
+
+  if (shouldInstall) {
+    installDependencies(command, args);
+  }
+
+  if (hasTypescript) {
     console.log();
-    console.log('Initialized a git repository.');
+    verifyTypeScriptSetup();
   }
 
-  if (
-    !installDependencies({
-      useYarn,
-      verbose,
-      templatePackage,
-      appPackage,
-      templateName,
-    })
-  ) {
-    return;
-  }
+  removeTemplatePackage(command, remove, templateName);
+  createGitCommitIfPossible(appPath, initializedGit);
 
-  createGitCommitIfNeeded(initializedGit, appPath);
-
-  const cdpath = computeCdPath(originalDirectory, appName, appPath);
+  const cdpath = computeCdPath(originalDirectory, appPath, appName);
   const displayedCommand = useYarn ? 'yarn' : 'npm';
 
   displaySuccessMessage({
@@ -500,3 +452,12 @@ module.exports = function (
     readmeRenamed,
   });
 };
+
+/* Helper: determine if React is already listed as a dependency */
+function isReactInstalled(appPackage) {
+  const dependencies = appPackage.dependencies || {};
+  return (
+    typeof dependencies.react !== 'undefined' &&
+    typeof dependencies['react-dom'] !== 'undefined'
+  );
+}

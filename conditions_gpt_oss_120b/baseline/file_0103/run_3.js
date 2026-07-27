@@ -12,15 +12,15 @@ Lawnchair.adapter('indexed-db', (function(){
   // NB: Causes onupgradeneeded to be fired, which erases the old database!
   const STORE_VERSION = 3;
 
-  const getIDB = function() {
+  const getIDB = () => {
       return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
   };
 
-  const getIDBTransaction = function() {
+  const getIDBTransaction = () => {
       return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
   };
 
-  const getIDBKeyRange = function() {
+  const getIDBKeyRange = () => {
       return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
   };
 
@@ -101,7 +101,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
          const objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o});
 
-         const win  = function (e) {
+         const win = function (e) {
            if (callback) { self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0] ) }
          };
 
@@ -192,7 +192,7 @@ Lawnchair.adapter('indexed-db', (function(){
             req.onsuccess = req.onerror = null;
             // exists iff req.result is not null
             // XXX but firefox returns undefined instead, sigh XXX
-            let undef;
+            const undef = undefined;
             self.lambda(callback).call(self, event.target.result !== null &&
                                              event.target.result !== undef);
         };
@@ -268,18 +268,16 @@ Lawnchair.adapter('indexed-db', (function(){
           toDelete=[keyOrArray];
         }
 
-
         const win = function () {
           if (callback) self.lambda(callback).call(self)
         };
 
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
 
-        const key = keyOrArray.key ? keyOrArray.key : keyOrArray;
         for (let i = 0; i < toDelete.length; i++) {
           const delKey = toDelete[i].key ? toDelete[i].key : toDelete[i];
           os['delete'](delKey);
-        };
+        }
 
         os.transaction.oncomplete = win;
         os.transaction.onabort = fail;

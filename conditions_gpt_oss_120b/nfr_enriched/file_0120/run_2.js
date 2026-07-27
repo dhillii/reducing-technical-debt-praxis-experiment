@@ -19,6 +19,220 @@ const QueryGenerator = {
   _templateSettings: require('lodash').runInContext().templateSettings,
   options: {},
 
+  // -------------------------------------------------------------------------
+  // INSERT QUERY REFACTORING
+  // -------------------------------------------------------------------------
+
+  /**
+   * Main entry point for generating an INSERT query.
+   * Delegates to helper methods to keep cognitive complexity low.
+   */
+  insertQuery(table, valueHash, modelAttributes, options) {
+    options = options || {};
+    _.defaults(options, this.options);
+
+    const modelAttributeMap = this._buildModelAttributeMap(modelAttributes);
+    const {
+      valueQuery,
+      emptyQuery,
+      outputFragment,
+      tmpTable
+    } = this._prepareInsertTemplates(options, modelAttributes);
+
+    const {
+      fields,
+      values,
+      identityWrapperRequired
+    } = this._processValueHash(valueHash, modelAttributeMap, options);
+
+    const replacements = {
+      ignoreDuplicates: options.ignoreDuplicates ? this._dialect.supports.IGNORE : '',
+      onConflictDoNothing: options.ignoreDuplicates ? this._dialect.supports.onConflictDoNothing : '',
+      table: this.quoteTable(table),
+      attributes: fields.join(','),
+      output: outputFragment,
+      values: values.join(','),
+      tmpTable
+    };
+
+    let query = (replacements.attributes.length ? valueQuery : emptyQuery) + ';';
+
+    if (identityWrapperRequired && this._dialect.supports.autoIncrement.identityInsert) {
+      query = [
+        'SET IDENTITY_INSERT',
+        this.quoteTable(table),
+        'ON;',
+        query,
+        'SET IDENTITY_INSERT',
+        this.quoteTable(table),
+        'OFF;'
+      ].join(' ');
+    }
+
+    return _.template(query, this._templateSettings)(replacements);
+  },
+
+  /**
+   * Build a map of attribute keys to attribute definitions, handling field aliases.
+   */
+  _buildModelAttributeMap(modelAttributes) {
+    const map = {};
+    if (!modelAttributes) return map;
+
+    _.each(modelAttributes, (attribute, key) => {
+      map[key] = attribute;
+      if (attribute.field) {
+        map[attribute.field] = attribute;
+      }
+    });
+    return map;
+  },
+
+  /**
+   * Initialise the base INSERT/EMPTY query templates and apply dialect‑specific
+   * fragments such as DEFAULT VALUES, RETURNING, exception handling and ON DUPLICATE.
+   */
+  _prepareInsertTemplates(options, modelAttributes) {
+    let valueQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
+    let emptyQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
+    let outputFragment = '';
+    let tmpTable = '';
+
+    // DEFAULT VALUES handling
+    if (this._dialect.supports['DEFAULT VALUES']) {
+      emptyQuery += ' DEFAULT VALUES';
+    } else if (this._dialect.supports['VALUES ()']) {
+      emptyQuery += ' VALUES ()';
+    }
+
+    // RETURNING / OUTPUT handling
+    if (this._dialect.supports.returnValues && options.returning) {
+      ({ valueQuery, emptyQuery, outputFragment, tmpTable } = this._applyReturning(
+        valueQuery,
+        emptyQuery,
+        outputFragment,
+        tmpTable,
+        modelAttributes,
+        options
+      ));
+    }
+
+    // EXCEPTION handling (Postgres specific)
+    if (this._dialect.supports.EXCEPTION && options.exception) {
+      ({ valueQuery, emptyQuery } = this._applyException(valueQuery, emptyQuery, options));
+    }
+
+    // ON DUPLICATE KEY handling
+    if (this._dialect.supports['ON DUPLICATE KEY'] && options.onDuplicate) {
+      const dupClause = ' ON DUPLICATE KEY ' + options.onDuplicate;
+      valueQuery += dupClause;
+      emptyQuery += dupClause;
+    }
+
+    return { valueQuery, emptyQuery, outputFragment, tmpTable };
+  },
+
+  /**
+   * Apply RETURNING / OUTPUT fragments, including temporary table handling for triggers.
+   */
+  _applyReturning(valueQuery, emptyQuery, outputFragment, tmpTable, modelAttributes, options) {
+    if (this._dialect.supports.returnValues.returning) {
+      valueQuery += ' RETURNING *';
+      emptyQuery += ' RETURNING *';
+    } else if (this._dialect.supports.returnValues.output) {
+      outputFragment = ' OUTPUT INSERTED.*';
+
+      if (modelAttributes && options.hasTrigger && this._dialect.supports.tmpTableTrigger) {
+        let tmpColumns = '';
+        let outputColumns = '';
+        tmpTable = 'declare @tmp table (<%= columns %>); ';
+
+        for (const modelKey in modelAttributes) {
+          const attribute = modelAttributes[modelKey];
+          if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+            if (tmpColumns.length > 0) {
+              tmpColumns += ',';
+              outputColumns += ',';
+            }
+            tmpColumns += this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
+            outputColumns += 'INSERTED.' + this.quoteIdentifier(attribute.field);
+          }
+        }
+
+        const replacement = { columns: tmpColumns };
+        tmpTable = _.template(tmpTable, this._templateSettings)(replacement).trim();
+        outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
+        const selectFromTmp = ';select * from @tmp';
+
+        valueQuery += selectFromTmp;
+        emptyQuery += selectFromTmp;
+      }
+    }
+    return { valueQuery, emptyQuery, outputFragment, tmpTable };
+  },
+
+  /**
+   * Apply PostgreSQL exception handling for unique violations.
+   */
+  _applyException(valueQuery, emptyQuery, options) {
+    if (semver.gte(this.sequelize.options.databaseVersion, '9.2.0')) {
+      const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
+      options.exception = 'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
+      valueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
+        ' BEGIN ' + valueQuery + ' INTO response; EXCEPTION ' + options.exception + ' END ' + delimiter +
+        ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
+    } else {
+      options.exception = 'WHEN unique_violation THEN NULL;';
+      valueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' + valueQuery + '; EXCEPTION ' + options.exception + ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
+    }
+    return { valueQuery, emptyQuery };
+  },
+
+  /**
+   * Process the value hash, building field and value lists while handling
+   * auto‑increment defaults and identity insert requirements.
+   */
+  _processValueHash(valueHash, modelAttributeMap, options) {
+    const fields = [];
+    const values = [];
+    let identityWrapperRequired = false;
+
+    valueHash = Utils.removeNullValuesFromHash(valueHash, this.options.omitNull);
+
+    for (const key in valueHash) {
+      if (!Object.prototype.hasOwnProperty.call(valueHash, key)) continue;
+      const value = valueHash[key];
+      fields.push(this.quoteIdentifier(key));
+
+      const attribute = modelAttributeMap && modelAttributeMap[key];
+      const isAutoInc = attribute && attribute.autoIncrement === true;
+
+      // SERIAL handling for PostgreSQL
+      if (isAutoInc && !value) {
+        if (!this._dialect.supports.autoIncrement.defaultValue) {
+          fields.splice(-1, 1);
+        } else if (this._dialect.supports.DEFAULT) {
+          values.push('DEFAULT');
+        } else {
+          values.push(this.escape(null));
+        }
+        continue;
+      }
+
+      if (isAutoInc) {
+        identityWrapperRequired = true;
+      }
+
+      values.push(this.escape(value, attribute, { context: 'INSERT' }));
+    }
+
+    return { fields, values, identityWrapperRequired };
+  },
+
+  // -------------------------------------------------------------------------
+  // OTHER EXISTING METHODS (unchanged)
+  // -------------------------------------------------------------------------
+
   extractTableDetails(tableName, options) {
     options = options || {};
     tableName = tableName || {};
@@ -70,203 +284,6 @@ const QueryGenerator = {
     return `ALTER TABLE ${this.quoteTable(before)} RENAME TO ${this.quoteTable(after)};`;
   },
 
-  /**
-   * Orchestrates the creation of an INSERT query.
-   */
-  insertQuery(table, valueHash, modelAttributes, options) {
-    options = options || {};
-    _.defaults(options, this.options);
-
-    const modelAttributeMap = this._mapModelAttributes(modelAttributes);
-    const { valueQuery, emptyQuery, outputFragment, tmpTable } = this._prepareInsertTemplates(options, modelAttributes);
-    const cleanedHash = Utils.removeNullValuesFromHash(valueHash, this.options.omitNull);
-    const { fields, values, identityWrapperRequired } = this._processInsertValues(cleanedHash, modelAttributeMap, options);
-    const replacements = this._buildInsertReplacements(table, fields, values, outputFragment, tmpTable, options);
-    let query = (replacements.attributes.length ? valueQuery : emptyQuery) + ';';
-
-    if (identityWrapperRequired && this._dialect.supports.autoIncrement.identityInsert) {
-      query = [
-        'SET IDENTITY_INSERT',
-        this.quoteTable(table),
-        'ON;',
-        query,
-        'SET IDENTITY_INSERT',
-        this.quoteTable(table),
-        'OFF;'
-      ].join(' ');
-    }
-
-    return _.template(query, this._templateSettings)(replacements);
-  },
-
-  /**
-   * Maps model attributes to a lookup object for quick access.
-   */
-  _mapModelAttributes(modelAttributes) {
-    const map = {};
-    if (!modelAttributes) return map;
-    _.each(modelAttributes, (attribute, key) => {
-      map[key] = attribute;
-      if (attribute.field) {
-        map[attribute.field] = attribute;
-      }
-    });
-    return map;
-  },
-
-  /**
-   * Prepares the base INSERT and EMPTY query fragments, handling
-   * dialect‑specific defaults, returning clauses and trigger support.
-   */
-  _prepareInsertTemplates(options, modelAttributes) {
-    let valueQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
-    let emptyQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
-    let outputFragment = undefined;
-    let tmpTable = '';
-
-    if (this._dialect.supports['DEFAULT VALUES']) {
-      emptyQuery += ' DEFAULT VALUES';
-    } else if (this._dialect.supports['VALUES ()']) {
-      emptyQuery += ' VALUES ()';
-    }
-
-    if (this._dialect.supports.returnValues && options.returning) {
-      ({ valueQuery, emptyQuery, outputFragment, tmpTable } = this._applyReturning(valueQuery, emptyQuery, options, modelAttributes));
-    }
-
-    if (this._dialect.supports.EXCEPTION && options.exception) {
-      ({ valueQuery, emptyQuery } = this._applyException(valueQuery, emptyQuery, options));
-    }
-
-    if (this._dialect.supports['ON DUPLICATE KEY'] && options.onDuplicate) {
-      valueQuery += ' ON DUPLICATE KEY ' + options.onDuplicate;
-      emptyQuery += ' ON DUPLICATE KEY ' + options.onDuplicate;
-    }
-
-    return { valueQuery, emptyQuery, outputFragment, tmpTable };
-  },
-
-  /**
-   * Handles RETURNING / OUTPUT clauses for dialects that support them.
-   */
-  _applyReturning(valueQuery, emptyQuery, options, modelAttributes) {
-    let outputFragment = undefined;
-    let tmpTable = '';
-
-    if (this._dialect.supports.returnValues.output) {
-      outputFragment = ' OUTPUT INSERTED.*';
-
-      if (modelAttributes && options.hasTrigger && this._dialect.supports.tmpTableTrigger) {
-        const { tmpTableFragment, outputFragment: outFrag, selectFromTmp } = this._buildTriggerOutput(modelAttributes);
-        tmpTable = tmpTableFragment;
-        outputFragment = outFrag;
-        valueQuery += selectFromTmp;
-        emptyQuery += selectFromTmp;
-      }
-    } else {
-      valueQuery += ' RETURNING *';
-      emptyQuery += ' RETURNING *';
-    }
-
-    return { valueQuery, emptyQuery, outputFragment, tmpTable };
-  },
-
-  /**
-   * Constructs temporary table handling for triggers on MSSQL.
-   */
-  _buildTriggerOutput(modelAttributes) {
-    let tmpColumns = '';
-    let outputColumns = '';
-    let tmpTable = 'declare @tmp table (<%= columns %>); ';
-    for (const modelKey in modelAttributes) {
-      const attribute = modelAttributes[modelKey];
-      if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
-        if (tmpColumns.length > 0) {
-          tmpColumns += ',';
-          outputColumns += ',';
-        }
-        tmpColumns += this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
-        outputColumns += 'INSERTED.' + this.quoteIdentifier(attribute.field);
-      }
-    }
-    const replacement = { columns: tmpColumns };
-    const tmpTableFragment = _.template(tmpTable, this._templateSettings)(replacement).trim();
-    const outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
-    const selectFromTmp = ';select * from @tmp';
-    return { tmpTableFragment, outputFragment, selectFromTmp };
-  },
-
-  /**
-   * Wraps the INSERT in a PostgreSQL function to catch unique violations.
-   */
-  _applyException(valueQuery, emptyQuery, options) {
-    if (semver.gte(this.sequelize.options.databaseVersion, '9.2.0')) {
-      const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
-      options.exception = 'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
-      valueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
-        ' BEGIN ' + valueQuery + ' INTO response; EXCEPTION ' + options.exception + ' END ' + delimiter +
-        ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
-      emptyQuery = valueQuery;
-    } else {
-      options.exception = 'WHEN unique_violation THEN NULL;';
-      valueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' + valueQuery + '; EXCEPTION ' + options.exception + ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
-      emptyQuery = valueQuery;
-    }
-    return { valueQuery, emptyQuery };
-  },
-
-  /**
-   * Processes the value hash into quoted fields and escaped values.
-   */
-  _processInsertValues(valueHash, modelAttributeMap, options) {
-    const fields = [];
-    const values = [];
-    let identityWrapperRequired = false;
-
-    for (const key in valueHash) {
-      if (!Object.prototype.hasOwnProperty.call(valueHash, key)) continue;
-      const value = valueHash[key];
-      fields.push(this.quoteIdentifier(key));
-
-      const attribute = modelAttributeMap && modelAttributeMap[key];
-      const isAutoInc = attribute && attribute.autoIncrement === true;
-
-      if (isAutoInc && !value) {
-        if (!this._dialect.supports.autoIncrement.defaultValue) {
-          fields.pop();
-        } else if (this._dialect.supports.DEFAULT) {
-          values.push('DEFAULT');
-        } else {
-          values.push(this.escape(null));
-        }
-        continue;
-      }
-
-      if (isAutoInc) {
-        identityWrapperRequired = true;
-      }
-
-      values.push(this.escape(value, attribute, { context: 'INSERT' }));
-    }
-
-    return { fields, values, identityWrapperRequired };
-  },
-
-  /**
-   * Builds the replacement object used by lodash templates.
-   */
-  _buildInsertReplacements(table, fields, values, outputFragment, tmpTable, options) {
-    return {
-      ignoreDuplicates: options.ignoreDuplicates ? this._dialect.supports.IGNORE : '',
-      onConflictDoNothing: options.ignoreDuplicates ? this._dialect.supports.onConflictDoNothing : '',
-      table: this.quoteTable(table),
-      attributes: fields.join(','),
-      output: outputFragment,
-      values: values.join(','),
-      tmpTable
-    };
-  },
-
   bulkInsertQuery(tableName, fieldValueHashes, options, fieldMappedAttributes) {
     options = options || {};
     fieldMappedAttributes = fieldMappedAttributes || {};
@@ -282,7 +299,10 @@ const QueryGenerator = {
         if (allAttributes.indexOf(key) === -1) {
           allAttributes.push(key);
         }
-        if (fieldMappedAttributes[key] && fieldMappedAttributes[key].autoIncrement === true) {
+        if (
+          fieldMappedAttributes[key]
+          && fieldMappedAttributes[key].autoIncrement === true
+        ) {
           serials[key] = true;
         }
       });
@@ -290,11 +310,16 @@ const QueryGenerator = {
 
     for (const fieldValueHash of fieldValueHashes) {
       const values = allAttributes.map(key => {
-        if (this._dialect.supports.bulkDefault && serials[key] === true) {
+        if (
+          this._dialect.supports.bulkDefault
+          && serials[key] === true
+        ) {
           return fieldValueHash[key] || 'DEFAULT';
         }
+
         return this.escape(fieldValueHash[key], fieldMappedAttributes[key], { context: 'INSERT' });
       });
+
       tuples.push(`(${values.join(',')})`);
     }
 
@@ -344,6 +369,7 @@ const QueryGenerator = {
           tmpTable = 'declare @tmp table (<%= columns %>); ';
           let tmpColumns = '';
           let outputColumns = '';
+
           for (const modelKey in attributes) {
             const attribute = attributes[modelKey];
             if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
@@ -351,14 +377,20 @@ const QueryGenerator = {
                 tmpColumns += ',';
                 outputColumns += ',';
               }
+
               tmpColumns += this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
               outputColumns += 'INSERTED.' + this.quoteIdentifier(attribute.field);
             }
           }
-          const replacement = { columns: tmpColumns };
+
+          const replacement ={
+            columns: tmpColumns
+          };
+
           tmpTable = _.template(tmpTable, this._templateSettings)(replacement).trim();
           outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
           selectFromTmp = ';select * from @tmp';
+
           query += selectFromTmp;
         }
       } else if (this._dialect.supports.returnValues && options.returning) {
@@ -377,9 +409,12 @@ const QueryGenerator = {
     }
 
     for (const key in attrValueHash) {
-      if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true && !this._dialect.supports.autoIncrement.update) {
+      if (modelAttributeMap && modelAttributeMap[key] &&
+          modelAttributeMap[key].autoIncrement === true &&
+          !this._dialect.supports.autoIncrement.update) {
         continue;
       }
+
       const value = attrValueHash[key];
       values.push(this.quoteIdentifier(key) + '=' + this.escape(value, modelAttributeMap && modelAttributeMap[key] || undefined, { context: 'UPDATE' }));
     }
@@ -449,6 +484,7 @@ const QueryGenerator = {
         const onlyAttributeNames = index.fields.map(field => typeof field === 'string' ? field : field.name || field.attribute);
         index.name = Utils.underscore(rawTablename + '_' + onlyAttributeNames.join('_'));
       }
+
       return index;
     });
   },
@@ -475,7 +511,8 @@ const QueryGenerator = {
 
     options.prefix = options.prefix || rawTablename || tableName;
     if (options.prefix && _.isString(options.prefix)) {
-      options.prefix = options.prefix.replace(/\./g, '_').replace(/(\"|\')/g, '');
+      options.prefix = options.prefix.replace(/\./g, '_');
+      options.prefix = options.prefix.replace(/(\"|\')/g, '');
     }
 
     const fieldsSql = options.fields.map(field => {
@@ -485,22 +522,29 @@ const QueryGenerator = {
         return this.handleSequelizeMethod(field);
       } else {
         let result = '';
+
         if (field.attribute) {
           field.name = field.attribute;
         }
+
         if (!field.name) {
           throw new Error('The following index field has no name: ' + util.inspect(field));
         }
+
         result += this.quoteIdentifier(field.name);
+
         if (this._dialect.supports.index.collate && field.collate) {
           result += ' COLLATE ' + this.quoteIdentifier(field.collate);
         }
+
         if (this._dialect.supports.index.length && field.length) {
           result += '(' + field.length + ')';
         }
+
         if (field.order) {
           result += ' ' + field.order;
         }
+
         return result;
       }
     });
@@ -528,7 +572,12 @@ const QueryGenerator = {
     const concurrently = this._dialect.supports.index.concurrently && options.concurrently ? 'CONCURRENTLY' : undefined;
     let ind;
     if (this._dialect.supports.indexViaAlter) {
-      ind = ['ALTER TABLE', tableName, concurrently, 'ADD'];
+      ind = [
+        'ALTER TABLE',
+        tableName,
+        concurrently,
+        'ADD'
+      ];
     } else {
       ind = ['CREATE'];
     }
@@ -541,7 +590,7 @@ const QueryGenerator = {
       this._dialect.supports.index.using === 1 && options.using ? 'USING ' + options.using : '',
       !this._dialect.supports.indexViaAlter ? 'ON ' + tableName : undefined,
       this._dialect.supports.index.using === 2 && options.using ? 'USING ' + options.using : '',
-      '(' + fieldsSql.join(', ') + (options.operator ? ' ' + options.operator : '') + ')',
+      '(' + fieldsSql.join(', ') + (options.operator ? ' '+options.operator : '') + ')',
       this._dialect.supports.index.parser && options.parser ? 'WITH PARSER ' + options.parser : undefined,
       this._dialect.supports.index.where && options.where ? options.where : undefined
     );
@@ -572,12 +621,15 @@ const QueryGenerator = {
         return this.handleSequelizeMethod(field);
       } else {
         let result = '';
+
         if (field.attribute) {
           field.name = field.attribute;
         }
+
         if (!field.name) {
           throw new Error('The following index field has no name: ' + field);
         }
+
         result += this.quoteIdentifier(field.name);
         return result;
       }
@@ -600,9 +652,11 @@ const QueryGenerator = {
         if (options.defaultValue === undefined) {
           throw new Error('Default value must be specifed for DEFAULT CONSTRAINT');
         }
+
         if (this._dialect.name !== 'mssql') {
           throw new Error('Default constraints are supported only for MSSQL dialect.');
         }
+
         constraintName = this.quoteIdentifier(options.name || `${tableName}_${fieldsSqlString}_df`);
         constraintSnippet = `CONSTRAINT ${constraintName} DEFAULT (${this.escape(options.defaultValue)}) FOR ${fieldsSql[0]}`;
         break;
@@ -647,14 +701,18 @@ const QueryGenerator = {
         if (param.schema) {
           table += this.quoteIdentifier(param.schema) + '.';
         }
+
         table += this.quoteIdentifier(param.tableName);
       } else {
         if (param.schema) {
           table += param.schema + (param.delimiter || '.');
         }
+
         table += param.tableName;
         table = this.quoteIdentifier(table);
       }
+
+
     } else {
       table = this.quoteIdentifier(param);
     }
@@ -707,7 +765,9 @@ const QueryGenerator = {
 
           if (model) {
             if (!as && previousAssociation && previousAssociation instanceof Association && previousAssociation.through && previousAssociation.through.model === model) {
-              item = new Association(previousModel, model, { as: model.name });
+              item = new Association(previousModel, model, {
+                as: model.name
+              });
             } else {
               item = previousModel.getAssociationForAlias(model, as);
               if (!item) {
@@ -723,6 +783,7 @@ const QueryGenerator = {
 
         if (typeof item === 'string') {
           const orderIndex = validOrderOptions.indexOf(item.toUpperCase());
+
           if (index > 0 && orderIndex !== -1) {
             item = this.sequelize.literal(' ' + validOrderOptions[orderIndex]);
           } else if (previousModel && previousModel.prototype instanceof Model) {
@@ -730,10 +791,14 @@ const QueryGenerator = {
               item = previousModel.associations[item];
             } else if (previousModel.rawAttributes !== undefined && previousModel.rawAttributes[item] && item !== previousModel.rawAttributes[item].field) {
               item = previousModel.rawAttributes[item].field;
-            } else if (item.indexOf('.') !== -1 && previousModel.rawAttributes !== undefined) {
+            } else if (
+              item.indexOf('.') !== -1
+              && previousModel.rawAttributes !== undefined
+            ) {
               const itemSplit = item.split('.');
+
               if (previousModel.rawAttributes[itemSplit[0]].type instanceof DataTypes.JSON) {
-                const identifier = this.quoteIdentifiers(previousModel.name + '.' + previousModel.rawAttributes[itemSplit[0]].field);
+                const identifier = this.quoteIdentifiers(previousModel.name  + '.' + previousModel.rawAttributes[itemSplit[0]].field);
                 const path = itemSplit.slice(1);
                 item = this.jsonPathExtractionQuery(identifier, path);
                 item = this.sequelize.literal(item);
@@ -826,7 +891,6 @@ const QueryGenerator = {
   },
 
   selectQuery(tableName, options, model) {
-    // Original implementation retained (complexity unchanged)
     options = options || {};
     const limit = options.limit;
     const mainQueryItems = [];
@@ -981,10 +1045,14 @@ const QueryGenerator = {
           options.groupedLimit.values.map(value => {
             let groupWhere;
             if (whereKey) {
-              groupWhere = { [whereKey]: value };
+              groupWhere = {
+                [whereKey]: value
+              };
             }
             if (include) {
-              groupWhere = { [options.groupedLimit.on.foreignIdentifierField]: value };
+              groupWhere = {
+                [options.groupedLimit.on.foreignIdentifierField]: value
+              };
             }
 
             return Utils.spliceStr(baseQuery, splicePos, placeHolder.length, this.getWhereConditions(groupWhere, groupedTableName));
@@ -1116,7 +1184,6 @@ const QueryGenerator = {
   },
 
   generateInclude(include, parentTableName, topLevelInfo) {
-    // Original implementation retained (complexity unchanged)
     const joinQueries = {
       mainQuery: [],
       subQuery: []
@@ -1258,7 +1325,6 @@ const QueryGenerator = {
   },
 
   generateJoin(include, topLevelInfo) {
-    // Original implementation retained (complexity unchanged)
     const association = include.association;
     const parent = include.parent;
     const parentIsTop = !!parent && !include.parent.association && include.parent.model.name === topLevelInfo.options.model.name;
@@ -1335,7 +1401,6 @@ const QueryGenerator = {
   },
 
   generateThroughJoin(include, includeAs, parentTableName, topLevelInfo) {
-    // Original implementation retained (complexity unchanged)
     const through = include.through;
     const throughTable = through.model.getTableName();
     const throughAs = `${includeAs.internalAs}->${through.as}`;
@@ -1430,7 +1495,6 @@ const QueryGenerator = {
   },
 
   _generateSubQueryFilter(include, includeAs, topLevelInfo) {
-    // Original implementation retained (complexity unchanged)
     if (!topLevelInfo.subQuery || !include.subQueryFilter) {
       return;
     }
@@ -1525,7 +1589,7 @@ const QueryGenerator = {
   },
 
   _getRequiredClosure(include) {
-    const copy = _.extend({}, include, { attributes: [], include: [] });
+    const copy = _.extend({}, include, {attributes: [], include: []});
 
     if (Array.isArray(include.include)) {
       copy.include = include.include
@@ -1547,13 +1611,13 @@ const QueryGenerator = {
         }
 
         if (
-          subQuery &&
-          Array.isArray(order) &&
-          order[0] &&
-          !(order[0] instanceof Association) &&
-          !(typeof order[0] === 'function' && order[0].prototype instanceof Model) &&
-          !(typeof order[0].model === 'function' && order[0].model.prototype instanceof Model) &&
-          !(typeof order[0] === 'string' && model && model.associations !== undefined && model.associations[order[0]])
+          subQuery
+          && Array.isArray(order)
+          && order[0]
+          && !(order[0] instanceof Association)
+          && !(typeof order[0] === 'function' && order[0].prototype instanceof Model)
+          && !(typeof order[0].model === 'function' && order[0].model.prototype instanceof Model)
+          && !(typeof order[0] === 'string' && model && model.associations !== undefined && model.associations[order[0]])
         ) {
           subQueryOrder.push(this.quote(order, model, '->'));
         }
@@ -1577,7 +1641,7 @@ const QueryGenerator = {
       throw new Error('Order must be type of array or instance of a valid sequelize method.');
     }
 
-    return { mainQueryOrder, subQueryOrder };
+    return {mainQueryOrder, subQueryOrder};
   },
 
   selectFromTableFragment(options, model, attributes, tables, mainTableAs) {
@@ -1594,9 +1658,11 @@ const QueryGenerator = {
     if (options.parent) {
       return;
     }
+
     if (typeof value === 'undefined' || value === null) {
       return;
     }
+
     return 'SET autocommit = ' + (value ? 1 : 0) + ';';
   },
 
@@ -1604,6 +1670,7 @@ const QueryGenerator = {
     if (options.parent) {
       return;
     }
+
     return 'SET SESSION TRANSACTION ISOLATION LEVEL ' + value + ';';
   },
 
@@ -1615,6 +1682,7 @@ const QueryGenerator = {
     if (transaction.parent) {
       return 'SAVEPOINT ' + this.quoteIdentifier(transaction.name, true) + ';';
     }
+
     return 'START TRANSACTION;';
   },
 
@@ -1628,6 +1696,7 @@ const QueryGenerator = {
     if (transaction.parent) {
       return;
     }
+
     return 'COMMIT;';
   },
 
@@ -1635,12 +1704,14 @@ const QueryGenerator = {
     if (transaction.parent) {
       return 'ROLLBACK TO SAVEPOINT ' + this.quoteIdentifier(transaction.name, true) + ';';
     }
+
     return 'ROLLBACK;';
   },
 
   addLimitAndOffset(options) {
     let fragment = '';
 
+    /* eslint-disable */
     if (options.offset != null && options.limit == null) {
       fragment += ' LIMIT ' + this.escape(options.offset) + ', ' + 10000000000000;
     } else if (options.limit != null) {
@@ -1650,6 +1721,7 @@ const QueryGenerator = {
         fragment += ' LIMIT ' + this.escape(options.limit);
       }
     }
+    /* eslint-enable */
 
     return fragment;
   },
@@ -1673,6 +1745,7 @@ const QueryGenerator = {
 
       if (value && value instanceof Utils.SequelizeMethod) {
         value = this.getWhereConditions(value, tableName, factory, options, prepend);
+
         result = value === 'NULL' ? key + ' IS NULL' : [key, value].join(smth.comparator);
       } else if (_.isPlainObject(value)) {
         result = this.whereItemQuery(smth.attribute, value, {
@@ -1684,6 +1757,7 @@ const QueryGenerator = {
         } else {
           value = this.escape(value);
         }
+
         result = value === 'NULL' ? key + ' IS NULL' : [key, value].join(' ' + smth.comparator + ' ');
       }
     } else if (smth instanceof Utils.Literal) {
@@ -1696,6 +1770,7 @@ const QueryGenerator = {
       } else {
         result = this.escape(smth.val);
       }
+
       result = 'CAST(' + result + ' AS ' + smth.type.toUpperCase() + ')';
     } else if (smth instanceof Utils.Fn) {
       result = smth.fn + '(' + smth.args.map(arg => {
@@ -1726,13 +1801,17 @@ const QueryGenerator = {
   whereQuery(where, options) {
     const query = this.whereItemsQuery(where, options);
     if (query && query.length) {
-      return 'WHERE ' + query;
+      return 'WHERE '+query;
     }
     return '';
   },
 
   whereItemsQuery(where, options, binding) {
-    if (where === null || where === undefined || Utils.getComplexSize(where) === 0) {
+    if (
+      where === null ||
+      where === undefined ||
+      Utils.getComplexSize(where) === 0
+    ) {
       return '';
     }
 
@@ -1741,8 +1820,9 @@ const QueryGenerator = {
     }
 
     const items = [];
+
     binding = binding || 'AND';
-    if (binding.substr(0, 1) !== ' ') binding = ' ' + binding + ' ';
+    if (binding.substr(0, 1) !== ' ') binding = ' '+binding+' ';
 
     if (_.isPlainObject(where)) {
       Utils.getComplexKeys(where).forEach(prop => {
@@ -1812,7 +1892,7 @@ const QueryGenerator = {
         const tmp = {};
         const field = options.model.rawAttributes[keyParts[0]];
         Dottie.set(tmp, keyParts.slice(1), value);
-        return this.whereItemQuery(field.field || keyParts[0], tmp, Object.assign({ field }, options));
+        return this.whereItemQuery(field.field || keyParts[0], tmp, Object.assign({field}, options));
       }
     }
 
@@ -1936,13 +2016,13 @@ const QueryGenerator = {
 
   _whereGroupBind(key, value, options) {
     const binding = key === Op.or ? this.OperatorMap[Op.or] : this.OperatorMap[Op.and];
-    const outerBinding = key === Op.not ? 'NOT ' : '';
+    const outerBinding = key === Op.not ? 'NOT ': '';
 
     if (Array.isArray(value)) {
       value = value.map(item => {
         let itemQuery = this.whereItemsQuery(item, options, this.OperatorMap[Op.and]);
         if (itemQuery && itemQuery.length && (Array.isArray(item) || _.isPlainObject(item)) && Utils.getComplexSize(item) > 1) {
-          itemQuery = '(' + itemQuery + ')';
+          itemQuery = '('+itemQuery+')';
         }
         return itemQuery;
       }).filter(item => item && item.length);
@@ -1956,21 +2036,22 @@ const QueryGenerator = {
       return '0 = 1';
     }
 
-    return value ? outerBinding + '(' + value + ')' : undefined;
+    return value ? outerBinding + '('+value+')' : undefined;
   },
 
   _whereBind(binding, key, value, options) {
     if (_.isPlainObject(value)) {
       value = Utils.getComplexKeys(value).map(prop => {
         const item = value[prop];
-        return this.whereItemQuery(key, { [prop]: item }, options);
+        return this.whereItemQuery(key, {[prop]: item}, options);
       });
     } else {
       value = value.map(item => this.whereItemQuery(key, item, options));
     }
 
     value = value.filter(item => item && item.length);
-    return value.length ? '(' + value.join(binding) + ')' : undefined;
+
+    return value.length ? '('+value.join(binding)+')' : undefined;
   },
 
   _whereJSON(key, value, options) {
@@ -1987,7 +2068,7 @@ const QueryGenerator = {
     Utils.getOperators(value).forEach(op => {
       const where = {};
       where[op] = value[op];
-      items.push(this.whereItemQuery(key, where, _.assign({}, options, { json: false })));
+      items.push(this.whereItemQuery(key, where, _.assign({}, options, {json: false})));
     });
 
     _.forOwn(value, (item, prop) => {
@@ -1995,7 +2076,7 @@ const QueryGenerator = {
     });
 
     const result = items.join(this.OperatorMap[Op.and]);
-    return items.length > 1 ? '(' + result + ')' : result;
+    return items.length > 1 ? '('+result+')' : result;
   },
 
   _traverseJSON(items, baseKey, prop, item, path) {
@@ -2012,16 +2093,17 @@ const QueryGenerator = {
     if (_.isPlainObject(item)) {
       Utils.getOperators(item).forEach(op => {
         const value = this._toJSONValue(item[op]);
-        items.push(this.whereItemQuery(this._castKey(pathKey, value, cast), { [op]: value }));
+        items.push(this.whereItemQuery(this._castKey(pathKey, value, cast), {[op]: value}));
       });
       _.forOwn(item, (value, itemProp) => {
         this._traverseJSON(items, baseKey, itemProp, value, path.concat([itemProp]));
       });
+
       return;
     }
 
     item = this._toJSONValue(item);
-    items.push(this.whereItemQuery(this._castKey(pathKey, item, cast), { [Op.eq]: item }));
+    items.push(this.whereItemQuery(this._castKey(pathKey, item, cast), {[Op.eq]: item}));
   },
 
   _toJSONValue(value) {
@@ -2033,6 +2115,7 @@ const QueryGenerator = {
     if (cast) {
       return new Utils.Literal(this.handleSequelizeMethod(new Utils.Cast(new Utils.Literal(key), cast, json)));
     }
+
     return new Utils.Literal(key);
   },
 
@@ -2057,7 +2140,7 @@ const QueryGenerator = {
       throw new Error(`${key} and ${value} has no comparator`);
     }
     key = this._getSafeKey(key, prefix);
-    return [key, value].join(' ' + comparator + ' ');
+    return [key, value].join(' '+comparator+' ');
   },
 
   _getSafeKey(key, prefix) {
@@ -2087,8 +2170,10 @@ const QueryGenerator = {
       if (prefix instanceof Utils.Literal) {
         return [this.handleSequelizeMethod(prefix), key].join('.');
       }
+
       return [this.quoteTable(prefix), key].join('.');
     }
+
     return key;
   },
 
@@ -2125,6 +2210,7 @@ const QueryGenerator = {
         if (value[Op.values]) {
           return this._joinKeyValue(key, `(VALUES ${value[Op.values].map(item => `(${this.escape(item)})`).join(', ')})`, comparator, options.prefix);
         }
+
         return this._joinKeyValue(key, `(${this.escape(value, field)})`, comparator, options.prefix);
       case Op.between:
       case Op.notBetween:

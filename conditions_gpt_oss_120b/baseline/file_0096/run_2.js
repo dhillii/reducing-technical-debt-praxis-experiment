@@ -32,7 +32,7 @@ define([
      * 1. model:update    - after a model is updated or created
      * 2. destroy:model   - after a model is removed
      */
-    const Module = Marionette.Object.extend({
+    var Module = Marionette.Object.extend({
         /**
          * @type object Backbone collection
          */
@@ -80,7 +80,7 @@ define([
          * @type object
          */
         changeDatabase: function(options) {
-            const profile = options && options.profile ? options.profile : this.defaultDB;
+            let profile = options && options.profile ? options.profile : this.defaultDB;
             let model;
             let collection;
 
@@ -165,7 +165,7 @@ define([
          * @type object Backbone collection
          */
         saveCollection: function(collection) {
-            let promises = [];
+            const promises = [];
             const self = this;
             collection = collection || this.collection;
 
@@ -219,7 +219,7 @@ define([
          * @type array
          */
         saveAllRaw: function(arData, options) {
-            let promises = [];
+            const promises = [];
             const self = this;
 
             _.each(arData, function(data) {
@@ -258,11 +258,11 @@ define([
         getModel: function(options) {
             const Model = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
-            const data = {};
+            let data = {};
             let model;
 
             data[idAttr] = options[idAttr];
-            model = new Model(data);
+            model        = new Model(data);
 
             // If id was not provided, return a model with default values
             if (!options[idAttr] || options[idAttr] === '0') {
@@ -302,9 +302,9 @@ define([
 
             // Add filter conditions
             if (options.filter) {
-                const cond = this.Collection.prototype.conditions[options.filter];
-                const resolvedCond = (typeof cond === 'function' ? cond(options) : cond);
-                options.conditions = resolvedCond;
+                let cond = this.Collection.prototype.conditions[options.filter];
+                cond = (typeof cond === 'function' ? cond(options) : cond);
+                options.conditions = cond;
             }
 
             // this.onReset();
@@ -362,7 +362,7 @@ define([
             }
 
             const configs = Radio.request('configs', 'get:object');
-            const backup = {encrypt: configs.encryptBackup.encrypt || 0};
+            const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
             model = model || this.Collection.prototype.model.prototype;
 
             return (

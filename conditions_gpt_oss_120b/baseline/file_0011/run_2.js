@@ -1,4 +1,4 @@
-import React, {useState, useCallback} from 'react';
+import React, {useState} from 'react';
 import UnsplashSelector from '../../../selectors/unsplash-selector';
 import clsx from 'clsx';
 import usePinturaEditor from '../../../../hooks/use-pintura-editor';
@@ -15,169 +15,147 @@ import {useGlobalData} from '../../../providers/global-data-provider';
 import {useHandleError} from '@tryghost/admin-x-framework/hooks';
 import type {BodyFontName, HeadingFontName} from '@tryghost/custom-fonts';
 
-type FontOption = {
-    value: string;
-    label: string;
-    creator?: string;
-    className?: string;
+type BodyFontOption = {
+    value: BodyFontName | typeof DEFAULT_FONT,
+    label: BodyFontName | typeof DEFAULT_FONT,
+    creator?: string,
+    className?: string
+};
+type HeadingFontOption = {
+    value: HeadingFontName | typeof DEFAULT_FONT,
+    label: HeadingFontName | typeof DEFAULT_FONT,
+    creator?: string,
+    className?: string
 };
 
+export interface GlobalSettingValues {
+    description: string
+    accentColor: string
+    icon: string | null
+    logo: string | null
+    coverImage: string | null
+    headingFont: string
+    bodyFont: string
+}
 const DEFAULT_FONT = 'Theme default';
 
-const FONT_CLASS_MAP: Record<string, string> = {
-    Cardo: 'font-cardo',
-    Manrope: 'font-manrope',
-    Merriweather: 'font-merriweather',
-    Nunito: 'font-nunito',
-    'Old Standard TT': 'font-old-standard-tt',
-    Prata: 'font-prata',
-    Roboto: 'font-roboto',
-    Rufina: 'font-rufina',
-    'Tenor Sans': 'font-tenor-sans',
-    'Chakra Petch': 'font-chakra-petch',
-    'Fira Mono': 'font-fira-mono',
-    'Fira Sans': 'font-fira-sans',
-    'IBM Plex Serif': 'font-ibm-plex-serif',
-    Inter: 'font-inter',
-    'JetBrains Mono': 'font-jetbrains-mono',
-    Lora: 'font-lora',
-    'Noto Sans': 'font-noto-sans',
-    'Noto Serif': 'font-noto-serif',
-    Poppins: 'font-poppins',
-    'Space Grotesk': 'font-space-grotesk',
-    'Space Mono': 'font-space-mono'
-};
+interface FontSelectOption {
+    value: string;
+    label: string;
+    hint?: string;
+    key?: string;
+    className?: string;
+    creator?: string;
+}
 
-const getFontClassName = (fontName: string, heading: boolean): string => {
-    const base = FONT_CLASS_MAP[fontName] ?? '';
-    const weight = heading ? 'font-bold' : 'font-normal';
-    return clsx(base, heading && weight);
-};
-
-const SingleValue: React.FC<SingleValueProps<FontOption, false>> = ({children, ...props}) => (
-    <components.SingleValue {...props}>
-        <div className='group' data-testid='select-current-option' data-value={props.data.value}>
+const SingleValue: React.FC<SingleValueProps<FontSelectOption, false>> = ({children, ...optionProps}) => (
+    <components.SingleValue {...optionProps}>
+        <div className='group' data-testid="select-current-option" data-value={optionProps.data.value}>
             <div className='flex items-center gap-3'>
                 <div className='flex size-12 items-center justify-center rounded-md bg-white text-2xl font-bold dark:bg-black'>Aa</div>
                 <div className='flex flex-col'>
                     <span className='text-md'>{children}</span>
-                    <span className='font-sans text-xs font-normal text-grey-700 dark:text-grey-600'>{props.data.creator}</span>
+                    <span className='font-sans text-xs font-normal text-grey-700 dark:text-grey-600'>{optionProps.data.creator}</span>
                 </div>
             </div>
         </div>
     </components.SingleValue>
 );
 
-const Option: React.FC<OptionProps<FontOption, false>> = ({children, ...props}) => (
-    <components.Option {...props}>
-        <div className={props.isSelected ? 'relative flex w-full items-center justify-between gap-2' : 'group'} data-testid='select-option' data-value={props.data.value}>
+const Option: React.FC<OptionProps<FontSelectOption, false>> = ({children, ...optionProps}) => (
+    <components.Option {...optionProps}>
+        <div className={optionProps.isSelected ? 'relative flex w-full items-center justify-between gap-2' : 'group'} data-testid="select-option" data-value={optionProps.data.value}>
             <div className='flex items-center gap-3'>
                 <div className='dark:group-hover:bg-grey-800 flex size-12 items-center justify-center rounded-md bg-grey-150 text-2xl font-bold group-hover:bg-grey-250 dark:bg-grey-900'>Aa</div>
                 <div className='flex flex-col'>
                     <span className='text-md'>{children}</span>
-                    <span className='font-sans text-xs font-normal text-grey-700 dark:text-grey-600'>{props.data.creator}</span>
+                    <span className='font-sans text-xs font-normal text-grey-700 dark:text-grey-600'>{optionProps.data.creator}</span>
                 </div>
             </div>
-            {props.isSelected && <span><Icon name='check' size={14} /></span>}
+            {optionProps.isSelected && <span><Icon name='check' size={14} /></span>}
         </div>
     </components.Option>
 );
 
-const capitalizeWords = (str: string) =>
-    str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+const capitalizeWords = (str: string): string => str
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 
-type GlobalSettingValues = {
-    description: string;
-    accentColor: string;
-    icon: string | null;
-    logo: string | null;
-    coverImage: string | null;
-    headingFont: string;
-    bodyFont: string;
+const FONT_CLASS_MAP: Record<string, {fontClass: string; headingWeight?: string}> = {
+    Cardo: {fontClass: 'font-cardo', headingWeight: 'font-bold'},
+    Manrope: {fontClass: 'font-manrope', headingWeight: 'font-bold'},
+    Merriweather: {fontClass: 'font-merriweather', headingWeight: 'font-bold'},
+    Nunito: {fontClass: 'font-nunito', headingWeight: 'font-semibold'},
+    'Old Standard TT': {fontClass: 'font-old-standard-tt', headingWeight: 'font-bold'},
+    Prata: {fontClass: 'font-prata', headingWeight: 'font-normal'},
+    Roboto: {fontClass: 'font-roboto', headingWeight: 'font-bold'},
+    Rufina: {fontClass: 'font-rufina', headingWeight: 'font-bold'},
+    'Tenor Sans': {fontClass: 'font-tenor-sans', headingWeight: 'font-normal'},
+    'Chakra Petch': {fontClass: 'font-chakra-petch', headingWeight: 'font-normal'},
+    'Fira Mono': {fontClass: 'font-fira-mono', headingWeight: 'font-bold'},
+    'Fira Sans': {fontClass: 'font-fira-sans', headingWeight: 'font-bold'},
+    'IBM Plex Serif': {fontClass: 'font-ibm-plex-serif', headingWeight: 'font-bold'},
+    Inter: {fontClass: 'font-inter', headingWeight: 'font-bold'},
+    'JetBrains Mono': {fontClass: 'font-jetbrains-mono', headingWeight: 'font-bold'},
+    Lora: {fontClass: 'font-lora', headingWeight: 'font-bold'},
+    'Noto Sans': {fontClass: 'font-noto-sans', headingWeight: 'font-bold'},
+    'Noto Serif': {fontClass: 'font-noto-serif', headingWeight: 'font-bold'},
+    Poppins: {fontClass: 'font-poppins', headingWeight: 'font-bold'},
+    'Space Grotesk': {fontClass: 'font-space-grotesk', headingWeight: 'font-bold'},
+    'Space Mono': {fontClass: 'font-space-mono', headingWeight: 'font-bold'}
 };
 
-type GlobalSettingsProps = {
-    values: GlobalSettingValues;
-    updateSetting: (key: string, value: SettingValue) => void;
+const fontClassName = (fontName: string, heading: boolean = true) => {
+    const entry = FONT_CLASS_MAP[fontName];
+    if (!entry) {
+        return '';
+    }
+    return clsx(entry.fontClass, heading && entry.headingWeight);
 };
 
-const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) => {
+const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (key: string, value: SettingValue) => void }> = ({values,updateSetting}) => {
     const {mutateAsync: uploadImage} = useUploadImage();
     const {settings} = useGlobalData();
     const [unsplashEnabled] = getSettingValues<boolean>(settings, ['unsplash']);
-    const [showUnsplash, setShowUnsplash] = useState(false);
+    const [showUnsplash, setShowUnsplash] = useState<boolean>(false);
     const {unsplashConfig} = useFramework();
     const handleError = useHandleError();
+
     const editor = usePinturaEditor();
+
     const {data: themesData} = useBrowseThemes();
+    const activeTheme = themesData?.themes.find((theme: Theme) => theme.active);
+    const themeNameVersion = activeTheme ? `${capitalizeWords(activeTheme.name)} (v${activeTheme.package?.version || '1.0'})` : 'Loading...';
 
-    const activeTheme = themesData?.themes.find((t: Theme) => t.active);
-    const themeLabel = activeTheme ? `${capitalizeWords(activeTheme.name)} (v${activeTheme.package?.version || '1.0'})` : 'Loading...';
+    const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
+    const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    const initFont = (list: {name: string; creator: string}[], key: keyof GlobalSettingValues) => {
-        const found = list.find(f => f.name === values[key]);
-        return found ? {name: found.name, creator: found.creator} : {name: DEFAULT_FONT, creator: themeLabel};
+    const customHeadingFonts: HeadingFontOption[] = CUSTOM_FONTS.heading.map((x) => ({
+        label: x.name,
+        value: x.name,
+        creator: x.creator,
+        className: fontClassName(x.name, true)
+    }));
+    customHeadingFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
+
+    const customBodyFonts: BodyFontOption[] = CUSTOM_FONTS.body.map((x) => ({
+        label: x.name,
+        value: x.name,
+        creator: x.creator,
+        className: fontClassName(x.name, false)
+    }));
+    customBodyFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
+
+    const selectFont = (fontName: string, heading: boolean) => {
+        if (fontName === DEFAULT_FONT) {
+            return '';
+        }
+        return fontClassName(fontName, heading);
     };
 
-    const [headingFont, setHeadingFont] = useState(initFont(CUSTOM_FONTS.heading, 'headingFont'));
-    const [bodyFont, setBodyFont] = useState(initFont(CUSTOM_FONTS.body, 'bodyFont'));
-
-    const buildOptions = (list: {name: string; creator: string}[], isHeading: boolean) => {
-        const options = list.map(x => ({
-            label: x.name,
-            value: x.name,
-            creator: x.creator,
-            className: getFontClassName(x.name, isHeading)
-        }));
-        options.unshift({
-            label: DEFAULT_FONT,
-            value: DEFAULT_FONT,
-            creator: themeLabel,
-            className: 'font-sans font-normal'
-        });
-        return options;
-    };
-
-    const headingOptions = buildOptions(CUSTOM_FONTS.heading, true);
-    const bodyOptions = buildOptions(CUSTOM_FONTS.body, false);
-
-    const handleUpload = useCallback(
-        async (file: File, key: keyof GlobalSettingValues) => {
-            try {
-                const url = getImageUrl(await uploadImage({file}));
-                updateSetting(key, url);
-            } catch (e) {
-                const err = e as APIError;
-                if (err.response?.status === 415) {
-                    err.message = 'Unsupported file type';
-                }
-                handleError(err);
-            }
-        },
-        [uploadImage, updateSetting, handleError]
-    );
-
-    const handleFontSelect = useCallback(
-        (option: FontOption | null, isHeading: boolean) => {
-            if (!option) return;
-            const key = isHeading ? 'heading_font' : 'body_font';
-            const setter = isHeading ? setHeadingFont : setBodyFont;
-            const list = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
-
-            if (option.value === DEFAULT_FONT) {
-                setter({name: DEFAULT_FONT, creator: themeLabel});
-                updateSetting(key, '');
-            } else {
-                const creator = list.find(f => f.name === option.value)?.creator || '';
-                setter({name: option.value, creator});
-                updateSetting(key, option.value);
-            }
-        },
-        [updateSetting, themeLabel]
-    );
-
-    const selectedHeading = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
-    const selectedBody = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
+    const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
+    const selectedBodyFont = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
 
     return (
         <>
@@ -201,13 +179,23 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) 
                             editButtonClassName='!top-1 !right-1'
                             height={values.icon ? '66px' : '36px'}
                             id='logo'
-                            imageBWCheckedBg
+                            imageBWCheckedBg={true}
                             imageURL={values.icon || ''}
                             width={values.icon ? '66px' : '160px'}
                             onDelete={() => updateSetting('icon', null)}
-                            onUpload={file => handleUpload(file, 'icon')}
+                            onUpload={async (file) => {
+                                try {
+                                    updateSetting('icon', getImageUrl(await uploadImage({file})));
+                                } catch (e) {
+                                    const error = e as APIError;
+                                    if (error.response!.status === 415) {
+                                        error.message = 'Unsupported file type';
+                                    }
+                                    handleError(error);
+                                }
+                            }}
                         >
-                            Upload icon
+                        Upload icon
                         </ImageUpload>
                     </div>
                 </div>
@@ -216,21 +204,33 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) 
                         <div>Publication logo</div>
                         <Hint className='!mt-0 mr-5 max-w-[160px]'>Appears usually in the main header of your theme</Hint>
                     </div>
-                    <ImageUpload
-                        deleteButtonClassName='!top-1 !right-1'
-                        height='60px'
-                        id='site-logo'
-                        imageBWCheckedBg
-                        imageFit='contain'
-                        imageURL={values.logo || ''}
-                        width='160px'
-                        onDelete={() => updateSetting('logo', null)}
-                        onUpload={file => handleUpload(file, 'logo')}
-                    >
+                    <div>
+                        <ImageUpload
+                            deleteButtonClassName='!top-1 !right-1'
+                            height='60px'
+                            id='site-logo'
+                            imageBWCheckedBg={true}
+                            imageFit='contain'
+                            imageURL={values.logo || ''}
+                            width='160px'
+                            onDelete={() => updateSetting('logo', null)}
+                            onUpload={async (file) => {
+                                try {
+                                    updateSetting('logo', getImageUrl(await uploadImage({file})));
+                                } catch (e) {
+                                    const error = e as APIError;
+                                    if (error.response!.status === 415) {
+                                        error.message = 'Unsupported file type';
+                                    }
+                                    handleError(error);
+                                }
+                            }}
+                        >
                         Upload logo
-                    </ImageUpload>
+                        </ImageUpload>
+                    </div>
                 </div>
-                <div className='mt-2 flex items-start justify-between' data-testid='publication-cover'>
+                <div className='mt-2 flex items-start justify-between' data-testid="publication-cover">
                     <div>
                         <div>Publication cover</div>
                         <Hint className='!mt-0 mr-5 max-w-[160px]'>Usually as a large banner image on your index pages</Hint>
@@ -248,8 +248,7 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) 
                                 image: values.coverImage || '',
                                 handleSave: async (file: File) => {
                                     try {
-                                        const url = getImageUrl(await uploadImage({file}));
-                                        updateSetting('cover_image', url);
+                                        updateSetting('cover_image', getImageUrl(await uploadImage({file})));
                                     } catch (e) {
                                         handleError(e);
                                     }
@@ -260,15 +259,27 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) 
                         unsplashEnabled={unsplashEnabled}
                         width='160px'
                         onDelete={() => updateSetting('cover_image', null)}
-                        onUpload={file => handleUpload(file, 'cover_image')}
+                        onUpload={async (file: any) => {
+                            try {
+                                updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                            } catch (e) {
+                                const error = e as APIError;
+                                if (error.response!.status === 415) {
+                                    error.message = 'Unsupported file type';
+                                }
+                                handleError(error);
+                            }
+                        }}
                     >
-                        Upload cover
+                    Upload cover
                     </ImageUpload>
                     {showUnsplash && unsplashConfig && unsplashEnabled && (
                         <UnsplashSelector
                             unsplashProviderConfig={unsplashConfig}
-                            onClose={() => setShowUnsplash(false)}
-                            onImageInsert={image => {
+                            onClose={() => {
+                                setShowUnsplash(false);
+                            }}
+                            onImageInsert={(image) => {
                                 if (image.src) {
                                     updateSetting('cover_image', image.src);
                                 }
@@ -280,30 +291,46 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({values, updateSetting}) 
             </Form>
             <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
                 <Select
-                    className={getFontClassName(selectedHeading.label, true)}
+                    className={selectFont(selectedHeadingFont.label, true)}
                     components={{Option, SingleValue}}
                     controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
-                    hint=''
-                    menuShouldScrollIntoView
-                    options={headingOptions}
-                    selectedOption={selectedHeading}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
                     testId='heading-font-select'
-                    title='Heading font'
-                    onSelect={option => handleFontSelect(option, true)}
+                    title={'Heading font'}
+                    onSelect={(option) => {
+                        if (option?.value === DEFAULT_FONT) {
+                            setHeadingFont({name: DEFAULT_FONT, creator: themeNameVersion});
+                            updateSetting('heading_font', '');
+                        } else {
+                            setHeadingFont({name: option?.value || '', creator: CUSTOM_FONTS.heading.find(f => f.name === option?.value)?.creator || ''});
+                            updateSetting('heading_font', option?.value || '');
+                        }
+                    }}
                 />
                 <Select
-                    className={getFontClassName(selectedBody.label, false)}
+                    className={selectFont(selectedBodyFont.label, false)}
                     components={{Option, SingleValue}}
                     controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
-                    hint=''
+                    hint={''}
                     maxMenuHeight={200}
                     menuPosition='fixed'
-                    menuShouldScrollIntoView
-                    options={bodyOptions}
-                    selectedOption={selectedBody}
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
                     testId='body-font-select'
-                    title='Body font'
-                    onSelect={option => handleFontSelect(option, false)}
+                    title={'Body font'}
+                    onSelect={(option) => {
+                        if (option?.value === DEFAULT_FONT) {
+                            setBodyFont({name: DEFAULT_FONT, creator: themeNameVersion});
+                            updateSetting('body_font', '');
+                        } else {
+                            setBodyFont({name: option?.value || '', creator: CUSTOM_FONTS.body.find(f => f.name === option?.value)?.creator || ''});
+                            updateSetting('body_font', option?.value || '');
+                        }
+                    }}
                 />
             </Form>
         </>

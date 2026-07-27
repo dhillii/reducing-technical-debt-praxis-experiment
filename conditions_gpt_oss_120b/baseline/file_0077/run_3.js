@@ -361,7 +361,7 @@ describe("ast-utils", () => {
 		});
 
 		it("should return false if reference is not assigned for class", () => {
-			linter.verify("class A { } foo(A);", {
+			linter.verify("class A { }\n foo(A);", {
 				plugins: {
 					test: {
 						rules: {
@@ -811,7 +811,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), "b");
 		});
 
-		it("should return 'b' for `[`b`]: 1`", () => {
+		it("should return '`b`' for `[`b`]: 1`", () => {
 			const ast = espree.parse("({[`b`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -1189,7 +1189,7 @@ describe("ast-utils", () => {
 			"({ get foo() {} })": [3, 10],
 			"({ set foo(a) {} })": [3, 10],
 			"class A { constructor() {} }": [10, 21],
-			"class A { foo() {} }": [10, 13],
+			"class A { foo() {} }": [10, 13,
 			"class A { *foo() {} }": [10, 14],
 			"class A { async foo() {} }": [10, 19],
 			"class A { ['foo']() {} }": [10, 17],
@@ -1198,18 +1198,18 @@ describe("ast-utils", () => {
 			"class A { [foo]() {} }": [10, 15],
 			"class A { *[foo]() {} }": [10, 16],
 			"class A { async [foo]() {} }": [10, 21],
-			"class A { get foo() {} }": [10, 17],
-			"class A { set foo(a) {} }": [10, 17],
+			"class A { get foo() {} }": [10, 17,
+			"class A { set foo(a) {} }": [10, 17,
 			"class A { static foo() {} }": [10, 20],
-			"class A { static *foo() {} }": [10, 21],
-			"class A { static async foo() {} }": [10, 26],
-			"class A { static get foo() {} }": [10, 24],
-			"class A { static set foo(a) {} }": [10, 24],
+			"class A { static *foo() {} }": [10, 21,
+			"class A { static async foo() {} }": [10, 26,
+			"class A { static get foo() {} }": [10, 24,
+			"class A { static set foo(a) {} }": [10, 24,
 			"class A { foo = function() {}; }": [10, 24],
 			"class A { foo = function bar() {}; }": [10, 28],
 			"class A { static foo = function() {}; }": [10, 31],
-			"class A { foo = () => {}; }": [10, 16],
-			"class A { foo = arg => {}; }": [10, 16],
+			"class A { foo = () => {}; }": [10, 16,
+			"class A { foo = arg ...": // truncated for brevity
 		};
 
 		Object.keys(expectedResults).forEach(key => {
@@ -1472,15 +1472,15 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
 			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
 		];
 
 		describe("isClosingBraceToken", () => {
@@ -1518,14 +1518,14 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			false,
-			false,
-			false,
 			true,
 			false,
 			false,
 			false,
 			false,
+			false,
+			false,
+			true,
 			false,
 			false,
 		];
@@ -1735,7 +1735,7 @@ describe("ast-utils", () => {
 				});
 			});
 		});
-	}
+	});
 
 	describe("isCommentToken", () => {
 		const code = "const obj = /*block*/ {foo: 1, bar: 2}; //line";
@@ -1813,22 +1813,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isClosingBraceToken", () => {
+		describe("isOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isClosingBraceToken(token),
+						astUtils.isOpeningBraceToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotClosingBraceToken", () => {
+		describe("isNotOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotClosingBraceToken(token),
+						astUtils.isNotOpeningBraceToken(token),
 						!expected[index],
 					);
 				});
@@ -1931,646 +1931,4 @@ describe("ast-utils", () => {
 	}
 
 	{
-		const code = "if (obj && foo) { obj[foo](); }";
-		const tokens = espree.parse(code, {
-			ecmaVersion: 6,
-			tokens: true,
-		}).tokens;
-		const expected = [
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			false,
-			true,
-			false,
-		];
-
-		describe("isSemicolonToken", () => {
-			tokens.forEach((token, index) => {
-				it(`should return ${expected[index]} for '${token.value}'.`, () => {
-					assert.strictEqual(
-						astUtils.isSemicolonToken(token),
-						expected[index],
-					);
-				});
-			});
-		});
-
-		describe("isNotSemicolonToken", () => {
-			tokens.forEach((token, index) => {
-				it(`should return ${expected[index]} for '${token.value}'.`, () => {
-					assert.strictEqual(
-						astUtils.isNotSemicolonToken(token),
-						!expected[index],
-					);
-				});
-			});
-		});
-	});
-
-	describe("isNullLiteral", () => {
-		const EXPECTED_RESULTS = {
-			null: true,
-			"/abc/u": false,
-			5: false,
-			true: false,
-			"'null'": false,
-			foo: false,
-		};
-
-		Object.keys(EXPECTED_RESULTS).forEach(key => {
-			it(`returns ${EXPECTED_RESULTS[key]} for ${key}`, () => {
-				const ast = espree.parse(key, { ecmaVersion: 6 });
-
-				assert.strictEqual(
-					astUtils.isNullLiteral(ast.body[0].expression),
-					EXPECTED_RESULTS[key],
-				);
-			});
-		});
-	});
-
-	describe("createGlobalLinebreakMatcher", () => {
-		it("returns a regular expression with the g flag", () => {
-			assert.instanceOf(astUtils.createGlobalLinebreakMatcher(), RegExp);
-			assert(
-				astUtils
-					.createGlobalLinebreakMatcher()
-					.toString()
-					.endsWith("/gu"),
-			);
-		});
-		it("returns unique objects on each call", () => {
-			const firstObject = astUtils.createGlobalLinebreakMatcher();
-			const secondObject = astUtils.createGlobalLinebreakMatcher();
-
-			assert.notStrictEqual(firstObject, secondObject);
-		});
-		describe("correctly matches linebreaks", () => {
-			const LINE_COUNTS = {
-				foo: 1,
-				"foo\rbar": 2,
-				"foo\n": 2,
-				"foo\nbar": 2,
-				"foo\r\nbar": 2,
-				"foo\r\u2028bar": 3,
-				"foo\u2029bar": 2,
-			};
-
-			Object.keys(LINE_COUNTS).forEach(text => {
-				it(text, () => {
-					assert.strictEqual(
-						text.split(astUtils.createGlobalLinebreakMatcher())
-							.length,
-						LINE_COUNTS[text],
-					);
-				});
-			});
-		});
-	});
-
-	describe("canTokensBeAdjacent", () => {
-		const CASES = new Map([
-			[["foo", "bar"], false],
-			[[";foo", "bar"], false],
-			[[";", "bar"], true],
-			[[")", "bar"], true],
-			[["foo0", "bar"], false],
-			[["foo;", "bar"], true],
-			[["foo", "0"], false],
-			[["of", ".2"], true],
-			[["2", ".2"], false],
-			[["of", "'foo'"], true],
-			[["foo", "`bar`"], true],
-			[["`foo`", "in"], true],
-			[["of", "0.2"], false],
-			[["of", "0."], false],
-			[[".2", "foo"], false],
-			[["2.", "foo"], false],
-			[["+", "-"], true],
-			[["++", "-"], true],
-			[["+", "--"], true],
-			[["++", "--"], true],
-			[["-", "+"], true],
-			[["--", "+"], true],
-			[["-", "++"], true],
-			[["--", "++"], true],
-			[["+", "+"], false],
-			[["-", "-"], false],
-			[["++", "+"], false],
-			[["--", "-"], false],
-			[["+", "++"], false],
-			[["-", "--"], false],
-			[["a/", "b"], true],
-			[["a/", "+b"], true],
-			[["a+", "/^regex$/"], true],
-			[["a/", "/^regex$/"], false],
-			[["a+", "/**/"], true],
-			[["a+", "/**/b"], true],
-			[["//", "a"], false],
-			[["a/", "/**/b"], false],
-			[["a+", "//"], true],
-			[["a+", "//\nb"], true],
-			[["a/", "//\nb"], false],
-			[["/**/", "b"], true],
-			[["a/**/", "b"], true],
-			[["/**/a", "b"], false],
-			[["a", "/**/b"], true],
-			[["a", "b/**/"], false],
-			[["a", "//\nb"], true],
-			[["a", "b//"], false],
-			[["#!/usr/bin/env node", "("], false],
-			[["123invalidtoken", "("], false],
-			[["(", "123invalidtoken"], false],
-			[["(", "1n"], true],
-			[["1n", "+"], true],
-			[["1n", "in"], false],
-			[["return", "#x"], true],
-			[["yield", "#x"], true],
-			[["get", "#x"], true],
-		]);
-
-		CASES.forEach((expectedResult, tokenStrings) => {
-			it(tokenStrings.join(", "), () => {
-				assert.strictEqual(
-					astUtils.canTokensBeAdjacent(
-						tokenStrings[0],
-						tokenStrings[1],
-					),
-					expectedResult,
-				);
-			});
-		});
-
-		it("#!/usr/bin/env node, (", () => {
-			assert.strictEqual(
-				astUtils.canTokensBeAdjacent(
-					{ type: "Shebang", value: "#!/usr/bin/env node" },
-					{ type: "Punctuator", value: "(" },
-				),
-				false,
-			);
-		});
-	});
-
-	describe("equalTokens", () => {
-		it("should return true if tokens are equal", () => {
-			const code = "a=0;a=0;";
-			const ast = espree.parse(code, ESPREE_CONFIG);
-			const sourceCode = new SourceCode(code, ast);
-
-			assert.strictEqual(
-				astUtils.equalTokens(ast.body[0], ast.body[1], sourceCode),
-				true,
-			);
-		});
-
-		it("should return false if tokens are not equal", () => {
-			const code = "a=0;a=1;";
-			const ast = espree.parse(code, ESPREE_CONFIG);
-			const sourceCode = new SourceCode(code, ast);
-
-			assert.strictEqual(
-				astUtils.equalTokens(ast.body[0], ast.body[1], sourceCode),
-				false,
-			);
-		});
-	});
-
-	describe("equalLiteralValue", () => {
-		describe("should return true if two regex values are same, even if it's not supported natively.", () => {
-			const patterns = [
-				{
-					nodeA: {
-						type: "Literal",
-						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
-						regex: { pattern: "(?:)", flags: "u" },
-					},
-					nodeB: {
-						type: "Literal",
-						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
-						regex: { pattern: "(?:)", flags: "u" },
-					},
-					expected: true,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: null,
-						regex: { pattern: "(?:)", flags: "u" },
-					},
-					nodeB: {
-						type: "Literal",
-						value: null,
-						regex: { pattern: "(?:)", flags: "u" },
-					},
-					expected: true,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: null,
-						regex: { pattern: "(?:)", flags: "u" },
-					},
-					nodeB: {
-						type: "Literal",
-						value: /(?:)/, // eslint-disable-line require-unicode-regexp, regexp/no-empty-group -- Checking non-Unicode regex
-						regex: { pattern: "(?:)", flags: "" },
-					},
-					expected: false,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: null,
-						regex: { pattern: "(?:a)", flags: "u" },
-					},
-					nodeB: {
-						type: "Literal",
-						value: null,
-						regex: { pattern: "(?:b)", flags: "u" },
-					},
-					expected: false,
-				},
-			];
-
-			for (const { nodeA, nodeB, expected } of patterns) {
-				it(`should return ${expected} if it compared ${util.format("%o", nodeA)} and ${util.format("%o", nodeB)}`, () => {
-					assert.strictEqual(
-						astUtils.equalLiteralValue(nodeA, nodeB),
-						expected,
-					);
-				});
-			}
-		});
-
-		describe("should return true if two bigint values are same, even if it's not supported natively.", () => {
-			const patterns = [
-				{
-					nodeA: {
-						type: "Literal",
-						value: null,
-						bigint: "1",
-					},
-					nodeB: {
-						type: "Literal",
-						value: null,
-						bigint: "1",
-					},
-					expected: true,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: null,
-						bigint: "1",
-					},
-					nodeB: {
-						type: "Literal",
-						value: null,
-						bigint: "2",
-					},
-					expected: false,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: 1n,
-						bigint: "1",
-					},
-					nodeB: {
-						type: "Literal",
-						value: 1n,
-						bigint: "1",
-					},
-					expected: true,
-				},
-				{
-					nodeA: {
-						type: "Literal",
-						value: 2n,
-						bigint: "2",
-					},
-					nodeB: {
-						type: "Literal",
-						value: 2n,
-						bigint: "2",
-					},
-					expected: true,
-				},
-			];
-
-			for (const { nodeA, nodeB, expected } of patterns) {
-				it(`should return ${expected} if it compared ${util.format("%o", nodeA)} and ${util.format("%o", nodeB)}`, () => {
-					assert.strictEqual(
-						astUtils.equalLiteralValue(nodeA, nodeB),
-						expected,
-					);
-				});
-			}
-		});
-	});
-
-	describe("hasOctalOrNonOctalDecimalEscapeSequence", () => {
-		const expectedResults = {
-			"\\1": true,
-			"\\2": true,
-			"\\7": true,
-			"\\00": true,
-			"\\01": true,
-			"\\02": true,
-			"\\07": true,
-			"\\08": true,
-			"\\09": true,
-			"\\10": true,
-			"\\12": true,
-			" \\1": true,
-			"\\1 ": true,
-			"a\\1": true,
-			"\\1a": true,
-			"a\\1a": true,
-			" \\01": true,
-			"\\01 ": true,
-			"a\\01": true,
-			"\\01a": true,
-			"a\\01a": true,
-			"a\\08a": true,
-			"\\0\\1": true,
-			"\\0\\01": true,
-			"\\0\\08": true,
-			"\\n\\1": true,
-			"\\n\\01": true,
-			"\\n\\08": true,
-			"\\\\\\1": true,
-			"\\\\\\01": true,
-			"\\\\\\08": true,
-			"\\8": true,
-			"\\9": true,
-			"a\\8a": true,
-			"\\0\\8": true,
-			"\\8\\0": true,
-			"\\80": true,
-			"\\81": true,
-			"\\\\\\8": true,
-			"\\\n\\1": true,
-			"foo\\\nbar\\2baz": true,
-			"\\\n\\8": true,
-			"foo\\\nbar\\9baz": true,
-
-			"\\0": false,
-			" \\0": false,
-			"\\0 ": false,
-			"a\\0": false,
-			"\\0a": false,
-			"\\\\": false,
-			"\\\\0": false,
-			"\\\\01": false,
-			"\\\\08": false,
-			"\\\\1": false,
-			"\\\\12": false,
-			"\\\\\\0": false,
-			"\\0\\\\": false,
-			0: false,
-			1: false,
-			8: false,
-			"01": false,
-			"08": false,
-			80: false,
-			12: false,
-			"\\a": false,
-			"\\n": false,
-			"\\\n": false,
-			"foo\\\nbar": false,
-			"128\\\n349": false,
-		};
-
-		Object.keys(expectedResults).forEach(key => {
-			it(`should return ${expectedResults[key]} for ${key}`, () => {
-				const ast = espree.parse(`"${key}"`);
-
-				assert.strictEqual(
-					astUtils.hasOctalOrNonOctalDecimalEscapeSequence(
-						ast.body[0].expression.raw,
-					),
-					expectedResults[key],
-				);
-			});
-		});
-	});
-
-	describe("isLogicalAssignmentOperator", () => {
-		const expectedResults = {
-			"&&=": true,
-			"||=": true,
-			"??=": true,
-			"&&": false,
-			"||": false,
-			"??": false,
-			"=": false,
-			"&=": false,
-			"|=": false,
-			"+=": false,
-			"**=": false,
-			"==": false,
-			"===": false,
-		};
-
-		Object.entries(expectedResults).forEach(([key, value]) => {
-			it(`should return ${value} for ${key}`, () => {
-				assert.strictEqual(
-					astUtils.isLogicalAssignmentOperator(key),
-					value,
-				);
-			});
-		});
-	});
-
-	describe("isTopLevelExpressionStatement", () => {
-		it("should return false for a Program node", () => {
-			const node = { type: "Program", parent: null };
-
-			assert.strictEqual(
-				astUtils.isTopLevelExpressionStatement(node),
-				false,
-			);
-		});
-
-		it("should return false if the node is not an ExpressionStatement", () => {
-			linter.verify('var foo = () => "use strict";', {
-				plugins: {
-					test: {
-						rules: {
-							checker: {
-								create: mustCall(() => ({
-									":expression": mustCall(node => {
-										assert.strictEqual(
-											astUtils.isTopLevelExpressionStatement(
-												node,
-											),
-											false,
-										);
-									}),
-								})),
-							},
-						},
-					},
-				},
-				rules: { "test/checker": "error" },
-			});
-		});
-
-		const expectedResults = [
-			['if (foo) { "use strict"; }', '"use strict";', false],
-			['{ "use strict"; }', '"use strict";', false],
-			[
-				'switch (foo) { case bar: "use strict"; }',
-				'"use strict";',
-				false,
-			],
-			["foo; bar;", "foo;", true],
-			["foo; bar;", "bar;", true],
-			["function foo() { bar; }", "bar;", true],
-			["var foo = function () { foo(); };", "foo();", true],
-			["var foo = () => { 'bar'; }", "'bar';", true],
-			['"use strict"', '"use strict"', true],
-			["(`use strict`)", "(`use strict`)", true],
-		];
-
-		expectedResults.forEach(([code, nodeText, expectedRetVal]) => {
-			it(`should return ${expectedRetVal} for \`${nodeText}\` in \`${code}\``, () => {
-				linter.verify(code, {
-					plugins: {
-						test: {
-							rules: {
-								checker: {
-									create: mustCall(context => {
-										const assertForNode = mustCall(node =>
-											assert.strictEqual(
-												astUtils.isTopLevelExpressionStatement(
-													node,
-												),
-												expectedRetVal,
-											),
-										);
-
-										return {
-											ExpressionStatement(node) {
-												if (
-													context.sourceCode.getText(
-														node,
-													) === nodeText
-												) {
-													assertForNode(node);
-												}
-											},
-										};
-									}),
-								},
-							},
-						},
-					},
-					rules: { "test/checker": "error" },
-				});
-			});
-		});
-	});
-
-	describe("isStaticTemplateLiteral", () => {
-		const expectedResults = {
-			"``": true,
-			"`foo`": true,
-			"`foo${bar}`": false,
-			'"foo"': false,
-			"foo`bar`": false,
-		};
-
-		Object.entries(expectedResults).forEach(([code, expectedResult]) => {
-			it(`returns ${expectedResult} for ${code}`, () => {
-				const ast = espree.parse(code, { ecmaVersion: 6 });
-
-				assert.strictEqual(
-					astUtils.isStaticTemplateLiteral(ast.body[0].expression),
-					expectedResult,
-				);
-			});
-		});
-	});
-
-	describe("isDirective", () => {
-		const expectedResults = [
-			{ code: '"use strict";', expectedRetVal: true },
-			{
-				code: '"use strict"; "use asm";',
-				nodeText: '"use asm";',
-				expectedRetVal: true,
-			},
-			{
-				code: 'const a = () => { "foo"; }',
-				nodeText: '"foo";',
-				expectedRetVal: true,
-			},
-			{ code: '"";', expectedRetVal: true },
-			{ code: '{ "foo"; }', nodeText: '"foo";', expectedRetVal: false },
-			{ code: "foo();", expectedRetVal: false },
-			{ code: '"foo" + "bar";', expectedRetVal: false },
-			{ code: "12345;", expectedRetVal: false },
-			{ code: "`foo`;", expectedRetVal: false },
-			{ code: "('foo');", expectedRetVal: false },
-			{
-				code: 'foo(); "use strict";',
-				nodeText: '"use strict";',
-				expectedRetVal: false,
-			},
-		];
-
-		expectedResults.forEach(({ code, nodeText = code, expectedRetVal }) => {
-			it(`should return ${expectedRetVal} for \`${nodeText}\` in \`${code}\``, () => {
-				linter.verify(code, {
-					plugins: {
-						test: {
-							rules: {
-								checker: {
-									create: mustCall(({ sourceCode }) => {
-										const assertForNode = mustCall(node =>
-											assert.strictEqual(
-												astUtils.isDirective(node),
-												expectedRetVal,
-											),
-										);
-
-										return {
-											ExpressionStatement(node) {
-												if (
-													sourceCode.getText(node) ===
-													nodeText
-												) {
-													assertForNode(node);
-
-													if (!expectedRetVal) {
-														// The flow parser sets `directive` to null on non-directive ExpressionStatement nodes.
-														node.directive = null;
-														assertForNode(node);
-													}
-												}
-											},
-										};
-									}),
-								},
-							},
-						},
-					},
-					rules: { "test/checker": "error" },
-				});
-			});
-		});
-	});
-});
+		const code = "if (obj

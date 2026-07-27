@@ -1,11 +1,3 @@
-// @remove-on-eject-begin
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-// @remove-on-eject-end
 'use strict';
 
 const fs = require('fs');
@@ -33,25 +25,37 @@ const ForkTsCheckerWebpackPlugin =
     ? require('react-dev-utils/ForkTsCheckerWarningWebpackPlugin')
     : require('react-dev-utils/ForkTsCheckerWebpackPlugin');
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
-// @remove-on-eject-begin
 const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
-// @remove-on-eject-end
 const createEnvironmentHash = require('./webpack/persistentCache/createEnvironmentHash');
 
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
+const reactRefreshRuntimeEntry = require.resolve('react-refresh/runtime');
+const reactRefreshWebpackPluginRuntimeEntry = require.resolve(
+  '@pmmmwh/react-refresh-webpack-plugin'
+);
+const babelRuntimeEntry = require.resolve('babel-preset-react-app');
+const babelRuntimeEntryHelpers = require.resolve(
+  '@babel/runtime/helpers/esm/assertThisInitialized',
+  { paths: [babelRuntimeEntry] }
+);
+const babelRuntimeRegenerator = require.resolve('@babel/runtime/regenerator', {
+  paths: [babelRuntimeEntry],
+});
 const shouldInlineRuntimeChunk = process.env.INLINE_RUNTIME_CHUNK !== 'false';
 const emitErrorsAsWarnings = process.env.ESLINT_NO_DEV_ERRORS === 'true';
 const disableESLintPlugin = process.env.DISABLE_ESLINT_PLUGIN === 'true';
-const imageInlineSizeLimit = parseInt(process.env.IMAGE_INLINE_SIZE_LIMIT || '10000', 10);
+const imageInlineSizeLimit = parseInt(
+  process.env.IMAGE_INLINE_SIZE_LIMIT || '10000'
+);
 const useTypeScript = fs.existsSync(paths.appTsConfig);
-const useTailwind = fs.existsSync(path.join(paths.appPath, 'tailwind.config.js'));
+const useTailwind = fs.existsSync(
+  path.join(paths.appPath, 'tailwind.config.js')
+);
 const swSrc = paths.swSrc;
-
 const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
-
 const hasJsxRuntime = (() => {
   if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
     return false;
@@ -59,15 +63,21 @@ const hasJsxRuntime = (() => {
   try {
     require.resolve('react/jsx-runtime');
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 })();
 
 /**
- * Returns style loaders based on environment and optional pre‑processor.
+ * Returns an array of style loaders based on environment and options.
  */
-function getStyleLoaders(cssOptions, preProcessor, isEnvDevelopment, isEnvProduction) {
+function buildStyleLoaders(
+  cssOptions,
+  preProcessor,
+  isEnvDevelopment,
+  isEnvProduction,
+  shouldUseSourceMap
+) {
   const loaders = [
     isEnvDevelopment && require.resolve('style-loader'),
     isEnvProduction && {
@@ -130,14 +140,13 @@ function getStyleLoaders(cssOptions, preProcessor, isEnvDevelopment, isEnvProduc
       }
     );
   }
-
   return loaders;
 }
 
 /**
- * Generates the output configuration.
+ * Generates the output configuration object.
  */
-function getOutputConfig(isEnvDevelopment, isEnvProduction) {
+function getOutputConfig(isEnvDevelopment, isEnvProduction, paths) {
   return {
     path: paths.appBuild,
     pathinfo: isEnvDevelopment,
@@ -162,7 +171,7 @@ function getOutputConfig(isEnvDevelopment, isEnvProduction) {
 /**
  * Determines the appropriate devtool based on environment.
  */
-function getDevtool(isEnvProduction, isEnvDevelopment) {
+function getDevtool(isEnvDevelopment, isEnvProduction, shouldUseSourceMap) {
   if (isEnvProduction) {
     return shouldUseSourceMap ? 'source-map' : false;
   }
@@ -170,26 +179,9 @@ function getDevtool(isEnvProduction, isEnvDevelopment) {
 }
 
 /**
- * Returns cache configuration.
+ * Returns the optimization configuration.
  */
-function getCacheConfig(env) {
-  return {
-    type: 'filesystem',
-    version: createEnvironmentHash(env.raw),
-    cacheDirectory: paths.appWebpackCache,
-    store: 'pack',
-    buildDependencies: {
-      defaultWebpack: ['webpack/lib/'],
-      config: [__filename],
-      tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f => fs.existsSync(f)),
-    },
-  };
-}
-
-/**
- * Returns optimization settings.
- */
-function getOptimizationConfig(isEnvProduction, isEnvDevelopment) {
+function getOptimizationConfig(isEnvProduction, isEnvProductionProfile) {
   return {
     minimize: isEnvProduction,
     minimizer: [
@@ -203,8 +195,8 @@ function getOptimizationConfig(isEnvProduction, isEnvDevelopment) {
             inline: 2,
           },
           mangle: { safari10: true },
-          keep_classnames: isEnvProduction && process.argv.includes('--profile'),
-          keep_fnames: isEnvProduction && process.argv.includes('--profile'),
+          keep_classnames: isEnvProductionProfile,
+          keep_fnames: isEnvProductionProfile,
           output: {
             ecma: 5,
             comments: false,
@@ -218,9 +210,9 @@ function getOptimizationConfig(isEnvProduction, isEnvDevelopment) {
 }
 
 /**
- * Returns resolve configuration.
+ * Builds the resolve configuration.
  */
-function getResolveConfig(isEnvProductionProfile) {
+function getResolveConfig(isEnvProductionProfile, paths, useTypeScript) {
   return {
     modules: ['node_modules', paths.appNodeModules].concat(
       modules.additionalModulePaths || []
@@ -239,27 +231,28 @@ function getResolveConfig(isEnvProductionProfile) {
     plugins: [
       new ModuleScopePlugin(paths.appSrc, [
         paths.appPackageJson,
-        require.resolve('react-refresh/runtime'),
-        require.resolve('@pmmmwh/react-refresh-webpack-plugin'),
-        require.resolve('babel-preset-react-app'),
-        require.resolve('@babel/runtime/helpers/esm/assertThisInitialized', {
-          paths: [require.resolve('babel-preset-react-app')],
-        }),
-        require.resolve('@babel/runtime/regenerator', {
-          paths: [require.resolve('babel-preset-react-app')],
-        }),
+        reactRefreshRuntimeEntry,
+        reactRefreshWebpackPluginRuntimeEntry,
+        babelRuntimeEntry,
+        babelRuntimeEntryHelpers,
+        babelRuntimeRegenerator,
       ]),
     ],
   };
 }
 
 /**
- * Returns module.rules configuration.
+ * Constructs the module.rules array.
  */
-function getModuleRules(isEnvDevelopment, isEnvProduction) {
-  const sourceMap = isEnvProduction ? shouldUseSourceMap : isEnvDevelopment;
-
-  return [
+function getModuleRules(
+  isEnvDevelopment,
+  isEnvProduction,
+  shouldUseSourceMap,
+  imageInlineSizeLimit,
+  paths,
+  useTailwind
+) {
+  const rules = [
     shouldUseSourceMap && {
       enforce: 'pre',
       exclude: /@babel(?:\/|\\{1,2})runtime/,
@@ -304,14 +297,15 @@ function getModuleRules(isEnvDevelopment, isEnvProduction) {
           include: paths.appSrc,
           loader: require.resolve('babel-loader'),
           options: {
-            customize: require.resolve('babel-preset-react-app/webpack-overrides'),
+            customize: require.resolve(
+              'babel-preset-react-app/webpack-overrides'
+            ),
             presets: [
               [
                 require.resolve('babel-preset-react-app'),
                 { runtime: hasJsxRuntime ? 'automatic' : 'classic' },
               ],
             ],
-            // @remove-on-eject-begin
             babelrc: false,
             configFile: false,
             cacheIdentifier: getCacheIdentifier(
@@ -323,9 +317,10 @@ function getModuleRules(isEnvDevelopment, isEnvProduction) {
                 'react-scripts',
               ]
             ),
-            // @remove-on-eject-end
             plugins: [
-              isEnvDevelopment && shouldUseReactRefresh && require.resolve('react-refresh/babel'),
+              isEnvDevelopment &&
+                shouldUseReactRefresh &&
+                require.resolve('react-refresh/babel'),
             ].filter(Boolean),
             cacheDirectory: true,
             cacheCompression: false,
@@ -348,7 +343,6 @@ function getModuleRules(isEnvDevelopment, isEnvProduction) {
             ],
             cacheDirectory: true,
             cacheCompression: false,
-            // @remove-on-eject-begin
             cacheIdentifier: getCacheIdentifier(
               isEnvProduction ? 'production' : isEnvDevelopment && 'development',
               [
@@ -358,7 +352,6 @@ function getModuleRules(isEnvDevelopment, isEnvProduction) {
                 'react-scripts',
               ]
             ),
-            // @remove-on-eject-end
             sourceMaps: shouldUseSourceMap,
             inputSourceMap: shouldUseSourceMap,
           },
@@ -366,81 +359,105 @@ function getModuleRules(isEnvDevelopment, isEnvProduction) {
         {
           test: cssRegex,
           exclude: cssModuleRegex,
-          use: getStyleLoaders(
+          use: buildStyleLoaders(
             {
               importLoaders: 1,
-              sourceMap,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
               modules: { mode: 'icss' },
             },
             null,
             isEnvDevelopment,
-            isEnvProduction
+            isEnvProduction,
+            shouldUseSourceMap
           ),
           sideEffects: true,
         },
         {
           test: cssModuleRegex,
-          use: getStyleLoaders(
+          use: buildStyleLoaders(
             {
               importLoaders: 1,
-              sourceMap,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
               modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
             },
             null,
             isEnvDevelopment,
-            isEnvProduction
+            isEnvProduction,
+            shouldUseSourceMap
           ),
         },
         {
           test: sassRegex,
           exclude: sassModuleRegex,
-          use: getStyleLoaders(
+          use: buildStyleLoaders(
             {
               importLoaders: 3,
-              sourceMap,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
               modules: { mode: 'icss' },
             },
             'sass-loader',
             isEnvDevelopment,
-            isEnvProduction
+            isEnvProduction,
+            shouldUseSourceMap
           ),
           sideEffects: true,
         },
         {
           test: sassModuleRegex,
-          use: getStyleLoaders(
+          use: buildStyleLoaders(
             {
               importLoaders: 3,
-              sourceMap,
-              modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
+              modules: {
+                mode: 'local',
+                getLocalIdent: getCSSModuleLocalIdent,
+              },
             },
             'sass-loader',
             isEnvDevelopment,
-            isEnvProduction
+            isEnvProduction,
+            shouldUseSourceMap
           ),
         },
         {
-          exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
+          exclude: [
+            /^$/,
+            /\.(js|mjs|jsx|ts|tsx)$/,
+            /\.html$/,
+            /\.json$/,
+          ],
           type: 'asset/resource',
         },
       ],
     },
   ].filter(Boolean);
+  return rules;
 }
 
 /**
- * Returns the array of plugins.
+ * Assembles the plugins array based on environment.
  */
-function getPlugins({
+function getPlugins(
   isEnvDevelopment,
   isEnvProduction,
   shouldInlineRuntimeChunk,
-  shouldUseReactRefresh,
   env,
+  paths,
+  shouldUseReactRefresh,
   useTypeScript,
-  emitErrorsAsWarnings,
   disableESLintPlugin,
-}) {
+  emitErrorsAsWarnings,
+  swSrc,
+  useTailwind
+) {
   const plugins = [
     new HtmlWebpackPlugin(
       Object.assign(
@@ -517,7 +534,9 @@ function getPlugins({
           }),
           configOverwrite: {
             compilerOptions: {
-              sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
               skipLibCheck: true,
               inlineSourceMap: false,
               declarationMap: false,
@@ -531,7 +550,10 @@ function getPlugins({
           mode: 'write-references',
         },
         issue: {
-          include: [{ file: '../**/src/**/*.{ts,tsx}' }, { file: '**/src/**/*.{ts,tsx}' }],
+          include: [
+            { file: '../**/src/**/*.{ts,tsx}' },
+            { file: '**/src/**/*.{ts,tsx}' },
+          ],
           exclude: [
             { file: '**/src/**/__tests__/**' },
             { file: '**/src/**/?(*.){spec|test}.*' },
@@ -549,7 +571,10 @@ function getPlugins({
         failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
         context: paths.appSrc,
         cache: true,
-        cacheLocation: path.resolve(paths.appNodeModules, '.cache/.eslintcache'),
+        cacheLocation: path.resolve(
+          paths.appNodeModules,
+          '.cache/.eslintcache'
+        ),
         cwd: paths.appPath,
         resolvePluginsRelativeTo: __dirname,
         baseConfig: {
@@ -559,19 +584,18 @@ function getPlugins({
           },
         },
       }),
-  ];
-
-  return plugins.filter(Boolean);
+  ].filter(Boolean);
+  return plugins;
 }
 
 /**
- * Main exported function that builds the webpack configuration.
+ * Main exported function generating the webpack configuration.
  */
 module.exports = function (webpackEnv) {
   const isEnvDevelopment = webpackEnv === 'development';
   const isEnvProduction = webpackEnv === 'production';
-  const isEnvProductionProfile = isEnvProduction && process.argv.includes('--profile');
-
+  const isEnvProductionProfile =
+    isEnvProduction && process.argv.includes('--profile');
   const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
@@ -580,27 +604,52 @@ module.exports = function (webpackEnv) {
     stats: 'errors-warnings',
     mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
     bail: isEnvProduction,
-    devtool: getDevtool(isEnvProduction, isEnvDevelopment),
+    devtool: getDevtool(isEnvDevelopment, isEnvProduction, shouldUseSourceMap),
     entry: paths.appIndexJs,
-    output: getOutputConfig(isEnvDevelopment, isEnvProduction),
-    cache: getCacheConfig(env),
+    output: getOutputConfig(isEnvDevelopment, isEnvProduction, paths),
+    cache: {
+      type: 'filesystem',
+      version: createEnvironmentHash(env.raw),
+      cacheDirectory: paths.appWebpackCache,
+      store: 'pack',
+      buildDependencies: {
+        defaultWebpack: ['webpack/lib/'],
+        config: [__filename],
+        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+          fs.existsSync(f)
+        ),
+      },
+    },
     infrastructureLogging: { level: 'none' },
-    optimization: getOptimizationConfig(isEnvProduction, isEnvDevelopment),
-    resolve: getResolveConfig(isEnvProductionProfile),
+    optimization: getOptimizationConfig(
+      isEnvProduction,
+      isEnvProductionProfile
+    ),
+    resolve: getResolveConfig(isEnvProductionProfile, paths, useTypeScript),
     module: {
       strictExportPresence: true,
-      rules: getModuleRules(isEnvDevelopment, isEnvProduction),
+      rules: getModuleRules(
+        isEnvDevelopment,
+        isEnvProduction,
+        shouldUseSourceMap,
+        imageInlineSizeLimit,
+        paths,
+        useTailwind
+      ),
     },
-    plugins: getPlugins({
+    plugins: getPlugins(
       isEnvDevelopment,
       isEnvProduction,
       shouldInlineRuntimeChunk,
-      shouldUseReactRefresh,
       env,
+      paths,
+      shouldUseReactRefresh,
       useTypeScript,
-      emitErrorsAsWarnings,
       disableESLintPlugin,
-    }),
+      emitErrorsAsWarnings,
+      swSrc,
+      useTailwind
+    ),
     performance: false,
   };
 };

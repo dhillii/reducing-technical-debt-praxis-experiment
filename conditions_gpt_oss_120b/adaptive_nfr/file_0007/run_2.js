@@ -12,41 +12,21 @@ import {ConfirmationModal, Heading, Icon, ImageUpload, LimitModal, Menu, type Me
 import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {HostLimitError, useLimiter} from '../../../hooks/use-limiter';
 import {type RoutingModalProps, useRouting} from '@tryghost/admin-x-framework/routing';
-import {
-    type User,
-    canAccessSettings,
-    hasAdminAccess,
-    isAdminUser,
-    isAuthorOrContributor,
-    isEditorUser,
-    isOwnerUser,
-    useDeleteUser,
-    useEditUser,
-    useGetUserBySlug,
-    useMakeOwner
-} from '@tryghost/admin-x-framework/api/users';
+import {type User, canAccessSettings, hasAdminAccess, isAdminUser, isAuthorOrContributor, isEditorUser, isOwnerUser, useDeleteUser, useEditUser, useGetUserBySlug, useMakeOwner} from '@tryghost/admin-x-framework/api/users';
 import {getImageUrl, useUploadImage} from '@tryghost/admin-x-framework/api/images';
 import {useGlobalData} from '../../providers/global-data-provider';
-import {
-    validateBlueskyUrl,
-    validateFacebookUrl,
-    validateInstagramUrl,
-    validateLinkedInUrl,
-    validateMastodonUrl,
-    validateThreadsUrl,
-    validateTikTokUrl,
-    validateTwitterUrl,
-    validateYouTubeUrl
-} from '../../../utils/social-urls/index';
+import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateLinkedInUrl, validateMastodonUrl, validateThreadsUrl, validateTikTokUrl, validateTwitterUrl, validateYouTubeUrl} from '../../../utils/social-urls/index';
 
-/**
- * Validation functions for user fields.
- */
 const validators: Record<string, (u: Partial<User>) => string> = {
     name: ({name}) => {
-        if (!name) return 'Name is required';
-        if (name.length > 191) return 'Name is too long';
-        return '';
+        let error = '';
+        if (!name) {
+            error = 'Name is required';
+        }
+        if (name && name.length > 191) {
+            error = 'Name is too long';
+        }
+        return error;
     },
     email: ({email}) => validator.isEmail(email || '') ? '' : 'Enter a valid email address',
     url: ({url}) => (!url || validator.isURL(url, {require_tld: false})) ? '' : 'Enter a valid URL',
@@ -127,8 +107,38 @@ const validators: Record<string, (u: Partial<User>) => string> = {
     }
 };
 
+export interface UserDetailProps {
+    user: User;
+    setUserData: (user: User) => void;
+    errors: {[key in keyof User]?: string};
+    validateField: <K extends keyof User>(key: K, value: User[K]) => boolean;
+    clearError: (key: keyof User) => void;
+}
+
 /**
- * Returns the tab identifier based on the current route path.
+ * Mapping of image field names to their corresponding user property keys.
+ */
+const imageFieldMap: Record<string, keyof User> = {
+    cover_image: 'cover_image',
+    profile_image: 'profile_image'
+};
+
+/**
+ * Updates a specific image field on the user form state.
+ */
+function updateImageField(updateForm: (updater: (u: User) => User) => void, field: keyof User, url: string) {
+    updateForm((user) => ({...user, [field]: url}));
+}
+
+/**
+ * Clears a specific image field on the user form state.
+ */
+function clearImageField(updateForm: (updater: (u: User) => User) => void, field: keyof User) {
+    updateForm((user) => ({...user, [field]: ''}));
+}
+
+/**
+ * Returns the appropriate tab identifier based on the current route path.
  */
 function getTabFromPath(path: string): string {
     const lastSegment = path.split('/').pop() || '';
@@ -136,47 +146,18 @@ function getTabFromPath(path: string): string {
 }
 
 /**
- * Mapping for image field updates.
+ * Constructs the menu items array based on the current user and form state.
  */
-const imageUpdateMap: Record<string, (url: string) => (u: User) => User> = {
-    cover_image: (url) => (u) => ({...u, cover_image: url}),
-    profile_image: (url) => (u) => ({...u, profile_image: url})
-};
-
-/**
- * Mapping for image field deletions.
- */
-const imageDeleteMap: Record<string, (u: User) => User> = {
-    cover_image: (u) => ({...u, cover_image: ''}),
-    profile_image: (u) => ({...u, profile_image: ''})
-};
-
-/**
- * Builds the menu items based on permissions and user state.
- */
-function buildMenuItems(params: {
-    currentUser: User;
-    formState: User;
-    user: User;
-    ownerUser: User;
-    confirmMakeOwner: () => void;
-    confirmSuspend: (u: User) => void;
-    confirmDelete: (u: User, owner: User) => void;
-    mainModal: ReturnType<typeof useModal>;
-    updateRoute: (route: string | {route: string; isExternal: boolean}) => void;
-}): MenuItem[] {
-    const {
-        currentUser,
-        formState,
-        user,
-        ownerUser,
-        confirmMakeOwner,
-        confirmSuspend,
-        confirmDelete,
-        mainModal,
-        updateRoute
-    } = params;
-
+function buildMenuItems(
+    currentUser: User,
+    formState: User,
+    ownerUser: User | undefined,
+    confirmMakeOwner: () => void,
+    confirmDelete: (user: User, owner: User) => void,
+    confirmSuspend: (user: User) => void,
+    mainModal: ReturnType<typeof useModal>,
+    updateRoute: (route: string | {route: string; isExternal?: boolean}) => void
+): MenuItem[] {
     const items: MenuItem[] = [];
 
     if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
@@ -198,7 +179,11 @@ function buildMenuItems(params: {
             {
                 id: 'delete-user',
                 label: 'Delete user',
-                onClick: () => confirmDelete(user, ownerUser)
+                onClick: () => {
+                    if (ownerUser) {
+                        confirmDelete(user, {owner: ownerUser});
+                    }
+                }
             },
             {
                 id: 'suspend-user',
@@ -220,9 +205,6 @@ function buildMenuItems(params: {
     return items;
 }
 
-/**
- * User detail modal content component.
- */
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
     const {ownerUser} = useStaffUsers();
@@ -259,6 +241,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     });
 
     const setUserData = (newData: User) => updateForm(() => newData);
+
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
         if (error) {
@@ -285,8 +268,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspend = async (targetUser: User) => {
-        if (targetUser.status === 'inactive' && targetUser.roles[0].name !== 'Contributor') {
+    const confirmSuspend = async (_user: User) => {
+        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -302,7 +285,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = targetUser.status === 'inactive'
+        const warningText = _user.status === 'inactive'
             ? 'This user will be able to log in again and will have the same permissions they had previously.'
             : 'This user will no longer be able to log in but their posts will be kept.';
 
@@ -313,20 +296,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: targetUser.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: targetUser.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
-                const updated = {
-                    ...targetUser,
-                    status: targetUser.status === 'inactive' ? 'active' : 'inactive'
+                const updatedUserData = {
+                    ..._user,
+                    status: _user.status === 'inactive' ? 'active' : 'inactive'
                 };
                 try {
-                    await updateUser(updated);
-                    setFormState(() => updated);
+                    await updateUser(updatedUserData);
+                    setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: targetUser.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -336,13 +319,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const confirmDelete = (targetUser: User, owner: User) => {
+    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
                 <>
                     <p className='mb-3'>
-                        <span className='font-bold'>{targetUser.name || targetUser.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.
+                        <span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.
                     </p>
                     <p>
                         To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span>
@@ -353,11 +336,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             okColor: 'red',
             onOk: async (modal) => {
                 try {
-                    await deleteUser(targetUser?.id);
+                    await deleteUser(_user?.id);
                     modal?.remove();
                     mainModal?.remove();
                     navigateOnClose();
-                    showToast({title: 'User deleted', type: 'success'});
+                    showToast({
+                        title: 'User deleted',
+                        type: 'success'
+                    });
                 } catch (e) {
                     handleError(e);
                 }
@@ -375,7 +361,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 try {
                     await makeOwner(user.id);
                     modal?.remove();
-                    showToast({title: 'Ownership transferred', type: 'success'});
+                    showToast({
+                        title: 'Ownership transferred',
+                        type: 'success'
+                    });
                 } catch (e) {
                     handleError(e);
                 }
@@ -383,12 +372,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleImageUpload = async (field: string, file: File) => {
+    const handleImageUpload = async (imageKey: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            const updaterFactory = imageUpdateMap[field];
-            if (updaterFactory) {
-                updateForm(updaterFactory(imageUrl));
+            const field = imageFieldMap[imageKey];
+            if (field) {
+                updateImageField(updateForm, field, imageUrl);
             }
         } catch (e) {
             const error = e as APIError;
@@ -399,25 +388,24 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    const handleImageDelete = (field: string) => {
-        const deleter = imageDeleteMap[field];
-        if (deleter) {
-            updateForm(deleter);
+    const handleImageDelete = (imageKey: string) => {
+        const field = imageFieldMap[imageKey];
+        if (field) {
+            clearImageField(updateForm, field);
         }
     };
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = buildMenuItems({
+    const menuItems = buildMenuItems(
         currentUser,
         formState,
-        user,
         ownerUser,
         confirmMakeOwner,
-        confirmSuspend,
         confirmDelete,
+        confirmSuspend,
         mainModal,
         updateRoute
-    });
+    );
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
@@ -452,7 +440,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             <div>
                 <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
                     <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
-                        style={{backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'}}>
+                        style={{
+                            backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
+                        }}>
                         <div className='flex w-full flex-col gap-2'>
                             <div className='flex flex-nowrap items-start justify-between gap-3'>
                                 <div>
@@ -505,9 +495,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         unstyled
                                         onDelete={() => handleImageDelete('cover_image')}
                                         onUpload={(file: File) => handleImageUpload('cover_image', file)}
-                                    >
-                                        Upload cover image
-                                    </ImageUpload>
+                                    >Upload cover image</ImageUpload>
                                     {showMenu && (
                                         <div className="z-10">
                                             <Menu
@@ -575,20 +563,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     );
 };
 
-/**
- * Wrapper component that fetches the appropriate user data.
- */
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
     const isCurrentUser = currentUser.slug === params?.slug;
-
     const {data: fetchedUserData} = useGetUserBySlug(
         params?.slug || '',
         {enabled: !isCurrentUser && !!params?.slug}
     );
-
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
-
     return user ? <UserDetailModalContent user={user} /> : null;
 };
 

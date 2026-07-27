@@ -93,7 +93,8 @@ function printInstructions(appName, urls, useYarn) {
 
   console.log();
   console.log('Note that the development build is not optimized.');
-  const buildCommand = `${useYarn ? 'yarn' : 'npm run'} build`;
+  const packageManager = useYarn ? 'yarn' : 'npm run';
+  const buildCommand = `${packageManager} build`;
   console.log(`To create a production build, use ${chalk.cyan(buildCommand)}.`);
   console.log();
 }
@@ -400,16 +401,14 @@ function choosePort(host, defaultPort) {
         if (isInteractive) {
           clearConsole();
           const existingProcess = getProcessForPort(defaultPort);
-          let extraInfo = '';
-          if (existingProcess) {
-            extraInfo = ` Probably:\n  ${existingProcess}`;
-          }
           const question = {
             type: 'confirm',
             name: 'shouldChangePort',
             message:
-              chalk.yellow(message + extraInfo) +
-              '\n\nWould you like to run the app on another port instead?',
+              chalk.yellow(
+                message +
+                  `${existingProcess ? ` Probably:\n  ${existingProcess}` : ''}`
+              ) + '\n\nWould you like to run the app on another port instead?',
             initial: true,
           };
           prompts(question).then(answer => {

@@ -199,7 +199,7 @@ exports.list = function (failures) {
       msg = message;
     } else {
       const end = index + message.length;
-      msg = stack.slice(0, end);
+      msg = stack.slice(0, index);
       // remove msg from stack
       stack = stack.slice(end + 1);
     }

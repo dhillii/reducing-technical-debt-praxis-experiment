@@ -52,6 +52,7 @@ const ModalStepper = ({
   useEffect(() => {
     if (isOpen) {
       goTo(initialStep);
+
       if (initialFileToEdit) {
         dispatch({
           type: 'INIT_FILE_TO_EDIT',
@@ -64,21 +65,26 @@ const ModalStepper = ({
 
   const addFilesToUpload = ({ target: { value } }) => {
     emitEvent('didSelectFile', { source: 'computer', location: 'upload' });
+
     dispatch({
       type: 'ADD_FILES_TO_UPLOAD',
       filesToUpload: value,
     });
+
     goTo(next);
   };
 
   downloadFilesRef.current = async () => {
     const files = getFilesToDownload(filesToUpload);
+
     if (files.length > 0) {
       emitEvent('didSelectFile', { source: 'url', location: 'upload' });
     }
+
     await Promise.all(
       files.map(file => {
         const { source } = file;
+
         return axios
           .get(file.fileURL, {
             responseType: 'blob',
@@ -90,6 +96,7 @@ const ModalStepper = ({
             const createdFile = new File([data], fileName, {
               type: data.type,
             });
+
             dispatch({
               type: 'FILE_DOWNLOADED',
               blob: createdFile,
@@ -99,6 +106,7 @@ const ModalStepper = ({
           })
           .catch(err => {
             console.error('fetch file error', err);
+
             dispatch({
               type: 'SET_FILE_TO_DOWNLOAD_ERROR',
               originalIndex: file.originalIndex,
@@ -111,7 +119,9 @@ const ModalStepper = ({
 
   const handleAbortUpload = () => {
     const { abortController } = fileToEdit;
+
     abortController.abort();
+
     dispatch({
       type: 'ON_ABORT_UPLOAD',
     });
@@ -120,11 +130,13 @@ const ModalStepper = ({
   const handleCancelFileToUpload = fileOriginalIndex => {
     const fileToCancel = filesToUpload.find(file => file.originalIndex === fileOriginalIndex);
     const { source } = fileToCancel;
+
     if (source) {
       source.cancel('Operation canceled by the user.');
     } else {
       fileToCancel.abortController.abort();
     }
+
     dispatch({
       type: 'REMOVE_FILE_TO_UPLOAD',
       fileIndex: fileOriginalIndex,
@@ -134,11 +146,14 @@ const ModalStepper = ({
   const handleChange = ({ target: { name, value } }) => {
     let val = value;
     let type = 'ON_CHANGE';
+
     if (name === 'url') {
       setFormErrors(null);
+
       val = value.split('\n');
       type = 'ON_CHANGE_URLS_TO_DOWNLOAD';
     }
+
     dispatch({
       type,
       keys: name,
@@ -150,19 +165,22 @@ const ModalStepper = ({
     const { id } = fileToEdit;
     onRemoveFileFromDataToDelete(id);
     setShowModalConfirmButtonLoading(true);
+
     try {
       await request(`/${pluginId}/files/${id}`, {
         method: 'DELETE',
       });
+
       setShouldRefetch(true);
     } catch (err) {
       const errorMessage = get(err, 'response.payload.message', 'An error occured');
+
       strapi.notification.toggle({
         type: 'warning',
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -174,6 +192,7 @@ const ModalStepper = ({
         { filesToDownload: filesToDownload.filter(url => !isEmpty(url)) },
         { abortEarly: false }
       );
+
       setFormErrors(null);
       dispatch({
         type: 'ADD_URLS_TO_FILES_TO_UPLOAD',
@@ -181,6 +200,7 @@ const ModalStepper = ({
       });
     } catch (err) {
       const formattedErrors = getYupError(err);
+
       setFormErrors(formattedErrors.filesToDownload);
     }
   };
@@ -194,10 +214,12 @@ const ModalStepper = ({
       type: 'REMOVE_FILE_TO_UPLOAD',
       fileIndex,
     });
+
     if (currentStep === 'edit-new') {
       dispatch({
         type: 'RESET_FILE_TO_EDIT',
       });
+
       goNext();
     }
   };
@@ -208,6 +230,7 @@ const ModalStepper = ({
     setDisplayNextButton(false);
     setFormErrors(null);
     setShouldRefetch(false);
+
     dispatch({
       type: 'RESET_PROPS',
     });
@@ -215,6 +238,7 @@ const ModalStepper = ({
 
   const handleCloseModalWarning = async () => {
     setShowModalConfirmButtonLoading(false);
+
     onToggle(shouldRefetch);
   };
 
@@ -223,6 +247,7 @@ const ModalStepper = ({
       type: 'SET_FILE_TO_EDIT',
       fileIndex,
     });
+
     goTo('edit-new');
   };
 
@@ -230,11 +255,13 @@ const ModalStepper = ({
     dispatch({
       type: 'CLEAN_FILES_ERROR',
     });
+
     goBack();
   };
 
   const handleSetCropResult = blob => {
     emitEvent('didCropFile', { duplicatedFile: null, location: 'upload' });
+
     dispatch({
       type: 'SET_CROP_RESULT',
       blob,
@@ -243,9 +270,11 @@ const ModalStepper = ({
 
   const handleSubmitEditNewFile = e => {
     e.preventDefault();
+
     dispatch({
       type: 'ON_SUBMIT_EDIT_NEW_FILE',
     });
+
     goNext();
   };
 
@@ -256,21 +285,28 @@ const ModalStepper = ({
     isSubmittingAfterCrop = false
   ) => {
     e.preventDefault();
+
     if (isSubmittingAfterCrop) {
       emitEvent('didCropFile', { duplicatedFile: shouldDuplicateMedia, location: 'upload' });
     }
+
     dispatch({
       type: 'ON_SUBMIT_EDIT_EXISTING_FILE',
     });
+
     const headers = {};
     const formData = new FormData();
+
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+
     if (didCropFile) {
       formData.append('files', file);
     }
+
     formData.append('fileInfo', JSON.stringify(fileInfo));
+
     try {
       await request(
         requestURL,
@@ -293,9 +329,11 @@ const ModalStepper = ({
         ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
         get(err, ['response', 'payload', 'message'], statusText)
       );
+
       if (status === 413) {
         errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
       }
+
       if (status) {
         dispatch({
           type: 'SET_FILE_TO_EDIT_ERROR',
@@ -315,18 +353,22 @@ const ModalStepper = ({
       const confirm = window.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
       );
+
       if (!confirm) {
         return;
       }
     }
+
     if (!isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit') {
       const confirm = window.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
       );
+
       if (!confirm) {
         return;
       }
     }
+
     onToggle(shouldRefetch);
   };
 
@@ -334,15 +376,19 @@ const ModalStepper = ({
     dispatch({
       type: 'SET_FILES_UPLOADING_STATE',
     });
+
     const requests = filesToUpload.map(
       async ({ file, fileInfo, originalName, originalIndex, abortController }) => {
         const formData = new FormData();
         const headers = {};
+
         if (originalName === fileInfo.name) {
           set(fileInfo, 'name', null);
         }
+
         formData.append('files', file);
         formData.append('fileInfo', JSON.stringify(fileInfo));
+
         try {
           await request(
             `/${pluginId}`,
@@ -355,7 +401,9 @@ const ModalStepper = ({
             false,
             false
           );
+
           setShouldRefetch(true);
+
           dispatch({
             type: 'REMOVE_FILE_TO_UPLOAD',
             fileIndex: originalIndex,
@@ -369,9 +417,11 @@ const ModalStepper = ({
             ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
             get(err, ['response', 'payload', 'message'], statusText)
           );
+
           if (status === 413) {
             errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
           }
+
           if (status) {
             dispatch({
               type: 'SET_FILE_ERROR',
@@ -382,6 +432,7 @@ const ModalStepper = ({
         }
       }
     );
+
     await Promise.all(requests);
   };
 
@@ -392,8 +443,10 @@ const ModalStepper = ({
   const goNext = () => {
     if (next === null) {
       onToggle();
+
       return;
     }
+
     goTo(next);
   };
 
@@ -421,6 +474,7 @@ const ModalStepper = ({
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
         />
+
         {Component && (
           <Component
             {...allowedActions}
@@ -451,6 +505,7 @@ const ModalStepper = ({
             withBackButton={withBackButton}
           />
         )}
+
         <ModalFooter>
           <section>
             <Button type="button" color="cancel" onClick={handleToggle}>
@@ -500,6 +555,7 @@ const ModalStepper = ({
                 >
                   {formatMessage({ id: getTrad('control-card.replace-media') })}
                 </Button>
+
                 <Button
                   disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
                   color="success"

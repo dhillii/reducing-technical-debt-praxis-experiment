@@ -18,18 +18,15 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     compute([event, hasMultipleNewsletters]) {
-        const memberNameRaw = event.data.member?.name;
-        const memberName = this.trimString(memberNameRaw);
-
+        let memberName = this.trimString(event.data.member?.name);
         const subject = event.data.member
             ? (memberName || event.data.member.email)
             : (event.data.name || event.data.email || '');
-
         const icon = this.getIcon(event);
         const action = this.getAction(event, hasMultipleNewsletters);
         const info = this.getInfo(event);
         const description = this.getDescription(event);
-        const join = this.getJoin();
+        const join = this.getJoin(event);
         const object = this.getObject(event);
         const url = this.getURL(event);
         const route = this.getRoute(event);
@@ -59,8 +56,8 @@ export default class ParseMemberEventHelper extends Helper {
         };
     }
 
+    /* internal helper functions */
     getIcon(event) {
-        const {type, data} = event;
         const baseIcons = {
             login_event: 'logged-in',
             payment_event: 'subscriptions',
@@ -77,90 +74,86 @@ export default class ParseMemberEventHelper extends Helper {
             email_change_event: 'email-changed'
         };
 
-        if (type === 'newsletter_event') {
-            return 'event-' + (data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email');
+        if (event.type === 'newsletter_event') {
+            return 'event-' + (event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email');
         }
 
-        if (type === 'subscription_event') {
-            if (data.type === 'canceled') {
-                return 'event-canceled-subscription';
-            }
-            return 'event-subscriptions';
+        if (event.type === 'subscription_event') {
+            const icon = event.data.type === 'canceled' ? 'canceled-subscription' : 'subscriptions';
+            return 'event-' + icon;
         }
 
-        if (type === 'signup_event' || (type === 'subscription_event' && data.type === 'created' && data.signup)) {
+        if (event.type === 'signup_event' || (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
             return 'event-signed-up';
         }
 
-        if (type === 'feedback_event') {
-            return 'event-' + (data.score === 1 ? 'more-like-this' : 'less-like-this');
+        if (event.type === 'feedback_event') {
+            return 'event-' + (event.data.score === 1 ? 'more-like-this' : 'less-like-this');
         }
 
-        const icon = baseIcons[type];
-        return icon ? `event-${icon}` : '';
+        const icon = baseIcons[event.type];
+        return icon ? 'event-' + icon : 'event-undefined';
     }
 
     getAction(event, hasMultipleNewsletters) {
-        const {type, data} = event;
-
-        const simpleActions = {
-            login_event: 'logged in',
-            payment_event: 'made payment',
-            email_opened_event: 'opened email',
-            email_sent_event: 'sent email',
-            automated_email_sent_event: () => {
-                const slug = data.automatedEmail?.slug || '';
+        switch (event.type) {
+            case 'signup_event':
+                if (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup) {
+                    return 'signed up';
+                }
+                return 'signed up';
+            case 'login_event':
+                return 'logged in';
+            case 'payment_event':
+                return 'made payment';
+            case 'newsletter_event': {
+                const newsletter = (hasMultipleNewsletters && event.data.newsletter?.name) || 'newsletter';
+                return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+            }
+            case 'subscription_event': {
+                const typeMap = {
+                    created: 'started paid subscription',
+                    updated: 'changed paid subscription',
+                    canceled: 'canceled paid subscription',
+                    reactivated: 'reactivated paid subscription',
+                    expired: 'ended paid subscription'
+                };
+                return typeMap[event.data.type] || 'changed paid subscription';
+            }
+            case 'email_opened_event':
+                return 'opened email';
+            case 'email_sent_event':
+                return 'sent email';
+            case 'automated_email_sent_event': {
+                const slug = event.data.automatedEmail?.slug || '';
                 const emailType = slug.includes('paid') ? 'Paid' : 'Free';
                 return `received welcome email (${emailType})`;
-            },
-            email_delivered_event: 'received email',
-            email_failed_event: 'bounced email',
-            email_complaint_event: 'email flagged as spam',
-            comment_event: () => data.parent ? 'replied to comment' : 'commented',
-            click_event: 'clicked link in email',
-            aggregated_click_event: () => {
-                const clicks = data.count?.clicks ?? 0;
-                return clicks <= 1
-                    ? 'clicked link in email'
-                    : `clicked ${ghPluralize(clicks, 'link')} in email`;
-            },
-            feedback_event: () => data.score === 1 ? 'more like this' : 'less like this',
-            email_change_event: () => {
-                if (data.from_email && data.to_email) {
-                    return `Email address changed from ${data.from_email} to ${data.to_email}`;
-                }
-                return 'Email address changed';
-            },
-            donation_event: 'Made a one-time payment'
-        };
-
-        if (type === 'signup_event' || (type === 'subscription_event' && data.type === 'created' && data.signup)) {
-            return 'signed up';
-        }
-
-        if (type === 'newsletter_event') {
-            let newsletter = 'newsletter';
-            if (hasMultipleNewsletters && data.newsletter?.name) {
-                newsletter = data.newsletter.name;
             }
-            return data.subscribed
-                ? `subscribed to ${newsletter}`
-                : `unsubscribed from ${newsletter}`;
+            case 'email_delivered_event':
+                return 'received email';
+            case 'email_failed_event':
+                return 'bounced email';
+            case 'email_complaint_event':
+                return 'email flagged as spam';
+            case 'comment_event':
+                return event.data.parent ? 'replied to comment' : 'commented';
+            case 'click_event':
+                return 'clicked link in email';
+            case 'aggregated_click_event':
+                return event.data.count.clicks <= 1
+                    ? 'clicked link in email'
+                    : `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+            case 'feedback_event':
+                return event.data.score === 1 ? 'more like this' : 'less like this';
+            case 'email_change_event':
+                return event.data.from_email && event.data.to_email
+                    ? `Email address changed from ${event.data.from_email} to ${event.data.to_email}`
+                    : 'Email address changed';
+            case 'donation_event':
+                return 'Made a one-time payment';
+            default:
+                return undefined;
         }
-
-        if (type === 'subscription_event') {
-            const actions = {
-                created: 'started paid subscription',
-                updated: 'changed paid subscription',
-                canceled: 'canceled paid subscription',
-                reactivated: 'reactivated paid subscription',
-                expired: 'ended paid subscription'
-            };
-            return actions[data.type] || 'changed paid subscription';
-        }
-
-        const action = simpleActions[type];
-        return typeof action === 'function' ? action() : action;
     }
 
     getJoin() {
@@ -168,28 +161,22 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getObject(event) {
-        const {type, data} = event;
-
-        if (['signup_event', 'subscription_event', 'donation_event'].includes(type) && data.attribution?.title) {
-            return data.attribution.title;
+        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type) && event.data.attribution?.title) {
+            return event.data.attribution.title;
         }
-
-        if (type === 'comment_event' && data.post?.title) {
-            return data.post.title;
+        if (event.type === 'comment_event' && event.data.post) {
+            return event.data.post.title;
         }
-
-        if (['click_event', 'feedback_event'].includes(type) && data.post?.title) {
-            return data.post.title;
+        if (['click_event', 'feedback_event'].includes(event.type) && event.data.post) {
+            return event.data.post.title;
         }
-
         return '';
     }
 
     getSource(event) {
-        const source = event.data?.attribution?.referrer_source;
-        if (source) {
+        if (event.data?.attribution?.referrer_source) {
             return {
-                name: source,
+                name: event.data.attribution.referrer_source,
                 url: event.data.attribution.referrer_url ?? null
             };
         }
@@ -197,30 +184,28 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getInfo(event) {
-        const {type, data} = event;
-
-        if (type === 'subscription_event') {
-            const mrrDelta = getNonDecimal(data.mrr_delta, data.currency);
+        if (event.type === 'subscription_event') {
+            const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
             if (mrrDelta === 0) {
                 return;
             }
-            const symbol = getSymbol(data.currency);
-            if (data.type === 'created') {
+            const symbol = getSymbol(event.data.currency);
+            if (event.data.type === 'created') {
                 const sign = mrrDelta > 0 ? '' : '-';
-                const tierName = this.membersUtils.hasMultipleTiers ? (data.tierName ?? 'Paid') : 'Paid';
+                const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
                 return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
             }
             const sign = mrrDelta > 0 ? '+' : '-';
             return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
         }
 
-        if (type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
+        if (event.type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
             return 'Free';
         }
 
-        if (type === 'donation_event') {
-            const symbol = getSymbol(data.currency);
-            return symbol + getNonDecimal(data.amount, data.currency);
+        if (event.type === 'donation_event') {
+            const symbol = getSymbol(event.data.currency);
+            return symbol + getNonDecimal(event.data.amount, event.data.currency);
         }
 
         return;
@@ -238,30 +223,22 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getURL(event) {
-        const {type, data} = event;
-
-        if (['comment_event', 'click_event', 'feedback_event'].includes(type) && data.post?.url) {
-            return data.post.url;
+        if (['comment_event', 'click_event', 'feedback_event'].includes(event.type) && event.data.post) {
+            return event.data.post.url;
         }
-
-        if (['signup_event', 'subscription_event', 'donation_event'].includes(type) && data.attribution?.url) {
-            return data.attribution.url;
+        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type) && event.data.attribution?.url) {
+            return event.data.attribution.url;
         }
-
         return;
     }
 
     getRoute(event) {
-        const {type, data} = event;
-
-        if (['click_event', 'feedback_event'].includes(type) && data.post) {
-            return {name: 'posts-x', model: data.post.id};
+        if (['click_event', 'feedback_event'].includes(event.type) && event.data.post) {
+            return {name: 'posts-x', model: event.data.post.id};
         }
-
-        if (['signup_event', 'subscription_event'].includes(type) && data.attribution_type === 'post') {
-            return {name: 'posts-x', model: data.attribution_id};
+        if (['signup_event', 'subscription_event'].includes(event.type) && event.data.attribution_type === 'post') {
+            return {name: 'posts-x', model: event.data.attribution_id};
         }
-
         return;
     }
 }

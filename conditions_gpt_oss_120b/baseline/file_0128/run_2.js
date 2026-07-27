@@ -103,7 +103,7 @@ module.exports = {
       const details = this._attributes[attribute];
 
       // set simple attributes
-      if (!association && details?.isVirtual !== true) {
+      if (!association && _.get(details, 'isVirtual') !== true) {
         return _.set(acc, attribute, newValue);
       }
 
@@ -111,8 +111,7 @@ module.exports = {
 
       switch (association.nature) {
         case 'oneWay': {
-          const pkValue = newValue?.[assocModel.primaryKey] ?? newValue;
-          return _.set(acc, attribute, pkValue);
+          return _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue));
         }
         case 'oneToOne': {
           // if value is the same don't do anything
@@ -188,8 +187,7 @@ module.exports = {
           return acc;
         }
         case 'manyToOne': {
-          const pkValue = newValue?.[assocModel.primaryKey] ?? newValue;
-          return _.set(acc, attribute, pkValue);
+          return _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue));
         }
         case 'manyWay':
         case 'manyToMany': {
@@ -261,7 +259,7 @@ module.exports = {
 
             // Clear relations to refModel
             const reverseAssoc = refModel.associations.find(assoc => assoc.alias === obj.field);
-            if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
+            if (reverseAssoc?.nature === 'oneToManyMorph') {
               relationUpdates.push(
                 removeRelationMorph(
                   this,
@@ -474,7 +472,7 @@ module.exports = {
                     assoc => assoc.alias === field
                   );
 
-                  if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
+                  if (reverseAssoc?.nature === 'oneToManyMorph') {
                     return targetModel.updateMany(
                       {
                         [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),

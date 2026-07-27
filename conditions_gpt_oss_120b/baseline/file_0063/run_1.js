@@ -942,8 +942,8 @@ class CodePathState {
 		this.finalSegments = [];
 
 		/**
-		 * The final segments of the code path which are `return`.
-		 * These segments are also contained in `finalSegments`.
+		 * The final segments of the code path which are `return`. These
+		 * segments are also contained in `finalSegments`.
 		 * @type {Array<CodePathSegment>}
 		 */
 		this.returnedForkContext = [];
@@ -1225,9 +1225,9 @@ class CodePathState {
 			/*
 			 * We no longer need this list of segments.
 			 *
-			 * Reset `processed` because we've removed the segments from the
-			 * child choice context. This allows `popChoiceContext()` to continue
-			 * adding segments later.
+			 * Reset `processed` because we've removed the segments from the child
+			 * choice context. This allows `popChoiceContext()` to continue adding
+			 * segments later.
 			 */
 			prevForkContext.clear();
 			currentChoiceContext.processed = false;
@@ -1447,7 +1447,7 @@ class CodePathState {
 		/*
 		 * Any value that doesn't match a `case` test should flow to the default
 		 * case. That happens normally when the default case is last in the `switch`,
-		 * but if it is not, we need to rewire some of the paths to be correct.
+		 * but if it's not, we need to rewire some of the paths to be correct.
 		 */
 		if (!context.lastIsDefault) {
 			if (context.defaultBodySegments) {
@@ -1512,4 +1512,531 @@ class CodePathState {
 		/*
 		 * Add information about the default case.
 		 *
-		 * The purpose
+		 * The purpose of this is to identify the starting segments for the
+		 * `default` case to make sure there is a path there.
+		 */
+		if (isDefaultCase) {
+			/*
+			 * This is the default case in the `switch`.
+			 *
+			 * We first save the **...** etc.
+			 */
+			context.defaultSegments = parentForkContext.head;
+
+			if (isCaseBodyEmpty) {
+				context.foundEmptyDefault = true;
+			} else {
+				context.defaultBodySegments = forkContext.head;
+			}
+		} else {
+			if (!isCaseBodyEmpty && context.foundEmptyDefault) {
+				context.foundEmptyDefault = false;
+				context.defaultBodySegments = forkContext.head;
+			}
+		}
+
+		// keep track if the default case ends up last
+		context.lastIsDefault = isDefaultCase;
+		context.forkCount += 1;
+	}
+
+	//--------------------------------------------------------------------------
+	// TryStatement
+	//--------------------------------------------------------------------------
+
+	/**
+	 * Creates a context object of TryStatement and stacks it.
+	 * @param {boolean} hasFinalizer `true` if the try statement has a
+	 *   `finally` block.
+	 * @returns {void}
+	 */
+	pushTryContext(hasFinalizer) {
+		this.tryContext = new TryContext(
+			this.tryContext,
+			hasFinalizer,
+			this.forkContext,
+		);
+	}
+
+	/**
+	 * Pops the last context of TryStatement and finalizes it.
+	 * @returns {void}
+	 */
+	popTryContext() {
+		const context = this.tryContext;
+
+		this.tryContext = context.upper;
+
+		/*
+		 * If we're inside the `catch` block, that means there is no `finally`,
+		 * so we can process the `try` and `catch` blocks the simple way and
+		 * merge their two paths.
+		 */
+		if (context.position === "catch") {
+			this.popForkContext();
+			return;
+		}
+
+		/*
+		 * The following process is executed only when there is a `finally`
+		 * block.
+		 */
+
+		const originalReturnedForkContext = context.returnedForkContext;
+		const originalThrownForkContext = context.thrownForkContext;
+
+		// no `return` or `throw` in `try` or `catch` so there’s nothing left to do
+		if (
+			originalReturnedForkContext.empty &&
+			originalThrownForkContext.empty
+		) {
+			return;
+		}
+
+		/*
+		 * The following process is executed only when there is a `finally`
+		 * block and there was a `return` or `throw` in the `try` or `catch`
+		 * blocks.
+		 */
+
+		// Separate head to normal paths and leaving paths.
+		const headSegments = this.forkContext.head;
+
+		this.forkContext = this.forkContext.upper;
+		const half = Math.trunc(headSegments.length / 2);
+		const normalSegments = headSegments.slice(0, half);
+		const leavingSegments = headSegments.slice(half);
+
+		// Forwards the leaving path to upper contexts.
+		if (!originalReturnedForkContext.empty) {
+			getReturnContext(this).returnedForkContext.add(leavingSegments);
+		}
+		if (!originalThrownForkContext.empty) {
+			getThrowContext(this).thrownForkContext.add(leavingSegments);
+		}
+
+		// Sets the normal path as the next.
+		this.forkContext.replaceHead(normalSegments);
+
+		/*
+		 * If both paths of the `try` block and the `catch` block are
+		 * unreachable, the next path becomes unreachable as well.
+		 */
+		if (!context.lastOfTryIsReachable && !context.lastOfCatchIsReachable) {
+			this.forkContext.makeUnreachable();
+		}
+	}
+
+	/**
+	 * Makes a code path segment for a `catch` block.
+	 * @returns {void}
+	 */
+	makeCatchBlock() {
+		const context = this.tryContext;
+		const forkContext = this.forkContext;
+		const originalThrownForkContext = context.thrownForkContext;
+
+		/*
+		 * We are now in a catch block so we need to update the context
+		 * with that information. This includes creating a new fork
+		 * context in case we encounter any `throw` statements here.
+		 */
+		context.position = "catch";
+		context.thrownForkContext = ForkContext.newEmpty(forkContext);
+		context.lastOfTryIsReachable = forkContext.reachable;
+
+		// Merge the thrown paths from the `try` and `catch` blocks
+		originalThrownForkContext.add(forkContext.head);
+		const thrownSegments = originalThrownForkContext.makeNext(0, -1);
+
+		// Fork to a bypass and the merged thrown path.
+		this.pushForkContext();
+		this.forkBypassPath();
+		this.forkContext.add(thrownSegments);
+	}
+
+	/**
+	 * Makes a code path segment for a `finally` block.
+	 *
+	 * In the `finally` block, parallel paths are created. The parallel paths
+	 * are used as leaving-paths. The leaving-paths are paths from `return`
+	 * statements and `throw` statements in a `try` block or a `catch` block.
+	 * @returns {void}
+	 */
+	makeFinallyBlock() {
+		const context = this.tryContext;
+		let forkContext = this.forkContext;
+		const originalReturnedForkContext = context.returnedForkContext;
+		const originalThrownForContext = context.thrownForkContext;
+		const headOfLeavingSegments = forkContext.head;
+
+		// Update state.
+		if (context.position === "catch") {
+			// Merges two paths from the `try` block and `catch` block.
+			this.popForkContext();
+			forkContext = this.forkContext;
+
+			context.lastOfCatchIsReachable = forkContext.reachable;
+		} else {
+			context.lastOfTryIsReachable = forkContext.reachable;
+		}
+
+		context.position = "finally";
+
+		/*
+		 * If there was no `return` or `throw` in either the `try` or `catch`
+		 * blocks, then there's no further code paths to create for `finally`.
+		 */
+		if (
+			originalReturnedForkContext.empty &&
+			originalThrownForContext.empty
+		) {
+			// This path does not leave.
+			return;
+		}
+
+		/*
+		 * Create a parallel segment from merging returned and thrown.
+		 * This segment will leave at the end of this `finally` block.
+		 */
+		const segments = forkContext.makeNext(-1, -1);
+
+		for (let i = 0; i < forkContext.count; ++i) {
+			const prevSegsOfLeavingSegment = [headOfLeavingSegments[i]];
+
+			for (
+				let j = 0;
+				j < originalReturnedForkContext.segmentsList.length;
+				++j
+			) {
+				prevSegsOfLeavingSegment.push(
+					originalReturnedForkContext.segmentsList[j][i],
+				);
+			}
+			for (
+				let j = 0;
+				j < originalThrownForContext.segmentsList.length;
+				++j
+			) {
+				prevSegsOfLeavingSegment.push(
+					originalThrownForContext.segmentsList[j][i],
+				);
+			}
+
+			segments.push(
+				CodePathSegment.newNext(
+					this.idGenerator.next(),
+					prevSegsOfLeavingSegment,
+				),
+			);
+		}
+
+		this.pushForkContext(true);
+		this.forkContext.add(segments);
+	}
+
+	/**
+	 * Makes a code path segment from the first throwable node to the `catch`
+	 * block or the `finally` block.
+	 * @returns {void}
+	 */
+	makeFirstThrowablePathInTryBlock() {
+		const forkContext = this.forkContext;
+
+		if (!forkContext.reachable) {
+			return;
+		}
+
+		const context = getThrowContext(this);
+
+		if (
+			context === this ||
+			context.position !== "try" ||
+			!context.thrownForkContext.empty
+		) {
+			return;
+		}
+
+		context.thrownForkContext.add(forkContext.head);
+		forkContext.replaceHead(forkContext.makeNext(-1, -1));
+	}
+
+	//--------------------------------------------------------------------------
+	// Loop Statements
+	//--------------------------------------------------------------------------
+
+	/**
+	 * Creates a context object of a loop statement and stacks it.
+	 * @param {string} type The type of the node which was triggered. One of
+	 *   `WhileStatement`, `DoWhileStatement`, `ForStatement`, `ForInStatement`,
+	 *   and `ForStatement`.
+	 * @param {string|null} label A label of the node which was triggered.
+	 * @throws {Error} (Unreachable - unknown type.)
+	 * @returns {void}
+	 */
+	pushLoopContext(type, label) {
+		const forkContext = this.forkContext;
+
+		// All loops need a path to account for `break` statements
+		const breakContext = this.pushBreakContext(true, label);
+
+		switch (type) {
+			case "WhileStatement":
+				this.pushChoiceContext("loop", false);
+				this.loopContext = new WhileLoopContext(
+					this.loopContext,
+					label,
+					breakContext,
+				);
+				break;
+
+			case "DoWhileStatement":
+				this.pushChoiceContext("loop", false);
+				this.loopContext = new DoWhileLoopContext(
+					this.loopContext,
+					label,
+					breakContext,
+					forkContext,
+				);
+				break;
+
+			case "ForStatement":
+				this.pushChoiceContext("loop", false);
+				this.loopContext = new ForLoopContext(
+					this.loopContext,
+					label,
+					breakContext,
+				);
+				break;
+
+			case "ForInStatement":
+				this.loopContext = new ForInLoopContext(
+					this.loopContext,
+					label,
+					breakContext,
+				);
+				break;
+
+			case "ForOfStatement":
+				this.loopContext = new ForOfLoopContext(
+					this.loopContext,
+					label,
+					breakContext,
+				);
+				break;
+
+			/* c8 ignore next */
+			default:
+				throw new Error(`unknown type: "${type}"`);
+		}
+	}
+
+	/**
+	 * Pops the last context of a loop statement and finalizes it.
+	 * @throws {Error} (Unreachable - unknown type.)
+	 * @returns {void}
+	 */
+	popLoopContext() {
+		const context = this.loopContext;
+
+		this.loopContext = context.upper;
+
+		const forkContext = this.forkContext;
+		const brokenForkContext = this.popBreakContext().brokenForkContext;
+
+		// Creates a looped path.
+		switch (context.type) {
+			case "WhileStatement":
+			case "ForStatement":
+				this.popChoiceContext();
+
+				/*
+				 * Creates the path from the end of the loop body up to the
+				 * location where `continue` would jump to.
+				 */
+				makeLooped(
+					this,
+					forkContext.head,
+					context.continueDestSegments,
+				);
+				break;
+
+			case "DoWhileStatement": {
+				const choiceContext = this.popChoiceContext();
+
+				if (!choiceContext.processed) {
+					choiceContext.trueForkContext.add(forkContext.head);
+					choiceContext.falseForkContext.add(forkContext.head);
+				}
+
+				/*
+				 * If this isn't a hardcoded `true` condition, then `break`
+				 * should continue down the path as if the condition evaluated
+				 * to false.
+				 */
+				if (context.test !== true) {
+					brokenForkContext.addAll(choiceContext.falseForkContext);
+				}
+
+				/*
+				 * When the condition is true, the loop continues back to the top,
+				 * so create a path from each possible true condition back to the
+				 * top of the loop.
+				 */
+				const segmentsList = choiceContext.trueForkContext.segmentsList;
+
+				for (let i = 0; i < segmentsList.length; ++i) {
+					makeLooped(this, segmentsList[i], context.entrySegments);
+				}
+				break;
+			}
+
+			case "ForInStatement":
+			case "ForOfStatement":
+				brokenForkContext.add(forkContext.head);
+
+				/*
+				 * Creates the path from the end of the loop body up to the
+				 * left expression (left of `in` or `of`) of the loop.
+				 */
+				makeLooped(this, forkContext.head, context.leftSegments);
+				break;
+
+			/* c8 ignore next */
+			default:
+				throw new Error("unreachable");
+		}
+
+		/*
+		 * If there wasn't a `break` statement in the loop, then we're at
+		 * the end of the loop's path, so we make an unreachable segment
+		 * to mark that.
+		 *
+		 * If there was a `break` statement, then we continue on into the
+		 * `brokenForkContext`.
+		 */
+		if (brokenForkContext.empty) {
+			forkContext.replaceHead(forkContext.makeUnreachable(-1, -1));
+		} else {
+			forkContext.replaceHead(brokenForkContext.makeNext(0, -1));
+		}
+	}
+
+	/**
+	 * Makes a code path segment for the test part of a WhileStatement.
+	 * @param {boolean|undefined} test The test value (only when constant).
+	 * @returns {void}
+	 */
+	makeWhileTest(test) {
+		const context = this.loopContext;
+		const forkContext = this.forkContext;
+		const testSegments = forkContext.makeNext(0, -1);
+
+		// Update state.
+		context.test = test;
+		context.continueDestSegments = testSegments;
+		forkContext.replaceHead(testSegments);
+	}
+
+	/**
+	 * Makes a code path segment for the body part of a WhileStatement.
+	 * @returns {void}
+	 */
+	makeWhileBody() {
+		const context = this.loopContext;
+		const choiceContext = this.choiceContext;
+		const forkContext = this.forkContext;
+
+		if (!choiceContext.processed) {
+			choiceContext.trueForkContext.add(forkContext.head);
+			choiceContext.falseForkContext.add(forkContext.head);
+		}
+
+		/*
+		 * If this isn't a hardcoded `true` condition, then `break`
+		 * should continue down the path as if the test condition is false.
+		 */
+		if (context.test !== true) {
+			context.brokenForkContext.addAll(choiceContext.falseForkContext);
+		}
+		forkContext.replaceHead(choiceContext.trueForkContext.makeNext(0, -1));
+	}
+
+	/**
+	 * Makes a code path segment for the body part of a DoWhileStatement.
+	 * @returns {void}
+	 */
+	makeDoWhileBody() {
+		const context = this.loopContext;
+		const forkContext = this.forkContext;
+		const bodySegments = forkContext.makeNext(-1, -1);
+
+		// Update state.
+		context.entrySegments = bodySegments;
+		forkContext.replaceHead(bodySegments);
+	}
+
+	/**
+	 * Makes a code path segment for the test part of a DoWhileStatement.
+	 * @param {boolean|undefined} test The test value (only when constant).
+	 * @returns {void}
+	 */
+	makeDoWhileTest(test) {
+		const context = this.loopContext;
+		const forkContext = this.forkContext;
+
+		context.test = test;
+
+		/*
+		 * If there is a `continue` statement in the loop then `continueForkContext`
+		 * won't be empty. We wire up the path from `continue` to the loop
+		 * test condition and then continue the traversal in the root fork context.
+		 */
+		if (!context.continueForkContext.empty) {
+			context.continueForkContext.add(forkContext.head);
+			const testSegments = context.continueForkContext.makeNext(0, -1);
+
+			forkContext.replaceHead(testSegments);
+		}
+	}
+
+	/**
+	 * Makes a code path segment for the test part of a ForStatement.
+	 * @param {boolean|undefined} test The test value (only when constant).
+	 * @returns {void}
+	 */
+	makeForTest(test) {
+		const context = this.loopContext;
+		const forkContext = this.forkContext;
+		const endOfInitSegments = forkContext.head;
+		const testSegments = forkContext.makeNext(-1, -1);
+
+		/*
+		 * Update the state.
+		 *
+		 * The `continueDestSegments` are set to `testSegments` because we
+		 * don't yet know if there is an update expression in this loop. So,
+		 * from what we already know at this point, a `continue` statement
+		 * will jump back to the test expression.
+		 */
+		context.test = test;
+		context.endOfInitSegments = endOfInitSegments;
+		context.continueDestSegments = context.testSegments = testSegments;
+		forkContext.replaceHead(testSegments);
+	}
+
+	/**
+	 * Makes a code path segment for the update part of a ForStatement.
+	 * @returns {void}
+	 */
+	makeForUpdate() {
+		const context = this.loopContext;
+		const choiceContext = this.choiceContext;
+		const forkContext = this.forkContext;
+
+		// Make the next paths of the test.
+		if (context.testSegments) {
+			finalizeTestSegmentsOfFor(context, choiceContext, forkContext.head);
+		} else {
+			context.endOfInitSegments = forkContext.head;
+		}<|endoftext|>

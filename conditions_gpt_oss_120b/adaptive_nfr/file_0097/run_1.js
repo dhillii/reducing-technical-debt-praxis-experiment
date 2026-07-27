@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -14,30 +14,34 @@ define([
     'use strict';
 
     /**
-     * @typedef {Object} PageableState
-     * @property {number} pageSize
-     * @property {number} firstPage
-     * @property {number} currentPage
-     * @property {number} totalRecords
-     * @property {Object} comparator
-     */
-
-    /**
      * Pagination support for Backbone collections.
+     * Some code was borrowed from the plugin Backbone.paginator.
+     *
+     * Triggers:
+     * ---------
+     * Events to channel `notes`:
+     * 1. `model:navigate` - when the next or previous model was requested
+     *     or a model was removed.
+     *
+     * Events to itself (e.g. collection):
+     * 1. `page:next` - when the next model was requested but a user
+     *     has reached the last model on the page.
+     * 2. `page:previous` - when the previous model was requested but a user
+     *     has reached the first model on the page.
      */
-    const PageableCollection = Backbone.Collection.extend({
+    var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
-        state: /** @type {PageableState} */ ({
+        state: {
             pageSize     : 4,
             firstPage    : 0,
             currentPage  : 0,
             totalRecords : 0,
             comparator   : {'isFavorite' : 'desc', 'created' : 'desc'}
-        }),
+        },
 
         /**
-         * Overwrite `fetch` method.
+         * Overrite `fetch` method.
          */
         fetch: function(options) {
             options = options || {};
@@ -52,10 +56,11 @@ define([
                 return Backbone.Collection.prototype.fetch.call(this, options);
             }
 
-            const originalSuccess = options.success;
+            const success = options.success;
             const self = this;
 
             options.success = function(resp) {
+
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -66,16 +71,16 @@ define([
                 self._updateTotalPages();
                 self.getPage(options.page || self.state.firstPage);
 
-                if (originalSuccess) {
-                    originalSuccess(self, resp);
+                if (success) {
+                    success(self, resp);
                 }
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
-                .then(function(resp) {
-                    options.success(resp);
-                    return resp;
-                });
+            .then(function(resp) {
+                options.success(resp);
+                return resp;
+            });
         },
 
         /**
@@ -90,7 +95,7 @@ define([
             this.listenTo(this, 'reset', this.sortItOut);
 
             // Listen to events
-            this.listenTo(this.vent, 'update:model', this._onAddItem, this);
+            this.listenTo(this.vent, 'update:model' , this._onAddItem, this);
             this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
             this.listenTo(this.vent, 'restore:model', this._onRestore, this);
 
@@ -196,97 +201,96 @@ define([
         },
 
         /**
-         * Retrieves the next item relative to the given model id.
-         * @param {string|number} id
-         */
-        getNextItem: function(id) {
-            return this._navigateItem(id, 1, 'page:next', 'page:end');
-        },
-
-        /**
-         * Retrieves the previous item relative to the given model id.
-         * @param {string|number} id
-         */
-        getPreviousItem: function(id) {
-            return this._navigateItem(id, -1, 'page:previous', 'page:start');
-        },
-
-        /**
-         * Shared navigation logic for next/previous item.
+         * Returns true if the collection has no models.
          * @private
-         * @param {string|number} id
-         * @param {number} step Positive for next, negative for previous.
-         * @param {string} pageEvent Event to trigger when page boundary is reached.
-         * @param {string} edgeEvent Event to trigger when collection edge is reached.
          */
-        _navigateItem: function(id, step, pageEvent, edgeEvent) {
-            if (this.isEmpty()) {
+        _isEmpty: function() {
+            return this.length === 0;
+        },
+
+        /**
+         * Returns true if the given index points beyond the current page models.
+         * @private
+         */
+        _isLastOnPage: function(index) {
+            return index >= this.models.length;
+        },
+
+        /**
+         * Returns true if the given index points before the first model on the page.
+         * @private
+         */
+        _isFirstOnPage: function(index) {
+            return index < 0;
+        },
+
+        getNextItem: function(id) {
+            if (this._isEmpty()) {
                 return false;
             }
 
             const model = this.get(id);
-            const index = model ? this.indexOf(model) + step : (step > 0 ? 0 : this.models.length - 1);
+            const index = model ? this.indexOf(model) + 1 : 0;
 
-            if (this.isOutOfPageBounds(index, step)) {
-                return this.trigger(this[step > 0 ? 'hasNextPage' : 'hasPreviousPage']() ? pageEvent : edgeEvent);
+            if (this._isLastOnPage(index)) {
+                return this.trigger(
+                    this.hasNextPage() ? 'page:next' : 'page:end'
+                );
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        getPreviousItem: function(id) {
+            if (this._isEmpty()) {
+                return false;
+            }
+
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+
+            if (this._isFirstOnPage(index)) {
+                return this.trigger(
+                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
+                );
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
-         * Determines if the collection has no models.
-         * @private
-         * @returns {boolean}
-         */
-        isEmpty: function() {
-            return this.length === 0;
-        },
-
-        /**
-         * Checks whether the calculated index exceeds the current page bounds.
-         * @private
-         * @param {number} index
-         * @param {number} step
-         * @returns {boolean}
-         */
-        isOutOfPageBounds: function(index, step) {
-            return (step > 0 && index >= this.models.length) ||
-                   (step < 0 && index < 0);
-        },
-
-        /**
          * When some model was removed, trigger `model:navigate` event
          * passing a model which has the same index as the removed model.
-         * @param {Backbone.Model} model
+         * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            const target = this.get(model.id);
-            if (!target) {
+            model = this.get(model.id);
+            if (!model) {
                 return false;
             }
 
             const coll = this.fullCollection || this;
-            const index = this.indexOf(target);
+            let index = this.indexOf(model);
 
-            coll.remove(target);
+            coll.remove(model);
             this.sortFullCollection();
 
-            const adjustedIndex = this.at(index) ? index : index - 1;
+            if (!this.at(index)) {
+                index--;
+            }
 
-            if (adjustedIndex < 0) {
+            if (!this.at(index)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(adjustedIndex));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
          * When a model was restored from trash.
-         * @param {Backbone.Model} model
          */
         _onRestore: function(model) {
-            if (this.isNotTrashed()) {
+            if (this.conditionFilter !== 'trashed') {
                 return this._onAddItem(model);
             }
 
@@ -296,35 +300,29 @@ define([
         },
 
         /**
-         * Predicate indicating the current filter is not 'trashed'.
-         * @private
-         * @returns {boolean}
-         */
-        isNotTrashed: function() {
-            return this.conditionFilter !== 'trashed';
-        },
-
-        /**
-         * Update pagination when a model is added.
-         * @param {Backbone.Model} model
+         * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
             }
 
-            // Remove a model from the collection if it doesn't meet the current filter condition.
+            /**
+             * Remove a model from the collection if it doesn't meet
+             * the current filter condition.
+             */
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
             // If the model already exists, update it
             const coll = this.fullCollection || this;
-            const existing = coll.get(model.id);
+            const colModel = coll.get(model.id);
 
-            if (existing) {
-                return existing.set(model.toJSON());
+            if (colModel) {
+                return colModel.set(model.toJSON());
             }
 
             // Or add it to fullCollection and sort the collection again
@@ -333,8 +331,7 @@ define([
         },
 
         /**
-         * Update pagination when a model is removed.
-         * @param {Backbone.Model} model
+         * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
             this.fullCollection.remove(model);
@@ -342,7 +339,7 @@ define([
         },
 
         /**
-         * Updates the number of available pages.
+         * Updates the number of available pages
          */
         _updateTotalPages: function() {
             this.state.totalPages = Math.ceil(

@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -19,31 +19,52 @@ define([
     'use strict';
 
     /**
-     * Builder for SyncContext objects.
+     * Builder for sync parameter objects.
      *
-     * @class
+     * @class SyncParamsBuilder
      */
-    const SyncContextBuilder = function() {
-        this.context = {};
-    };
-    SyncContextBuilder.prototype.setLocalData = function(localData) {
-        this.context.localData = localData;
-        return this;
-    };
-    SyncContextBuilder.prototype.setRemoteData = function(remoteData) {
-        this.context.remoteData = remoteData;
-        return this;
-    };
-    SyncContextBuilder.prototype.setModule = function(module) {
-        this.context.module = module;
-        return this;
-    };
-    SyncContextBuilder.prototype.setEncryptKeys = function(encryptKeys) {
-        this.context.encryptKeys = encryptKeys;
-        return this;
-    };
-    SyncContextBuilder.prototype.build = function() {
-        return this.context;
+    const SyncParamsBuilder = class {
+        constructor() {
+            this.params = {};
+        }
+        /**
+         * @param {Object} localData
+         * @returns {SyncParamsBuilder}
+         */
+        setLocalData(localData) {
+            this.params.localData = localData;
+            return this;
+        }
+        /**
+         * @param {Object} remoteData
+         * @returns {SyncParamsBuilder}
+         */
+        setRemoteData(remoteData) {
+            this.params.remoteData = remoteData;
+            return this;
+        }
+        /**
+         * @param {string} module
+         * @returns {SyncParamsBuilder}
+         */
+        setModule(module) {
+            this.params.module = module;
+            return this;
+        }
+        /**
+         * @param {Array|string} encryptKeys
+         * @returns {SyncParamsBuilder}
+         */
+        setEncryptKeys(encryptKeys) {
+            this.params.encryptKeys = encryptKeys;
+            return this;
+        }
+        /**
+         * @returns {Object}
+         */
+        build() {
+            return this.params;
+        }
     };
 
     /**
@@ -102,6 +123,7 @@ define([
                     if (authenticated) {
                         return self.onReady();
                     }
+
                     console.error('Dropbox authentication failed.');
                 })
                 .catch(function(err) {
@@ -117,7 +139,7 @@ define([
                 clearTimeout(this.timeout);
             }
 
-            this.timeout = setTimeout(_.bind(() => {
+            this.timeout = setTimeout(_.bind(function() {
                 this.checkChanges();
             }, this), 0);
         },
@@ -137,6 +159,7 @@ define([
                 if (hash.error) {
                     Radio.request('uri', 'navigate', '/');
                 }
+
                 return this.authenticate();
             }
         },
@@ -159,9 +182,9 @@ define([
 
                 if (parts.length > 1) {
                     const key  = parts.shift();
-                    let val    = parts.length > 0 ? parts.join('=') : undefined;
-                    val        = undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = val;
+                    const val  = parts.length > 0 ? parts.join('=') : undefined;
+                    const decoded = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = decoded;
                 }
             });
 
@@ -172,7 +195,7 @@ define([
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
+            Radio.once('Confirm', 'cancel',  _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', function() {
                 window.location = authUrl;
             });
@@ -212,7 +235,7 @@ define([
             const self = this;
             adapter.init(this.client, profile);
 
-            this.timeout = window.setTimeout(() => {
+            this.timeout = window.setTimeout(function() {
                 self.checkChanges();
             }, 500);
         },
@@ -235,14 +258,12 @@ define([
                         adapter.getAll(module)
                     ])
                         .spread(function(localData, remoteData) {
-                            const encryptKeys = localData.model.prototype.encryptKeys;
-                            const context = new SyncContextBuilder()
+                            const params = new SyncParamsBuilder()
                                 .setLocalData(localData)
                                 .setRemoteData(remoteData)
                                 .setModule(module)
-                                .setEncryptKeys(encryptKeys)
                                 .build();
-                            return self.syncAll(context);
+                            return self.syncAll(params);
                         });
                 });
             });
@@ -256,10 +277,12 @@ define([
                 .fail(function(err) {
                     if (err) {
                         switch (err.status) {
+
                             // If access was revoked, try to ask for it again
                             case 401:
                                 self.checkAuth();
                                 break;
+
                             // On connection error, increase watch interval
                             case 0:
                                 self.configs.interval = self.configs.intervalMax;
@@ -275,47 +298,63 @@ define([
         },
 
         /**
-         * Synchronize a collection using a context object.
+         * Synchronize a collection using a parameter object.
          *
-         * @param {Object} ctx - Sync context containing localData, remoteData, module, encryptKeys.
+         * @param {Object} params - Contains localData, remoteData, module.
          * @returns {Promise}
          */
-        syncAll: function(ctx) {
-            const {localData, remoteData, module, encryptKeys} = ctx;
-            const promises = this._checkRemoteChanges(localData, remoteData, module);
-            promises.push.apply(
-                promises,
-                this._checkLocalChanges(localData, remoteData, module, encryptKeys)
-            );
+        syncAll: function(params) {
+            const { localData, remoteData, module } = params;
+            const encryptKeys = localData.model.prototype.encryptKeys;
 
-            return _.reduce(promises, Q.when, new Q())
-                .then(() => Radio.request(module, 'fetch', {encrypt: true}));
+            const localJson = (localData.fullCollection || localData).toJSON();
+
+            const remotePromises = this.checkRemoteChanges({
+                localData: localJson,
+                remoteData,
+                module
+            });
+
+            const localPromises = this.checkLocalChanges({
+                localData: localJson,
+                remoteData,
+                module,
+                encryptKeys
+            });
+
+            const allPromises = remotePromises.concat(localPromises);
+
+            return _.reduce(allPromises, Q.when, new Q())
+                .then(function() {
+                    return Radio.request(module, 'fetch', {encrypt: true});
+                });
         },
 
         /**
-         * Backward compatible wrapper for syncAll.
+         * Backward-compatible wrapper for syncAll.
+         *
+         * @param {Object} localData
+         * @param {Object} remoteData
+         * @param {string} module
+         * @returns {Promise}
          */
         syncAllLegacy: function(localData, remoteData, module) {
-            const encryptKeys = localData.model.prototype.encryptKeys;
-            const ctx = new SyncContextBuilder()
+            const params = new SyncParamsBuilder()
                 .setLocalData(localData)
                 .setRemoteData(remoteData)
                 .setModule(module)
-                .setEncryptKeys(encryptKeys)
                 .build();
-            return this.syncAll(ctx);
+            return this.syncAll(params);
         },
 
         /**
-         * Internal: check remote changes.
+         * Save only models which don't exist locally or which were updated remotely.
          *
-         * @private
-         * @param {Array} localData
-         * @param {Array} remoteData
-         * @param {String} module
+         * @param {Object} params - Contains localData, remoteData, module.
          * @returns {Array<Function>}
          */
-        _checkRemoteChanges: function(localData, remoteData, module) {
+        checkRemoteChanges: function(params) {
+            const { localData, remoteData, module } = params;
             const promises = [];
             const newData = _.filter(remoteData, function(rModel) {
                 const model = _.findWhere(localData, {id: rModel.id});
@@ -335,16 +374,13 @@ define([
         },
 
         /**
-         * Internal: check local changes.
+         * Save only models which don't exist on Dropbox or which were updated locally.
          *
-         * @private
-         * @param {Array} localData
-         * @param {Array} remoteData
-         * @param {String} module
-         * @param {Array} encryptKeys
+         * @param {Object} params - Contains localData, remoteData, module, encryptKeys.
          * @returns {Array<Function>}
          */
-        _checkLocalChanges: function(localData, remoteData, module, encryptKeys) {
+        checkLocalChanges: function(params) {
+            const { localData, remoteData, module, encryptKeys } = params;
             const promises = [];
 
             _.each(localData, function(lModel) {
@@ -370,7 +406,7 @@ define([
             this.calcInterval();
             console.log('interval is', this.configs.interval);
 
-            this.timeout = setTimeout(_.bind(() => {
+            this.timeout = setTimeout(_.bind(function() {
                 this.checkChanges();
             }, this), this.configs.interval);
         },
@@ -395,15 +431,15 @@ define([
         /**
          * Immediately after a model is changed locally, synchronize it with
          * Dropbox.
+         *
+         * @param {Backbone.Model} model
+         * @returns {Promise}
          */
         onSave: function(model) {
             return adapter.save(model.storeName, model.attributes, model.encryptKeys);
         }
 
     });
-
-    // Preserve original public method signatures for external callers
-    Sync.prototype.syncAll = Sync.prototype.syncAllLegacy;
 
     return Sync;
 });

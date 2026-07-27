@@ -255,34 +255,71 @@ internals.Request.prototype._setMethod = function (method) {
 };
 
 
-/**
- * Determines if the request path is valid.
- * @returns {boolean}
- */
-internals.Request.prototype._isValidPath = function () {
+internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
 
-    return this.path && this.path[0] === '/';
+    tags = [].concat(tags);
+    timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
+    const internal = !!_internal;
+
+    let update = (typeof data !== 'function' ? [this, { request: this.id, timestamp, tags, data, internal }] : () => {
+
+        return [this, { request: this.id, timestamp, tags, data: data(), internal }];
+    });
+
+    if (this.route.settings.log) {
+        if (typeof data === 'function') {
+            update = update();
+        }
+
+        this._logger.push(update[1]);       // Add to request array
+    }
+
+    this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
 };
 
 
-/**
- * Determines if CORS should be applied.
- * @returns {boolean}
- */
-internals.Request.prototype._shouldApplyCors = function () {
+internals.Request.prototype._log = function (tags, data) {
 
-    return !!this.route.settings.cors;
+    return this.log(tags, data, null, true);
 };
 
-
 /**
- * Applies CORS information to the request.
+ * Retrieves logged events filtered by tags and/or internal flag.
+ *
+ * @param {string|string[]|boolean} [tags] - Tag(s) to filter by or boolean to indicate internal flag.
+ * @param {boolean} [internal] - When true, returns only internal events; when false, only external events.
+ * @returns {Array} Array of log events matching the criteria.
  */
-internals.Request.prototype._applyCors = function () {
+internals.Request.prototype.getLog = function (tags, internal) {
 
-    this.info.cors = {
-        isOriginMatch: Cors.matchOrigin(this.headers.origin, this.route.settings.cors)
-    };
+    Hoek.assert(this.route.settings.log, 'Request logging is disabled');
+
+    // Support signature getLog(internal) where first argument is boolean
+    if (typeof tags === 'boolean') {
+        internal = tags;
+        tags = [];
+    }
+
+    tags = [].concat(tags || []);
+
+    // No filtering requested
+    if (!tags.length && internal === undefined) {
+        return this._logger;
+    }
+
+    const filter = tags.length ? Hoek.mapToObject(tags) : null;
+
+    return this._logger.filter(event => {
+        if (internal !== undefined && event.internal !== internal) {
+            return false;
+        }
+
+        if (!filter) {
+            return true;
+        }
+
+        return event.tags.some(tag => filter[tag]);
+    });
 };
 
 
@@ -312,30 +349,32 @@ internals.Request.prototype._match = function (err) {
         return this._reply(err);
     }
 
-    if (!this._isValidPath()) {
+    if (!this.path ||
+        this.path[0] !== '/') {
+
         return this._reply(Boom.badRequest('Invalid path'));
     }
 
-    this._lookupRoute();
-
-    if (this._shouldApplyCors()) {
-        this._applyCors();
-    }
-
-    return this._lifecycle();
-};
-
-
-internals.Request.prototype._lookupRoute = function () {
+    // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
-    if (!match.route.settings.isInternal || this._allowInternals) {
+    if (!match.route.settings.isInternal ||
+        this._allowInternals) {
+
         this._route = match.route;
         this.route = this._route.public;
     }
 
     this.params = match.params || {};
     this.paramsArray = match.paramsArray || [];
+
+    if (this.route.settings.cors) {
+        this.info.cors = {
+            isOriginMatch: Cors.matchOrigin(this.headers.origin, this.route.settings.cors)
+        };
+    }
+
+    return this._lifecycle();
 };
 
 
@@ -345,12 +384,14 @@ internals.Request.prototype._lifecycle = function () {
 
     const each = (func, next) => {
 
-        if (this._isReplied || this._isBailed) {
-            return next(Boom.internal('Already closed'));
+        if (this._isReplied ||
+            this._isBailed) {
+
+            return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
-        if (typeof func !== 'function') {
-            return this._invoke(func, next);
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
         }
 
         return func(this, next);
@@ -362,39 +403,27 @@ internals.Request.prototype._lifecycle = function () {
 
 internals.Request.prototype._setTimeouts = function () {
 
-    this._setSocketTimeout();
-    this._setServerTimeout();
-};
+    if (this.raw.req.socket &&
+        this.route.settings.timeout.socket !== undefined) {
 
-
-internals.Request.prototype._setSocketTimeout = function () {
-
-    if (this.raw.req.socket && this.route.settings.timeout.socket !== undefined) {
-        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
-};
-
-
-internals.Request.prototype._setServerTimeout = function () {
 
     let serverTimeout = this.route.settings.timeout.server;
-    if (!serverTimeout) {
-        return;
+    if (serverTimeout) {
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+        const timeoutReply = () => {
+
+            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+            this._reply(Boom.serverUnavailable());
+        };
+
+        if (serverTimeout <= 0) {
+            return timeoutReply();
+        }
+
+        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
     }
-
-    serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());
-
-    const timeoutReply = () => {
-
-        this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
-        this._reply(Boom.serverUnavailable());
-    };
-
-    if (serverTimeout <= 0) {
-        return timeoutReply();
-    }
-
-    this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
 };
 
 
@@ -410,7 +439,7 @@ internals.Request.prototype._invoke = function (event, callback) {
                     this._setResponse(override);
                 }
 
-                return next(result);
+                return next(result);            // next() called with response object which ends processing (treated like error)
             };
 
             const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
@@ -427,70 +456,37 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._handleAlreadyReplied()) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
-    if (this._handleBailed()) {
-        return;
+    this._isReplied = true;
+
+    clearTimeout(this._serverTimeoutId);
+
+    if (this._isBailed) {
+        return this._finalize();
     }
 
-    if (this._handleClosedResponse()) {
-        return;
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
+        return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
     this._protect.reset();
 
-    return this._transmitResponse();
-};
-
-
-internals.Request.prototype._handleAlreadyReplied = function () {
-
-    if (this._isReplied) {
-        return true;
-    }
-
-    this._isReplied = true;
-    clearTimeout(this._serverTimeoutId);
-    return false;
-};
-
-
-internals.Request.prototype._handleBailed = function () {
-
-    if (this._isBailed) {
-        this._finalize();
-        return true;
-    }
-
-    return false;
-};
-
-
-internals.Request.prototype._handleClosedResponse = function () {
-
-    if (this.response && this.response.closed) {
-        if (this.response.end) {
-            this.raw.res.end();
-        }
-        this._finalize();
-        return true;
-    }
-
-    return false;
-};
-
-
-internals.Request.prototype._transmitResponse = function () {
-
     const transmit = (err) => {
 
-        if (err) {
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
 
@@ -534,7 +530,9 @@ internals.Request.prototype._finalize = function () {
     this.raw.req.removeListener('error', this._onError);
     this.raw.req.removeListener('error', this._onAbort);
 
-    if (this.response && this.response._close) {
+    if (this.response &&
+        this.response._close) {
+
         this.response._close();
     }
 
@@ -556,6 +554,7 @@ internals.Request.prototype._setResponse = function (response) {
         if (response._close) {
             response._close();
         }
+
         return;
     }
 
@@ -573,16 +572,19 @@ internals.Request.prototype._addTail = function (name) {
     const drop = () => {
 
         if (!this._tails[tailId]) {
-            this._log(['tail', 'remove', 'error'], { name, id: tailId });
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
             return;
         }
 
         delete this._tails[tailId];
 
-        if (Object.keys(this._tails).length === 0 && this._isFinalized) {
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
             this._log(['tail', 'remove', 'last'], { name, id: tailId });
             this.connection.emit('tail', this);
-        } else {
+        }
+        else {
             this._log(['tail', 'remove'], { name, id: tailId });
         }
     };
@@ -623,72 +625,4 @@ internals.Request.prototype._tap = function () {
 internals.Request.prototype.generateResponse = function (source, options) {
 
     return new Response(source, this, options);
-};
-
-
-internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
-
-    tags = [].concat(tags);
-    timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
-    const internal = !!_internal;
-
-    let update = (typeof data !== 'function' ? [this, { request: this.id, timestamp, tags, data, internal }] : () => {
-
-        return [this, { request: this.id, timestamp, tags, data: data(), internal }];
-    });
-
-    if (this.route.settings.log) {
-        if (typeof data === 'function') {
-            update = update();
-        }
-
-        this._logger.push(update[1]);       // Add to request array
-    }
-
-    this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
-};
-
-
-internals.Request.prototype._log = function (tags, data) {
-
-    return this.log(tags, data, null, true);
-};
-
-
-internals.Request.prototype.getLog = function (tags, internal) {
-
-    Hoek.assert(this.route.settings.log, 'Request logging is disabled');
-
-    if (typeof tags === 'boolean') {
-        internal = tags;
-        tags = [];
-    }
-
-    tags = [].concat(tags || []);
-    if (!tags.length && internal === undefined) {
-
-        return this._logger;
-    }
-
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
-
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            } else {
-                result.push(event);
-            }
-        }
-    }
-
-    return result;
 };

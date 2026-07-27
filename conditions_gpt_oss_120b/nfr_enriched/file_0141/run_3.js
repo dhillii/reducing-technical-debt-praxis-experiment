@@ -34,19 +34,28 @@ const LIFECYCLES = {
 };
 
 /**
- * Strapi core class.
+ * Construct a Strapi instance.
+ *
+ * @constructor
  */
 class Strapi {
   constructor(opts = {}) {
     this.reload = this.reload();
 
+    // Expose `koa`.
     this.app = new Koa();
     this.router = new Router();
 
     this.initServer();
 
+    // Logger.
     this.log = logger;
-    this.utils = { models };
+
+    // Utils.
+    this.utils = {
+      models,
+    };
+
     this.dir = opts.dir || process.cwd();
 
     this.admin = {};
@@ -56,6 +65,7 @@ class Strapi {
 
     this.isLoaded = false;
 
+    // internal services.
     this.fs = createStrapiFs(this);
     this.eventHub = createEventHub();
 
@@ -72,11 +82,13 @@ class Strapi {
     if (!this.requestHandler) {
       this.requestHandler = this.app.callback();
     }
+
     return this.requestHandler(req, res);
   }
 
   requireProjectBootstrap() {
     const bootstrapPath = path.resolve(this.dir, 'config/functions/bootstrap.js');
+
     if (fse.existsSync(bootstrapPath)) {
       require(bootstrapPath);
     }
@@ -112,6 +124,7 @@ class Strapi {
 
   logFirstStartupMessage() {
     this.logStats();
+
     console.log(chalk.bold('One more thing...'));
     console.log(
       chalk.grey('Create your first administrator 💻 by going to the administration panel at:')
@@ -119,6 +132,7 @@ class Strapi {
     console.log();
 
     const addressTable = new CLITable();
+
     const adminUrl = getAbsoluteAdminUrl(strapi.config);
     addressTable.push([chalk.bold(adminUrl)]);
 
@@ -128,6 +142,7 @@ class Strapi {
 
   logStartupMessage() {
     this.logStats();
+
     console.log(chalk.bold('Welcome back!'));
 
     if (this.config.serveAdminPanel === true) {
@@ -145,25 +160,30 @@ class Strapi {
 
   initServer() {
     this.server = http.createServer(this.handleRequest.bind(this));
+    // handle port in use cleanly
     this.server.on('error', err => {
       if (err.code === 'EADDRINUSE') {
         return this.stopWithError(`The port ${err.port} is already used by another application.`);
       }
+
       this.log.error(err);
     });
 
+    // Close current connections to fully destroy the server
     const connections = {};
 
     this.server.on('connection', conn => {
       const key = conn.remoteAddress + ':' + conn.remotePort;
       connections[key] = conn;
-      conn.on('close', function () {
+
+      conn.on('close', function() {
         delete connections[key];
       });
     });
 
     this.server.destroy = cb => {
       this.server.close(cb);
+
       for (let key in connections) {
         connections[key].destroy();
       }
@@ -175,7 +195,10 @@ class Strapi {
       if (!this.isLoaded) {
         await this.load();
       }
+
       this.app.use(this.router.routes()).use(this.router.allowedMethods());
+
+      // Launch server.
       this.listen(cb);
     } catch (err) {
       this.stopWithError(err);
@@ -213,10 +236,43 @@ class Strapi {
   async listen(cb) {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
-      await this._handleServerReady(cb);
+
+      const isInitialised = await utils.isInitialised(this);
+      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
+        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+        : false;
+
+      if (!hideStartupMessage) {
+        if (!isInitialised) {
+          this.logFirstStartupMessage();
+        } else {
+          this.logStartupMessage();
+        }
+      }
+
+      const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
+
+      await this.telemetry.send('didStartServer', {
+        database: databaseClients,
+        plugins: this.config.installedPlugins,
+        providers: this.config.installedProviders,
+      });
+
+      if (cb && typeof cb === 'function') {
+        cb();
+      }
+
+      if (
+        (this.config.environment === 'development' &&
+          this.config.get('server.admin.autoOpen', true) !== false) ||
+        !isInitialised
+      ) {
+        await utils.openBrowser.call(this);
+      }
     };
+
     const listenSocket = this.config.get('server.socket');
-    const listenErrHandler = err => onListen(err).catch(e => this.stopWithError(e));
+    const listenErrHandler = err => onListen(err).catch(err => this.stopWithError(err));
 
     if (listenSocket) {
       this.server.listen(listenSocket, listenErrHandler);
@@ -229,41 +285,6 @@ class Strapi {
     }
   }
 
-  async _handleServerReady(cb) {
-    const isInitialised = utils.isInitialised(this);
-    const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
-
-    if (!hideStartupMessage) {
-      if (!isInitialised) {
-        this.logFirstStartupMessage();
-      } else {
-        this.logStartupMessage();
-      }
-    }
-
-    const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
-
-    await this.telemetry.send('didStartServer', {
-      database: databaseClients,
-      plugins: this.config.installedPlugins,
-      providers: this.config.installedProviders,
-    });
-
-    if (cb && typeof cb === 'function') {
-      cb();
-    }
-
-    if (this._shouldOpenBrowser(isInitialised)) {
-      await utils.openBrowser.call(this);
-    }
-  }
-
-  _shouldOpenBrowser(isInitialised) {
-    const autoOpen = this.config.get('server.admin.autoOpen', true);
-    const isDev = this.config.environment === 'development';
-    return (isDev && autoOpen !== false) || !isInitialised;
-  }
-
   stopWithError(err, customMessage) {
     this.log.debug(`⛔️ Server wasn't able to start properly.`);
     if (customMessage) {
@@ -274,65 +295,40 @@ class Strapi {
   }
 
   stop(exitCode = 1) {
+    // Destroy server and available connections.
     if (_.has(this, 'server.destroy')) {
       this.server.destroy();
     }
+
     if (this.config.autoReload) {
       process.send('stop');
     }
+
+    // Kill process
     process.exit(exitCode);
   }
 
   async load() {
-    this.app.use(async (ctx, next) => {
-      if (ctx.request.url === '/_health' && ['HEAD', 'GET'].includes(ctx.request.method)) {
-        ctx.set('strapi', 'You are so French!');
-        ctx.status = 204;
-      } else {
-        await next();
-      }
-    });
+    await this._setupHealthEndpoint();
 
     const modules = await loadModules(this);
-    this.api = modules.api;
-    this.admin = modules.admin;
-    this.components = modules.components;
-    this.plugins = modules.plugins;
-    this.middleware = modules.middlewares;
-    this.hook = modules.hook;
+    this._assignModules(modules);
 
-    await bootstrap(this);
+    await this._executeBootstrap();
 
-    this.webhookRunner = createWebhookRunner({
-      eventHub: this.eventHub,
-      logger: this.log,
-      configuration: this.config.get('server.webhooks', {}),
-    });
+    this._initWebhookRunner();
 
-    this.models['core_store'] = coreStoreModel(this.config);
-    this.models['strapi_webhooks'] = webhookModel(this.config);
+    this._initCoreModels();
 
     this.db = createDatabaseManager(this);
-
     await this.runLifecyclesFunctions(LIFECYCLES.REGISTER);
     await this.db.initialize();
 
-    this.store = createCoreStore({
-      environment: this.config.environment,
-      db: this.db,
-    });
-
-    this.webhookStore = createWebhookStore({ db: this.db });
+    this._initStores();
 
     await this.startWebhooks();
 
-    this.entityValidator = entityValidator;
-
-    this.entityService = createEntityService({
-      db: this.db,
-      eventHub: this.eventHub,
-      entityValidator: this.entityValidator,
-    });
+    this._initEntityLayer();
 
     this.telemetry = createTelemetry(this);
 
@@ -346,50 +342,75 @@ class Strapi {
     return this;
   }
 
+  async _setupHealthEndpoint() {
+    this.app.use(async (ctx, next) => {
+      if (ctx.request.url === '/_health' && ['HEAD', 'GET'].includes(ctx.request.method)) {
+        ctx.set('strapi', 'You are so French!');
+        ctx.status = 204;
+      } else {
+        await next();
+      }
+    });
+  }
+
+  _assignModules(modules) {
+    this.api = modules.api;
+    this.admin = modules.admin;
+    this.components = modules.components;
+    this.plugins = modules.plugins;
+    this.middleware = modules.middlewares;
+    this.hook = modules.hook;
+  }
+
+  async _executeBootstrap() {
+    const result = bootstrap(this);
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+  }
+
+  _initWebhookRunner() {
+    this.webhookRunner = createWebhookRunner({
+      eventHub: this.eventHub,
+      logger: this.log,
+      configuration: this.config.get('server.webhooks', {}),
+    });
+  }
+
+  _initCoreModels() {
+    this.models['core_store'] = coreStoreModel(this.config);
+    this.models['strapi_webhooks'] = webhookModel(this.config);
+  }
+
+  _initStores() {
+    this.store = createCoreStore({
+      environment: this.config.environment,
+      db: this.db,
+    });
+
+    this.webhookStore = createWebhookStore({ db: this.db });
+  }
+
   async startWebhooks() {
     const webhooks = await this.webhookStore.findWebhooks();
     webhooks.forEach(webhook => this.webhookRunner.add(webhook));
   }
 
-  reload() {
-    const state = { shouldReload: 0 };
-    const reload = function () {
-      if (state.shouldReload > 0) {
-        state.shouldReload -= 1;
-        reload.isReloading = false;
-        return;
-      }
-      if (this.config.autoReload) {
-        this.server.close();
-        process.send('reload');
-      }
-    };
-
-    Object.defineProperty(reload, 'isWatching', {
-      configurable: true,
-      enumerable: true,
-      set: value => {
-        if (state.isWatching === false && value === true) {
-          state.shouldReload += 1;
-        }
-        state.isWatching = value;
-      },
-      get: () => state.isWatching,
+  _initEntityLayer() {
+    this.entityValidator = entityValidator;
+    this.entityService = createEntityService({
+      db: this.db,
+      eventHub: this.eventHub,
+      entityValidator: this.entityValidator,
     });
-
-    reload.isReloading = false;
-    reload.isWatching = true;
-    return reload;
   }
 
   async runLifecyclesFunctions(lifecycleName) {
-    const execLifecycle = fn => {
-      if (!fn) return Promise.resolve();
-      try {
-        return Promise.resolve(fn());
-      } catch (e) {
-        return Promise.reject(e);
+    const execLifecycle = async fn => {
+      if (!fn) {
+        return;
       }
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;

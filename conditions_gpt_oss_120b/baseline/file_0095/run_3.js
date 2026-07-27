@@ -36,7 +36,7 @@ define([
      * 10. `encrypt:models` - encrypt a Backbone collection
      * 11. `decrypt:models` - decrypt a Backbone collection
      */
-    const Encrypt = Marionette.Object.extend({
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
 
@@ -144,7 +144,7 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self = this;
+            const self  = this;
 
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
@@ -238,7 +238,7 @@ define([
                 return new Q();
             }
 
-            const promises = [];
+            let promises = [];
             const self = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
@@ -273,7 +273,7 @@ define([
                 return new Q();
             }
 
-            const promises = [];
+            let promises = [];
             const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
@@ -317,7 +317,7 @@ define([
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = [];
+            let promises = [];
             const self = this;
 
             _.each(model.encryptKeys, function(key) {
@@ -325,7 +325,7 @@ define([
                     new Q(self.sjcl.decryptLegacy({
                         configs : self.configs,
                         string  : model.get(key),
-                        keys    : self.keys
+                        keys    : this.keys
                     }))
                     .then(function(data) {
                         model.set(key, data);
@@ -365,7 +365,7 @@ define([
                 return null;
             }
 
-            let keys = window.sessionStorage.getItem(this._getSessionKey());
+            let keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;

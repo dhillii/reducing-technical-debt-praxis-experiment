@@ -13,7 +13,7 @@ import {
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
   // confluence
-  const attribute = parent?.dataset?.align
+  const attribute = (parent as HTMLElement | null)?.dataset.align
   // note: we don't show html that confluence would parse as alignment
   // we could change that but meh
   // (they match on div.fabric-editor-block-mark with data-align)

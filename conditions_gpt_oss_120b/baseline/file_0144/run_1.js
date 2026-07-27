@@ -7,7 +7,7 @@ module.exports = function() {
 
 	let hotApplyOnUpdate = true;
 	let hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
-	let hotCurrentModuleData = {};
+	const hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
 	let hotCurrentParents = []; // eslint-disable-line no-unused-vars
 	let hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
@@ -44,7 +44,7 @@ module.exports = function() {
 				}
 			};
 		};
-		for (const name in $require$) {
+		for (let name in $require$) {
 			if (Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
 				Object.defineProperty(fn, name, ObjectFactory(name));
 			}
@@ -138,7 +138,7 @@ module.exports = function() {
 		return hot;
 	}
 
-	let hotStatusHandlers = [];
+	const hotStatusHandlers = [];
 	let hotStatus = "idle";
 
 	function hotSetStatus(newStatus) {
@@ -150,9 +150,9 @@ module.exports = function() {
 	// while downloading
 	let hotWaitingFiles = 0;
 	let hotChunksLoading = 0;
-	let hotWaitingFilesMap = {};
-	let hotRequestedFilesMap = {};
-	let hotAvailableFilesMap = {};
+	const hotWaitingFilesMap = {};
+	const hotRequestedFilesMap = {};
+	const hotAvailableFilesMap = {};
 	let hotDeferred;
 
 	// The update info
@@ -201,7 +201,7 @@ module.exports = function() {
 		if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
-		for (const moduleId in moreModules) {
+		for (let moduleId in moreModules) {
 			if (Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
 				hotUpdate[moduleId] = moreModules[moduleId];
 			}
@@ -234,7 +234,7 @@ module.exports = function() {
 			});
 		} else {
 			const outdatedModules = [];
-			for (const id in hotUpdate) {
+			for (let id in hotUpdate) {
 				if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 					outdatedModules.push(toModuleId(id));
 				}
@@ -284,8 +284,8 @@ module.exports = function() {
 						moduleId: moduleId
 					};
 				}
-				for (let i2 = 0; i2 < module.parents.length; i2++) {
-					const parentId = module.parents[i2];
+				for (let i = 0; i < module.parents.length; i++) {
+					const parentId = module.parents[i];
 					const parent = installedModules[parentId];
 					if (!parent) continue;
 					if (parent.hot._declinedDependencies[moduleId]) {
@@ -332,13 +332,13 @@ module.exports = function() {
 		// the "outdated" status can propagate to parents if they don't accept the children
 		let outdatedDependencies = {};
 		let outdatedModules = [];
-		let appliedUpdate = {};
+		const appliedUpdate = {};
 
 		const warnUnexpectedRequire = function warnUnexpectedRequire() {
 			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
 		};
 
-		for (const id in hotUpdate) {
+		for (let id in hotUpdate) {
 			if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 				moduleId = toModuleId(id);
 				let result;
@@ -431,7 +431,7 @@ module.exports = function() {
 		});
 
 		let idx;
-		let queue = outdatedModules.slice();
+		const queue = outdatedModules.slice();
 		while (queue.length > 0) {
 			moduleId = queue.pop();
 			module = installedModules[moduleId];

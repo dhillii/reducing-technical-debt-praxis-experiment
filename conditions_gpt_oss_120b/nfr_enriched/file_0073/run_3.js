@@ -215,13 +215,67 @@ async function assertInvalidConfig(values, message) {
 }
 
 //-----------------------------------------------------------------------------
-// Test Group Functions (single responsibility)
+// Test Suites (extracted to keep top‑level callback simple)
 //-----------------------------------------------------------------------------
 
-/**
- * Runs serialization related tests.
- */
-function runSerializationTests() {
+function testBaseConfigObjects() {
+	it("should allow noniterable baseConfig objects", () => {
+		const base = {
+			languageOptions: {
+				parserOptions: {
+					foo: true,
+				},
+			},
+		};
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		// should not throw error
+		configs.normalizeSync();
+	});
+}
+
+function testLanguageOptionsParserOptionsReuse() {
+	it("should not reuse languageOptions.parserOptions across configs", () => {
+		const base = [
+			{
+				files: ["**/*.js"],
+				plugins: {
+					"@": {
+						languages: {
+							js: jslang,
+						},
+					},
+				},
+				language: "@/js",
+				languageOptions: {
+					parserOptions: {
+						foo: true,
+					},
+				},
+			},
+		];
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		configs.normalizeSync();
+
+		const config = configs.getConfig("foo.js");
+
+		assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
+		assert.notStrictEqual(
+			base[0].languageOptions.parserOptions,
+			config.languageOptions.parserOptions,
+			"parserOptions should be new object",
+		);
+	});
+}
+
+function testSerialization() {
 	describe("Serialization of configs", () => {
 		it("should convert config into normalized JSON object", () => {
 			const configs = new FlatConfigArray([
@@ -829,10 +883,7 @@ function runSerializationTests() {
 	});
 }
 
-/**
- * Runs config array element tests.
- */
-function runConfigArrayElementTests() {
+function testConfigArrayElements() {
 	describe("Config array elements", () => {
 		it("should error on 'eslint:recommended' string config", async () => {
 			await assertInvalidConfig(
@@ -990,10 +1041,7 @@ function runConfigArrayElementTests() {
 	});
 }
 
-/**
- * Runs config property tests.
- */
-function runConfigPropertyTests() {
+function testConfigProperties() {
 	describe("Config Properties", () => {
 		describe("settings", () => {
 			it("should merge two objects", () =>
@@ -1415,7 +1463,6 @@ function runConfigPropertyTests() {
 						},
 					));
 			});
-
 			describe("reportUnusedDisableDirectives", () => {
 				it("should error when an unexpected value is found", async () => {
 					await assertInvalidConfig(
@@ -2985,7 +3032,7 @@ function runConfigPropertyTests() {
 		});
 
 		describe("Invalid Keys", () => {
-			const invalidKeys = [
+			[
 				"env",
 				"extends",
 				"globals",
@@ -2996,9 +3043,7 @@ function runConfigPropertyTests() {
 				"parserOptions",
 				"reportUnusedDisableDirectives",
 				"root",
-			];
-
-			invalidKeys.forEach(key => {
+			].forEach(key => {
 				it(`should error when a ${key} key is found`, async () => {
 					await assertInvalidConfig(
 						[
@@ -3025,10 +3070,7 @@ function runConfigPropertyTests() {
 	});
 }
 
-/**
- * Runs shared reference tests.
- */
-function runSharedReferenceTests() {
+function testSharedReferences() {
 	// https://github.com/eslint/eslint/issues/12592
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
@@ -3096,65 +3138,14 @@ function runSharedReferenceTests() {
 }
 
 //-----------------------------------------------------------------------------
-// Tests
+// Main Test Suite
 //-----------------------------------------------------------------------------
 
 describe("FlatConfigArray", () => {
-	it("should allow noniterable baseConfig objects", () => {
-		const base = {
-			languageOptions: {
-				parserOptions: {
-					foo: true,
-				},
-			},
-		};
-
-		const configs = new FlatConfigArray([], {
-			baseConfig: base,
-		});
-
-		// should not throw error
-		configs.normalizeSync();
-	});
-
-	it("should not reuse languageOptions.parserOptions across configs", () => {
-		const base = [
-			{
-				files: ["**/*.js"],
-				plugins: {
-					"@": {
-						languages: {
-							js: jslang,
-						},
-					},
-				},
-				language: "@/js",
-				languageOptions: {
-					parserOptions: {
-						foo: true,
-					},
-				},
-			},
-		];
-
-		const configs = new FlatConfigArray([], {
-			baseConfig: base,
-		});
-
-		configs.normalizeSync();
-
-		const config = configs.getConfig("foo.js");
-
-		assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
-		assert.notStrictEqual(
-			base[0].languageOptions.parserOptions,
-			config.languageOptions.parserOptions,
-			"parserOptions should be new object",
-		);
-	});
-
-	runSerializationTests();
-	runConfigArrayElementTests();
-	runConfigPropertyTests();
-	runSharedReferenceTests();
+	testBaseConfigObjects();
+	testLanguageOptionsParserOptionsReuse();
+	testSerialization();
+	testConfigArrayElements();
+	testConfigProperties();
+	testSharedReferences();
 });

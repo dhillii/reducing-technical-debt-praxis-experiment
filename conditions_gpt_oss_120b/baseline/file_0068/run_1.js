@@ -2,8 +2,11 @@
 
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
-/** @type {string[]} */
-const ruleNames = [
+/**
+ * List of built‑in rule identifiers.
+ * The file name for each rule matches its identifier.
+ */
+const ruleIds = [
 	"accessor-pairs",
 	"array-bracket-newline",
 	"array-bracket-spacing",
@@ -298,9 +301,9 @@ const ruleNames = [
 	"yoda",
 ];
 
-/** @type {Map<string, import("../types").Rule.RuleModule>} */
-module.exports = new LazyLoadingRuleMap(
-	Object.fromEntries(
-		ruleNames.map((name) => [name, () => require(`./${name}`)])
-	)
-);
+/**
+ * Build an array of [ruleId, loader] entries where each loader lazily requires its module.
+ */
+const ruleEntries = ruleIds.map((id) => [id, () => require(`./${id}`)]);
+
+module.exports = new LazyLoadingRuleMap(ruleEntries);

@@ -54,6 +54,40 @@ function check(tokens, expected) {
 	}
 }
 
+/**
+ * Collects token values by iterating forward from a start node.
+ * @param {TokenStore} store The token store instance.
+ * @param {ASTNode|Token} startNode Node or token to start from.
+ * @param {boolean} [includeComments] Whether to include comments.
+ * @returns {string[]} Array of token values.
+ */
+function collectForward(store, startNode, includeComments) {
+	const values = [];
+	let token = store.getFirstToken(startNode);
+	while (token) {
+		values.push(token.value);
+		token = store.getTokenAfter(token, { includeComments });
+	}
+	return values;
+}
+
+/**
+ * Collects token values by iterating backward from a start node.
+ * @param {TokenStore} store The token store instance.
+ * @param {ASTNode|Token} startNode Node or token to start from.
+ * @param {boolean} [includeComments] Whether to include comments.
+ * @returns {string[]} Array of token values in forward order.
+ */
+function collectBackward(store, startNode, includeComments) {
+	const values = [];
+	let token = store.getLastToken(startNode);
+	while (token) {
+		values.push(token.value);
+		token = store.getTokenBefore(token, { includeComments });
+	}
+	return values.reverse();
+}
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
@@ -993,7 +1027,10 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from the end of a node's token stream with filter option", () => {
 			check(
-				store.getLastTokens(BinaryExpression, t => t.type === "Identifier"),
+				store.getLastTokens(
+					BinaryExpression,
+					t => t.type === "Identifier",
+				),
 				["a", "b"],
 			);
 			check(
@@ -1345,7 +1382,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve one token between non-adjacent nodes with count option", () => {
+		it("should retrieve one token between non-adjacent nodes", () => {
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1450,7 +1487,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve multiple tokens between non-adjacent nodes", () => {
+		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1536,7 +1573,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve one token between non-adjacent nodes with count option", () => {
+		it("should retrieve one token between non-adjacent nodes", () => {
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1713,16 +1750,7 @@ describe("TokenStore", () => {
 			const code = "(function(a, /*b,*/ c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const tokens = [];
-			let token = tokenStore.getFirstToken(ast);
-
-			while (token) {
-				tokens.push(token);
-				token = tokenStore.getTokenAfter(token, {
-					includeComments: true,
-				});
-			}
-
+			const tokens = collectForward(tokenStore, ast, true);
 			check(tokens, [
 				"(",
 				"function",
@@ -1742,16 +1770,7 @@ describe("TokenStore", () => {
 			const code = "(function(a,/*b,*/c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const tokens = [];
-			let token = tokenStore.getFirstToken(ast);
-
-			while (token) {
-				tokens.push(token);
-				token = tokenStore.getTokenAfter(token, {
-					includeComments: true,
-				});
-			}
-
+			const tokens = collectForward(tokenStore, ast, true);
 			check(tokens, [
 				"(",
 				"function",
@@ -1773,17 +1792,8 @@ describe("TokenStore", () => {
 			const code = "(function(a, /*b,*/ c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const tokens = [];
-			let token = tokenStore.getLastToken(ast);
-
-			while (token) {
-				tokens.push(token);
-				token = tokenStore.getTokenBefore(token, {
-					includeComments: true,
-				});
-			}
-
-			check(tokens.reverse(), [
+			const tokens = collectBackward(tokenStore, ast, true);
+			check(tokens, [
 				"(",
 				"function",
 				"(",
@@ -1802,17 +1812,8 @@ describe("TokenStore", () => {
 			const code = "(function(a,/*b,*/c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const tokens = [];
-			let token = tokenStore.getLastToken(ast);
-
-			while (token) {
-				tokens.push(token);
-				token = tokenStore.getTokenBefore(token, {
-					includeComments: true,
-				});
-			}
-
-			check(tokens.reverse(), [
+			const tokens = collectBackward(tokenStore, ast, true);
+			check(tokens, [
 				"(",
 				"function",
 				"(",

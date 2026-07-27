@@ -811,7 +811,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), "b");
 		});
 
-		it("should return 'b' for `[`b`]: 1`", () => {
+		it("should return '`b`' for `[`b`]: 1`", () => {
 			const ast = espree.parse("({[`b`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -1472,7 +1472,7 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			false,
+			true,
 			false,
 			false,
 			false,
@@ -1518,14 +1518,14 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			false,
-			false,
-			false,
 			true,
 			false,
 			false,
 			false,
 			false,
+			false,
+			false,
+			true,
 			false,
 			false,
 		];
@@ -1565,14 +1565,14 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			true,
-			false,
-			false,
-			false,
 			false,
 			false,
 			false,
 			true,
+			false,
+			false,
+			false,
+			false,
 			false,
 			false,
 		];
@@ -1813,22 +1813,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isOpeningBraceToken", () => {
+		describe("isClosingBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isOpeningBraceToken(token),
+						astUtils.isClosingBraceToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotOpeningBraceToken", () => {
+		describe("isNotClosingBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotOpeningBraceToken(token),
+						astUtils.isNotClosingBraceToken(token),
 						!expected[index],
 					);
 				});

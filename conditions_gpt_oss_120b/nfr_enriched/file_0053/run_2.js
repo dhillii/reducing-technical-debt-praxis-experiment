@@ -46,21 +46,13 @@ exports.usage = function () {
   grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
 };
 
-/**
- * Build the options array for table rendering.
- * @returns {Array<Array<string>>}
- */
-function buildOptionsArray() {
-  return Object.keys(grunt.cli.optlist).map(long => {
+exports.initOptions = function () {
+  exports._options = Object.keys(grunt.cli.optlist).map(long => {
     const o = grunt.cli.optlist[long];
     const col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
     exports.initCol1(col1);
     return [col1, o.info];
   });
-}
-
-exports.initOptions = function () {
-  exports._options = buildOptionsArray();
 };
 
 exports.options = function () {
@@ -75,32 +67,22 @@ exports.optionsFooter = function () {
   );
 };
 
-/**
- * Populate the internal tasks list.
- */
-function populateTasksList() {
+exports.initTasks = function () {
+  grunt.task.init([], { help: true });
   exports._tasks = [];
   Object.keys(grunt.task._tasks).forEach(name => {
     exports.initCol1(name);
     const task = grunt.task._tasks[name];
     exports._tasks.push(task);
   });
-}
-
-/**
- * Prepare the task system for help output.
- */
-exports.initTasks = function () {
-  grunt.task.init([], { help: true });
-  populateTasksList();
 };
 
 /**
- * Render the tasks table rows.
- * @param {Object} task
- * @returns {Array<string>}
+ * Formats task information string, appending a marker for multi-tasks.
+ * @param {Object} task - Task object containing name, info, and multi flag.
+ * @returns {[string,string]} Formatted [name, info] pair.
  */
-function formatTaskRow(task) {
+function formatTaskEntry(task) {
   let info = task.info;
   if (task.multi) {
     info += ' *';
@@ -109,25 +91,26 @@ function formatTaskRow(task) {
 }
 
 /**
- * Render the tasks section.
+ * Logs a message when no tasks are available.
  */
+function logNoTasksFound() {
+  grunt.log.writeln('(no tasks found)');
+}
+
 exports.tasks = function () {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    grunt.log.writeln('(no tasks found)');
-    return;
+    logNoTasksFound();
+  } else {
+    const rows = exports._tasks.map(formatTaskEntry);
+    exports.table(rows);
+    grunt.log.writeln().writelns(
+      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+      'specified.'
+    );
   }
-
-  const rows = exports._tasks.map(formatTaskRow);
-  exports.table(rows);
-
-  grunt.log.writeln().writelns(
-    'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-    'specified.'
-  );
-
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'

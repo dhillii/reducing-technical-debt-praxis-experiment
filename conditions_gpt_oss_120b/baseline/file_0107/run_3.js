@@ -454,10 +454,11 @@ Runner.prototype.runTest = function (fn) {
  */
 Runner.prototype.runTests = function (suite, fn) {
   const self = this;
-  let tests = suite.tests.slice();
+  const tests = suite.tests.slice();
   let test;
 
   function hookErr (_, errSuite, after) {
+    // before/after Each hook for errSuite failed:
     const orig = self.suite;
 
     // for failed 'after each' hook start from errSuite parent,

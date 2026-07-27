@@ -22,22 +22,22 @@ const getCountryName = (code: string): string => {
     return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
 };
 
+// Helper to get device label from value
+const getDeviceLabel = (value: string): string => {
+    if (value === 'mobile-ios') return 'iOS';
+    if (value === 'mobile-android') return 'Android';
+    if (value === 'desktop') return 'Desktop';
+    if (value === 'bot') return 'Bot';
+    if (value === 'unknown') return 'Unknown';
+    return value;
+};
+
 // Helper component for visit count badge - used by all filter options
 const VisitCountBadge = ({visits}: {visits: number}) => (
     <span className="order-2 font-mono text-xs text-muted-foreground">
         {visits.toLocaleString()}
     </span>
 );
-
-// Helper to map device codes to readable labels
-const getDeviceLabel = (code: string): string => {
-    if (code === 'mobile-ios') return 'iOS';
-    if (code === 'mobile-android') return 'Android';
-    if (code === 'desktop') return 'Desktop';
-    if (code === 'bot') return 'Bot';
-    if (code === 'unknown') return 'Unknown';
-    return code;
-};
 
 // Configuration for each filter field type
 interface FilterFieldDefinition {

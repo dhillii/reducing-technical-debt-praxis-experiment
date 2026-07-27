@@ -533,12 +533,10 @@ export default class MembersController extends Controller {
             const includes = ['labels', 'tiers'];
 
             query = {
-                ...{
-                    include: includes.join(','),
-                    order,
-                    limit: range.length,
-                    page: range.page
-                },
+                include: includes.join(','),
+                order,
+                limit: range.length,
+                page: range.page,
                 ...searchQuery,
                 ...query
             };

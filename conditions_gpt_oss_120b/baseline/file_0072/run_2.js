@@ -1310,7 +1310,7 @@ describe("cli", () => {
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
-					"./eslint/eslint": { ESLint: fakeESLint },
+					"./eslint/eslint": fakeESLint,
 					"./shared/logging": log,
 				});
 
@@ -1351,7 +1351,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await cli.execute("--fix-dry-run .");
+				const exitCode = await localCLI.execute("--fix-dry-run .");
 
 				assert.strictEqual(exitCode, 0);
 			});
@@ -1382,7 +1382,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await cli.execute(
+				const exitCode = await localCLI.execute(
 					"--fix-dry-run --fix-type suggestion .",
 				);
 
@@ -1510,7 +1510,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run .",
 					"foo = bar;",
 				);
@@ -1527,7 +1527,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix --fix-dry-run .",
 					"foo = bar;",
 				);

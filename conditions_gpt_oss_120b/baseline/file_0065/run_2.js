@@ -600,8 +600,7 @@ function assertTestCommonProperties(item) {
 
 /**
  * Asserts that a valid test case object is valid.
- * A valid test case must specify a string value for 'code'.
- * Optional properties are checked for correct types.
+ * A valid test case must not have 'errors' or 'output' properties.
  * @param {Object} item The valid test case object to check.
  * @param {Set<string>} seenTestCases Set of serialized test cases to check for duplicates.
  * @returns {void}
@@ -1095,7 +1094,7 @@ class RuleTester {
 		/**
 		 * Runs a hook on the given item when it's assigned to the given property
 		 * @param {Object} item Item to run the hook on
-		 * @param {string} prop The property having the hook assigned to
+		 * @param {string} prop The property having the hook assigned
 		 * @throws {Error} If the property is not a function or that function throws an error
 		 * @returns {void}
 		 * @private

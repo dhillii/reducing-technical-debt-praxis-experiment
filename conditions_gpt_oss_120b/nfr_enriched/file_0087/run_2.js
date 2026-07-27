@@ -38,42 +38,26 @@ export function Field(props: FieldProps<typeof controller>) {
     [field.options]
   )
 
-  const selectedKey = getSelectedKey(value, preNullValue)
+  const selectedKey = value.value?.value || preNullValue?.value || null
   const isNullable = !isRequired
   const isNull = isNullable && value.value?.value == null
   const isInvalid = !validate(value, isRequired)
   const isReadOnly = onChange == null
   const errorMessage = computeErrorMessage(isInvalid, isDirty, forceValidation, field.label)
 
-  const handleSelectionChange = (key: Key | null) => {
-    if (!onChange) return
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
-    onChange({ ...value, value: newValue })
-    setDirty(true)
-  }
-
-  const handleNullChange = (isChecked: boolean) => {
-    if (!onChange) return
-    if (isChecked) {
-      onChange({ ...value, value: null })
-      setPreNullValue(value.value)
-    } else {
-      onChange({ ...value, value: preNullValue || field.options[0] })
-    }
-    setDirty(true)
-  }
+  const handleSelectionChange = createSelectionHandler(onChange, setDirty, value, field)
+  const handleNullChange = createNullHandler(onChange, setDirty, setPreNullValue, value, preNullValue, field)
 
   const fieldElement = renderFieldElement({
     field,
+    displayMode: field.displayMode,
     selectedKey,
     isNull,
     isReadOnly,
     isRequired,
-    errorMessage,
+    onSelectionChange: handleSelectionChange,
     longestLabelLength,
-    onSelectionChange,
-    value,
-    preNullValue,
+    autoFocus,
   })
 
   return (
@@ -90,18 +74,67 @@ export function Field(props: FieldProps<typeof controller>) {
   )
 }
 
-/** Extracted rendering logic for each display mode */
+/** Compute the error message based on validation state. */
+function computeErrorMessage(
+  isInvalid: boolean,
+  isDirty: boolean,
+  forceValidation: boolean,
+  label: string
+): string | undefined {
+  return isInvalid && (isDirty || forceValidation) ? `${label} is required.` : undefined
+}
+
+/** Create a handler for selection changes that updates the field value. */
+function createSelectionHandler(
+  onChange: ((v: Value) => void) | undefined,
+  setDirty: (b: boolean) => void,
+  currentValue: Value,
+  field: { options: readonly { label: string; value: string }[] }
+) {
+  return (key: Key | null) => {
+    if (!onChange) return
+    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    onChange({ ...currentValue, value: newValue })
+    setDirty(true)
+  }
+}
+
+/** Create a handler for toggling the nullable state of the field. */
+function createNullHandler(
+  onChange: ((v: Value) => void) | undefined,
+  setDirty: (b: boolean) => void,
+  setPreNullValue: (v: Option | null) => void,
+  currentValue: Value,
+  preNullValue: Option | null,
+  field: { options: readonly { label: string; value: string }[] }
+) {
+  return (isChecked: boolean) => {
+    if (!onChange) return
+    if (isChecked) {
+      onChange({ ...currentValue, value: null })
+      setPreNullValue(currentValue.value)
+    } else {
+      onChange({ ...currentValue, value: preNullValue || field.options[0] })
+    }
+    setDirty(true)
+  }
+}
+
+/** Render the appropriate field UI based on the display mode. */
 function renderFieldElement(params: {
-  field: any
-  selectedKey: string | number | null
+  field: {
+    label: string
+    description?: string
+    options: readonly { label: string; value: string }[]
+    displayMode: 'select' | 'segmented-control' | 'radio'
+  }
+  selectedKey: string | null
   isNull: boolean
   isReadOnly: boolean
   isRequired: boolean
-  errorMessage?: string
-  longestLabelLength: number
   onSelectionChange: (key: Key | null) => void
-  value: Value
-  preNullValue: Option | null
+  longestLabelLength: number
+  autoFocus: boolean
 }) {
   const {
     field,
@@ -109,11 +142,9 @@ function renderFieldElement(params: {
     isNull,
     isReadOnly,
     isRequired,
-    errorMessage,
-    longestLabelLength,
     onSelectionChange,
-    value,
-    preNullValue,
+    longestLabelLength,
+    autoFocus,
   } = params
 
   switch (field.displayMode) {
@@ -122,7 +153,7 @@ function renderFieldElement(params: {
         <SegmentedControl
           label={field.label}
           description={field.description}
-          errorMessage={errorMessage}
+          errorMessage={undefined}
           isDisabled={isNull}
           isReadOnly={isReadOnly}
           isRequired={isRequired}
@@ -139,12 +170,12 @@ function renderFieldElement(params: {
         <RadioGroup
           label={field.label}
           description={field.description}
-          errorMessage={errorMessage}
+          errorMessage={undefined}
           isDisabled={isNull}
           isReadOnly={isReadOnly}
           isRequired={isRequired}
           onChange={onSelectionChange}
-          value={value.value?.value ?? preNullValue?.value}
+          value={selectedKey}
         >
           {field.options.map(item => (
             <Radio key={item.value} value={item.value}>
@@ -156,10 +187,10 @@ function renderFieldElement(params: {
     default:
       return (
         <Picker
-          autoFocus={params.field.autoFocus}
+          autoFocus={autoFocus}
           label={field.label}
           description={field.description}
-          errorMessage={errorMessage}
+          errorMessage={undefined}
           isDisabled={isNull}
           isReadOnly={isReadOnly}
           isRequired={isRequired}
@@ -178,30 +209,6 @@ function renderFieldElement(params: {
   }
 }
 
-/** Helper to compute selected key based on current and pre‑null values */
-function getSelectedKey(value: Value, preNullValue: Option | null) {
-  return value.value?.value || preNullValue?.value || null
-}
-
-/** Helper to compute error message when validation fails */
-function computeErrorMessage(
-  isInvalid: boolean,
-  isDirty: boolean,
-  forceValidation: boolean,
-  label: string
-) {
-  return isInvalid && (isDirty || forceValidation) ? `${label} is required.` : undefined
-}
-
-/** Simple validation based on required flag */
-function validate(value: Value, isRequired: boolean) {
-  if (isRequired) {
-    if (value.kind === 'update' && value.initial === null) return true
-    return value.value !== null
-  }
-  return true
-}
-
 export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
   const label = field.options.find(x => x.value === value)?.label
   return <Text>{label}</Text>
@@ -214,57 +221,25 @@ export type AdminSelectFieldMeta = {
   defaultValue: string | number | null
 }
 
-type FilterProps = {
-  autoFocus?: boolean
-  context: string
-  typeLabel: string
-  onChange: (value: string[]) => void
-  value: string[]
-  type: string
-  [key: string]: any
+const FILTER_TYPES = {
+  matches: {
+    label: 'Matches',
+    initialValue: [],
+  },
+  not_matches: {
+    label: 'Does not match',
+    initialValue: [],
+  },
 }
 
-/** Dedicated component for filter UI */
-function FilterComponent(props: FilterProps) {
-  const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
-  const options = props.options as Option[]
-
-  const densityLevels = ['spacious', 'regular', 'compact'] as const
-  const density = densityLevels[Math.min(Math.floor((options.length - 1) / 3), 2)]
-
-  const listView = (
-    <ListView
-      aria-label={typeLabel}
-      density={density}
-      items={options}
-      flex
-      minHeight={0}
-      maxHeight="100%"
-      selectionMode="multiple"
-      onSelectionChange={selection => {
-        if (selection === 'all') return
-        onChange([...selection].filter(x => typeof x === 'string') as string[])
-      }}
-      selectedKeys={value}
-      {...otherProps}
-    >
-      {item => <Item key={item.value}>{item.label}</Item>}
-    </ListView>
-  )
-
-  if (context === 'edit') {
-    return (
-      <VStack gap="medium" flex minHeight={0} maxHeight="100%">
-        <FieldLabel elementType="span">{typeLabel}</FieldLabel>
-        {listView}
-      </VStack>
-    )
+function validate(value: Value, isRequired: boolean) {
+  if (isRequired) {
+    if (value.kind === 'update' && value.initial === null) return true
+    return value.value !== null
   }
-
-  return listView
+  return true
 }
 
-/** Controller factory */
 export function controller(config: Config): FieldController<
   Value,
   string[],
@@ -279,7 +254,7 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
-  const parseValue = (v: string | null) =>
+  const t = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
@@ -309,25 +284,64 @@ export function controller(config: Config): FieldController<
       }
       return { kind: 'update', initial: null, value: null }
     },
-    serialize: value => ({ [config.fieldKey]: parseValue(value.value?.value ?? null) }),
+    serialize: value => ({ [config.fieldKey]: t(value.value?.value ?? null) }),
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
-      Filter: props => <FilterComponent {...props} options={optionsWithStringValues} />,
-      graphql: ({ type, value: opts }) => ({
+      Filter(props) {
+        const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
+
+        const densityLevels = ['spacious', 'regular', 'compact'] as const
+        const density =
+          densityLevels[Math.min(Math.floor((optionsWithStringValues.length - 1) / 3), 2)]
+
+        const handleSelection = (selection: Set<Key>) => {
+          if (selection === 'all') return
+          onChange([...selection].filter(x => typeof x === 'string'))
+        }
+
+        const listView = (
+          <ListView
+            aria-label={typeLabel}
+            density={density}
+            items={optionsWithStringValues}
+            flex
+            minHeight={0}
+            maxHeight="100%"
+            selectionMode="multiple"
+            onSelectionChange={handleSelection}
+            selectedKeys={value}
+            {...otherProps}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </ListView>
+        )
+
+        if (context === 'edit') {
+          return (
+            <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              <FieldLabel elementType="span">{typeLabel}</FieldLabel>
+              {listView}
+            </VStack>
+          )
+        }
+
+        return listView
+      },
+      graphql: ({ type, value: options }) => ({
         [config.fieldKey]: {
-          [type === 'not_matches' ? 'notIn' : 'in']: opts.map(x => parseValue(x)),
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
         },
       }),
       parseGraphQL(value) {
-        return entriesTyped(value).flatMap(([type, val]) => {
-          if (type === 'equals' && val != null) {
-            return { type: 'matches', value: [val] }
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value != null) {
+            return { type: 'matches', value: [value] }
           }
           if (type === 'notIn' || type === 'in') {
-            if (!val) return []
+            if (!value) return []
             return {
               type: type === 'notIn' ? 'not_matches' : 'matches',
-              value: val.filter((x: any) => x != null),
+              value: value.filter(x => x != null),
             }
           }
           return []
@@ -355,15 +369,4 @@ export function controller(config: Config): FieldController<
       types: FILTER_TYPES,
     },
   }
-}
-
-const FILTER_TYPES = {
-  matches: {
-    label: 'Matches',
-    initialValue: [],
-  },
-  not_matches: {
-    label: 'Does not match',
-    initialValue: [],
-  },
 }

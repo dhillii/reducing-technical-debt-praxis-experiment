@@ -39,7 +39,8 @@ module.exports = function (God) {
    */
   God.getMonitorData = function getMonitorData(env, cb) {
     let processes = God.getFormatedProcesses();
-    const pids = processes.filter(filterBadProcess)
+    const pids = processes
+      .filter(filterBadProcess)
       .map(function (pro) {
         const pid = getProcessId(pro);
         return pid;
@@ -47,13 +48,17 @@ module.exports = function (God) {
 
     // No pids, return empty statistics
     if (pids.length === 0) {
-      return cb(null, processes.map(function (pro) {
-        pro['monit'] = {
-          memory: 0,
-          cpu: 0
-        };
-        return pro;
-      }));
+      return cb(
+        null,
+        processes.map(function (pro) {
+          pro['monit'] = {
+            memory: 0,
+            cpu: 0,
+          };
+
+          return pro;
+        })
+      );
     }
 
     pidusage(pids, function retPidUsage(err, statistics) {
@@ -61,32 +66,41 @@ module.exports = function (God) {
       if (err) {
         console.error('Error caught while calling pidusage');
         console.error(err);
-        return cb(null, processes.map(function (pro) {
-          pro['monit'] = {
-            memory: 0,
-            cpu: 0
-          };
-          return pro;
-        }));
+
+        return cb(
+          null,
+          processes.map(function (pro) {
+            pro['monit'] = {
+              memory: 0,
+              cpu: 0,
+            };
+            return pro;
+          })
+        );
       }
 
       if (!statistics) {
         console.error('Statistics is not defined!');
-        return cb(null, processes.map(function (pro) {
-          pro['monit'] = {
-            memory: 0,
-            cpu: 0
-          };
-          return pro;
-        }));
+
+        return cb(
+          null,
+          processes.map(function (pro) {
+            pro['monit'] = {
+              memory: 0,
+              cpu: 0,
+            };
+            return pro;
+          })
+        );
       }
 
       processes = processes.map(function (pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory: 0,
-            cpu: 0
+            cpu: 0,
           };
+
           return pro;
         }
 
@@ -96,15 +110,17 @@ module.exports = function (God) {
         if (!stat) {
           pro['monit'] = {
             memory: 0,
-            cpu: 0
+            cpu: 0,
           };
+
           return pro;
         }
 
         pro['monit'] = {
           memory: stat.memory,
-          cpu: Math.round(stat.cpu * 10) / 10
+          cpu: Math.round(stat.cpu * 10) / 10,
         };
+
         return pro;
       });
 
@@ -119,8 +135,8 @@ module.exports = function (God) {
    * @return
    */
   God.dumpProcessList = function (cb) {
-    let process_list = [];
-    let apps = Utility.clone(God.getFormatedProcesses());
+    const process_list = [];
+    const apps = Utility.clone(God.getFormatedProcesses());
     const that = this;
 
     // Don't override the actual dump file if process list is empty
@@ -138,8 +154,9 @@ module.exports = function (God) {
       if (process_list.length === 0) {
         // fix : if no dump file, no process, only module and after pm2 update
         if (!fs.existsSync(cst.DUMP_FILE_PATH) && typeof that.clearDump === 'function') {
-          that.clearDump(function () { });
+          that.clearDump(function () {});
         }
+
         // if no process in list don't modify dump file
         // process list should not be empty
         return cb(null, { success: true, process_list: process_list });
@@ -213,8 +230,7 @@ module.exports = function (God) {
    * @return CallExpression
    */
   God.duplicateProcessId = function (id, cb) {
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' id unknown'), {});
+    if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
@@ -245,16 +261,12 @@ module.exports = function (God) {
    * @return CallExpression
    */
   God.startProcessId = function (id, cb) {
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' id unknown'), {});
+    if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     const proc = God.clusters_db[id];
-    if (proc.pm2_env.status == cst.ONLINE_STATUS)
-      return cb(God.logAndGenerateError('process already online'), {});
-    if (proc.pm2_env.status == cst.LAUNCHING_STATUS)
-      return cb(God.logAndGenerateError('process already started'), {});
-    if (proc.process && proc.process.pid)
-      return cb(God.logAndGenerateError('Process with pid ' + proc.process.pid + ' already exists'), {});
+    if (proc.pm2_env.status == cst.ONLINE_STATUS) return cb(God.logAndGenerateError('process already online'), {});
+    if (proc.pm2_env.status == cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('process already started'), {});
+    if (proc.process && proc.process.pid) return cb(God.logAndGenerateError('Process with pid ' + proc.process.pid + ' already exists'), {});
 
     return God.executeApp(God.clusters_db[id].pm2_env, function (err, proc) {
       return cb(err, Utility.clone(proc));
@@ -271,8 +283,7 @@ module.exports = function (God) {
   God.stopProcessId = function (id, cb) {
     if (typeof id == 'object' && 'id' in id) id = id.id;
 
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' : id unknown'), {});
+    if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' : id unknown'), {});
 
     const proc = God.clusters_db[id];
 
@@ -285,7 +296,9 @@ module.exports = function (God) {
     }
     // state == 'none' means that the process is not online yet
     if (proc.state && proc.state === 'none')
-      return setTimeout(function () { God.stopProcessId(id, cb); }, 250);
+      return setTimeout(function () {
+        God.stopProcessId(id, cb);
+      }, 250);
 
     console.log('Stopping app:%s id:%s', proc.pm2_env.name, proc.pm2_env.pm_id);
     proc.pm2_env.status = cst.STOPPING_STATUS;
@@ -302,10 +315,12 @@ module.exports = function (God) {
       God.notify('exit', proc);
 
       if (err && err.type && err.type === 'timeout') {
-        console.error('app=%s id=%d pid=%s could not be stopped',
+        console.error(
+          'app=%s id=%d pid=%s could not be stopped',
           proc.pm2_env.name,
           proc.pm2_env.pm_id,
-          proc.process.pid);
+          proc.process.pid
+        );
         proc.pm2_env.status = cst.ERRORED_STATUS;
         return cb(null, God.getFormatedProcess(id));
       }
@@ -313,7 +328,7 @@ module.exports = function (God) {
       if (proc.pm2_env.pm_id.toString().indexOf('_old_') !== 0) {
         try {
           fs.unlinkSync(proc.pm2_env.pm_pid_path);
-        } catch (e) { }
+        } catch (e) {}
       }
 
       if (proc.pm2_env.axm_actions) proc.pm2_env.axm_actions = [];
@@ -325,8 +340,7 @@ module.exports = function (God) {
   };
 
   God.resetMetaProcessId = function (id, cb) {
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' id unknown'), {});
+    if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
@@ -354,8 +368,7 @@ module.exports = function (God) {
       // ! transform to slow object
       delete God.clusters_db[id];
 
-      if (Object.keys(God.clusters_db).length == 0)
-        God.next_id = 0;
+      if (Object.keys(God.clusters_db).length == 0) God.next_id = 0;
       return cb(null, proc);
     });
     return false;
@@ -374,7 +387,7 @@ module.exports = function (God) {
     const id = opts.id;
     const env = opts.env || {};
 
-    if (typeof (id) === 'undefined')
+    if (typeof id === 'undefined')
       return cb(God.logAndGenerateError('opts.id not passed to restartProcessId', opts));
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError('God db process id unknown'), {});
@@ -401,6 +414,7 @@ module.exports = function (God) {
         proc.pm2_env.restart_time += 1;
         return God.startProcessId(id, cb);
       });
+
       return false;
     } else {
       debug('[restart] process not online, starting it');
@@ -418,23 +432,23 @@ module.exports = function (God) {
   God.restartProcessName = function (name, cb) {
     const processes = God.findByName(name);
 
-    if (processes && processes.length === 0)
-      return cb(God.logAndGenerateError('Unknown process'), {});
+    if (processes && processes.length === 0) return cb(God.logAndGenerateError('Unknown process'), {});
 
-    eachLimit(processes, cst.CONCURRENT_ACTIONS, function (proc, next) {
-      if (God.pm2_being_killed)
-        return next('[Watch] PM2 is being killed, stopping restart procedure...');
-      if (proc.pm2_env.status === cst.ONLINE_STATUS)
-        return God.restartProcessId({ id: proc.pm2_env.pm_id }, next);
-      else if (proc.pm2_env.status !== cst.STOPPING_STATUS
-        && proc.pm2_env.status !== cst.LAUNCHING_STATUS)
-        return God.startProcessId(proc.pm2_env.pm_id, next);
-      else
-        return next(util.format('[Watch] Process name %s is being stopped so I won\'t restart it', name));
-    }, function (err) {
-      if (err) return cb(God.logAndGenerateError(err));
-      return cb(null, God.getFormatedProcesses());
-    });
+    eachLimit(
+      processes,
+      cst.CONCURRENT_ACTIONS,
+      function (proc, next) {
+        if (God.pm2_being_killed) return next('[Watch] PM2 is being killed, stopping restart procedure...');
+        if (proc.pm2_env.status === cst.ONLINE_STATUS) return God.restartProcessId({ id: proc.pm2_env.pm_id }, next);
+        else if (proc.pm2_env.status !== cst.STOPPING_STATUS && proc.pm2_env.status !== cst.LAUNCHING_STATUS)
+          return God.startProcessId(proc.pm2_env.pm_id, next);
+        else return next(util.format('[Watch] Process name %s is being stopped so I won\'t restart it', name));
+      },
+      function (err) {
+        if (err) return cb(God.logAndGenerateError(err));
+        return cb(null, God.getFormatedProcesses());
+      }
+    );
 
     return false;
   };
@@ -450,8 +464,7 @@ module.exports = function (God) {
     const id = opts.process_id;
     const signal = opts.signal;
 
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' id unknown'), {});
+    if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     const proc = God.clusters_db[id];
 
@@ -476,22 +489,26 @@ module.exports = function (God) {
     const processes = God.findByName(opts.process_name);
     const signal = opts.signal;
 
-    if (processes && processes.length === 0)
-      return cb(God.logAndGenerateError('Unknown process name'), {});
+    if (processes && processes.length === 0) return cb(God.logAndGenerateError('Unknown process name'), {});
 
-    eachLimit(processes, cst.CONCURRENT_ACTIONS, function (proc, next) {
-      if (proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS) {
-        try {
-          process.kill(proc.process.pid, signal);
-        } catch (e) {
-          return next(e);
+    eachLimit(
+      processes,
+      cst.CONCURRENT_ACTIONS,
+      function (proc, next) {
+        if (proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS) {
+          try {
+            process.kill(proc.process.pid, signal);
+          } catch (e) {
+            return next(e);
+          }
         }
+        return setTimeout(next, 200);
+      },
+      function (err) {
+        if (err) return cb(God.logAndGenerateError(err), {});
+        return cb(null, God.getFormatedProcesses());
       }
-      return setTimeout(next, 200);
-    }, function (err) {
-      if (err) return cb(God.logAndGenerateError(err), {});
-      return cb(null, God.getFormatedProcesses());
-    });
+    );
   };
 
   /**
@@ -545,10 +562,8 @@ module.exports = function (God) {
 
     if (env) {
       env.pm2_env.watch = !env.pm2_env.watch;
-      if (env.pm2_env.watch)
-        God.watch.enable(env.pm2_env);
-      else
-        God.watch.disable(env.pm2_env);
+      if (env.pm2_env.watch) God.watch.enable(env.pm2_env);
+      else God.watch.disable(env.pm2_env);
     }
 
     return fn(null, { success: true });
@@ -571,10 +586,10 @@ module.exports = function (God) {
     }
 
     if (env) {
-      if (env.pm2_env.watch)
-        return fn(null, { success: true, notrestarted: true });
+      if (env.pm2_env.watch) return fn(null, { success: true, notrestarted: true });
 
       God.watch.enable(env.pm2_env);
+      //env.pm2_env.env.watch = true;
       env.pm2_env.watch = true;
     }
 
@@ -602,7 +617,7 @@ module.exports = function (God) {
         if (cluster.send && cluster.pm2_env.exec_mode == 'cluster_mode') {
           try {
             cluster.send({
-              type: 'log:reload'
+              type: 'log:reload',
             });
           } catch (e) {
             console.error(e.message || e);
@@ -628,16 +643,14 @@ module.exports = function (God) {
    * @param String line  Line to send to process stdin
    */
   God.sendLineToStdin = function (packet, cb) {
-    if (typeof (packet.pm_id) == 'undefined' || !packet.line)
-      return cb(God.logAndGenerateError('pm_id or line field missing'), {});
+    if (typeof packet.pm_id == 'undefined' || !packet.line) return cb(God.logAndGenerateError('pm_id or line field missing'), {});
 
     const pm_id = packet.pm_id;
     const line = packet.line;
 
     const proc = God.clusters_db[pm_id];
 
-    if (!proc)
-      return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
+    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
 
     if (proc.pm2_env.exec_mode == 'cluster_mode')
       return cb(God.logAndGenerateError('Cannot send line to processes in cluster mode'), {});
@@ -649,7 +662,7 @@ module.exports = function (God) {
       proc.stdin.write(line, function () {
         return cb(null, {
           pm_id: pm_id,
-          line: line
+          line: line,
         });
       });
     } catch (e) {
@@ -662,9 +675,11 @@ module.exports = function (God) {
    * @param {function} cb
    */
   God.sendDataToProcessId = function (packet, cb) {
-    if (typeof (packet.id) == 'undefined' ||
-      typeof (packet.data) == 'undefined' ||
-      !packet.topic)
+    if (
+      typeof packet.id == 'undefined' ||
+      typeof packet.data == 'undefined' ||
+      !packet.topic
+    )
       return cb(God.logAndGenerateError('ID, DATA or TOPIC field is missing'), {});
 
     const pm_id = packet.id;
@@ -672,22 +687,20 @@ module.exports = function (God) {
 
     const proc = God.clusters_db[pm_id];
 
-    if (!proc)
-      return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
+    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
 
     if (proc.pm2_env.status != cst.ONLINE_STATUS && proc.pm2_env.status != cst.LAUNCHING_STATUS)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
 
     try {
       proc.send(packet);
-    }
-    catch (e) {
+    } catch (e) {
       return cb(God.logAndGenerateError(e), {});
     }
 
     return cb(null, {
       success: true,
-      data: packet
+      data: packet,
     });
   };
 
@@ -701,8 +714,7 @@ module.exports = function (God) {
   God.msgProcess = function (cmd, cb) {
     if ('id' in cmd) {
       const id = cmd.id;
-      if (!(id in God.clusters_db))
-        return cb(God.logAndGenerateError(id + ' id unknown'), {});
+      if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
       const proc = God.clusters_db[id];
 
       let action_exist = false;
@@ -722,18 +734,12 @@ module.exports = function (God) {
         /*
          * Send message
          */
-        if (cmd.opts == null && !cmd.uuid)
-          proc.send(cmd.msg);
-        else
-          proc.send(cmd);
+        if (cmd.opts == null && !cmd.uuid) proc.send(cmd.msg);
+        else proc.send(cmd);
 
         return cb(null, { process_count: 1, success: true });
-      }
-      else
-        return cb(God.logAndGenerateError(id + ' : id offline'), {});
-    }
-
-    else if ('name' in cmd) {
+      } else return cb(God.logAndGenerateError(id + ' : id offline'), {});
+    } else if ('name' in cmd) {
       /*
        * As names are not unique in case of cluster, this
        * will send msg to all process matching  'name'
@@ -746,7 +752,7 @@ module.exports = function (God) {
         if (arr[0] == null || !arr) {
           return cb(null, {
             process_count: sent,
-            success: true
+            success: true,
           });
         }
 
@@ -759,7 +765,7 @@ module.exports = function (God) {
 
         const proc_env = God.clusters_db[id].pm2_env;
 
-        const isActionAvailable = proc_env.axm_actions.find(action => action.action_name === cmd.msg) !== undefined;
+        const isActionAvailable = proc_env.axm_actions.find((action) => action.action_name === cmd.msg) !== undefined;
 
         // if action doesn't exist for this app
         // try with the next one
@@ -768,13 +774,13 @@ module.exports = function (God) {
           return ex(arr);
         }
 
-        if ((p.basename(proc_env.pm_exec_path) == name ||
-          proc_env.name == name ||
-          proc_env.namespace == name ||
-          name == 'all') &&
-          (proc_env.status == cst.ONLINE_STATUS ||
-            proc_env.status == cst.LAUNCHING_STATUS)) {
-
+        if (
+          (p.basename(proc_env.pm_exec_path) == name ||
+            proc_env.name == name ||
+            proc_env.namespace == name ||
+            name == 'all') &&
+          (proc_env.status == cst.ONLINE_STATUS || proc_env.status == cst.LAUNCHING_STATUS)
+        ) {
           proc_env.axm_actions.forEach(function (action) {
             if (action.action_name == cmd.msg) {
               action_exist = true;
@@ -786,23 +792,18 @@ module.exports = function (God) {
             return ex(arr);
           }
 
-          if (cmd.opts == null)
-            God.clusters_db[id].send(cmd.msg);
-          else
-            God.clusters_db[id].send(cmd);
+          if (cmd.opts == null) God.clusters_db[id].send(cmd.msg);
+          else God.clusters_db[id].send(cmd);
 
           sent++;
           arr.shift();
           return ex(arr);
-        }
-        else {
+        } else {
           arr.shift();
           return ex(arr);
         }
       })(arr);
-    }
-
-    else return cb(God.logAndGenerateError('method requires name or id field'), {});
+    } else return cb(God.logAndGenerateError('method requires name or id field'), {});
     return false;
   };
 
@@ -820,16 +821,14 @@ module.exports = function (God) {
   };
 
   God.monitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
-      return cb(new Error('Unknown pm_id'));
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) return cb(new Error('Unknown pm_id'));
 
     God.clusters_db[pm_id].pm2_env._km_monitored = true;
     return cb(null, { success: true, pm_id: pm_id });
   };
 
   God.unmonitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
-      return cb(new Error('Unknown pm_id'));
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) return cb(new Error('Unknown pm_id'));
 
     God.clusters_db[pm_id].pm2_env._km_monitored = false;
     return cb(null, { success: true, pm_id: pm_id });
@@ -843,11 +842,11 @@ module.exports = function (God) {
       argv0: process.argv0,
       argv: process.argv,
       user: process.env.USER,
-      uid: (cst.IS_WINDOWS === false && process.geteuid) ? process.geteuid() : 'N/A',
-      gid: (cst.IS_WINDOWS === false && process.getegid) ? process.getegid() : 'N/A',
+      uid: cst.IS_WINDOWS === false && process.geteuid ? process.geteuid() : 'N/A',
+      gid: cst.IS_WINDOWS === false && process.getegid ? process.getegid() : 'N/A',
       env: process.env,
       managed_apps: Object.keys(God.clusters_db).length,
-      started_at: God.started_at
+      started_at: God.started_at,
     };
 
     if (process.versions && process.versions.node) {
@@ -875,10 +874,10 @@ function filterBadProcess(pro) {
 }
 
 function getProcessId(pro) {
-  let pid = pro.pid;
+  const pid = pro.pid;
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
-    pid = pro.pm2_env.axm_options.pid;
+    return pro.pm2_env.axm_options.pid;
   }
 
   return pid;

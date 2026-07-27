@@ -23,11 +23,7 @@ const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
 const unixifyPath = function (filepath) {
-  if (win32) {
-    return filepath.replace(/\\/g, '/');
-  } else {
-    return filepath;
-  }
+  return win32 ? filepath.replace(/\\/g, '/') : filepath;
 };
 
 // Change the current base path (ie, CWD) to the specified path.
@@ -273,11 +269,7 @@ file.readYAML = function (filepath, options, yamlOptions) {
   try {
     // use the recommended way of reading YAML files
     // https://github.com/nodeca/js-yaml#safeload-string---options-
-    if (yamlOptions.unsafeLoad) {
-      result = YAML.load(src);
-    } else {
-      result = YAML.safeLoad(src);
-    }
+    result = yamlOptions.unsafeLoad ? YAML.load(src) : YAML.safeLoad(src);
     grunt.verbose.ok();
     return result;
   } catch (e) {
@@ -349,9 +341,7 @@ file._copy = function (srcpath, destpath, options) {
     try {
       const processed = options.process(contents, srcpath, destpath);
       grunt.verbose.ok();
-      if (processed !== undefined) {
-        contents = processed;
-      }
+      return file.write(destpath, processed, readWriteOptions);
     } catch (e) {
       grunt.verbose.error();
       throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);
@@ -446,47 +436,83 @@ file.isPathAbsolute = function () {
   return path.isAbsolute(filepath);
 };
 
+/**
+ * Checks if all provided paths resolve to the same absolute path.
+ * @param {string} first - The first path to compare.
+ * @param {...string} rest - Additional paths to compare.
+ * @returns {boolean} True if all paths are equivalent.
+ */
+function areAllPathsEquivalent(first, ...rest) {
+  const resolvedFirst = path.resolve(first);
+  return rest.every(p => resolvedFirst === path.resolve(p));
+}
+
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function (first) {
-  first = path.resolve(first);
-  for (let i = 1; i < arguments.length; i++) {
-    if (first !== path.resolve(arguments[i])) {
-      return false;
-    }
-  }
-  return true;
+  const args = Array.prototype.slice.call(arguments);
+  return areAllPathsEquivalent(...args);
 };
+
+/**
+ * Determines whether the ancestor path contains the descendant path.
+ * @param {string} ancestor - The potential ancestor path.
+ * @param {...string} descendants - Paths to test for containment.
+ * @returns {boolean} True if every descendant is within the ancestor.
+ */
+function doesAncestorContainDescendants(ancestor, ...descendants) {
+  const resolvedAncestor = path.resolve(ancestor);
+  return descendants.every(desc => {
+    const relative = path.relative(path.resolve(desc), resolvedAncestor);
+    return !(relative === '' || /\w+/.test(relative));
+  });
+}
 
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function (ancestor) {
-  ancestor = path.resolve(ancestor);
-  let relative;
-  for (let i = 1; i < arguments.length; i++) {
-    relative = path.relative(path.resolve(arguments[i]), ancestor);
-    if (relative === '' || /\w+/.test(relative)) {
-      return false;
-    }
-  }
-  return true;
+  const args = Array.prototype.slice.call(arguments, 1);
+  return doesAncestorContainDescendants(ancestor, ...args);
 };
+
+/**
+ * Determines if two paths refer to the same location on the filesystem.
+ * @param {...string} paths - Paths to compare.
+ * @returns {boolean} True if all paths resolve to the same location.
+ */
+function arePathsIdentical(...paths) {
+  if (paths.length < 2) {
+    return true;
+  }
+  const firstResolved = path.resolve(paths[0]);
+  return paths.slice(1).every(p => firstResolved === path.resolve(p));
+}
 
 // Test to see if a filepath is the CWD.
 file.isPathCwd = function () {
   const filepath = path.join.apply(path, arguments);
   try {
-    return file.arePathsEquivalent(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+    return arePathsIdentical(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
   } catch (e) {
     return false;
   }
 };
 
-// Test to see if a filepath is contained within the CWD.
-file.isPathInCwd = function () {
-  const filepath = path.join.apply(path, arguments);
+/**
+ * Checks whether a given path is located within the current working directory.
+ * @param {...string} paths - Paths to test.
+ * @returns {boolean} True if all paths are inside the CWD.
+ */
+function arePathsInCwd(...paths) {
   try {
-    return file.doesPathContain(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+    const cwdReal = fs.realpathSync(process.cwd());
+    return paths.every(p => file.doesPathContain(cwdReal, p));
   } catch (e) {
     return false;
   }
+}
+
+// Test to see if a filepath is contained within the CWD.
+file.isPathInCwd = function () {
+  const args = Array.prototype.slice.call(arguments);
+  return arePathsInCwd(...args);
 };

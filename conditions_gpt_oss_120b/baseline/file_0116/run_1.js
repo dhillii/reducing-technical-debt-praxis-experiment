@@ -62,7 +62,7 @@ Common.determineSilentCLI = function() {
        (s1opt != -1 && s1opt < variadicArgsDashesPos) &&
        (s2opt != -1 != s2opt < variadicArgsDashesPos)) ||
       (variadicArgsDashesPos == -1 && (s1opt > -1 || s2opt > -1))) {
-    for (let key in console){
+    for (const key in console){
       const code = key.charCodeAt(0);
       if (code >= 97 && code <= 122){
         console[key] = function(){};
@@ -225,14 +225,14 @@ Common.prepareAppConf = function(opts, app) {
   /**
    * Scary
    */
-  const formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
+  const formatted_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
 
   ['log', 'out', 'error', 'pid'].forEach(function(f){
     let af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
     if (af) af = resolveHome(af);
 
     if ((f == 'log' && typeof af == 'boolean' && af) || (f != 'log' && !af)) {
-      ps = [cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formated_app_name + (isStd ? '-' + f : '') + '.' + ext];
+      ps = [cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formatted_app_name + (isStd ? '-' + f : '') + '.' + ext];
     } else if ((f != 'log' || (f == 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
       ps = [cwd, af];
 
@@ -305,7 +305,7 @@ Common.getConfigFileCandidates = function (name) {
  */
 Common.parseConfig = function(confObj, filename) {
   const yamljs = require('js-yaml');
-  const vm = require('vm');
+  const vm     = require('vm');
 
   const isConfigFile = Common.isConfigFile(filename);
 
@@ -397,13 +397,13 @@ const resolveNodeInterpreter = function(app) {
     Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
   }
   else {
-    const node_version = app.exec_interpreter.split('@')[1];
-    const path_to_node = cst.IS_WINDOWS
+    const node_version  = app.exec_interpreter.split('@')[1];
+    const path_to_node  = cst.IS_WINDOWS
       ? '/v' + node_version + '/node.exe'
       : semver.satisfies(node_version, '>= 0.12.0')
           ? '/versions/node/v' + node_version + '/bin/node'
           : '/v' + node_version + '/bin/node';
-    let nvm_node_path = path.join(nvm_path, path_to_node);
+    let nvm_node_path  = path.join(nvm_path, path_to_node);
     try {
       fs.accessSync(nvm_node_path);
     } catch(e) {
@@ -577,8 +577,8 @@ Common.safeExtend = function(origin, add){
   const keys = Object.keys(add);
   let i = keys.length;
   while (i--) {
-  	//Only copy stuff into the env that we don't have already.
-  	if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
+    //Only copy stuff into the env that we don't have already.
+    if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
       origin[keys[i]] = add[keys[i]];
   }
   return origin;
@@ -605,7 +605,7 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
   }
 
   // Stringify possible object
-  for (let key in app.env) {
+  for (const key in app.env) {
     if (typeof app.env[key] == 'object') {
       app.env[key] = JSON.stringify(app.env[key]);
     }

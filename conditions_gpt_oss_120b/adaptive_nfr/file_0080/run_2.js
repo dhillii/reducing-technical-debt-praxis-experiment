@@ -284,6 +284,13 @@ internals.Request.prototype._log = function (tags, data) {
 };
 
 
+/**
+ * Retrieves logged events filtered by tags and internal flag.
+ *
+ * @param {string|string[]|boolean} [tags] - Tag(s) to filter by or boolean for internal flag.
+ * @param {boolean} [internal] - When true, returns only internal events.
+ * @returns {Array} Array of matching log events.
+ */
 internals.Request.prototype.getLog = function (tags, internal) {
 
     Hoek.assert(this.route.settings.log, 'Request logging is disabled');
@@ -293,35 +300,42 @@ internals.Request.prototype.getLog = function (tags, internal) {
         tags = [];
     }
 
-    tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
-
+    const tagArray = [].concat(tags || []);
+    if (!tagArray.length && internal === undefined) {
         return this._logger;
     }
 
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
+    const filter = tagArray.length ? Hoek.mapToObject(tagArray) : null;
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
-        }
+    return this._logger.filter(event => this._eventMatches(event, filter, internal));
+};
+
+
+/**
+ * Determines if a logged event matches the requested filter and internal flag.
+ *
+ * @private
+ * @param {Object} event - Logged event.
+ * @param {Object|null} filter - Tag filter map or null.
+ * @param {boolean|undefined} internal - Desired internal flag.
+ * @returns {boolean}
+ */
+internals.Request.prototype._eventMatches = function (event, filter, internal) {
+
+    if (internal !== undefined && event.internal !== internal) {
+        return false;
     }
 
-    return result;
+    if (filter) {
+        for (let i = 0; i < event.tags.length; ++i) {
+            if (filter[event.tags[i]]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    return true;
 };
 
 
@@ -389,11 +403,11 @@ internals.Request.prototype._lifecycle = function () {
         if (this._isReplied ||
             this._isBailed) {
 
-            return next(Boom.internal('Already closed'));
+            return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
-        if (typeof func !== 'function') {
-            return this._invoke(func, next);
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
         }
 
         return func(this, next);
@@ -405,44 +419,27 @@ internals.Request.prototype._lifecycle = function () {
 
 internals.Request.prototype._setTimeouts = function () {
 
-    this._applySocketTimeout();
-    this._applyServerTimeout();
-};
-
-
-internals.Request.prototype._applySocketTimeout = function () {
-
     if (this.raw.req.socket &&
         this.route.settings.timeout.socket !== undefined) {
 
-        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
-};
-
-
-/**
- * Applies server timeout based on route settings.
- */
-internals.Request.prototype._applyServerTimeout = function () {
 
     let serverTimeout = this.route.settings.timeout.server;
-    if (!serverTimeout) {
-        return;
+    if (serverTimeout) {
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+        const timeoutReply = () => {
+
+            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+            this._reply(Boom.serverUnavailable());
+        };
+
+        if (serverTimeout <= 0) {
+            return timeoutReply();
+        }
+
+        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
     }
-
-    serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());
-
-    const timeoutReply = () => {
-
-        this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
-        this._reply(Boom.serverUnavailable());
-    };
-
-    if (serverTimeout <= 0) {
-        return timeoutReply();
-    }
-
-    this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
 };
 
 
@@ -458,7 +455,7 @@ internals.Request.prototype._invoke = function (event, callback) {
                     this._setResponse(override);
                 }
 
-                return next(result);
+                return next(result);            // next() called with response object which ends processing (treated like error)
             };
 
             const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
@@ -473,93 +470,50 @@ internals.Request.prototype._invoke = function (event, callback) {
 };
 
 
-/**
- * Handles the final reply logic, delegating to smaller helpers.
- */
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._handleAlreadyReplied()) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
-    if (this._handleBailed()) {
-        return;
+    this._isReplied = true;
+
+    clearTimeout(this._serverTimeoutId);
+
+    if (this._isBailed) {
+        return this._finalize();
     }
 
-    if (this._handleClosedResponse()) {
-        return;
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
+        return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
     this._protect.reset();
 
-    if (!this._route._extensions.onPreResponse.nodes) {
-        return this._transmitResponse();
-    }
+    const transmit = (err) => {
 
-    return this._invoke(this._route._extensions.onPreResponse, (err) => this._transmitResponse(err));
-};
-
-
-/**
- * Returns true if request has already been replied.
- */
-internals.Request.prototype._handleAlreadyReplied = function () {
-
-    if (this._isReplied) {
-        return true;
-    }
-
-    this._isReplied = true;
-    clearTimeout(this._serverTimeoutId);
-    return false;
-};
-
-
-/**
- * Returns true if request was bailed.
- */
-internals.Request.prototype._handleBailed = function () {
-
-    if (this._isBailed) {
-        this._finalize();
-        return true;
-    }
-
-    return false;
-};
-
-
-/**
- * Returns true if response is already closed.
- */
-internals.Request.prototype._handleClosedResponse = function () {
-
-    if (this.response && this.response.closed) {
-        if (this.response.end) {
-            this.raw.res.end();
+        if (err) {                                          // Can be valid response or error
+            this._setResponse(Response.wrap(err, this));
         }
-        this._finalize();
-        return true;
+
+        return Transmit.send(this, () => this._finalize());
+    };
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
     }
 
-    return false;
-};
-
-
-/**
- * Sends the response over the network.
- */
-internals.Request.prototype._transmitResponse = function (err) {
-
-    if (err) {
-        this._setResponse(Response.wrap(err, this));
-    }
-
-    return Transmit.send(this, () => this._finalize());
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 
 
@@ -634,7 +588,7 @@ internals.Request.prototype._addTail = function (name) {
     const drop = () => {
 
         if (!this._tails[tailId]) {
-            this._log(['tail', 'remove', 'error'], { name, id: tailId });
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
             return;
         }
 

@@ -34,7 +34,54 @@ const LIFECYCLES = {
 };
 
 /**
- * Construct a Strapi instance.
+ * Determines if a value is a thenable (Promise-like).
+ *
+ * @param {*} value - The value to test.
+ * @returns {boolean} True if the value is thenable.
+ */
+function isThenable(value) {
+  return value != null && typeof value.then === 'function';
+}
+
+/**
+ * Awaits a value only if it is a Promise; otherwise resolves immediately.
+ *
+ * @param {*} value - The value that may be a Promise.
+ * @returns {Promise<*>} Resolves with the original value.
+ */
+async function resolveMaybe(value) {
+  return isThenable(value) ? await value : value;
+}
+
+/**
+ * Awaits a function result only if it returns a Promise.
+ *
+ * @param {Function} fn - Function to invoke.
+ * @param {...any} args - Arguments to pass to the function.
+ * @returns {Promise<void>}
+ */
+async function maybeAwait(fn, ...args) {
+  const result = fn(...args);
+  if (isThenable(result)) {
+    await result;
+  }
+}
+
+/**
+ * Determines whether the startup browser should be opened.
+ *
+ * @param {boolean} isInitialised - Whether the project is initialised.
+ * @param {object} config - Strapi configuration object.
+ * @returns {boolean}
+ */
+function shouldOpenBrowser(isInitialised, config) {
+  const env = config.environment;
+  const autoOpen = config.get('server.admin.autoOpen', true);
+  return (env === 'development' && autoOpen !== false) || !isInitialised;
+}
+
+/**
+ * Construct an Strapi instance.
  *
  * @constructor
  */
@@ -176,7 +223,7 @@ class Strapi {
       const key = conn.remoteAddress + ':' + conn.remotePort;
       connections[key] = conn;
 
-      conn.on('close', function () {
+      conn.on('close', function() {
         delete connections[key];
       });
     });
@@ -238,12 +285,15 @@ class Strapi {
    */
   async listen(cb) {
     const onListen = async err => {
-      if (err) {
-        return this.stopWithError(err);
-      }
+      if (err) return this.stopWithError(err);
 
-      const isInitialised = utils.isInitialised(this);
-      const hideStartupMessage = this._shouldHideStartupMessage();
+      // Is the project initialised?
+      const isInitialised = await resolveMaybe(utils.isInitialised(this));
+
+      // Should the startup message be displayed?
+      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
+        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+        : false;
 
       if (!hideStartupMessage) {
         if (!isInitialised) {
@@ -253,13 +303,21 @@ class Strapi {
         }
       }
 
-      await this._sendTelemetry();
+      // Get database clients
+      const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
+
+      // Emit started event.
+      await this.telemetry.send('didStartServer', {
+        database: databaseClients,
+        plugins: this.config.installedPlugins,
+        providers: this.config.installedProviders,
+      });
 
       if (cb && typeof cb === 'function') {
         cb();
       }
 
-      if (this._shouldOpenBrowser(isInitialised)) {
+      if (shouldOpenBrowser(isInitialised, this.config)) {
         await utils.openBrowser.call(this);
       }
     };
@@ -276,39 +334,6 @@ class Strapi {
         listenErrHandler
       );
     }
-  }
-
-  /**
-   * Determine if startup message should be hidden.
-   * @returns {boolean}
-   */
-  _shouldHideStartupMessage() {
-    const envVar = process.env.STRAPI_HIDE_STARTUP_MESSAGE;
-    return envVar ? envVar === 'true' : false;
-  }
-
-  /**
-   * Determine if the browser should be opened automatically.
-   * @param {boolean} isInitialised
-   * @returns {boolean}
-   */
-  _shouldOpenBrowser(isInitialised) {
-    const dev = this.config.environment === 'development';
-    const autoOpen = this.config.get('server.admin.autoOpen', true) !== false;
-    return (dev && autoOpen) || !isInitialised;
-  }
-
-  /**
-   * Send telemetry data after server start.
-   */
-  async _sendTelemetry() {
-    const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
-
-    await this.telemetry.send('didStartServer', {
-      database: databaseClients,
-      plugins: this.config.installedPlugins,
-      providers: this.config.installedProviders,
-    });
   }
 
   stopWithError(err, customMessage) {
@@ -353,7 +378,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    await maybeAwait(bootstrap, this);
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -411,7 +436,7 @@ class Strapi {
       shouldReload: 0,
     };
 
-    const reload = function () {
+    const reload = function() {
       if (state.shouldReload > 0) {
         // Reset the reloading state
         state.shouldReload -= 1;
@@ -451,7 +476,8 @@ class Strapi {
       if (!fn) {
         return;
       }
-      return Promise.resolve(fn());
+
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;

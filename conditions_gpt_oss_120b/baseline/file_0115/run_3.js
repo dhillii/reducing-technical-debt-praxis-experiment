@@ -89,6 +89,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.report = function() {
     const that = this;
+
     const Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
@@ -203,7 +204,6 @@ module.exports = function(CLI) {
    */
   CLI.prototype.profile = function(type, time, cb) {
     const that = this;
-    const dayjs = require('dayjs');
     let cmd;
 
     if (type == 'cpu') {
@@ -240,9 +240,9 @@ module.exports = function(CLI) {
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+');
     console.log(chalk.bold('README.md content:'));
-    lines = lines.split('\n');
+    let splitLines = lines.split('\n');
     let isInner = false;
-    lines.forEach(l => {
+    splitLines.forEach(l => {
       if (l.startsWith('#'))
         console.log(chalk.bold.green(l));
       else if (isInner || l.startsWith('```')) {
@@ -390,6 +390,7 @@ module.exports = function(CLI) {
     const that = this;
 
     if (typeof proc_id === 'object' && typeof packet === 'function') {
+      // the proc_id is packet.
       cb = packet;
       packet = proc_id;
     } else {
@@ -655,7 +656,7 @@ module.exports = function(CLI) {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
 
     const sample = fs.readFileSync(templatePath);
-    const dt = sample.toString();
+    const dt     = sample.toString();
     const f_name = 'ecosystem.config.js';
     const pwd = process.env.PWD || process.cwd();
 

@@ -29,70 +29,70 @@ const ESPREE_CONFIG = {
 };
 const linter = new Linter();
 
-let callCounts;
+describe("ast-utils", () => {
+	let callCounts;
 
-/**
- * Asserts that a given function is called at least once during a test
- * @param {Function} func The function that must be called at least once
- * @returns {Function} A wrapper around the same function
- */
-function mustCall(func) {
-	callCounts.set(func, 0);
-	return function Wrapper(...args) {
-		callCounts.set(func, callCounts.get(func) + 1);
+	beforeEach(() => {
+		callCounts = new Map();
+	});
 
-		return func.call(this, ...args);
-	};
-}
+	/**
+	 * Asserts that a given function is called at least once during a test
+	 * @param {Function} func The function that must be called at least once
+	 * @returns {Function} A wrapper around the same function
+	 */
+	function mustCall(func) {
+		callCounts.set(func, 0);
+		return function Wrapper(...args) {
+			callCounts.set(func, callCounts.get(func) + 1);
 
-/**
- * Asserts that the unique node of the given type in the code is either
- * in a loop or not in a loop.
- * @param {string} code the code to check.
- * @param {string} nodeType the type of the node to consider. The code
- *      must have exactly one node of this type.
- * @param {boolean} expectedInLoop the expected result for whether the
- *      node is in a loop.
- * @returns {void}
- */
-function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-	const results = [];
+			return func.call(this, ...args);
+		};
+	}
 
-	linter.verify(code, {
-		plugins: {
-			test: {
-				rules: {
-					checker: {
-						create: mustCall(() => ({
-							[nodeType]: mustCall(node => {
-								results.push(astUtils.isInLoop(node));
-							}),
-						})),
+	afterEach(() => {
+		callCounts.forEach((callCount, func) => {
+			assert(
+				callCount > 0,
+				`Expected ${func.toString()} to be called at least once but it was not called`,
+			);
+		});
+	});
+
+	/**
+	 * Asserts that the unique node of the given type in the code is either
+	 * in a loop or not in a loop.
+	 * @param {string} code the code to check.
+	 * @param {string} nodeType the type of the node to consider. The code
+	 *      must have exactly one node of this type.
+	 * @param {boolean} expectedInLoop the expected result for whether the
+	 *      node is in a loop.
+	 * @returns {void}
+	 */
+	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
+		const results = [];
+
+		linter.verify(code, {
+			plugins: {
+				test: {
+					rules: {
+						checker: {
+							create: mustCall(() => ({
+								[nodeType]: mustCall(node => {
+									results.push(astUtils.isInLoop(node));
+								}),
+							})),
+						},
 					},
 				},
 			},
-		},
-		rules: { "test/checker": "error" },
-	});
+			rules: { "test/checker": "error" },
+		});
 
-	assert.lengthOf(results, 1);
-	assert.strictEqual(results[0], expectedInLoop);
-}
+		assert.lengthOf(results, 1);
+		assert.strictEqual(results[0], expectedInLoop);
+	}
 
-beforeEach(() => {
-	callCounts = new Map();
-});
-
-afterEach(() => {
-	callCounts.forEach((callCount, func) => {
-		assert(
-			callCount > 0,
-			`Expected ${func.toString()} to be called at least once but it was not called`,
-		);
-	});
-});
-
-describe("ast-utils", () => {
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
 			assert.ownInclude(astUtils.ECMASCRIPT_GLOBALS, { Object: false });
@@ -361,7 +361,7 @@ describe("ast-utils", () => {
 		});
 
 		it("should return false if reference is not assigned for class", () => {
-			linter.verify("class A { }\n foo(A);", {
+			linter.verify("class A { } foo(A);", {
 				plugins: {
 					test: {
 						rules: {
@@ -1981,7 +1981,7 @@ describe("ast-utils", () => {
 				});
 			});
 		});
-	}
+	});
 
 	describe("isNullLiteral", () => {
 		const EXPECTED_RESULTS = {
@@ -2263,15 +2263,15 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: 2n,
-						bigint: "2",
+						value: 1n,
+						bigint: "1",
 					},
 					nodeB: {
 						type: "Literal",
 						value: 2n,
 						bigint: "2",
 					},
-					expected: true,
+					expected: false,
 				},
 			];
 

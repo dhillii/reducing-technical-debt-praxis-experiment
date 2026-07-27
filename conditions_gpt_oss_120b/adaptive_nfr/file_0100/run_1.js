@@ -11,8 +11,11 @@ var config = require('../app-config').config,
     ImapClient = require('imap-client');
 
 //
+//
 // Constants
 //
+//
+
 const FOLDER_DB_TYPE = 'folders';
 
 const SYNC_TYPE_NEW = 'new';
@@ -35,67 +38,47 @@ const MSG_PART_TYPE_SIGNED = 'signed';
 const MSG_PART_TYPE_TEXT = 'text';
 const MSG_PART_TYPE_HTML = 'html';
 
-/**
- * Parameter object for Email service dependencies.
- *
- * @typedef {Object} EmailDeps
- * @property {Object} keychain - The keychain DAO handles keys transparently
- * @property {Object} pgp - Orchestrates decryption
- * @property {Object} accountStore - Handles persistence to the local indexed db
- * @property {Object} pgpbuilder - Generates and encrypts MIME and SMTP messages
- * @property {Object} mailreader - Parses MIME messages received from IMAP
- * @property {Object} dialog - Dialog service
- * @property {Object} appConfig - Application configuration
- * @property {Object} auth - Authentication service
- */
+//
+//
+// Email Service
+//
+//
 
 /**
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
  *
- * @param {EmailDeps|Object} optionsOrKeychain Either a parameter object containing all dependencies
- *                                            or the legacy positional arguments (keychain, pgp, ...).
- * @param {Object} [pgp] Legacy pgp argument.
- * @param {Object} [accountStore] Legacy accountStore argument.
- * @param {Object} [pgpbuilder] Legacy pgpbuilder argument.
- * @param {Object} [mailreader] Legacy mailreader argument.
- * @param {Object} [dialog] Legacy dialog argument.
- * @param {Object} [appConfig] Legacy appConfig argument.
- * @param {Object} [auth] Legacy auth argument.
+ * @param {Object} keychain The keychain DAO handles keys transparently
+ * @param {Object} pgp Orchestrates decryption
+ * @param {Object} devicestorage Handles persistence to the local indexed db
+ * @param {Object} pgpbuilder Generates and encrypts MIME and SMTP messages
+ * @param {Object} mailreader Parses MIME messages received from IMAP
  */
-function Email(optionsOrKeychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth) {
-    let deps;
-    if (arguments.length === 1 && typeof optionsOrKeychain === 'object' && optionsOrKeychain.keychain) {
-        deps = optionsOrKeychain;
-    } else {
-        deps = {
-            keychain: optionsOrKeychain,
-            pgp: pgp,
-            accountStore: accountStore,
-            pgpbuilder: pgpbuilder,
-            mailreader: mailreader,
-            dialog: dialog,
-            appConfig: appConfig,
-            auth: auth
-        };
-    }
-
-    this._keychain = deps.keychain;
-    this._pgp = deps.pgp;
-    this._devicestorage = deps.accountStore;
-    this._pgpbuilder = deps.pgpbuilder;
-    this._mailreader = deps.mailreader;
-    this._dialog = deps.dialog;
-    this._appConfig = deps.appConfig;
-    this._auth = deps.auth;
+function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth) {
+    this._keychain = keychain;
+    this._pgp = pgp;
+    this._devicestorage = accountStore;
+    this._pgpbuilder = pgpbuilder;
+    this._mailreader = mailreader;
+    this._dialog = dialog;
+    this._appConfig = appConfig;
+    this._auth = auth;
 }
+
+
+//
+//
+// Public API
+//
+//
+
 
 /**
  * Initializes the email dao:
  * - assigns _account
  * - initializes _account.folders with the content from memory
  *
- * @param {Object} options.account.emailAddress The user's id
+ * @param {String} options.account.emailAddress The user's id
  * @param {String} options.account.realname The user's id
  * @return {Promise}
  * @resolve {Object} keypair
@@ -117,11 +100,11 @@ Email.prototype.init = function (options) {
 
 /**
  * Unlocks the keychain by either decrypting an existing private key or generating a new keypair
- * @param {Object} options.passphrase The passphrase to decrypt the private key
+ * @param {String} options.passphrase The passphrase to decrypt the private key
  */
 Email.prototype.unlock = function (options) {
-    const self = this,
-        generatedKeypair = undefined;
+    const self = this;
+    let generatedKeypair;
 
     if (options.keypair) {
         // import existing key pair into crypto module
@@ -238,9 +221,9 @@ Email.prototype.openFolder = function (options) {
  * @return {Promise}
  */
 Email.prototype.deleteMessage = function (options) {
-    const self = this,
-        folder = options.folder,
-        message = options.message;
+    const self = this;
+    const folder = options.folder;
+    const message = options.message;
 
     self.busy();
 
@@ -296,9 +279,9 @@ Email.prototype.deleteMessage = function (options) {
  * @return {Promise}
  */
 Email.prototype.setFlags = function (options) {
-    const self = this,
-        folder = options.folder,
-        message = options.message;
+    const self = this;
+    const folder = options.folder;
+    const message = options.message;
 
     // no-op if the message if not present anymore (for whatever reason)
     if (folder.messages.indexOf(message) < 0) {
@@ -381,10 +364,10 @@ Email.prototype.setFlags = function (options) {
  * @return {Promise}
  */
 Email.prototype.moveMessage = function (options) {
-    const self = this,
-        folder = options.folder,
-        destination = options.destination,
-        message = options.message;
+    const self = this;
+    const folder = options.folder;
+    const destination = options.destination;
+    const message = options.message;
 
     self.busy();
     return new Promise(function (resolve) {
@@ -431,22 +414,22 @@ Email.prototype.moveMessage = function (options) {
  * @resolve {Object}    The message object that was streamed
  */
 Email.prototype.getBody = function (options) {
-    const self = this,
-        messages = options.messages,
-        folder = options.folder;
+    const self = this;
+    let messages = options.messages;
+    const folder = options.folder;
 
-    const filteredMessages = messages.filter(function (message) {
+    messages = messages.filter(function (message) {
         // the message either already has a body or is fetching it right now, so no need to become active here
         return !(message.loadingBody || typeof message.body !== 'undefined');
     });
 
-    if (!filteredMessages.length) {
+    if (!messages.length) {
         return new Promise(function (resolve) {
             resolve();
         });
     }
 
-    filteredMessages.forEach(function (message) {
+    messages.forEach(function (message) {
         message.loadingBody = true;
     });
 
@@ -457,13 +440,13 @@ Email.prototype.getBody = function (options) {
     // load the message from disk
     return self._localListMessages({
         folder: folder,
-        uid: _.pluck(filteredMessages, MSG_ATTR_UID)
+        uid: _.pluck(messages, MSG_ATTR_UID)
     }).then(function (localMessages) {
         loadedMessages = localMessages;
 
         // find out which messages are not available on disk (uids not included in disk roundtrip)
         const localUids = _.pluck(localMessages, MSG_ATTR_UID);
-        const needsImapFetch = filteredMessages.filter(function (msg) {
+        const needsImapFetch = messages.filter(function (msg) {
             return !_.contains(localUids, msg.uid);
         });
         return needsImapFetch;
@@ -493,12 +476,12 @@ Email.prototype.getBody = function (options) {
             });
 
             // we can't fetch from imap, just continue with what we have
-            filteredMessages = _.difference(filteredMessages, needsImapFetch);
+            messages = _.difference(messages, needsImapFetch);
         });
 
     }).then(function () {
         // enhance dummy messages with content
-        filteredMessages.forEach(function (message) {
+        messages.forEach(function (message) {
             const loadedMessage = _.findWhere(loadedMessages, {
                 uid: message.uid
             });
@@ -511,7 +494,7 @@ Email.prototype.getBody = function (options) {
         // extract the message body
         const jobs = [];
 
-        filteredMessages.forEach(function (message) {
+        messages.forEach(function (message) {
             const job = self._extractBody(message).catch(function (err) {
                 axe.error('Can extract body for message uid ' + message.uid + ' . Reason: ' + err.message + (err.stack ? ('\n' + err.stack) : ''));
             });
@@ -522,19 +505,19 @@ Email.prototype.getBody = function (options) {
     }).then(function () {
         done();
 
-        if (options.notifyNew && filteredMessages.length) {
+        if (options.notifyNew && messages.length) {
             // notify for incoming mail
-            self.onIncomingMessage(filteredMessages);
+            self.onIncomingMessage(messages);
         }
 
-        return filteredMessages;
+        return messages;
     }).catch(function (err) {
         done();
         throw err;
     });
 
     function done() {
-        filteredMessages.forEach(function (message) {
+        messages.forEach(function (message) {
             message.loadingBody = false;
         });
         self.done();
@@ -564,8 +547,8 @@ Email.prototype._checkSignatures = function (message) {
  * @resolve {Object} attachment    The attachment body part that was retrieved and parsed
  */
 Email.prototype.getAttachment = function (options) {
-    const self = this,
-        attachment = options.attachment;
+    const self = this;
+    const attachment = options.attachment;
 
     attachment.busy = true;
     return self._getBodyParts({
@@ -593,9 +576,9 @@ Email.prototype.getAttachment = function (options) {
  * @resolve {Object} message    The decrypted message object
  */
 Email.prototype.decryptBody = function (options) {
-    const self = this,
-        message = options.message,
-        encryptedNode = undefined;
+    const self = this;
+    const message = options.message;
+    let encryptedNode;
 
     // the message is decrypting has no body, is not encrypted or has already been decrypted
     if (!message.bodyParts || message.decryptingBody || !message.body || !message.encrypted || message.decrypted) {
@@ -610,8 +593,7 @@ Email.prototype.decryptBody = function (options) {
     // get the sender's public key for signature checking
     return self._keychain.getReceiverPublicKey(message.from[0].address).then(function (senderPublicKey) {
         // get the receiver's public key to check the message signature
-        const encryptedNodes = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED);
-        encryptedNode = encryptedNodes[0];
+        encryptedNode = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED)[0];
         const senderKey = senderPublicKey ? senderPublicKey.publicKey : undefined;
         return self._pgp.decrypt(encryptedNode.content, senderKey);
 
@@ -661,8 +643,7 @@ Email.prototype.decryptBody = function (options) {
 
         // message had no signature in the ciphertext, so there's a little extra effort to be done here
         // is there a signed MIME node?
-        const signedRoots = filterBodyParts(root, MSG_PART_TYPE_SIGNED);
-        const signedRoot = signedRoots[0];
+        const signedRoot = filterBodyParts(root, MSG_PART_TYPE_SIGNED)[0];
         if (!signedRoot) {
             // no signed MIME node, obviously an unsigned PGP/MIME message
             return setBody(root);
@@ -684,8 +665,8 @@ Email.prototype.decryptBody = function (options) {
     function setBody(root) {
         // we have successfully interpreted the descrypted message,
         // so let's update the views on the message parts
-        message.body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_ATTR_CONTENT).join('\n');
-        message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_ATTR_CONTENT).join('\n');
+        message.body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
+        message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
         message.attachments = _.reject(filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT), function (attmt) {
             // remove the pgp-signature from the attachments
             return attmt.mimeType === "application/pgp-signature";
@@ -765,7 +746,7 @@ Email.prototype._sendGeneric = function (options, mailer) {
         // this should not negatively impact the process of sending
         return self._uploadToSent({
             message: rfcText
-        }).catch(function () {});
+        }).catch(function () { });
 
     }).then(done).catch(done);
 
@@ -832,9 +813,15 @@ Email.prototype.refreshOutbox = function () {
     });
 };
 
+
+
+//
 //
 // Event Handlers
 //
+//
+
+
 /**
  * This handler should be invoked when navigator.onLine === true. It will try to connect a
  * given instance of the imap client. If the connection attempt was successful, it will
@@ -1076,9 +1063,14 @@ Email.prototype._onSyncUpdate = function (options) {
     }
 };
 
+
+//
 //
 // Internal API
 //
+//
+
+
 /**
  * Updates the folder information from imap (if we're online). Adds/removes folders in account.folders,
  * if we added/removed folder in IMAP. If we have an uninitialized folder that lacks folder.messages,
@@ -1251,9 +1243,14 @@ Email.prototype.done = function () {
     }
 };
 
+
+
+//
 //
 // IMAP API
 //
+//
+
 /**
  * Mark messages as un-/read or un-/answered on IMAP
  *
@@ -1366,9 +1363,9 @@ Email.prototype._fetchMessages = function (options) {
         });
 
     }).then(function (msgs) {
-        const fetchedMessages = msgs;
+        messages = msgs;
         // displays the clip in the UI if the message contains attachments
-        fetchedMessages.forEach(function (message) {
+        messages.forEach(function (message) {
             message.attachments = message.bodyParts.filter(function (bodyPart) {
                 return bodyPart.type === MSG_PART_TYPE_ATTACHMENT;
             });
@@ -1377,7 +1374,7 @@ Email.prototype._fetchMessages = function (options) {
         // get the bodies from imap (individual roundtrips per msg)
         const jobs = [];
 
-        fetchedMessages.forEach(function (message) {
+        messages.forEach(function (message) {
             // fetch only the content for non-attachment body parts (encrypted, signed, text, html, resources referenced from the html)
             const contentParts = message.bodyParts.filter(function (bodyPart) {
                 return bodyPart.type !== MSG_PART_TYPE_ATTACHMENT || (bodyPart.type === MSG_PART_TYPE_ATTACHMENT && bodyPart.id);
@@ -1460,9 +1457,13 @@ Email.prototype._getBodyParts = function (options) {
     });
 };
 
+
+//
 //
 // Local Storage API
 //
+//
+
 /**
  * persist encrypted list in device storage
  * note: the folders in the ui also include the messages array, so let's create a clean array here
@@ -1539,9 +1540,14 @@ Email.prototype._localDeleteMessage = function (options) {
     return this._devicestorage.removeList(dbType);
 };
 
+
+//
 //
 // Internal Helper Methods
 //
+//
+
+
 /**
  * Helper method that extracts a message body from the body parts
  *
@@ -1561,7 +1567,7 @@ Email.prototype._extractBody = function (message) {
             return;
         }
 
-        let root = message.bodyParts;
+        const root = message.bodyParts;
 
         if (message.signed) {
             // PGP/MIME signed
@@ -1571,10 +1577,10 @@ Email.prototype._extractBody = function (message) {
             root = signedRoot.content;
         }
 
-        const body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_ATTR_CONTENT).join('\n');
+        const body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
 
         // if the message is plain text and contains pgp/inline, we are only interested in the encrypted content, the rest (corporate mail footer, attachments, etc.) is discarded.
-        const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\\s\\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
+        const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\s\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
         if (pgpInlineMatch) {
             message.body = pgpInlineMatch[0]; // show the plain text content
             message.encrypted = true; // signal the ui that we're handling encrypted content
@@ -1589,14 +1595,12 @@ Email.prototype._extractBody = function (message) {
         }
 
         // any content before/after the PGP block will be discarded, untrusted attachments and html is ignored
-        const clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\\nHash:[ ][^\\n]+\\n(?:[A-Za-z]+:[ ][^\\n]+\\n)*\\n([\\s\\S]*?)\\n-{5}BEGIN PGP SIGNATURE-{5}[\\S\\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
+        const clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\nHash:[ ][^\n]+\n(?:[A-Za-z]+:[ ][^\n]+\n)*\n([\s\S]*?)\n-{5}BEGIN PGP SIGNATURE-{5}[\S\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
         if (clearSignedMatch) {
             // PGP/INLINE signed
             message.signed = true;
             message.clearSignedMessage = clearSignedMatch[0];
-            const stripped = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
-            // continue with stripped as body
-            return setBody(stripped, root);
+            const body = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
         }
 
         if (!message.signed) {
@@ -1616,7 +1620,7 @@ Email.prototype._extractBody = function (message) {
         message.body = body;
         if (!message.clearSignedMessage) {
             message.attachments = filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT);
-            message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_ATTR_CONTENT).join('\n');
+            message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
             inlineExternalImages(message);
         }
     }
@@ -1688,6 +1692,14 @@ Email.prototype.checkOnline = function () {
     }
 };
 
+
+//
+//
+// External Heler Methods
+//
+//
+
+
 /**
  * Checks whether we need to upload to the sent folder after sending an email.
  *
@@ -1704,12 +1716,21 @@ Email.prototype.checkIgnoreUploadOnSent = function (hostname) {
     return false;
 };
 
+
 /**
  * Check if the user agent is online.
  */
 Email.prototype.isOnline = function () {
     return navigator.onLine;
 };
+
+
+//
+//
+// Helper Functions
+//
+//
+
 
 /**
  * Updates a folder's unread count:
@@ -1730,15 +1751,15 @@ function updateUnreadCount(folder, countAllMessages) {
  * @param {undefined} result Leave undefined, only used for recursion
  */
 function filterBodyParts(bodyParts, type, result) {
-    const res = result || [];
+    result = result || [];
     bodyParts.forEach(function (part) {
         if (part.type === type) {
-            res.push(part);
+            result.push(part);
         } else if (Array.isArray(part.content)) {
-            filterBodyParts(part.content, type, res);
+            filterBodyParts(part.content, type, result);
         }
     });
-    return res;
+    return result;
 }
 
 /**
@@ -1750,7 +1771,7 @@ function filterBodyParts(bodyParts, type, result) {
  * @param {Object} message DTO
  */
 function inlineExternalImages(message) {
-    message.html = message.html.replace(/(<img[^>]+\\bsrc=['"])cid:([^'">]+)(['"])/ig, function (match, prefix, src, suffix) {
+    message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function (match, prefix, src, suffix) {
         let localSource = '',
             payload = '';
 

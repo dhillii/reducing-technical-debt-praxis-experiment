@@ -455,42 +455,6 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Determine member UUID based on status
-     * @param {string} memberStatus
-     * @returns {string}
-     */
-    _determineMemberUuid(memberStatus) {
-        if (memberStatus === 'undefined') {
-            return 'undefined';
-        }
-        if (this.memberUuids.length > 0 && Math.random() < 0.7) {
-            return this.randomChoice(this.memberUuids);
-        }
-        return this.generateUuid();
-    }
-
-    /**
-     * Build href with optional UTM parameters
-     * @param {string} baseUrl
-     * @param {string} pathname
-     * @param {object|null} utmParams
-     * @returns {string}
-     */
-    _buildHref(baseUrl, pathname, utmParams) {
-        let href = `${baseUrl}${pathname}`;
-        if (utmParams) {
-            const query = Object.entries(utmParams)
-                .filter(([, v]) => v !== undefined)
-                .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-                .join('&');
-            if (query) {
-                href = `${href}?${query}`;
-            }
-        }
-        return href;
-    }
-
-    /**
      * Generate a single analytics event
      */
     generateEvent() {
@@ -500,11 +464,30 @@ class DockerAnalyticsManager {
         const sessionId = this.generateSessionId(userId, timestamp);
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
         const referrer = this.weightedChoice(this.referrerWeights);
-        const memberUuid = this._determineMemberUuid(memberStatus);
+
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
+
         const referrerSource = this.referrerSourceMap[referrer] || referrer;
         const utmParams = this.generateUtmParameters();
         const baseUrl = this.siteConfig.url || 'http://localhost:2368';
-        const href = this._buildHref(baseUrl, content.pathname, utmParams);
+
+        let href = `${baseUrl}${content.pathname}`;
+        if (utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
 
         const payload = {
             site_uuid: this.siteUuid,
@@ -537,97 +520,6 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Determine page count for a session
-     * @returns {number}
-     */
-    _determinePageCount() {
-        const r = Math.random();
-        if (r < 0.4) {
-            return 1;
-        }
-        if (r < 0.7) {
-            return 2 + Math.floor(Math.random() * 2); // 2-3
-        }
-        if (r < 0.9) {
-            return 4 + Math.floor(Math.random() * 3); // 4-6
-        }
-        return 7 + Math.floor(Math.random() * 4); // 7-10
-    }
-
-    /**
-     * Generate a session with multiple page hits
-     * Returns an array of events for a single user session
-     */
-    generateSession() {
-        const sessionId = this.generateUuid();
-        const pageCount = this._determinePageCount();
-
-        // Base content and timestamp for first page
-        const firstContent = this.selectContent();
-        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
-
-        // Consistent session attributes
-        const memberStatus = this.weightedChoice(this.memberStatusWeights);
-        const memberUuid = this._determineMemberUuid(memberStatus);
-        const userAgent = this.randomChoice(this.userAgents);
-        const locale = this.randomChoice(this.locales);
-        const location = this.weightedChoice(this.locationWeights);
-        const referrer = this.weightedChoice(this.referrerWeights);
-        const referrerSource = this.referrerSourceMap[referrer] || referrer;
-        const utmParams = this.generateUtmParameters();
-        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
-
-        const events = [];
-
-        for (let i = 0; i < pageCount; i++) {
-            const content = i === 0 ? firstContent : this.selectContent();
-
-            const timestamp = i === 0
-                ? baseTimestamp
-                : new Date(baseTimestamp.getTime() + (i * (30 + Math.floor(Math.random() * 270)) * 1000));
-
-            if (timestamp > new Date()) {
-                break;
-            }
-
-            const href = i === 0
-                ? this._buildHref(baseUrl, content.pathname, utmParams)
-                : `${baseUrl}${content.pathname}`;
-
-            const payload = {
-                site_uuid: this.siteUuid,
-                member_uuid: memberUuid,
-                member_status: memberStatus,
-                post_uuid: content.post_uuid,
-                post_type: content.post_type,
-                'user-agent': userAgent,
-                locale: locale,
-                location: location,
-                referrer: i === 0 ? referrer : '',
-                pathname: content.pathname,
-                href: href,
-                meta: {
-                    referrerSource: i === 0 ? referrerSource : ''
-                }
-            };
-
-            if (i === 0 && utmParams) {
-                Object.assign(payload, utmParams);
-            }
-
-            events.push({
-                timestamp: this.formatTimestamp(timestamp),
-                session_id: sessionId,
-                action: 'page_hit',
-                version: '1',
-                payload: payload
-            });
-        }
-
-        return events;
-    }
-
-    /**
      * Send events to Tinybird Events API
      * @param {Array} events - Events to send
      * @param {boolean} wait - Whether to wait for processing (slower but confirms ingestion)
@@ -652,6 +544,161 @@ class DockerAnalyticsManager {
         }
 
         return await response.json();
+    }
+
+    /**
+     * Determine number of pages for a generated session
+     * Distribution: ~40% single page, ~30% 2-3 pages, ~20% 4-6 pages, ~10% 7-10 pages
+     * @returns {number}
+     */
+    _determinePageCount() {
+        const r = Math.random();
+        if (r < 0.4) {
+            return 1;
+        }
+        if (r < 0.7) {
+            return 2 + Math.floor(Math.random() * 2); // 2-3
+        }
+        if (r < 0.9) {
+            return 4 + Math.floor(Math.random() * 3); // 4-6
+        }
+        return 7 + Math.floor(Math.random() * 4); // 7-10
+    }
+
+    /**
+     * Generate member status and UUID for a session
+     * @returns {{memberStatus:string, memberUuid:string}}
+     */
+    _getMemberInfo() {
+        const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
+        return {memberStatus, memberUuid};
+    }
+
+    /**
+     * Build href with optional UTM parameters
+     * @param {string} baseUrl
+     * @param {string} pathname
+     * @param {object|null} utmParams
+     * @param {boolean} includeUtm
+     * @returns {string}
+     */
+    _buildHref(baseUrl, pathname, utmParams, includeUtm) {
+        let href = `${baseUrl}${pathname}`;
+        if (includeUtm && utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+        return href;
+    }
+
+    /**
+     * Build payload for a page view
+     * @param {object} content
+     * @param {object} memberInfo
+     * @param {string} userAgent
+     * @param {string} locale
+     * @param {string} location
+     * @param {string} referrer
+     * @param {string} referrerSource
+     * @param {string} href
+     * @param {boolean} isFirstPage
+     * @param {object|null} utmParams
+     * @returns {object}
+     */
+    _buildPayload(content, memberInfo, userAgent, locale, location, referrer, referrerSource, href, isFirstPage, utmParams) {
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: memberInfo.memberUuid,
+            member_status: memberInfo.memberStatus,
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': userAgent,
+            locale: locale,
+            location: location,
+            referrer: isFirstPage ? referrer : '',
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: isFirstPage ? referrerSource : ''
+            }
+        };
+        if (isFirstPage && utmParams) {
+            Object.assign(payload, utmParams);
+        }
+        return payload;
+    }
+
+    /**
+     * Generate a session with multiple page hits
+     * Returns an array of events for a single user session
+     */
+    generateSession() {
+        const sessionId = this.generateUuid();
+        const pageCount = this._determinePageCount();
+
+        const firstContent = this.selectContent();
+        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
+        const memberInfo = this._getMemberInfo();
+
+        const userAgent = this.randomChoice(this.userAgents);
+        const locale = this.randomChoice(this.locales);
+        const location = this.weightedChoice(this.locationWeights);
+        const referrer = this.weightedChoice(this.referrerWeights);
+        const referrerSource = this.referrerSourceMap[referrer] || referrer;
+        const utmParams = this.generateUtmParameters();
+        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
+
+        const events = [];
+
+        for (let i = 0; i < pageCount; i++) {
+            const isFirstPage = i === 0;
+            const content = isFirstPage ? firstContent : this.selectContent();
+
+            const timestamp = isFirstPage
+                ? baseTimestamp
+                : new Date(baseTimestamp.getTime() + (i * (30 + Math.floor(Math.random() * 270)) * 1000));
+
+            if (timestamp > new Date()) {
+                break;
+            }
+
+            const href = this._buildHref(baseUrl, content.pathname, utmParams, isFirstPage);
+            const payload = this._buildPayload(
+                content,
+                memberInfo,
+                userAgent,
+                locale,
+                location,
+                referrer,
+                referrerSource,
+                href,
+                isFirstPage,
+                utmParams
+            );
+
+            events.push({
+                timestamp: this.formatTimestamp(timestamp),
+                session_id: sessionId,
+                action: 'page_hit',
+                version: '1',
+                payload: payload
+            });
+        }
+
+        return events;
     }
 
     /**
@@ -846,4 +893,4 @@ if (require.main === module) {
     main().catch(console.error);
 }
 
-module.exports = DockerAnalyticsManager
+module.exports = DockerAnalyticsManager;

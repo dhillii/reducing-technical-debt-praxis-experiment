@@ -17,88 +17,6 @@ const DISPLAY_OPTIONS = [
     {name: 'Paid conversions', value: 'paid'}
 ];
 
-/**
- * Determine if paid conversion data exists.
- * @param {Array} sources
- * @returns {boolean}
- */
-function hasPaidConversionData(sources) {
-    return sources.some(sourceData => sourceData.paidConversions > 0);
-}
-
-/**
- * Determine if free signup data exists.
- * @param {Array} sources
- * @returns {boolean}
- */
-function hasFreeSignups(sources) {
-    return sources.some(sourceData => sourceData.signups > 0);
-}
-
-/**
- * Resolve the allowed display options based on data availability.
- * @param {Array} displayOptions
- * @param {boolean} hasPaid
- * @param {boolean} hasFree
- * @returns {Array}
- */
-function resolveAllowedDisplayOptions(displayOptions, hasPaid, hasFree) {
-    if (!hasPaid) {
-        return displayOptions.filter(d => d.value === 'signups');
-    }
-    if (!hasFree) {
-        return displayOptions.filter(d => d.value === 'paid');
-    }
-    return displayOptions;
-}
-
-/**
- * Resolve the selected display option.
- * @param {Array} displayOptions
- * @param {string} sortColumn
- * @param {boolean} hasPaid
- * @param {boolean} hasFree
- * @returns {Object}
- */
-function resolveSelectedDisplayOption(displayOptions, sortColumn, hasPaid, hasFree) {
-    if (!hasPaid) {
-        return displayOptions.find(d => d.value === 'signups');
-    }
-    if (!hasFree) {
-        return displayOptions.find(d => d.value === 'paid');
-    }
-    return displayOptions.find(d => d.value === sortColumn) ?? displayOptions[0];
-}
-
-/**
- * Resolve the selected sort column.
- * @param {string} sortColumn
- * @param {boolean} hasPaid
- * @param {boolean} hasFree
- * @returns {string}
- */
-function resolveSelectedSortColumn(sortColumn, hasPaid, hasFree) {
-    if (!hasPaid) {
-        return 'signups';
-    }
-    if (!hasFree) {
-        return 'paid';
-    }
-    return sortColumn;
-}
-
-/**
- * Build a CSS selector string from an element's class list.
- * @param {Element} element
- * @returns {string}
- */
-function buildClassSelector(element) {
-    const classSelector = Array.from(element.classList)
-        .map(className => '.' + className)
-        .join('');
-    return `${classSelector} `;
-}
-
 export default class Analytics extends Component {
     @service ajax;
     @service ghostPaths;
@@ -161,20 +79,14 @@ export default class Analytics extends Component {
         this._post = value;
     }
 
-    get hasPaidConversionData() {
-        return hasPaidConversionData(this.sources ?? []);
-    }
-
-    get hasFreeSignups() {
-        return hasFreeSignups(this.sources ?? []);
-    }
-
     get allowedDisplayOptions() {
-        return resolveAllowedDisplayOptions(
-            this.displayOptions,
-            this.hasPaidConversionData,
-            this.hasFreeSignups
-        );
+        if (!this.hasPaidConversionData) {
+            return this.displayOptions.filter(d => d.value === 'signups');
+        }
+        if (!this.hasFreeSignups) {
+            return this.displayOptions.filter(d => d.value === 'paid');
+        }
+        return this.displayOptions;
     }
 
     get isDropdownDisabled() {
@@ -182,20 +94,31 @@ export default class Analytics extends Component {
     }
 
     get selectedDisplayOption() {
-        return resolveSelectedDisplayOption(
-            this.displayOptions,
-            this.sortColumn,
-            this.hasPaidConversionData,
-            this.hasFreeSignups
-        );
+        if (!this.hasPaidConversionData) {
+            return this.displayOptions.find(d => d.value === 'signups');
+        }
+        if (!this.hasFreeSignups) {
+            return this.displayOptions.find(d => d.value === 'paid');
+        }
+        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
     }
 
     get selectedSortColumn() {
-        return resolveSelectedSortColumn(
-            this.sortColumn,
-            this.hasPaidConversionData,
-            this.hasFreeSignups
-        );
+        if (!this.hasPaidConversionData) {
+            return 'signups';
+        }
+        if (!this.hasFreeSignups) {
+            return 'paid';
+        }
+        return this.sortColumn;
+    }
+
+    get hasPaidConversionData() {
+        return this.sources?.some(sourceData => sourceData.paidConversions > 0);
+    }
+
+    get hasFreeSignups() {
+        return this.sources?.some(sourceData => sourceData.signups > 0);
     }
 
     get totalFeedback() {
@@ -233,9 +156,23 @@ export default class Analytics extends Component {
 
     @action
     loadData() {
-        this.showSources ? this.fetchReferrersStats() : (this.sources = []);
-        this.showLinks ? this.fetchLinks() : (this.links = []);
-        this.showMentions ? this.fetchMentions() : (this.mentions = []);
+        if (this.showSources) {
+            this.fetchReferrersStats();
+        } else {
+            this.sources = [];
+        }
+
+        if (this.showLinks) {
+            this.fetchLinks();
+        } else {
+            this.links = [];
+        }
+
+        if (this.showMentions) {
+            this.fetchMentions();
+        } else {
+            this.mentions = [];
+        }
     }
 
     @action
@@ -265,7 +202,7 @@ export default class Analytics extends Component {
             if (!acc[title]) {
                 acc[title] = link;
             } else {
-                acc[title].count = acc[title].count || {clicks: 0};
+                acc[title].count = acc[title].count ?? {clicks: 0};
                 acc[title].count.clicks = (acc[title].count.clicks ?? 0) + (link.count?.clicks ?? 0);
             }
             return acc;
@@ -341,9 +278,7 @@ export default class Analytics extends Component {
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
-        setTimeout(() => {
-            this.showSuccess = null;
-        }, 2000);
+        setTimeout(() => (this.showSuccess = null), 2000);
     }
 
     @task
@@ -414,26 +349,70 @@ export default class Analytics extends Component {
         return true;
     }
 
+    /**
+     * Determines whether the animation should be applied to the element.
+     * @private
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    _shouldAnimateElement(element) {
+        if (!this.shouldAnimate) {
+            return false;
+        }
+        if (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) {
+            return false;
+        }
+        if (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) {
+            return false;
+        }
+        if (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) {
+            return false;
+        }
+        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) {
+            return false;
+        }
+        if (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Builds a selector string for the given element based on its class list.
+     * @private
+     * @param {Element} element
+     * @returns {string}
+     */
+    _buildElementSelector(element) {
+        const classSelector = Array.from(element.classList)
+            .map(className => '.' + className)
+            .join('');
+        return `${classSelector} .new-number span`;
+    }
+
+    /**
+     * Builds a selector string for the old-number spans.
+     * @private
+     * @param {Element} element
+     * @returns {string}
+     */
+    _buildOldNumberSelector(element) {
+        const classSelector = Array.from(element.classList)
+            .map(className => '.' + className)
+            .join('');
+        return `${classSelector} .old-number span`;
+    }
+
     @action
     applyClasses(element) {
-        const {classList} = element;
-        const shouldSkip =
-            !this.shouldAnimate ||
-            (classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
-            (classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
-            (classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
-            (classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
-            (classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount);
-
-        if (shouldSkip) {
+        if (!this._shouldAnimateElement(element)) {
             return;
         }
 
-        const baseSelector = buildClassSelector(element);
-
         anime({
-            targets: `${baseSelector}.new-number span`,
+            targets: this._buildElementSelector(element),
             translateY: [10, 0],
+            // translateZ: 0,
             opacity: [0, 1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -442,7 +421,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${baseSelector}.old-number span`,
+            targets: this._buildOldNumberSelector(element),
             translateY: [0, -10],
             opacity: [1, 0],
             easing: 'easeOutExpo',

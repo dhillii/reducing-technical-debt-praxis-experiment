@@ -3,6 +3,7 @@
 /**
  * Module dependencies.
  */
+
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const debug = require('debug')('mocha:runnable');
@@ -12,6 +13,7 @@ const utils = require('./utils');
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
+
 /* eslint-disable no-unused-vars, no-native-reassign */
 const Date = global.Date;
 const setTimeout = global.setTimeout;
@@ -23,11 +25,13 @@ const clearInterval = global.clearInterval;
 /**
  * Object#toString().
  */
+
 const toString = Object.prototype.toString;
 
 /**
  * Expose `Runnable`.
  */
+
 module.exports = Runnable;
 
 /**
@@ -69,7 +73,6 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
-  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
@@ -255,187 +258,143 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
-  const self = this;
-  const start = new Date();
-  const ctx = this.ctx;
-  let finished = false;
-  let emitted = false;
+  const runnable = this;
+  const state = createRunState(runnable, fn);
+  const ctx = runnable.ctx;
 
   if (ctx && ctx.runnable) {
-    ctx.runnable(this);
+    ctx.runnable(runnable);
   }
 
-  const done = createDoneCallback(self, fn, start, () => { finished = true; }, () => emitted);
-  this.callback = done;
-
-  if (this.async) {
-    return this._runAsyncPath(ctx, done, emitted);
-  }
-
-  if (this.allowUncaught) {
-    return this._runAllowUncaughtPath(ctx, done, emitted);
-  }
-
-  return this._runSyncPath(ctx, done, emitted);
-};
-
-/**
- * Create a `done` callback that handles completion, timeout, and error emission.
- *
- * @param {Runnable} runnable
- * @param {Function} finalCallback
- * @param {Date} start
- * @param {Function} markFinished
- * @param {Function} getEmitted
- * @return {Function}
- */
-function createDoneCallback (runnable, finalCallback, start, markFinished, getEmitted) {
-  return function done (err) {
-    const ms = runnable.timeout();
-    if (runnable.timedOut) {
-      return;
-    }
-    if (markFinished()) {
-      // multiple calls
-      if (!getEmitted()) {
-        runnable.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+  if (runnable.async) {
+    runnable.resetTimeout();
+    runnable.skip = createAsyncSkip(state);
+    if (runnable.allowUncaught) {
+      callFnAsync(runnable, ctx, state);
+    } else {
+      try {
+        callFnAsync(runnable, ctx, state);
+      } catch (err) {
+        state.done(utils.getError(err));
       }
-      return;
     }
+    return;
+  }
 
-    runnable.clearTimeout();
-    runnable.duration = new Date() - start;
-    markFinished();
-
-    if (!err && runnable.duration > ms && runnable._enableTimeouts) {
-      err = new Error('Timeout of ' + ms +
-        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+  if (runnable.allowUncaught) {
+    if (runnable.isPending()) {
+      state.done();
+    } else {
+      callFn(runnable, ctx, state);
     }
-    finalCallback(err);
-  };
-}
-
-/**
- * Execute async test/hook path.
- *
- * @param {Object} ctx
- * @param {Function} done
- * @param {boolean} emitted
- * @api private
- */
-Runnable.prototype._runAsyncPath = function (ctx, done, emitted) {
-  this.resetTimeout();
-
-  // allows skip() to be used in an explicit async context
-  this.skip = function asyncSkip () {
-    done(new Pending('async skip call'));
-    throw new Pending('async skip; aborting execution');
-  };
-
-  if (this.allowUncaught) {
-    callFnAsync(this, ctx, done, emitted);
     return;
   }
 
   try {
-    callFnAsync(this, ctx, done, emitted);
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
-  }
-};
-
-/**
- * Execute path when uncaught exceptions are allowed.
- *
- * @param {Object} ctx
- * @param {Function} done
- * @param {boolean} emitted
- * @api private
- */
-Runnable.prototype._runAllowUncaughtPath = function (ctx, done, emitted) {
-  if (this.isPending()) {
-    done();
-  } else {
-    callFn(this, ctx, done, emitted);
-  }
-};
-
-/**
- * Execute synchronous or promise-returning test/hook path.
- *
- * @param {Object} ctx
- * @param {Function} done
- * @param {boolean} emitted
- * @api private
- */
-Runnable.prototype._runSyncPath = function (ctx, done, emitted) {
-  try {
-    if (this.isPending()) {
-      done();
+    if (runnable.isPending()) {
+      state.done();
     } else {
-      callFn(this, ctx, done, emitted);
+      callFn(runnable, ctx, state);
     }
   } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
+    state.done(utils.getError(err));
   }
 };
 
 /**
- * Execute a function that may return a promise.
+ * Create a state object for managing run lifecycle.
+ *
+ * @param {Runnable} runnable
+ * @param {Function} fn
+ * @return {{done: Function}}
+ */
+function createRunState (runnable, fn) {
+  const start = new Date();
+  let emitted = false;
+  let finished = false;
+
+  const done = (err) => {
+    const ms = runnable.timeout();
+    if (runnable.timedOut) {
+      return;
+    }
+    if (finished) {
+      if (!emitted) {
+        emitted = true;
+        runnable.emit('error', err || runnable._trace);
+      }
+      return;
+    }
+    runnable.clearTimeout();
+    runnable.duration = new Date() - start;
+    finished = true;
+    if (!err && runnable.duration > ms && runnable._enableTimeouts) {
+      err = new Error('Timeout of ' + ms +
+        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+    }
+    fn(err);
+  };
+
+  return { done };
+}
+
+/**
+ * Create an async skip function that respects the run state.
+ *
+ * @param {{done: Function}} state
+ * @return {Function}
+ */
+function createAsyncSkip (state) {
+  return function asyncSkip () {
+    state.done(new Pending('async skip call'));
+    throw new Pending('async skip; aborting execution');
+  };
+}
+
+/**
+ * Execute a synchronous or promise-returning test function.
  *
  * @param {Runnable} runnable
  * @param {Object} ctx
- * @param {Function} done
- * @param {boolean} emitted
- * @api private
+ * @param {{done: Function}} state
  */
-function callFn (runnable, ctx, done, emitted) {
+function callFn (runnable, ctx, state) {
   const result = runnable.fn.call(ctx);
   if (result && typeof result.then === 'function') {
     runnable.resetTimeout();
     result.then(
-      function () {
-        done();
-        return null;
-      },
-      function (reason) {
-        done(reason || new Error('Promise rejected with no or falsy reason'));
-      }
+      () => state.done(),
+      (reason) => state.done(reason || new Error('Promise rejected with no or falsy reason'))
     );
   } else {
     if (runnable.asyncOnly) {
-      done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      return;
+      return state.done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
     }
-    done();
+    state.done();
   }
 }
 
 /**
- * Execute an async function that receives a callback.
+ * Execute an explicitly asynchronous test function.
  *
  * @param {Runnable} runnable
  * @param {Object} ctx
- * @param {Function} done
- * @param {boolean} emitted
- * @api private
+ * @param {{done: Function}} state
  */
-function callFnAsync (runnable, ctx, done, emitted) {
+function callFnAsync (runnable, ctx, state) {
   const result = runnable.fn.call(ctx, function (err) {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
-      return done(err);
+      return state.done(err);
     }
     if (err) {
       if (Object.prototype.toString.call(err) === '[object Object]') {
-        return done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
+        return state.done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
       }
-      return done(new Error('done() invoked with non-Error: ' + err));
+      return state.done(new Error('done() invoked with non-Error: ' + err));
     }
     if (result && utils.isPromise(result)) {
-      return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+      return state.done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
     }
-    done();
+    state.done();
   });
 }

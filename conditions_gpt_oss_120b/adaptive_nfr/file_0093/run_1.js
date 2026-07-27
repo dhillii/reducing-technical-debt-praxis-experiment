@@ -96,28 +96,6 @@ export function makeWhereAndFilter(
   }
 }
 
-/**
- * Determines if any of the item-level access flags are false.
- */
-function hasMissingItemAccess(access: {
-  create: boolean
-  update: boolean
-  delete: boolean
-}): boolean {
-  return [access.create, access.update, access.delete].includes(false)
-}
-
-/**
- * Determines if any of the operation-level access flags are false.
- */
-function hasMissingOperationAccess(access: {
-  query: boolean
-  update: boolean
-  delete: boolean
-}): boolean {
-  return [access.query, access.update, access.delete].includes(false)
-}
-
 export function makeFieldEntry({
   access,
   unique,
@@ -167,11 +145,145 @@ export function denyFilter() {
   }
 }
 
-export type Field = ReturnType<typeof makeFieldEntry>
-export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any>
-  ? T
-  : never
+/** Predicate: does the list lack any of create, update, or delete access? */
+function hasPartialItemAccess(access: {
+  create: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.create, access.update, access.delete].includes(false)
+}
 
+/** Predicate: does the list lack any of query, update, or delete access? */
+function hasPartialFilterAccess(access: {
+  query: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.query, access.update, access.delete].includes(false)
+}
+
+/** Build the item entry when partial item access is present. */
+function buildItemEntry(
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  suffix: string,
+  fields: Field[]
+) {
+  const nameI = `List_item_${suffix}`
+  return {
+    name: nameI,
+    expect: { type: 'item' as const, ...access },
+    access: {
+      operation: {
+        query: access.query ? allowAll : denyAll,
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      item: {
+        create: access.create ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameI + 's',
+    },
+  } as const
+}
+
+/** Build the filter(b) entry when partial filter access is present. */
+function buildFilterBEntry(
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  suffix: string,
+  fields: Field[]
+) {
+  const nameFB = `List_filterb_${suffix}`
+  return {
+    name: nameFB,
+    expect: { type: 'filter(b)' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameFB + 's',
+    },
+  } as const
+}
+
+/** Build the filter entry when partial filter access is present. */
+function buildFilterEntry(
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  },
+  suffix: string,
+  fields: Field[]
+) {
+  const nameF = `List_filter_${suffix}`
+  return {
+    name: nameF,
+    expect: { type: 'filter' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowFilter : denyFilter,
+        update: access.update ? allowFilter : denyFilter,
+        delete: access.delete ? allowFilter : denyFilter,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameF + 's',
+    },
+  } as const
+}
+
+/** Generator that yields list configurations based on access and fields. */
 export function* makeList({
   prefix = ``,
   access,
@@ -189,6 +301,7 @@ export function* makeList({
   const suffix = `${prefix}${makeName(access)}`
   const nameO = `List_operation_${suffix}`
 
+  // always yield the operation entry
   yield {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
@@ -216,92 +329,14 @@ export function* makeList({
     },
   } as const
 
-  if (hasMissingItemAccess(access)) {
-    const nameI = `List_item_${suffix}`
-    yield {
-      name: nameI,
-      expect: { type: 'item' as const, ...access },
-      access: {
-        operation: {
-          query: access.query ? allowAll : denyAll,
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        item: {
-          create: access.create ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
-        },
-      },
-      fields,
-      graphql: {
-        plural: nameI + 's',
-      },
-    } as const
+  // additional entries based on access restrictions
+  if (hasPartialItemAccess(access)) {
+    yield buildItemEntry(access, suffix, fields)
   }
 
-  if (hasMissingOperationAccess(access)) {
-    const nameFB = `List_filterb_${suffix}`
-    yield {
-      name: nameFB,
-      expect: { type: 'filter(b)' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
-        },
-        item: {
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-      },
-      fields,
-      graphql: {
-        plural: nameFB + 's',
-      },
-    } as const
-
-    const nameF = `List_filter_${suffix}`
-    yield {
-      name: nameF,
-      expect: { type: 'filter' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowFilter : denyFilter,
-          update: access.update ? allowFilter : denyFilter,
-          delete: access.delete ? allowFilter : denyFilter,
-        },
-        item: {
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-      },
-      fields,
-      graphql: {
-        plural: nameF + 's',
-      },
-    } as const
+  if (hasPartialFilterAccess(access)) {
+    yield buildFilterBEntry(access, suffix, fields)
+    yield buildFilterEntry(access, suffix, fields)
   }
 }
 
@@ -338,95 +373,109 @@ export function makeItem(
   )
 }
 
-/**
- * Generates all field entries for the standard (non‑unique) case.
- */
-function generateStandardFields(): Field[] {
-  const result: Field[] = []
-  for (const read of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          result.push(
-            makeFieldEntry({
-              access: { read, create, update, filterable },
-              unique: false,
-            })
-          )
+export const lists = [
+  ...(function* () {
+    const fields = [
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [false, true]) {
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield makeFieldEntry({
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
+                  unique: false,
+                })
+              }
+            }
+          }
         }
-      }
-    }
-  }
-  return result
-}
+      })(),
+    ]
 
-/**
- * Generates all field entries for the unique‑constrained case.
- */
-function generateUniqueFields(baseFields: Field[]): Field[] {
-  const result = [...baseFields]
-  for (const read of [false, true]) {
-    for (const create of [true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          result.push(
-            makeFieldEntry({
-              access: { read, create, update, filterable },
-              unique: true,
-            })
-          )
+    const fieldsUnique = [
+      ...fields,
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [true]) {
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield makeFieldEntry({
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
+                  unique: true,
+                })
+              }
+            }
+          }
         }
-      }
-    }
-  }
-  return result
-}
+      })(),
+    ]
 
-/**
- * Generates the complete list of List objects used in tests.
- */
-function generateLists(): List[] {
-  const lists: List[] = []
-  const standardFields = generateStandardFields()
-  const uniqueFields = generateUniqueFields(standardFields)
-
-  for (const query of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const delete_ of [false, true]) {
-          lists.push(
-            ...makeList({
-              access: { query, create, update, delete: delete_ },
-              fields: standardFields,
+    for (const query of [false, true]) {
+      for (const create of [false, true]) {
+        for (const update of [false, true]) {
+          for (const delete_ of [false, true]) {
+            yield* makeList({
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
+              fields,
             })
-          )
-          lists.push(
-            ...makeList({
+
+            yield* makeList({
               prefix: `UNIQUE_`,
-              access: { query, create, update, delete: delete_ },
-              fields: uniqueFields,
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
+              fields: fieldsUnique,
             })
-          )
+          }
         }
       }
     }
-  }
+  })(),
+]
 
-  return lists
-}
-
-export const lists = generateLists()
-
-/**
- * Builds the Keystone configuration object from the generated lists.
- */
 export const config = {
-  lists: Object.fromEntries(
-    lists.map(l => {
-      const fieldsObj = Object.fromEntries(
-        l.fields.map(({ name, expect, ...f }) => [name, text(f)])
-      )
-      return [l.name, list({ ...l, fields: fieldsObj })]
-    })
-  ),
+  lists: {
+    ...Object.fromEntries(
+      (function* () {
+        for (const l of lists) {
+          yield [
+            l.name,
+            list({
+              ...l,
+              fields: {
+                ...Object.fromEntries(
+                  (function* () {
+                    for (const { name, expect, ...f } of l.fields) {
+                      yield [name, text(f)]
+                    }
+                  })()
+                ),
+              },
+            }),
+          ]
+        }
+      })()
+    ),
+  },
 }
+
+export type Field = ReturnType<typeof makeFieldEntry>
+export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never

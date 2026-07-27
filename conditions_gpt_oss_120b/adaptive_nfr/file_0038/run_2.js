@@ -148,102 +148,66 @@ class DockerAnalyticsManager {
         ];
     }
 
-    /**
-     * Fetch the Tinybird token from Docker volume or environment
-     */
     async fetchTinybirdToken() {
         console.log('Fetching Tinybird token...');
-        const envToken = this._getTokenFromEnv();
-        if (envToken) {
-            this.tinybirdToken = envToken;
-            return envToken;
-        }
 
-        const dockerToken = this._getTokenFromDocker();
-        this.tinybirdToken = dockerToken;
-        return dockerToken;
-    }
-
-    /**
-     * Retrieve token from environment variables
-     * @returns {string|undefined}
-     */
-    _getTokenFromEnv() {
         if (process.env.TINYBIRD_ADMIN_TOKEN) {
+            this.tinybirdToken = process.env.TINYBIRD_ADMIN_TOKEN;
             console.log('Using TINYBIRD_ADMIN_TOKEN from environment');
-            return process.env.TINYBIRD_ADMIN_TOKEN;
+            return this.tinybirdToken;
         }
-        if (process.env.TINYBIRD_TRACKER_TOKEN) {
-            console.log('Using TINYBIRD_TRACKER_TOKEN from environment');
-            return process.env.TINYBIRD_TRACKER_TOKEN;
-        }
-        return undefined;
-    }
 
-    /**
-     * Retrieve token from Docker volume configuration
-     * @returns {string}
-     */
-    _getTokenFromDocker() {
+        if (process.env.TINYBIRD_TRACKER_TOKEN) {
+            this.tinybirdToken = process.env.TINYBIRD_TRACKER_TOKEN;
+            console.log('Using TINYBIRD_TRACKER_TOKEN from environment');
+            return this.tinybirdToken;
+        }
+
         try {
             console.log('Reading Tinybird config from Docker volume...');
             const envContent = execSync(
                 `docker run --rm -v ${DOCKER_VOLUME_NAME}:/config alpine cat /config/.env.tinybird 2>/dev/null`,
                 {encoding: 'utf8', timeout: 10000}
             );
-            const config = this._parseEnvContent(envContent);
+
+            const lines = envContent.trim().split('\n');
+            const config = {};
+            for (const line of lines) {
+                const [key, ...valueParts] = line.split('=');
+                if (key && valueParts.length > 0) {
+                    config[key.trim()] = valueParts.join('=').trim();
+                }
+            }
+
             if (config.TINYBIRD_ADMIN_TOKEN) {
+                this.tinybirdToken = config.TINYBIRD_ADMIN_TOKEN;
                 console.log('Tinybird admin token acquired from Docker volume');
-                return config.TINYBIRD_ADMIN_TOKEN;
+                return this.tinybirdToken;
             }
+
             if (config.TINYBIRD_TRACKER_TOKEN) {
+                this.tinybirdToken = config.TINYBIRD_TRACKER_TOKEN;
                 console.log('Tinybird tracker token acquired from Docker volume');
-                return config.TINYBIRD_TRACKER_TOKEN;
+                return this.tinybirdToken;
             }
+
             throw new Error('No token found in Docker volume config');
         } catch (error) {
-            this._handleDockerTokenError(error);
-        }
-    }
-
-    /**
-     * Parse .env file content into key/value map
-     * @param {string} content
-     * @returns {Object}
-     */
-    _parseEnvContent(content) {
-        const lines = content.trim().split('\n');
-        const config = {};
-        for (const line of lines) {
-            const [key, ...valueParts] = line.split('=');
-            if (key && valueParts.length > 0) {
-                config[key.trim()] = valueParts.join('=').trim();
+            if (error.message.includes('No such file') || error.message.includes('No token found')) {
+                console.error('Tinybird config not found in Docker volume.');
+                console.error('Make sure Tinybird is running: yarn dev:analytics');
+            } else if (error.message.includes('Cannot connect to the Docker daemon')) {
+                console.error('Docker is not running. Please start Docker first.');
+            } else {
+                console.error('Failed to fetch Tinybird token:', error.message);
             }
+            throw new Error('Could not retrieve Tinybird token. Ensure yarn dev:analytics is running.');
         }
-        return config;
     }
 
-    /**
-     * Handle errors while reading Docker token
-     * @param {Error} error
-     */
-    _handleDockerTokenError(error) {
-        if (error.message.includes('No such file') || error.message.includes('No token found')) {
-            console.error('Tinybird config not found in Docker volume.');
-            console.error('Make sure Tinybird is running: yarn dev:analytics');
-        } else if (error.message.includes('Cannot connect to the Docker daemon')) {
-            console.error('Docker is not running. Please start Docker first.');
-        } else {
-            console.error('Failed to fetch Tinybird token:', error.message);
-        }
-        throw new Error('Could not retrieve Tinybird token. Ensure yarn dev:analytics is running.');
-    }
-
-    /**
-     * Initialize the manager with database data
-     */
     async init() {
         console.log('Initializing Docker Analytics Manager...');
+
         await this.fetchTinybirdToken();
 
         this.siteUuid = await this.db.getSiteUuid();
@@ -267,9 +231,6 @@ class DockerAnalyticsManager {
         return true;
     }
 
-    /**
-     * Assign popularity tiers to posts for realistic traffic distribution
-     */
     assignPostPopularity() {
         this.postPopularityMap.clear();
 
@@ -289,9 +250,6 @@ class DockerAnalyticsManager {
         }
     }
 
-    /**
-     * Generate UUID
-     */
     generateUuid() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
             const r = Math.random() * 16 | 0;
@@ -300,9 +258,6 @@ class DockerAnalyticsManager {
         });
     }
 
-    /**
-     * Weighted random selection
-     */
     weightedChoice(weights) {
         const totalWeight = weights.reduce((sum, item) => sum + item.weight, 0);
         let random = Math.random() * totalWeight;
@@ -317,16 +272,10 @@ class DockerAnalyticsManager {
         return weights[weights.length - 1].value;
     }
 
-    /**
-     * Random array element
-     */
     randomChoice(array) {
         return array[Math.floor(Math.random() * array.length)];
     }
 
-    /**
-     * Select content (post, page, or homepage)
-     */
     selectContent() {
         if (Math.random() < 0.4) {
             const staticPage = this.weightedChoice(this.staticPages);
@@ -367,9 +316,6 @@ class DockerAnalyticsManager {
         };
     }
 
-    /**
-     * Generate session ID for a user
-     */
     generateSessionId(userId, timestamp) {
         const userKey = `user_${userId}`;
 
@@ -395,10 +341,6 @@ class DockerAnalyticsManager {
         return sessionId;
     }
 
-    /**
-     * Generate timestamp with gradual growth over ~12 months
-     * Creates a realistic traffic pattern: slow start, gradual growth, with daily/weekly patterns
-     */
     generateTimestamp(publishedAt = null) {
         const now = new Date();
         const monthsBack = 12;
@@ -416,14 +358,18 @@ class DockerAnalyticsManager {
         }
 
         const timeRange = now.getTime() - startDate.getTime();
+
         const random = Math.random();
         const timePosition = Math.pow(random, 0.6);
 
         let timestamp = new Date(startDate.getTime() + (timePosition * timeRange));
 
         const hour = timestamp.getHours();
-        if (hour >= 0 && hour < 6 && Math.random() < 0.7) {
-            timestamp.setHours(9 + Math.floor(Math.random() * 12));
+
+        if (hour >= 0 && hour < 6) {
+            if (Math.random() < 0.7) {
+                timestamp.setHours(9 + Math.floor(Math.random() * 12));
+            }
         }
 
         timestamp.setMinutes(Math.floor(Math.random() * 60));
@@ -436,16 +382,10 @@ class DockerAnalyticsManager {
         return timestamp;
     }
 
-    /**
-     * Format timestamp for Tinybird
-     */
     formatTimestamp(date) {
         return date.toISOString().replace('T', ' ').replace('Z', '');
     }
 
-    /**
-     * Generate UTM parameters
-     */
     generateUtmParameters() {
         if (Math.random() < 0.5) {
             return null;
@@ -458,46 +398,6 @@ class DockerAnalyticsManager {
         };
     }
 
-    /**
-     * Determine member UUID based on status
-     * @param {string} memberStatus
-     * @returns {string}
-     */
-    _determineMemberUuid(memberStatus) {
-        if (memberStatus === 'undefined') {
-            return 'undefined';
-        }
-        if (this.memberUuids.length > 0 && Math.random() < 0.7) {
-            return this.randomChoice(this.memberUuids);
-        }
-        return this.generateUuid();
-    }
-
-    /**
-     * Build href with optional UTM parameters
-     * @param {string} baseUrl
-     * @param {string} pathname
-     * @param {Object|null} utmParams
-     * @param {boolean} includeUtm
-     * @returns {string}
-     */
-    _buildHref(baseUrl, pathname, utmParams, includeUtm) {
-        let href = `${baseUrl}${pathname}`;
-        if (includeUtm && utmParams) {
-            const query = Object.entries(utmParams)
-                .filter(([, v]) => v !== undefined)
-                .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-                .join('&');
-            if (query) {
-                href = `${href}?${query}`;
-            }
-        }
-        return href;
-    }
-
-    /**
-     * Generate a single analytics event
-     */
     generateEvent() {
         const userId = Math.floor(Math.random() * this.userCount) + 1;
         const content = this.selectContent();
@@ -505,11 +405,30 @@ class DockerAnalyticsManager {
         const sessionId = this.generateSessionId(userId, timestamp);
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
         const referrer = this.weightedChoice(this.referrerWeights);
-        const memberUuid = this._determineMemberUuid(memberStatus);
+
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
+
         const referrerSource = this.referrerSourceMap[referrer] || referrer;
         const utmParams = this.generateUtmParameters();
         const baseUrl = this.siteConfig.url || 'http://localhost:2368';
-        const href = this._buildHref(baseUrl, content.pathname, utmParams, true);
+
+        let href = `${baseUrl}${content.pathname}`;
+        if (utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
 
         const payload = {
             site_uuid: this.siteUuid,
@@ -541,96 +460,6 @@ class DockerAnalyticsManager {
         };
     }
 
-    /**
-     * Determine page count for a session
-     * @returns {number}
-     */
-    _determinePageCount() {
-        const r = Math.random();
-        if (r < 0.4) {
-            return 1;
-        }
-        if (r < 0.7) {
-            return 2 + Math.floor(Math.random() * 2);
-        }
-        if (r < 0.9) {
-            return 4 + Math.floor(Math.random() * 3);
-        }
-        return 7 + Math.floor(Math.random() * 4);
-    }
-
-    /**
-     * Generate a session with multiple page hits
-     * Returns an array of events for a single user session
-     */
-    generateSession() {
-        const sessionId = this.generateUuid();
-        const pageCount = this._determinePageCount();
-
-        const firstContent = this.selectContent();
-        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
-        const memberStatus = this.weightedChoice(this.memberStatusWeights);
-        const memberUuid = this._determineMemberUuid(memberStatus);
-        const userAgent = this.randomChoice(this.userAgents);
-        const locale = this.randomChoice(this.locales);
-        const location = this.weightedChoice(this.locationWeights);
-        const referrer = this.weightedChoice(this.referrerWeights);
-        const referrerSource = this.referrerSourceMap[referrer] || referrer;
-        const utmParams = this.generateUtmParameters();
-        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
-
-        const events = [];
-
-        for (let i = 0; i < pageCount; i++) {
-            const content = i === 0 ? firstContent : this.selectContent();
-
-            const timestamp = i === 0
-                ? baseTimestamp
-                : new Date(baseTimestamp.getTime() + (i * (30 + Math.floor(Math.random() * 270)) * 1000));
-
-            if (timestamp > new Date()) {
-                break;
-            }
-
-            const href = this._buildHref(baseUrl, content.pathname, utmParams, i === 0);
-            const payload = {
-                site_uuid: this.siteUuid,
-                member_uuid: memberUuid,
-                member_status: memberStatus,
-                post_uuid: content.post_uuid,
-                post_type: content.post_type,
-                'user-agent': userAgent,
-                locale: locale,
-                location: location,
-                referrer: i === 0 ? referrer : '',
-                pathname: content.pathname,
-                href: href,
-                meta: {
-                    referrerSource: i === 0 ? referrerSource : ''
-                }
-            };
-
-            if (i === 0 && utmParams) {
-                Object.assign(payload, utmParams);
-            }
-
-            events.push({
-                timestamp: this.formatTimestamp(timestamp),
-                session_id: sessionId,
-                action: 'page_hit',
-                version: '1',
-                payload: payload
-            });
-        }
-
-        return events;
-    }
-
-    /**
-     * Send events to Tinybird Events API
-     * @param {Array} events - Events to send
-     * @param {boolean} wait - Whether to wait for processing (slower but confirms ingestion)
-     */
     async sendEventsToTinybird(events, wait = false) {
         const ndjson = events.map(e => JSON.stringify(e)).join('\n');
 
@@ -654,8 +483,166 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Generate and push analytics events to Tinybird
+     * Determine page count for a session based on weighted distribution.
+     * @returns {number}
      */
+    _determinePageCount() {
+        const r = Math.random();
+        if (r < 0.4) {
+            return 1;
+        }
+        if (r < 0.7) {
+            return 2 + Math.floor(Math.random() * 2);
+        }
+        if (r < 0.9) {
+            return 4 + Math.floor(Math.random() * 3);
+        }
+        return 7 + Math.floor(Math.random() * 4);
+    }
+
+    /**
+     * Generate consistent member information for a session.
+     * @returns {{memberStatus:string, memberUuid:string}}
+     */
+    _generateMemberInfo() {
+        const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
+        return {memberStatus, memberUuid};
+    }
+
+    /**
+     * Build href with optional UTM parameters.
+     * @param {string} baseUrl
+     * @param {string} pathname
+     * @param {object|null} utmParams
+     * @returns {string}
+     */
+    _buildHref(baseUrl, pathname, utmParams) {
+        let href = `${baseUrl}${pathname}`;
+        if (utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+        return href;
+    }
+
+    /**
+     * Create payload for a page view.
+     * @param {object} opts
+     * @returns {object}
+     */
+    _createPayload(opts) {
+        const {
+            content,
+            memberUuid,
+            memberStatus,
+            userAgent,
+            locale,
+            location,
+            referrer,
+            href,
+            referrerSource,
+            utmParams,
+            isEntryPage
+        } = opts;
+
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: memberUuid,
+            member_status: memberStatus,
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': userAgent,
+            locale: locale,
+            location: location,
+            referrer: isEntryPage ? referrer : '',
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: isEntryPage ? referrerSource : ''
+            }
+        };
+
+        if (isEntryPage && utmParams) {
+            Object.assign(payload, utmParams);
+        }
+
+        return payload;
+    }
+
+    /**
+     * Generate a session with multiple page hits
+     * Returns an array of events for a single user session
+     */
+    generateSession() {
+        const sessionId = this.generateUuid();
+        const pageCount = this._determinePageCount();
+
+        const firstContent = this.selectContent();
+        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
+        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
+        const utmParams = this.generateUtmParameters();
+
+        const {memberStatus, memberUuid} = this._generateMemberInfo();
+        const userAgent = this.randomChoice(this.userAgents);
+        const locale = this.randomChoice(this.locales);
+        const location = this.weightedChoice(this.locationWeights);
+        const referrer = this.weightedChoice(this.referrerWeights);
+        const referrerSource = this.referrerSourceMap[referrer] || referrer;
+
+        const events = [];
+
+        for (let i = 0; i < pageCount; i++) {
+            const content = i === 0 ? firstContent : this.selectContent();
+
+            const timestamp = i === 0
+                ? baseTimestamp
+                : new Date(baseTimestamp.getTime() + (i * (30 + Math.floor(Math.random() * 270)) * 1000));
+
+            if (timestamp > new Date()) {
+                break;
+            }
+
+            const href = this._buildHref(baseUrl, content.pathname, i === 0 ? utmParams : null);
+
+            const payload = this._createPayload({
+                content,
+                memberUuid,
+                memberStatus,
+                userAgent,
+                locale,
+                location,
+                referrer,
+                href,
+                referrerSource,
+                utmParams,
+                isEntryPage: i === 0
+            });
+
+            events.push({
+                timestamp: this.formatTimestamp(timestamp),
+                session_id: sessionId,
+                action: 'page_hit',
+                version: '1',
+                payload: payload
+            });
+        }
+
+        return events;
+    }
+
     async generateAnalytics(numEvents = DEFAULT_EVENT_COUNT) {
         console.log(`\nGenerating ${numEvents} analytics events...`);
         console.log(`Site UUID: ${this.siteUuid}`);
@@ -691,6 +678,7 @@ class DockerAnalyticsManager {
 
         for (let i = 0; i < batches.length; i += PARALLEL_BATCHES) {
             const parallelBatches = batches.slice(i, i + PARALLEL_BATCHES);
+
             try {
                 await Promise.all(parallelBatches.map(batch => this.sendEventsToTinybird(batch)));
                 sentCount += parallelBatches.reduce((sum, b) => sum + b.length, 0);
@@ -705,10 +693,6 @@ class DockerAnalyticsManager {
         return sentCount;
     }
 
-    /**
-     * Clear analytics events from Tinybird
-     * Truncates the landing datasource and all materialized views
-     */
     async clearAnalytics() {
         console.log(`\nClearing analytics events...`);
 
@@ -729,9 +713,6 @@ class DockerAnalyticsManager {
         return {status: 'ok'};
     }
 
-    /**
-     * Truncate a datasource by name
-     */
     async truncateDatasource(datasourceName) {
         const url = `${TINYBIRD_HOST}/v0/datasources/${datasourceName}/truncate`;
 
@@ -760,9 +741,6 @@ class DockerAnalyticsManager {
         return {status: 'ok'};
     }
 
-    /**
-     * Close database connection
-     */
     async close() {
         await this.db.close();
     }

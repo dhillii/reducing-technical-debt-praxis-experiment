@@ -36,7 +36,10 @@ exports.specialProperties = specialProperties;
  */
 
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -48,44 +51,60 @@ exports.toCollectionName = function(name, pluralize) {
 /*!
  * Determines if `a` and `b` are deep equal.
  *
+ * Modified from node/lib/assert.js
+ *
  * @param {any} a a value to compare to `b`
  * @param {any} b a value to compare to `a`
  * @return {Boolean}
  * @api private
  */
 
-exports.deepEqual = function deepEqual(a, b) {
-  if (a === b) return true;
-  if (typeof a !== 'object' && typeof b !== 'object') return a === b;
-  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) return a.toString() === b.toString();
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) return a.toString() === b.toString();
-  if (a instanceof RegExp && b instanceof RegExp) return compareRegExp(a, b);
-  if (a == null || b == null) return false;
-  if (a.prototype !== b.prototype) return false;
-  if (a instanceof Map && b instanceof Map) return compareMaps(a, b);
-  if (a instanceof Number && b instanceof Number) return a.valueOf() === b.valueOf();
-  if (Buffer.isBuffer(a)) return exports.buffer.areEqual(a, b);
-  if (Array.isArray(a) && Array.isArray(b)) return compareArrays(a, b);
-  // Normalize mongoose documents / objects
-  a = normalizeMongooseValue(a);
-  b = normalizeMongooseValue(b);
-  return comparePlainObjects(a, b);
-};
+/* Helper: primitive (non‑object) equality */
+function _isPrimitive(val) {
+  return typeof val !== 'object' && typeof val !== 'function';
+}
 
-function compareRegExp(a, b) {
-  return a.source === b.source &&
+/* Helper: Date equality */
+function _areDatesEqual(a, b) {
+  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+}
+
+/* Helper: BSON ObjectId / Decimal128 equality */
+function _areBsonEqual(a, b) {
+  return (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) &&
+    a.toString() === b.toString();
+}
+
+/* Helper: RegExp equality */
+function _areRegExpsEqual(a, b) {
+  return a instanceof RegExp && b instanceof RegExp &&
+    a.source === b.source &&
     a.ignoreCase === b.ignoreCase &&
     a.multiline === b.multiline &&
     a.global === b.global;
 }
 
-function compareMaps(a, b) {
+/* Helper: Map equality */
+function _areMapsEqual(a, b) {
+  if (!(a instanceof Map && b instanceof Map)) return false;
   return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
     deepEqual(Array.from(a.values()), Array.from(b.values()));
 }
 
-function compareArrays(a, b) {
+/* Helper: Number object equality */
+function _areNumberObjectsEqual(a, b) {
+  return a instanceof Number && b instanceof Number && a.valueOf() === b.valueOf();
+}
+
+/* Helper: Buffer equality */
+function _areBuffersEqual(a, b) {
+  return Buffer.isBuffer(a) && exports.buffer.areEqual(a, b);
+}
+
+/* Helper: Array deep equality */
+function _areArraysEqual(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; ++i) {
     if (!deepEqual(a[i], b[i])) return false;
@@ -93,33 +112,77 @@ function compareArrays(a, b) {
   return true;
 }
 
-function normalizeMongooseValue(val) {
-  if (val && val.$__ != null) return val._doc;
-  if (isMongooseObject(val)) return val.toObject();
+/* Helper: Convert Mongoose documents / objects to plain objects */
+function _normalizeMongoose(val) {
+  if (val && val.$__ != null) {
+    return val._doc;
+  }
+  if (isMongooseObject(val)) {
+    return val.toObject();
+  }
   return val;
 }
 
-function comparePlainObjects(a, b) {
+/* Helper: Deep equality for plain objects */
+function _areObjectsEqual(a, b) {
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
+
   ka.sort();
   kb.sort();
+
   for (let i = ka.length - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) return false;
   }
+
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) return false;
   }
   return true;
 }
 
+/* Main exported function */
+exports.deepEqual = function deepEqual(a, b) {
+  if (a === b) return true;
+
+  if (_isPrimitive(a) && _isPrimitive(b)) return a === b;
+
+  if (_areDatesEqual(a, b)) return true;
+
+  if (_areBsonEqual(a, b)) return true;
+
+  if (_areRegExpsEqual(a, b)) return true;
+
+  if (a == null || b == null) return false;
+
+  if (a.prototype !== b.prototype) return false;
+
+  if (_areMapsEqual(a, b)) return true;
+
+  if (_areNumberObjectsEqual(a, b)) return true;
+
+  if (_areBuffersEqual(a, b)) return true;
+
+  if (_areArraysEqual(a, b)) return true;
+
+  a = _normalizeMongoose(a);
+  b = _normalizeMongoose(b);
+
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+
+  return _areObjectsEqual(a, b);
+};
+
 /*!
  * Get the last element of an array
  */
 
 exports.last = function(arr) {
-  return arr.length > 0 ? arr[arr.length - 1] : void 0;
+  if (arr.length > 0) {
+    return arr[arr.length - 1];
+  }
+  return void 0;
 };
 
 exports.clone = clone;
@@ -135,12 +198,20 @@ exports.promiseOrCallback = promiseOrCallback;
  */
 
 exports.omit = function omit(obj, keys) {
-  if (keys == null) return Object.assign({}, obj);
-  if (!Array.isArray(keys)) keys = [keys];
+  if (keys == null) {
+    return Object.assign({}, obj);
+  }
+  if (!Array.isArray(keys)) {
+    keys = [keys];
+  }
+
   const ret = Object.assign({}, obj);
-  for (const key of keys) delete ret[key];
+  for (const key of keys) {
+    delete ret[key];
+  }
   return ret;
 };
+
 
 /*!
  * Shallow copies defaults into options.
@@ -153,11 +224,18 @@ exports.omit = function omit(obj, keys) {
 
 exports.options = function(defaults, options) {
   const keys = Object.keys(defaults);
+  let i = keys.length;
+  let k;
+
   options = options || {};
-  for (let i = keys.length - 1; i >= 0; i--) {
-    const k = keys[i];
-    if (!(k in options)) options[k] = defaults[k];
+
+  while (i--) {
+    k = keys[i];
+    if (!(k in options)) {
+      options[k] = defaults[k];
+    }
   }
+
   return options;
 };
 
@@ -181,55 +259,58 @@ exports.random = function() {
 
 exports.merge = function merge(to, from, options, path) {
   options = options || {};
+
+  const keys = Object.keys(from);
+  let i = 0;
+  const len = keys.length;
+  let key;
+
   path = path || '';
   const omitNested = options.omitNested || {};
 
-  const keys = Object.keys(from);
-  for (const key of keys) {
-    if (shouldSkipMergeKey(key, options, omitNested, path)) continue;
+  while (i < len) {
+    key = keys[i++];
+    if (options.omit && options.omit[key]) {
+      continue;
+    }
+    if (omitNested[path]) {
+      continue;
+    }
+    if (specialProperties.has(key)) {
+      continue;
+    }
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      handleObjectMerge(to, from, key, options, path);
+      if (!exports.isObject(to[key])) {
+        to[key] = {};
+      }
+      if (from[key] != null) {
+        // Skip merging schemas if we're creating a discriminator schema and
+        // base schema has a given path as a single nested but discriminator schema
+        // has the path as a document array, or vice versa (gh-9534)
+        if (options.isDiscriminatorSchemaMerge &&
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
+          continue;
+        } else if (from[key].instanceOfSchema) {
+          if (to[key].instanceOfSchema) {
+            schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
+          } else {
+            to[key] = from[key].clone();
+          }
+          continue;
+        } else if (from[key] instanceof ObjectId) {
+          to[key] = new ObjectId(from[key]);
+          continue;
+        }
+      }
+      merge(to[key], from[key], options, path ? path + '.' + key : key);
     } else if (options.overwrite) {
       to[key] = from[key];
     }
   }
 };
-
-function shouldSkipMergeKey(key, options, omitNested, path) {
-  return (options.omit && options.omit[key]) ||
-    omitNested[path] ||
-    specialProperties.has(key);
-}
-
-/* eslint-disable max-statements */
-function handleObjectMerge(to, from, key, options, path) {
-  if (!exports.isObject(to[key])) to[key] = {};
-  const fromVal = from[key];
-  if (fromVal != null) {
-    if (options.isDiscriminatorSchemaMerge &&
-        ((fromVal.$isSingleNested && to[key].$isMongooseDocumentArray) ||
-         (fromVal.$isMongooseDocumentArray && to[key].$isSingleNested))) {
-      return;
-    }
-    if (fromVal.instanceOfSchema) {
-      if (to[key].instanceOfSchema) {
-        schemaMerge(to[key], fromVal.clone(), options.isDiscriminatorSchemaMerge);
-      } else {
-        to[key] = fromVal.clone();
-      }
-      return;
-    }
-    if (fromVal instanceof ObjectId) {
-      to[key] = new ObjectId(fromVal);
-      return;
-    }
-  }
-  const nextPath = path ? `${path}.${key}` : key;
-  merge(to[key], fromVal, options, nextPath);
-}
-/* eslint-enable max-statements */
 
 /*!
  * Applies toObject recursively.
@@ -241,24 +322,50 @@ function handleObjectMerge(to, from, key, options, path) {
 
 exports.toObject = function toObject(obj) {
   Document || (Document = require('./document'));
-  if (obj == null) return obj;
-  if (obj instanceof Document) return obj.toObject();
-  if (Array.isArray(obj)) return obj.map(toObject);
-  if (exports.isPOJO(obj)) {
-    const ret = {};
-    for (const k of Object.keys(obj)) {
-      if (specialProperties.has(k)) continue;
-      ret[k] = toObject(obj[k]);
+  let ret;
+
+  if (obj == null) {
+    return obj;
+  }
+
+  if (obj instanceof Document) {
+    return obj.toObject();
+  }
+
+  if (Array.isArray(obj)) {
+    ret = [];
+
+    for (const doc of obj) {
+      ret.push(toObject(doc));
     }
+
     return ret;
   }
+
+  if (exports.isPOJO(obj)) {
+    ret = {};
+
+    for (const k of Object.keys(obj)) {
+      if (specialProperties.has(k)) {
+        continue;
+      }
+      ret[k] = toObject(obj[k]);
+    }
+
+    return ret;
+  }
+
   return obj;
 };
 
 exports.isObject = isObject;
 
 /*!
- * Determines if `arg` is a plain old JavaScript object (POJO).
+ * Determines if `arg` is a plain old JavaScript object (POJO). Specifically,
+ * `arg` must be an object but not an instance of any special class, like String,
+ * ObjectId, etc.
+ *
+ * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
  *
  * @param {Object|Array|String|Function|RegExp|any} arg
  * @api private
@@ -266,8 +373,13 @@ exports.isObject = isObject;
  */
 
 exports.isPOJO = function isPOJO(arg) {
-  if (arg == null || typeof arg !== 'object') return false;
+  if (arg == null || typeof arg !== 'object') {
+    return false;
+  }
   const proto = Object.getPrototypeOf(arg);
+  // Prototype may be null if you used `Object.create(null)`
+  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
+  // explicitly crosses the boundary from object data to object metadata
   return !proto || proto.constructor.name === 'Object';
 };
 
@@ -289,7 +401,9 @@ exports.isNativeObject = function(arg) {
  */
 
 exports.isEmptyObject = function(val) {
-  return val != null && typeof val === 'object' && Object.keys(val).length === 0;
+  return val != null &&
+    typeof val === 'object' &&
+    Object.keys(val).length === 0;
 };
 
 /*!
@@ -298,9 +412,14 @@ exports.isEmptyObject = function(val) {
  */
 
 exports.hasKey = function hasKey(obj, key) {
-  for (const prop of Object.keys(obj)) {
-    if (prop === key) return true;
-    if (exports.isPOJO(obj[prop]) && exports.hasKey(obj[prop], key)) return true;
+  const props = Object.keys(obj);
+  for (const prop of props) {
+    if (prop === key) {
+      return true;
+    }
+    if (exports.isPOJO(obj[prop]) && exports.hasKey(obj[prop], key)) {
+      return true;
+    }
   }
   return false;
 };
@@ -315,17 +434,27 @@ exports.args = sliced;
 /*!
  * process.nextTick helper.
  *
+ * Wraps `callback` in a try/catch + nextTick.
+ *
+ * node-mongodb-native has a habit of state corruption when an error is immediately thrown from within a collection callback.
+ *
  * @param {Function} callback
  * @api private
  */
 
 exports.tick = function tick(callback) {
-  if (typeof callback !== 'function') return;
+  if (typeof callback !== 'function') {
+    return;
+  }
   return function() {
     try {
       callback.apply(this, arguments);
     } catch (err) {
-      immediate(() => { throw err; });
+      // only nextTick on err to get out of
+      // the event loop and avoid state corruption.
+      immediate(function() {
+        throw err;
+      });
     }
   };
 };
@@ -349,11 +478,19 @@ exports.isMongooseObject = isMongooseObject;
  */
 
 exports.expires = function expires(object) {
-  if (!(object && object.constructor.name === 'Object')) return;
-  if (!('expires' in object)) return;
-  const when = typeof object.expires !== 'string'
-    ? object.expires
-    : Math.round(ms(object.expires) / 1000);
+  if (!(object && object.constructor.name === 'Object')) {
+    return;
+  }
+  if (!('expires' in object)) {
+    return;
+  }
+
+  let when;
+  if (typeof object.expires !== 'string') {
+    when = object.expires;
+  } else {
+    when = Math.round(ms(object.expires) / 1000);
+  }
   object.expireAfterSeconds = when;
   delete object.expires;
 };
@@ -362,73 +499,85 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-exports.populate = function populate(...args) {
-  const obj = buildPopulateObj(...args);
-  if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof obj.path + '`');
-  }
-  return _populateObj(obj);
-};
-
-function buildPopulateObj(path, select, model, match, options, subPopulate, justOne, count) {
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
+  let obj = null;
   if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) return [path];
+    if (path instanceof PopulateOptions) {
+      return [path];
+    }
+
     if (Array.isArray(path)) {
       const singles = makeSingles(path);
       return singles.map(o => exports.populate(o)[0]);
     }
-    if (exports.isObject(path)) return Object.assign({}, path);
-    return { path };
-  }
-  if (typeof model === 'object') {
-    return {
-      path,
-      select,
+
+    if (exports.isObject(path)) {
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
+    }
+  } else if (typeof model === 'object') {
+    obj = {
+      path: path,
+      select: select,
       match: model,
       options: match
     };
+  } else {
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
-  return {
-    path,
-    select,
-    model,
-    match,
-    options,
-    populate: subPopulate,
-    justOne,
-    count
-  };
-}
 
-/* eslint-disable max-statements */
-function makeSingles(arr) {
-  const ret = [];
-  arr.forEach(obj => {
-    if (/[\s]/.test(obj.path)) {
-      obj.path.split(' ').forEach(p => {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
-  return ret;
-}
-/* eslint-enable max-statements */
+  if (typeof obj.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
+  }
+
+  return _populateObj(obj);
+
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
+  function makeSingles(arr) {
+    const ret = [];
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
+          copy.path = p;
+          ret.push(copy);
+        });
+      } else {
+        ret.push(obj);
+      }
+    });
+
+    return ret;
+  }
+};
 
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(inner => {
-      if (/[\s]/.test(inner.path)) {
-        inner.path.split(' ').forEach(p => {
-          const copy = Object.assign({}, inner, { path: p });
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
+        const paths = copy.path.split(' ');
+        paths.forEach(function(p) {
+          copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(exports.populate(inner)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
     obj.populate = exports.populate(ret);
@@ -436,9 +585,17 @@ function _populateObj(obj) {
     obj.populate = exports.populate(obj.populate);
   }
 
+  const ret = [];
   const paths = obj.path.split(' ');
-  if (obj.options != null) obj.options = exports.clone(obj.options);
-  return paths.map(p => new PopulateOptions(Object.assign({}, obj, { path: p })));
+  if (obj.options != null) {
+    obj.options = exports.clone(obj.options);
+  }
+
+  for (const path of paths) {
+    ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
+  }
+
+  return ret;
 }
 
 /*!
@@ -475,10 +632,13 @@ exports.setValue = function(path, val, obj, map, _copying) {
 exports.object = {};
 exports.object.vals = function vals(o) {
   const keys = Object.keys(o);
+  let i = keys.length;
   const ret = [];
-  for (let i = keys.length - 1; i >= 0; i--) {
+
+  while (i--) {
     ret.push(o[keys[i]]);
   }
+
   return ret;
 };
 
@@ -519,21 +679,27 @@ exports.array = {};
 /*!
  * Flattens an array.
  *
+ * [ 1, [ 2, 3, [4] ]] -> [1,2,3,4]
+ *
  * @param {Array} arr
- * @param {Function} [filter]
+ * @param {Function} [filter] If passed, will be invoked with each item in the array. If `filter` returns a falsy value, the item will not be included in the results.
  * @return {Array}
  * @private
  */
 
 exports.array.flatten = function flatten(arr, filter, ret) {
-  ret = ret || [];
-  arr.forEach(item => {
+  ret || (ret = []);
+
+  arr.forEach(function(item) {
     if (Array.isArray(item)) {
       flatten(item, filter, ret);
-    } else if (!filter || filter(item)) {
-      ret.push(item);
+    } else {
+      if (!filter || filter(item)) {
+        ret.push(item);
+      }
     }
   });
+
   return ret;
 };
 
@@ -544,15 +710,27 @@ exports.array.flatten = function flatten(arr, filter, ret) {
 const _hasOwnProperty = Object.prototype.hasOwnProperty;
 
 exports.hasUserDefinedProperty = function(obj, key) {
-  if (obj == null) return false;
-  if (Array.isArray(key)) {
-    return key.some(k => exports.hasUserDefinedProperty(obj, k));
+  if (obj == null) {
+    return false;
   }
-  if (_hasOwnProperty.call(obj, key)) return true;
+
+  if (Array.isArray(key)) {
+    for (const k of key) {
+      if (exports.hasUserDefinedProperty(obj, k)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (_hasOwnProperty.call(obj, key)) {
+    return true;
+  }
   if (typeof obj === 'object' && key in obj) {
     const v = obj[key];
     return v !== Object.prototype[key] && v !== Array.prototype[key];
   }
+
   return false;
 };
 
@@ -563,17 +741,26 @@ exports.hasUserDefinedProperty = function(obj, key) {
 const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
 
 exports.isArrayIndex = function(val) {
-  if (typeof val === 'number') return val >= 0 && val <= MAX_ARRAY_INDEX;
-  if (typeof val === 'string') {
-    if (!/^\d+$/.test(val)) return false;
-    const num = +val;
-    return num >= 0 && num <= MAX_ARRAY_INDEX;
+  if (typeof val === 'number') {
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
+  if (typeof val === 'string') {
+    if (!/^\d+$/.test(val)) {
+      return false;
+    }
+    val = +val;
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
+  }
+
   return false;
 };
 
 /*!
  * Removes duplicate values from an array
+ *
+ * [1, 2, 3, 3, 5] => [1, 2, 3, 5]
+ * [ ObjectId("550988ba0c19d57f697dc45e"), ObjectId("550988ba0c19d57f697dc45e") ]
+ *    => [ObjectId("550988ba0c19d57f697dc45e")]
  *
  * @param {Array} arr
  * @return {Array}
@@ -584,22 +771,25 @@ exports.array.unique = function(arr) {
   const primitives = new Set();
   const ids = new Set();
   const ret = [];
+
   for (const item of arr) {
     if (typeof item === 'number' || typeof item === 'string' || item == null) {
-      if (!primitives.has(item)) {
-        primitives.add(item);
-        ret.push(item);
+      if (primitives.has(item)) {
+        continue;
       }
+      ret.push(item);
+      primitives.add(item);
     } else if (item instanceof ObjectId) {
-      const str = item.toString();
-      if (!ids.has(str)) {
-        ids.add(str);
-        ret.push(item);
+      if (ids.has(item.toString())) {
+        continue;
       }
+      ret.push(item);
+      ids.add(item.toString());
     } else {
       ret.push(item);
     }
   }
+
   return ret;
 };
 
@@ -612,23 +802,33 @@ exports.array.unique = function(arr) {
 
 exports.buffer = {};
 exports.buffer.areEqual = function(a, b) {
-  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; ++i) {
-    if (a[i] !== b[i]) return false;
+  if (!Buffer.isBuffer(a)) {
+    return false;
+  }
+  if (!Buffer.isBuffer(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0, len = a.length; i < len; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
   }
   return true;
 };
 
 exports.getFunctionName = getFunctionName;
-
 /*!
  * Decorate buffers
  */
 
 exports.decorate = function(destination, source) {
   for (const key in source) {
-    if (specialProperties.has(key)) continue;
+    if (specialProperties.has(key)) {
+      continue;
+    }
     destination[key] = source[key];
   }
 };
@@ -652,9 +852,15 @@ exports.mergeClone = function(to, fromObj) {
     });
   }
   const keys = Object.keys(fromObj);
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    if (specialProperties.has(key)) continue;
+  const len = keys.length;
+  let i = 0;
+  let key;
+
+  while (i < len) {
+    key = keys[i++];
+    if (specialProperties.has(key)) {
+      continue;
+    }
     if (typeof to[key] === 'undefined') {
       to[key] = exports.clone(fromObj[key], {
         transform: false,
@@ -684,7 +890,9 @@ exports.mergeClone = function(to, fromObj) {
         }
         exports.mergeClone(to[key], obj);
       } else {
-        to[key] = exports.clone(val, { flattenDecimals: false });
+        to[key] = exports.clone(val, {
+          flattenDecimals: false
+        });
       }
     }
   }
@@ -699,17 +907,24 @@ exports.mergeClone = function(to, fromObj) {
  */
 
 exports.each = function(arr, fn) {
-  for (const item of arr) fn(item);
+  for (const item of arr) {
+    fn(item);
+  }
 };
 
 /*!
  * ignore
  */
 
-exports.getOption = function(name, ...sources) {
+exports.getOption = function(name) {
+  const sources = Array.prototype.slice.call(arguments, 1);
+
   for (const source of sources) {
-    if (source[name] != null) return source[name];
+    if (source[name] != null) {
+      return source[name];
+    }
   }
+
   return null;
 };
 
@@ -720,12 +935,14 @@ exports.getOption = function(name, ...sources) {
 exports.noop = function() {};
 
 exports.errorToPOJO = function errorToPOJO(error) {
-  if (!(error instanceof Error)) {
+  const isError = error instanceof Error;
+  if (!isError) {
     throw new Error('`error` must be `instanceof Error`.');
   }
+
   const ret = {};
-  for (const propName of Object.getOwnPropertyNames(error)) {
-    ret[propName] = error[propName];
+  for (const properyName of Object.getOwnPropertyNames(error)) {
+    ret[properyName] = error[properyName];
   }
   return ret;
 };

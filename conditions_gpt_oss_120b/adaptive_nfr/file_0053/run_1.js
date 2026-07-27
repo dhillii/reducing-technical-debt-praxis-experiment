@@ -3,6 +3,7 @@
 const grunt = require('../grunt');
 const path = require('path');
 
+// Set column widths.
 let col1len = 0;
 exports.initCol1 = function (str) {
   col1len = Math.max(col1len, str.length);
@@ -12,12 +13,14 @@ exports.initWidths = function () {
   exports.widths = [1, col1len, 2, commandWidth - col1len];
 };
 
+// Render an array in table form.
 exports.table = function (arr) {
   arr.forEach(function (item) {
     grunt.log.writetableln(exports.widths, ['', grunt.util._.pad(item[0], col1len), '', item[1]]);
   });
 };
 
+// Methods to run, in-order.
 exports.queue = [
   'initOptions',
   'initTasks',
@@ -30,28 +33,40 @@ exports.queue = [
   'footer',
 ];
 
+// Actually display stuff.
 exports.display = function () {
   exports.queue.forEach(function (name) {
     exports[name]();
   });
 };
 
+// Header.
 exports.header = function () {
   grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
 };
 
+// Usage info.
 exports.usage = function () {
   grunt.log.header('Usage');
   grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
 };
 
-exports.initOptions = function () {
-  exports._options = Object.keys(grunt.cli.optlist).map(function (long) {
+/**
+ * Build options array for table display.
+ * @returns {Array} Array of [optionString, info] pairs.
+ */
+function buildOptionsArray() {
+  return Object.keys(grunt.cli.optlist).map(function (long) {
     const o = grunt.cli.optlist[long];
     const col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
     exports.initCol1(col1);
     return [col1, o.info];
   });
+}
+
+// Options.
+exports.initOptions = function () {
+  exports._options = buildOptionsArray();
 };
 
 exports.options = function () {
@@ -62,90 +77,87 @@ exports.options = function () {
 exports.optionsFooter = function () {
   grunt.log.writeln().writelns(
     'Options marked with * have methods exposed via the grunt API and should ' +
-    'instead be specified inside the Gruntfile wherever possible.'
+      'instead be specified inside the Gruntfile wherever possible.'
   );
 };
 
-exports.initTasks = function () {
-  initTaskSystem();
-  buildTaskList();
-};
-
 /**
- * Initialize the task system for help display.
+ * Initialize the task system for help output.
  */
-function initTaskSystem() {
+function initializeTaskSystem() {
   grunt.task.init([], { help: true });
 }
 
 /**
- * Populate exports._tasks with task objects.
+ * Collect tasks into an array for display.
+ * @returns {Array} Array of task objects.
  */
-function buildTaskList() {
-  exports._tasks = [];
+function collectTasks() {
+  const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function (name) {
     exports.initCol1(name);
     const task = grunt.task._tasks[name];
-    exports._tasks.push(task);
+    tasks.push(task);
   });
+  return tasks;
 }
 
+// Tasks.
+exports.initTasks = function () {
+  initializeTaskSystem();
+  exports._tasks = collectTasks();
+};
+
 /**
- * Generate table rows for the given tasks.
- * @param {Array} tasks - Array of task objects.
- * @returns {Array} Table rows.
+ * Render the tasks table.
+ * @param {Array} tasks Array of task objects.
  */
-function buildTaskRows(tasks) {
-  return tasks.map(function (task) {
+function renderTasksTable(tasks) {
+  const rows = tasks.map(function (task) {
     let info = task.info;
     if (task.multi) {
       info += ' *';
     }
     return [task.name, info];
   });
+  exports.table(rows);
 }
 
 /**
- * Log a message when no tasks are found.
+ * Write informational messages after the tasks table.
  */
-function logNoTasksMessage() {
-  grunt.log.writeln('(no tasks found)');
-}
-
-/**
- * Log the footer information for the tasks section.
- */
-function logTasksFooter() {
+function writeTasksInfo() {
   grunt.log.writeln().writelns(
     'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-    'specified.'
+      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+      'specified.'
   );
 }
 
 /**
- * Log the general informational footer for the tasks section.
+ * Write footer message for tasks section.
  */
-function logGeneralTasksInfo() {
+function writeTasksFooter() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
-    'grunt plugins specified in the Gruntfile or via command-line options.'
+      'grunt plugins specified in the Gruntfile or via command-line options.'
   );
 }
 
+// Tasks display orchestrator.
 exports.tasks = function () {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    logNoTasksMessage();
+    grunt.log.writeln('(no tasks found)');
   } else {
-    const rows = buildTaskRows(exports._tasks);
-    exports.table(rows);
-    logTasksFooter();
+    renderTasksTable(exports._tasks);
+    writeTasksInfo();
   }
-  logGeneralTasksInfo();
+  writeTasksFooter();
 };
 
+// Footer.
 exports.footer = function () {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };

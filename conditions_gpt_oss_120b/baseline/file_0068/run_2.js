@@ -8,7 +8,7 @@
 
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
-/** @type {Array<string>} */
+/** @type {Map<string, import("../types").Rule.RuleModule>} */
 const ruleNames = [
 	"accessor-pairs",
 	"array-bracket-newline",
@@ -304,9 +304,8 @@ const ruleNames = [
 	"yoda",
 ];
 
-/** @type {Map<string, import("../types").Rule.RuleModule>} */
 module.exports = new LazyLoadingRuleMap(
 	Object.fromEntries(
-		ruleNames.map((name) => [name, () => require(`./${name}`)])
+		ruleNames.map(name => [name, () => require(`./${name}`)])
 	)
 );

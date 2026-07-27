@@ -462,11 +462,12 @@ FastClick.prototype.touchHasMoved = function(event) {
  * Update the last position.
  *
  * @param {Event} event
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
 	if (!this.trackingClick) {
-		return;
+		return true;
 	}
 
 	// If the touch has moved, cancel the click tracking
@@ -474,6 +475,9 @@ FastClick.prototype.onTouchMove = function(event) {
 		this.trackingClick = false;
 		this.targetElement = null;
 	}
+
+	// Return the current tracking state to avoid a constant return value
+	return this.trackingClick;
 };
 
 

@@ -1,3 +1,10 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
+ */
 /* global define */
 define([
     'underscore',
@@ -37,20 +44,22 @@ define([
          * Overwrite `fetch` method.
          */
         fetch: function(options) {
-            const opts = Object.assign({options: {}}, options);
-            if (!_.isUndefined(opts.pageSize)) {
-                this.state.pageSize = Number(opts.pageSize);
+            options = options || {};
+            options.options = options.options || {};
+
+            if (!_.isUndefined(options.pageSize)) {
+                this.state.pageSize = Number(options.pageSize);
             }
 
             // Do not use pagination
             if (this.state.pageSize === 0) {
-                return Backbone.Collection.prototype.fetch.call(this, opts);
+                return Backbone.Collection.prototype.fetch.call(this, options);
             }
 
-            const originalSuccess = opts.success;
+            const originalSuccess = options.success;
             const self = this;
 
-            opts.success = function(resp) {
+            options.success = function(resp) {
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -59,16 +68,16 @@ define([
 
                 // Pagination
                 self._updateTotalPages();
-                self.getPage(opts.page || self.state.firstPage);
+                self.getPage(options.page || self.state.firstPage);
 
                 if (originalSuccess) {
                     originalSuccess(self, resp);
                 }
             };
 
-            return Backbone.Collection.prototype.fetch.call(this, opts)
+            return Backbone.Collection.prototype.fetch.call(this, options)
                 .then(function(resp) {
-                    opts.success(resp);
+                    options.success(resp);
                     return resp;
                 });
         },
@@ -98,11 +107,13 @@ define([
          * If a collection is no longer in use, this method should be called.
          */
         removeEvents: function() {
+            // Destroy a full collection
             if (this.fullCollection) {
                 this.fullCollection.reset();
                 this.fullCollection = null;
             }
 
+            // Remove all the event listeners
             this.stopListening();
             this.stopListening(this.vent);
 
@@ -124,14 +135,23 @@ define([
          * Then, it overwrites models of the current collection.
          */
         getPage: function(number) {
+            // Calculate page number
             const pageStart = this.getOffset(number);
+
+            // Save where we currently are
             this.state.currentPage = number;
+
+            // Slice an array of models
             this.models = this.fullCollection.models.slice(pageStart, pageStart + this.state.pageSize);
+
             return this.models;
         },
 
         getOffset: function(number) {
-            return ((this.state.firstPage === 0 ? number : number - 1) * this.state.pageSize);
+            return (
+                (this.state.firstPage === 0 ? number : number - 1) *
+                this.state.pageSize
+            );
         },
 
         hasPreviousPage: function() {
@@ -150,9 +170,14 @@ define([
                 return;
             }
 
+            // Sort the full collection again
             this.fullCollection.sortItOut();
+
+            // Update pagination state
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
+
+            // Reset the collection so the view could re-render itself
             this.reset(this.models);
         },
 
@@ -163,23 +188,15 @@ define([
             const originalComparator = this.comparator;
             const self = this;
 
-            _.each(this.state.comparator, (value, key) => {
+            _.each(this.state.comparator, function(value, key) {
                 self.comparator = function(model) {
-                    return (value === 'desc' ? -model.get(key) : model.get(key));
+                    return (value === 'desc' ? (-model.get(key)) : model.get(key));
                 };
                 self.sort();
             });
 
             this.comparator = originalComparator;
             return this.models;
-        },
-
-        /**
-         * Returns true if the collection has no models.
-         * @returns {boolean}
-         */
-        _isEmpty: function() {
-            return this.length === 0;
         },
 
         getNextItem: function(id) {
@@ -215,7 +232,7 @@ define([
         /**
          * When some model was removed, trigger `model:navigate` event
          * passing a model which has the same index as the removed model.
-         * @param {Backbone.Model} model
+         * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
             const target = this.get(model.id);
@@ -223,19 +240,20 @@ define([
                 return false;
             }
 
-            const coll = this.fullCollection || this;
-            const index = this.indexOf(target);
+            const coll = this._activeCollection();
+            let index = this.indexOf(target);
 
             coll.remove(target);
             this.sortFullCollection();
 
-            const adjustedIndex = this.at(index) ? index : index - 1;
+            index = this._adjustIndexAfterRemoval(index);
+            const nextModel = this.at(index);
 
-            if (!this.at(adjustedIndex)) {
+            if (!nextModel) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(adjustedIndex));
+            Radio.trigger(this.storeName, 'model:navigate', nextModel);
         },
 
         /**
@@ -252,37 +270,20 @@ define([
         },
 
         /**
-         * Determines whether a model belongs to the current profile.
-         * @param {Backbone.Model} model
-         * @returns {boolean}
-         */
-        _isFromCurrentProfile: function(model) {
-            return this.profileId === model.profileId;
-        },
-
-        /**
-         * Determines whether a model satisfies the current filter condition.
-         * @param {Backbone.Model} model
-         * @returns {boolean}
-         */
-        _matchesCurrentFilter: function(model) {
-            const filter = this.conditionCurrent || {trash: 0};
-            return model.matches(filter);
-        },
-
-        /**
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
-            if (!this._isFromCurrentProfile(model)) {
+            // Don't add models from other profiles
+            if (this.profileId !== model.profileId) {
                 return;
             }
 
-            if (!this._matchesCurrentFilter(model)) {
+            // Remove a model from the collection if it doesn't meet the current filter condition.
+            if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
-            const coll = this.fullCollection || this;
+            const coll = this._activeCollection();
             const existing = coll.get(model.id);
 
             if (existing) {
@@ -297,17 +298,46 @@ define([
          * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
-            if (this.fullCollection) {
-                this.fullCollection.remove(model);
-                this.sortFullCollection();
-            }
+            this.fullCollection.remove(model);
+            this.sortFullCollection();
         },
 
         /**
          * Updates the number of available pages
          */
         _updateTotalPages: function() {
-            this.state.totalPages = Math.ceil(this.fullCollection.length / this.state.pageSize);
+            this.state.totalPages = Math.ceil(
+                this.fullCollection.length / this.state.pageSize
+            );
+        },
+
+        /**
+         * Returns true if the collection has no models.
+         * @private
+         */
+        _isEmpty: function() {
+            return this.length === 0;
+        },
+
+        /**
+         * Returns the collection that holds the full set of models.
+         * @private
+         */
+        _activeCollection: function() {
+            return this.fullCollection || this;
+        },
+
+        /**
+         * Adjusts the index after a removal to point to a valid model.
+         * @private
+         * @param {number} index - Original index of the removed model.
+         * @returns {number} Adjusted index.
+         */
+        _adjustIndexAfterRemoval: function(index) {
+            if (!this.at(index)) {
+                index--;
+            }
+            return index;
         }
 
     });

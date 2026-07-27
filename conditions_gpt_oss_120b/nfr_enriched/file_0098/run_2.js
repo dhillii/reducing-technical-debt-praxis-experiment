@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'jquery',
@@ -79,9 +87,9 @@ define([
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
-            this.timeout = setTimeout(() => {
+            this.timeout = setTimeout(_.bind(() => {
                 this.checkChanges();
-            }, 0);
+            }, this), 0);
         },
 
         /**
@@ -136,7 +144,7 @@ define([
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', defer.reject);
+            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', () => {
                 window.location = authUrl;
             });
@@ -180,60 +188,43 @@ define([
         },
 
         /**
-         * Check for changes across all modules.
+         * Check for changes.
          */
         checkChanges: function () {
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
 
-            const syncTasks = this.buildSyncTasks();
+            const modules = ['notes', 'notebooks', 'tags'];
+            const syncPromises = modules.map(module => () => {
+                return Q.all([
+                    Radio.request(module, 'fetch', { encrypt: true }),
+                    adapter.getAll(module)
+                ])
+                    .spread((localData, remoteData) => {
+                        return this.syncAll(localData, remoteData, module);
+                    });
+            });
 
-            return _.reduce(syncTasks, Q.when, new Q())
+            return _.reduce(syncPromises, Q.when, new Q())
                 .then(() => {
                     Radio.trigger('sync', 'stop', 'dropbox');
                     this.startWatch();
                 })
-                .catch(err => this.handleSyncError(err));
+                .fail(err => this.handleSyncError(err));
         },
 
         /**
-         * Build an array of functions that perform synchronization for each module.
-         *
-         * @returns {Array<Function>}
-         */
-        buildSyncTasks: function () {
-            const tasks = [];
-
-            _.each(['notes', 'notebooks', 'tags'], module => {
-                tasks.push(() => {
-                    return Q.all([
-                        Radio.request(module, 'fetch', { encrypt: true }),
-                        adapter.getAll(module)
-                    ])
-                        .spread((localData, remoteData) => {
-                            return this.syncAll(localData, remoteData, module);
-                        });
-                });
-            });
-
-            return tasks;
-        },
-
-        /**
-         * Handle errors that occur during the synchronization process.
+         * Handle errors occurring during synchronization.
          *
          * @param {Object} err
          */
         handleSyncError: function (err) {
             if (err) {
-                switch (err.status) {
-                    case 401:
-                        this.checkAuth();
-                        break;
-                    case 0:
-                        this.configs.interval = this.configs.intervalMax;
-                        this.startWatch();
-                        break;
+                if (err.status === 401) {
+                    this.checkAuth();
+                } else if (err.status === 0) {
+                    this.configs.interval = this.configs.intervalMax;
+                    this.startWatch();
                 }
             }
 
@@ -245,7 +236,7 @@ define([
         /**
          * Synchronize a collection.
          *
-         * @param {Backbone.Collection|Object} localData
+         * @param {Backbone.Collection} localData
          * @param {Array} remoteData
          * @param {String} module
          * @returns {Promise}
@@ -256,7 +247,6 @@ define([
 
             const remotePromises = this.checkRemoteChanges(localJson, remoteData, module);
             const localPromises = this.checkLocalChanges(localJson, remoteData, module, encryptKeys);
-
             const allPromises = remotePromises.concat(localPromises);
 
             return _.reduce(allPromises, Q.when, new Q())
@@ -264,7 +254,7 @@ define([
         },
 
         /**
-         * Generate promises for remote changes that need to be applied locally.
+         * Save only models which don't exist locally or which were updated remotely.
          *
          * @param {Array} localData
          * @param {Array} remoteData
@@ -288,7 +278,7 @@ define([
         },
 
         /**
-         * Generate promises for local changes that need to be uploaded to Dropbox.
+         * Save only models which don't exist on Dropbox or which were updated locally.
          *
          * @param {Array} localData
          * @param {Array} remoteData
@@ -320,13 +310,13 @@ define([
             this.calcInterval();
             console.log('interval is', this.configs.interval);
 
-            this.timeout = setTimeout(() => {
+            this.timeout = setTimeout(_.bind(() => {
                 this.checkChanges();
-            }, this.configs.interval);
+            }, this), this.configs.interval);
         },
 
         /**
-         * Adjust the polling interval based on recent remote activity.
+         * Adjust watch interval based on remote activity.
          */
         calcInterval: function () {
             const range = this.configs.intervalMax - this.configs.intervalMin;

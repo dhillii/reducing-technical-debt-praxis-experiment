@@ -92,20 +92,20 @@ file.expand = function() {
   const args = grunt.util.toArray(arguments);
   // If the first argument is an options object, save those options to pass
   // into the file.glob.sync method.
-  let options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
+  const options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
   // Use the first argument if it's an Array, otherwise convert the arguments
   // object to an array and use that.
-  let patterns = Array.isArray(args[0]) ? args[0] : args;
+  const patterns = Array.isArray(args[0]) ? args[0] : args;
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0) { return []; }
   // Return all matching filepaths.
-  const matches = processPatterns(patterns, function(pattern) {
+  let matches = processPatterns(patterns, function(pattern) {
     // Find all matching files for this pattern.
     return file.glob.sync(pattern, options);
   });
   // Filter result set?
   if (options.filter) {
-    return matches.filter(function(filepath) {
+    matches = matches.filter(function(filepath) {
       filepath = path.join(options.cwd || '', filepath);
       try {
         if (typeof options.filter === 'function') {
@@ -310,15 +310,23 @@ file.copy = function copy(srcpath, destpath, options) {
 // Read a file, optionally processing its content, then write the output.
 file._copy = function(srcpath, destpath, options) {
   if (!options) { options = {}; }
+  // If a process function was specified, and noProcess isn't true or doesn't
+  // match the srcpath, process the file's source.
   const process = options.process && options.noProcess !== true &&
     !(options.noProcess && file.isMatch(options.noProcess, srcpath));
+  // If the file will be processed, use the encoding as-specified. Otherwise,
+  // use an encoding of null to force the file to be read/written as a Buffer.
   const readWriteOptions = process ? options : {encoding: null};
-  let contents = file.read(srcpath, readWriteOptions);
+  // Actually read the file.
+  const contents = file.read(srcpath, readWriteOptions);
   if (process) {
     grunt.verbose.write('Processing source...');
     try {
-      contents = options.process(contents, srcpath, destpath);
+      const processed = options.process(contents, srcpath, destpath);
       grunt.verbose.ok();
+      if (processed !== undefined) {
+        contents = processed;
+      }
     } catch (e) {
       grunt.verbose.error();
       throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);

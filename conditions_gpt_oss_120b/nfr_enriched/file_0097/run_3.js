@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -44,12 +44,14 @@ define([
          * Overwrite `fetch` method.
          */
         fetch: function(options) {
-            const opts = Object.assign({options: {}}, options);
+            const opts = options || {};
+            opts.options = opts.options || {};
+
             if (!_.isUndefined(opts.pageSize)) {
                 this.state.pageSize = Number(opts.pageSize);
             }
 
-            // No pagination required
+            // Do not use pagination
             if (this.state.pageSize === 0) {
                 return Backbone.Collection.prototype.fetch.call(this, opts);
             }
@@ -58,10 +60,16 @@ define([
             const self = this;
 
             opts.success = function(resp) {
-                self._storeFullCollection();
+                // Keep full collection in memory
+                self.fullCollection = self.clone();
+
+                // Sort the collection
                 self.fullCollection.sortItOut();
+
+                // Pagination
                 self._updateTotalPages();
                 self.getPage(opts.page || self.state.firstPage);
+
                 if (originalSuccess) {
                     originalSuccess(self, resp);
                 }
@@ -75,36 +83,36 @@ define([
         },
 
         /**
-         * Store a clone of the current collection as the full collection.
-         */
-        _storeFullCollection: function() {
-            this.fullCollection = this.clone();
-        },
-
-        /**
          * Handles events.
          * It needs to be called after a collection was instantiated.
          */
         registerEvents: function() {
             this.vent = Radio.channel(this.storeName);
+
+            // Sort the collection again when favorite status is changed
             this.listenTo(this, 'change:isFavorite', this.sortItOut);
             this.listenTo(this, 'reset', this.sortItOut);
+
+            // Listen to events
             this.listenTo(this.vent, 'update:model', this._onAddItem, this);
             this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
             this.listenTo(this.vent, 'restore:model', this._onRestore, this);
+
             return this;
         },
 
         /**
-         * Clean up resources and listeners.
+         * Destroys full collection and removes event listeners.
          */
         removeEvents: function() {
             if (this.fullCollection) {
                 this.fullCollection.reset();
                 this.fullCollection = null;
             }
+
             this.stopListening();
             this.stopListening(this.vent);
+
             return this;
         },
 
@@ -119,7 +127,7 @@ define([
         },
 
         /**
-         * Sets state.currentPage to the given number and updates models.
+         * Sets state.currentPage to the given number and overwrites models.
          */
         getPage: function(number) {
             const pageStart = this.getOffset(number);
@@ -141,12 +149,13 @@ define([
         },
 
         /**
-         * Re-sort the full collection and refresh pagination.
+         * Sorts the full collection and updates pagination.
          */
         sortFullCollection: function() {
             if (!this.fullCollection) {
                 return;
             }
+
             this.fullCollection.sortItOut();
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
@@ -154,103 +163,118 @@ define([
         },
 
         /**
-         * Sort collection by multiple keys defined in state.comparator.
+         * Sorts models in the collection by multiple keys.
          */
         sortItOut: function() {
             const originalComparator = this.comparator;
-            _.each(this.state.comparator, (direction, key) => {
-                this.comparator = model => (direction === 'desc' ? -model.get(key) : model.get(key));
-                this.sort();
+            const self = this;
+
+            _.each(this.state.comparator, function(value, key) {
+                self.comparator = function(model) {
+                    return (value === 'desc' ? -model.get(key) : model.get(key));
+                };
+                self.sort();
             });
+
             this.comparator = originalComparator;
             return this.models;
         },
 
         getNextItem: function(id) {
-            if (this.isEmpty()) {
+            if (this.length === 0) {
                 return false;
             }
+
             const model = this.get(id);
             const index = model ? this.indexOf(model) + 1 : 0;
+
             if (index >= this.models.length) {
-                return this._triggerPageBoundary(this.hasNextPage(), 'page:next', 'page:end');
+                return this.trigger(this.hasNextPage() ? 'page:next' : 'page:end');
             }
+
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         getPreviousItem: function(id) {
-            if (this.isEmpty()) {
+            if (this.length === 0) {
                 return false;
             }
+
             const model = this.get(id);
             const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+
             if (index < 0) {
-                return this._triggerPageBoundary(this.hasPreviousPage(), 'page:previous', 'page:start');
+                return this.trigger(this.hasPreviousPage() ? 'page:previous' : 'page:start');
             }
+
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
-         * Helper to trigger page navigation or boundary events.
-         */
-        _triggerPageBoundary: function(hasPage, pageEvent, endEvent) {
-            return this.trigger(hasPage ? pageEvent : endEvent);
-        },
-
-        /**
-         * When a model is removed, navigate to an appropriate model.
+         * Handles navigation after a model removal.
          */
         _navigateOnRemove: function(model) {
-            const target = this.get(model.id);
-            if (!target) {
+            const targetModel = this.get(model.id);
+            if (!targetModel) {
                 return false;
             }
+
             const collection = this.fullCollection || this;
-            const index = this.indexOf(target);
-            collection.remove(target);
+            const removedIndex = this.indexOf(targetModel);
+
+            collection.remove(targetModel);
             this.sortFullCollection();
 
-            const newIndex = this.at(index) ? index : index - 1;
-            if (newIndex < 0) {
+            let navigationIndex = removedIndex;
+            if (!this.at(navigationIndex)) {
+                navigationIndex--;
+            }
+
+            if (!this.at(navigationIndex)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
-            Radio.trigger(this.storeName, 'model:navigate', this.at(newIndex));
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(navigationIndex));
         },
 
         /**
-         * When a model is restored from trash.
+         * Restores a model, delegating to appropriate handlers.
          */
         _onRestore: function(model) {
             if (this.conditionFilter !== 'trashed') {
                 return this._onAddItem(model);
             }
+
             if (this.length > 1) {
                 return this._navigateOnRemove(model);
             }
         },
 
         /**
-         * Update pagination when a model is added.
+         * Adds a model to the collection, respecting filters and pagination.
          */
         _onAddItem: function(model) {
             if (this.profileId !== model.profileId) {
                 return;
             }
+
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
+
             const collection = this.fullCollection || this;
             const existing = collection.get(model.id);
+
             if (existing) {
-                existing.set(model.toJSON());
-                return;
+                return existing.set(model.toJSON());
             }
+
             collection.add(model, {at: 0});
             this.sortFullCollection();
         },
 
         /**
-         * Update pagination when a model is removed.
+         * Handles removal of a model from the collection.
          */
         _onRemoveItem: function(model) {
             if (this.fullCollection) {
@@ -260,17 +284,10 @@ define([
         },
 
         /**
-         * Updates the number of available pages.
+         * Updates the total number of pages based on collection size.
          */
         _updateTotalPages: function() {
             this.state.totalPages = Math.ceil(this.fullCollection.length / this.state.pageSize);
-        },
-
-        /**
-         * Checks if the collection has no models.
-         */
-        isEmpty: function() {
-            return this.length === 0;
         }
 
     });

@@ -1310,7 +1310,7 @@ describe("cli", () => {
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
-					"./eslint/eslint": { ESLint: fakeESLint },
+					"./eslint/eslint": fakeESLint,
 					"./shared/logging": log,
 				});
 

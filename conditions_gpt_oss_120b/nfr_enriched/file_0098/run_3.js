@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'jquery',
@@ -12,14 +20,31 @@ define([
 
     /**
      * Dropbox synchronizer.
+     *
+     * Triggers:
+     * 1. `auth:success` on `dropbox` channel
+     *     - after authentication is completed successfully.
+     * 2. `start` on `sync` channel
+     *     when synchronizing starts
+     * 3. `stop` on `sync` channel
+     *     when synchronizing stops
+     *
+     * Replies:
+     * 1. `start` on `sync` channel
+     *     starts synchronizing.
      */
     const Sync = Marionette.Object.extend({
 
         configs: {
+            // Dropbox app key
             key: '10iirspliqts95d',
+
+            // Interval configs
             interval: 2000,
             intervalMax: 15000,
             intervalMin: 2000,
+
+            // A state which shows if something is changed remotely
             statRemote: false
         },
 
@@ -30,14 +55,19 @@ define([
 
             this.vent = Radio.channel('dropbox');
 
-            this.client = new Dropbox({ clientId: this.configs.key });
+            this.client = new Dropbox({
+                clientId: this.configs.key
+            });
 
+            // Replies
             Radio.reply('sync', 'start', this.startSync, this);
 
+            // Listen to Laverna events
             this.listenTo(Radio.channel('notes'), 'sync:model destroy:model restore:model', this.onSave);
             this.listenTo(Radio.channel('notebooks'), 'sync:model destroy:model restore:model', this.onSave);
             this.listenTo(Radio.channel('tags'), 'sync:model destroy:model restore:model', this.onSave);
 
+            // Authorize the app
             this.checkAuth()
                 .then(authenticated => {
                     if (authenticated) {
@@ -57,12 +87,13 @@ define([
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
-            this.timeout = setTimeout(() => this.checkChanges(), 0);
+            this.timeout = setTimeout(() => {
+                this.checkChanges();
+            }, 0);
         },
 
         /**
-         * Verify Dropbox authentication status.
-         * @returns {Promise<boolean>}
+         * Check if Dropbox was authenticated.
          */
         checkAuth: function () {
             const hash = this.parseHash();
@@ -76,51 +107,44 @@ define([
                 return this.saveAccessToken(hash.access_token);
             }
 
-            return this.handleUnauthenticated(hash);
-        },
-
-        /**
-         * Handle unauthenticated state (error or start auth flow).
-         * @param {Object} hash
-         * @returns {Promise}
-         */
-        handleUnauthenticated: function (hash) {
             if (hash.error) {
                 Radio.request('uri', 'navigate', '/');
             }
+
             return this.authenticate();
         },
 
         /**
-         * Parse location hash into an object.
+         * Parse location hash.
+         *
          * @returns {Object}
          */
         parseHash: function () {
-            const hashParts = window.location.hash.replace('#', '').split('&');
-            const result = {};
+            const hash = window.location.hash.replace('#', '').split('&');
+            const ret = {};
 
-            if (!hashParts.length) {
-                return result;
+            if (!hash.length) {
+                return ret;
             }
 
-            _.each(hashParts, str => {
+            _.each(hash, str => {
                 const parts = str.replace(/\+/g, ' ').split('=');
                 if (parts.length > 1) {
                     const key = parts.shift();
                     let val = parts.length > 0 ? parts.join('=') : undefined;
                     val = undefined ? null : decodeURIComponent(val.trim());
-                    result[key] = val;
+                    ret[key] = val;
                 }
             });
 
-            return result;
+            return ret;
         },
 
         authenticate: function () {
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', defer.reject);
+            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', () => {
                 window.location = authUrl;
             });
@@ -135,8 +159,9 @@ define([
 
         /**
          * Save the access token in configs.
+         *
          * @param {String} accessToken
-         * @returns {Promise<boolean>}
+         * @returns {Promise}
          */
         saveAccessToken: function (accessToken) {
             return Radio.request('configs', 'save:object', {
@@ -151,17 +176,19 @@ define([
         },
 
         /**
-         * Initialize adapter and start initial sync.
+         * Start synchronizing all data after Dropbox client is ready.
          */
         onReady: function () {
             const profile = Radio.request('uri', 'profile') || 'notes-db';
             adapter.init(this.client, profile);
 
-            this.timeout = window.setTimeout(() => this.checkChanges(), 500);
+            this.timeout = window.setTimeout(() => {
+                this.checkChanges();
+            }, 500);
         },
 
         /**
-         * Perform a full synchronization cycle.
+         * Check for changes.
          */
         checkChanges: function () {
             this.configs.statRemote = false;
@@ -169,7 +196,7 @@ define([
 
             const syncPromises = this.buildSyncPromises();
 
-            _.reduce(syncPromises, Q.when, new Q())
+            return _.reduce(syncPromises, Q.when, new Q())
                 .then(() => {
                     Radio.trigger('sync', 'stop', 'dropbox');
                     this.startWatch();
@@ -179,21 +206,27 @@ define([
 
         /**
          * Build an array of functions that return promises for each module sync.
+         *
          * @returns {Array<Function>}
          */
         buildSyncPromises: function () {
             const modules = ['notes', 'notebooks', 'tags'];
             return _.map(modules, module => {
-                return () => Q.all([
-                    Radio.request(module, 'fetch', { encrypt: true }),
-                    adapter.getAll(module)
-                ])
-                    .spread((localData, remoteData) => this.syncAll(localData, remoteData, module));
+                return () => {
+                    return Q.all([
+                        Radio.request(module, 'fetch', { encrypt: true }),
+                        adapter.getAll(module)
+                    ])
+                        .spread((localData, remoteData) => {
+                            return this.syncAll(localData, remoteData, module);
+                        });
+                };
             });
         },
 
         /**
-         * Handle errors occurring during synchronization.
+         * Centralized error handling for checkChanges.
+         *
          * @param {Object} err
          */
         handleSyncError: function (err) {
@@ -210,11 +243,12 @@ define([
             }
             Radio.trigger('sync', 'stop', 'dropbox');
             Radio.trigger('sync', 'error', { cloud: 'dropbox', error: err });
-            console.error('Error', err);
+            console.error('Error', arguments[0], arguments);
         },
 
         /**
-         * Synchronize a collection between local and remote data.
+         * Synchronize a collection.
+         *
          * @param {Backbone.Collection} localData
          * @param {Array} remoteData
          * @param {String} module
@@ -226,6 +260,7 @@ define([
 
             const remotePromises = this.checkRemoteChanges(localJson, remoteData, module);
             const localPromises = this.checkLocalChanges(localJson, remoteData, module, encryptKeys);
+
             const allPromises = remotePromises.concat(localPromises);
 
             return _.reduce(allPromises, Q.when, new Q())
@@ -233,7 +268,8 @@ define([
         },
 
         /**
-         * Generate promises for remote changes that need to be applied locally.
+         * Save only models which don't exist locally or which were updated remotely.
+         *
          * @param {Array} localData
          * @param {Array} remoteData
          * @param {String} module
@@ -256,7 +292,8 @@ define([
         },
 
         /**
-         * Generate promises for local changes that need to be uploaded to Dropbox.
+         * Save only models which don't exist on Dropbox or which were updated locally.
+         *
          * @param {Array} localData
          * @param {Array} remoteData
          * @param {String} module
@@ -271,6 +308,7 @@ define([
                 if (remoteModel && remoteModel.updated >= lModel.updated) {
                     return;
                 }
+
                 console.log('Dropbox local changes:', lModel);
                 promises.push(() => adapter.save(module, lModel, encryptKeys));
             });
@@ -278,20 +316,21 @@ define([
             return promises;
         },
 
-        /**
-         * Schedule the next watch cycle.
-         */
         startWatch: function () {
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
+
             this.calcInterval();
             console.log('interval is', this.configs.interval);
-            this.timeout = setTimeout(() => this.checkChanges(), this.configs.interval);
+
+            this.timeout = setTimeout(() => {
+                this.checkChanges();
+            }, this.configs.interval);
         },
 
         /**
-         * Adjust watch interval based on recent remote activity.
+         * Adjust watch interval based on remote activity.
          */
         calcInterval: function () {
             const range = this.configs.intervalMax - this.configs.intervalMin;
@@ -307,7 +346,8 @@ define([
         },
 
         /**
-         * Immediately sync a locally changed model to Dropbox.
+         * Immediately after a model is changed locally, synchronize it with Dropbox.
+         *
          * @param {Backbone.Model} model
          * @returns {Promise}
          */

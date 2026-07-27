@@ -1,3 +1,9 @@
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
+
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -7,7 +13,7 @@ var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-const conf      = require('./conf');
+let conf        = require('./conf'); // Added explicit declaration for conf
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 

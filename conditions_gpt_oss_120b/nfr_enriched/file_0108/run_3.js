@@ -2,6 +2,10 @@
 
 /* eslint-env browser */
 
+/**
+ * Module dependencies.
+ */
+
 const basename = require('path').basename;
 const debug = require('debug')('mocha:watch');
 const exists = require('fs').existsSync;
@@ -13,6 +17,10 @@ const statSync = require('fs').statSync;
 const watchFile = require('fs').watchFile;
 const lstatSync = require('fs').lstatSync;
 const he = require('he');
+
+/**
+ * Ignored directories.
+ */
 
 const ignore = ['node_modules', '.git'];
 
@@ -50,9 +58,9 @@ exports.isString = function (obj) {
  */
 exports.watch = function (files, fn) {
   const options = { interval: 100 };
-  files.forEach(file => {
+  files.forEach(function (file) {
     debug('file %s', file);
-    watchFile(file, options, (curr, prev) => {
+    watchFile(file, options, function (curr, prev) {
       if (prev.mtime < curr.mtime) {
         fn(file);
       }
@@ -64,11 +72,11 @@ exports.watch = function (files, fn) {
  * Ignored files.
  *
  * @api private
- * @param {string} p
+ * @param {string} path
  * @return {boolean}
  */
-function ignored(p) {
-  return !~ignore.indexOf(p);
+function ignored (path) {
+  return !~ignore.indexOf(path);
 }
 
 /**
@@ -76,27 +84,28 @@ function ignored(p) {
  *
  * @api private
  * @param {string} dir
- * @param {string[]} [ext=['js']]
+ * @param {string[]} [ext=['.js']]
  * @param {Array} [ret=[]]
  * @return {Array}
  */
 exports.files = function (dir, ext, ret) {
-  const result = ret || [];
-  const extensions = ext || ['js'];
-  const re = new RegExp('\\.(' + extensions.join('|') + ')$');
+  ret = ret || [];
+  ext = ext || ['js'];
+
+  const re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach(p => {
+    .forEach(function (p) {
       const fullPath = join(dir, p);
       if (lstatSync(fullPath).isDirectory()) {
-        exports.files(fullPath, extensions, result);
-      } else if (re.test(fullPath)) {
-        result.push(fullPath);
+        exports.files(fullPath, ext, ret);
+      } else if (fullPath.match(re)) {
+        ret.push(fullPath);
       }
     });
 
-  return result;
+  return ret;
 };
 
 /**
@@ -123,14 +132,11 @@ exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n')
     .replace(/^\uFEFF/, '')
-    .replace(
-      /^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/,
-      '$1$2$3'
-    );
+    .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
-  const spaces = (str.match(/^\n?( *)/)?.[1]?.length) ?? 0;
-  const tabs = (str.match(/^\n?(\t*)/)?.[1]?.length) ?? 0;
-  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+  const spaces = str.match(/^\n?( *)/)[1].length;
+  const tabs = str.match(/^\n?(\t*)/)[1].length;
+  const re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
   str = str.replace(re, '');
 
@@ -145,7 +151,7 @@ exports.clean = function (str) {
  * @return {Object}
  */
 exports.parseQuery = function (qs) {
-  return qs.replace('?', '').split('&').reduce((obj, pair) => {
+  return qs.replace('?', '').split('&').reduce(function (obj, pair) {
     const i = pair.indexOf('=');
     const key = pair.slice(0, i);
     const val = pair.slice(i + 1);
@@ -161,7 +167,7 @@ exports.parseQuery = function (qs) {
  * @param {string} js
  * @return {string}
  */
-function highlight(js) {
+function highlight (js) {
   return js
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -181,7 +187,7 @@ function highlight(js) {
  */
 exports.highlightTags = function (name) {
   const code = document.getElementById('mocha').getElementsByTagName(name);
-  for (let i = 0; i < code.length; ++i) {
+  for (let i = 0, len = code.length; i < len; ++i) {
     code[i].innerHTML = highlight(code[i].innerHTML);
   }
 };
@@ -194,7 +200,7 @@ exports.highlightTags = function (name) {
  * @param {string} typeHint
  * @returns {string}
  */
-function emptyRepresentation(value, typeHint) {
+function emptyRepresentation (value, typeHint) {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -224,58 +230,58 @@ const type = exports.type = function (value) {
 };
 
 /**
- * Serialize a value to a string.
+ * Serialize a value to a string representation.
  *
  * @api private
  * @param {*} value
  * @return {string}
  */
 exports.stringify = function (value) {
-  return _stringifyValue(value);
-};
-
-/**
- * Core implementation of stringify handling all type branches.
- *
- * @param {*} value
- * @returns {string}
- */
-function _stringifyValue(value) {
   const typeHint = type(value);
 
   if (!['object', 'array', 'function'].includes(typeHint)) {
-    if (typeHint === 'buffer') {
-      const json = Buffer.prototype.toJSON.call(value);
-      return jsonStringify(json.data && json.type ? json.data : json, 2)
-        .replace(/,(\n|$)/g, '$1');
-    }
-
-    if (typeHint === 'string' && typeof value === 'object') {
-      const coerced = value.split('').reduce((acc, char, idx) => {
-        acc[idx] = char;
-        return acc;
-      }, {});
-      return _stringifyValue(coerced);
-    }
-
-    return jsonStringify(value);
+    return handlePrimitiveStringify(value, typeHint);
   }
 
   if (hasOwnProperties(value)) {
-    return jsonStringify(canonicalize(value, [], typeHint), 2)
-      .replace(/,(\n|$)/g, '$1');
+    return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
   }
 
   return emptyRepresentation(value, typeHint);
+};
+
+/**
+ * Handle primitive, buffer, and string-object cases for stringify.
+ *
+ * @param {*} value
+ * @param {string} typeHint
+ * @return {string}
+ */
+function handlePrimitiveStringify (value, typeHint) {
+  if (typeHint === 'buffer') {
+    const json = Buffer.prototype.toJSON.call(value);
+    return jsonStringify(json.data && json.type ? json.data : json, 2)
+      .replace(/,(\n|$)/g, '$1');
+  }
+
+  if (typeHint === 'string' && typeof value === 'object') {
+    const obj = value.split('').reduce((acc, char, idx) => {
+      acc[idx] = char;
+      return acc;
+    }, {});
+    return jsonStringify(exports.canonicalize(obj, null, 'object'), 2).replace(/,(\n|$)/g, '$1');
+  }
+
+  return jsonStringify(value);
 }
 
 /**
- * Check whether an object has own enumerable properties.
+ * Determine if an object has own enumerable properties.
  *
  * @param {Object} obj
- * @returns {boolean}
+ * @return {boolean}
  */
-function hasOwnProperties(obj) {
+function hasOwnProperties (obj) {
   for (const prop in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, prop)) {
       return true;
@@ -285,7 +291,7 @@ function hasOwnProperties(obj) {
 }
 
 /**
- * JSON stringify with custom formatting.
+ * JSON stringify with pretty printing and custom handling.
  *
  * @api private
  * @param {Object} object
@@ -293,76 +299,61 @@ function hasOwnProperties(obj) {
  * @param {number=} depth
  * @returns {*}
  */
-function jsonStringify(object, spaces, depth) {
-  if (spaces === undefined) {
+function jsonStringify (object, spaces, depth) {
+  if (typeof spaces === 'undefined') {
     return _primitiveStringify(object);
   }
 
-  const currentDepth = depth || 1;
-  const indentSize = spaces * currentDepth;
+  depth = depth || 1;
+  const indent = spaces * depth;
   const opening = Array.isArray(object) ? '[' : '{';
   const closing = Array.isArray(object) ? ']' : '}';
   const totalKeys = typeof object.length === 'number' ? object.length : Object.keys(object).length;
 
   const repeat = (s, n) => new Array(n).join(s);
 
-  const formatted = Object.keys(object).reduce((acc, key) => {
-    if (!Object.prototype.hasOwnProperty.call(object, key)) return acc;
-    const valueStr = _formatValue(object[key], spaces, currentDepth + 1);
-    const line = `\n ${repeat(' ', indentSize)}${Array.isArray(object) ? '' : '"' + key + '": '}${valueStr}`;
-    return acc + line + (acc.remaining-- ? ',' : '');
-  }, { result: opening, remaining: totalKeys });
+  const _primitiveStringify = (val) => {
+    switch (type(val)) {
+      case 'null':
+      case 'undefined':
+        return '[' + val + ']';
+      case 'array':
+      case 'object':
+        return jsonStringify(val, spaces, depth + 1);
+      case 'boolean':
+      case 'regexp':
+      case 'symbol':
+      case 'number':
+        return (val === 0 && (1 / val) === -Infinity) ? '-0' : val.toString();
+      case 'date':
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        return '[Date: ' + sDate + ']';
+      case 'buffer':
+        const json = val.toJSON();
+        const data = json.data && json.type ? json.data : json;
+        return '[Buffer: ' + jsonStringify(data, 2, depth + 1) + ']';
+      default:
+        return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
+    }
+  };
 
-  const finalStr = formatted.result + (formatted.result.length !== 1 ? `\n${repeat(' ', indentSize - spaces)}${closing}` : closing);
-  return finalStr;
-}
+  let remaining = totalKeys;
+  let result = opening;
 
-/**
- * Primitive JSON stringify fallback.
- *
- * @param {*} val
- * @returns {string}
- */
-function _primitiveStringify(val) {
-  return JSON.stringify(val);
-}
-
-/**
- * Format a value according to its type for jsonStringify.
- *
- * @param {*} val
- * @param {number} spaces
- * @param {number} depth
- * @returns {string}
- */
-function _formatValue(val, spaces, depth) {
-  const valType = type(val);
-  switch (valType) {
-    case 'null':
-    case 'undefined':
-      return '[' + valType + ']';
-    case 'array':
-    case 'object':
-      return jsonStringify(val, spaces, depth);
-    case 'boolean':
-    case 'regexp':
-    case 'symbol':
-    case 'number':
-      return (val === 0 && (1 / val) === -Infinity) ? '-0' : val.toString();
-    case 'date':
-      const dateStr = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-      return '[Date: ' + dateStr + ']';
-    case 'buffer':
-      const json = val.toJSON();
-      const data = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(data, 2, depth) + ']';
-    default:
-      return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
+  for (const key in object) {
+    if (!Object.prototype.hasOwnProperty.call(object, key)) continue;
+    remaining--;
+    result += '\n ' + repeat(' ', indent) +
+      (Array.isArray(object) ? '' : '"' + key + '": ') +
+      _primitiveStringify(object[key]) +
+      (remaining ? ',' : '');
   }
+
+  return result + (result.length !== 1 ? '\n' + repeat(' ', indent - spaces) + closing : closing);
 }
 
 /**
- * Return a new object with sorted keys and canonical representation.
+ * Canonicalize a value by sorting keys and handling circular references.
  *
  * @api private
  * @param {*} value
@@ -370,42 +361,41 @@ function _formatValue(val, spaces, depth) {
  * @param {string} [typeHint]
  * @return {(Object|Array|Function|string|undefined)}
  */
-exports.canonicalize = function (value, stack = [], typeHint) {
-  const hint = typeHint || type(value);
+exports.canonicalize = function (value, stack, typeHint) {
+  typeHint = typeHint || type(value);
+  stack = stack || [];
+
   if (stack.includes(value)) {
     return '[Circular]';
   }
 
-  switch (hint) {
-    case 'undefined':
-    case 'null':
-    case 'buffer':
-      return value;
-    case 'array':
-      return _canonicalizeArray(value, stack);
-    case 'function':
-      return _canonicalizeFunction(value, stack);
-    case 'object':
-      return _canonicalizeObject(value, stack);
-    case 'date':
-    case 'number':
-    case 'regexp':
-    case 'boolean':
-    case 'symbol':
-      return value;
-    default:
-      return String(value);
-  }
+  const handlers = {
+    undefined: () => value,
+    buffer: () => value,
+    null: () => value,
+    array: () => handleArray(value, stack),
+    function: () => handleFunction(value, stack),
+    object: () => handleObject(value, stack),
+    date: () => value,
+    number: () => value,
+    regexp: () => value,
+    boolean: () => value,
+    symbol: () => value,
+    default: () => value + ''
+  };
+
+  const handler = handlers[typeHint] || handlers.default;
+  return handler();
 };
 
 /**
- * Canonicalize an array.
+ * Handle array canonicalization.
  *
  * @param {Array} arr
  * @param {Array} stack
- * @returns {Array}
+ * @return {Array}
  */
-function _canonicalizeArray(arr, stack) {
+function handleArray (arr, stack) {
   stack.push(arr);
   const result = arr.map(item => exports.canonicalize(item, stack));
   stack.pop();
@@ -413,14 +403,14 @@ function _canonicalizeArray(arr, stack) {
 }
 
 /**
- * Canonicalize a function (its enumerable properties).
+ * Handle function canonicalization.
  *
  * @param {Function} fn
  * @param {Array} stack
- * @returns {Object|string}
+ * @return {Object|string}
  */
-function _canonicalizeFunction(fn, stack) {
-  const hasProps = hasOwnProperties(fn);
+function handleFunction (fn, stack) {
+  const hasProps = Object.keys(fn).length > 0;
   if (!hasProps) {
     return emptyRepresentation(fn, 'function');
   }
@@ -434,13 +424,13 @@ function _canonicalizeFunction(fn, stack) {
 }
 
 /**
- * Canonicalize a plain object.
+ * Handle object canonicalization.
  *
  * @param {Object} obj
  * @param {Array} stack
- * @returns {Object}
+ * @return {Object}
  */
-function _canonicalizeObject(obj, stack) {
+function handleObject (obj, stack) {
   const result = {};
   stack.push(obj);
   Object.keys(obj).sort().forEach(key => {
@@ -451,88 +441,72 @@ function _canonicalizeObject(obj, stack) {
 }
 
 /**
- * Lookup file names at the given `path`.
+ * Resolve a path to an array of matching files.
  *
- * @api public
+ * @api private
  * @param {string} basePath
  * @param {string[]} extensions
  * @param {boolean} recursive
  * @return {string[]}
  */
-exports.lookupFiles = function (basePath, extensions, recursive) {
+function resolvePath (basePath, extensions, recursive) {
+  const files = [];
+
   if (!exists(basePath)) {
-    return _resolveNonExistingPath(basePath);
+    if (exists(basePath + '.js')) {
+      basePath += '.js';
+    } else {
+      const matched = glob.sync(basePath);
+      if (!matched.length) {
+        throw new Error("cannot resolve path (or pattern) '" + basePath + "'");
+      }
+      return matched;
+    }
   }
 
-  const stat = _safeStatSync(basePath);
-  if (stat && stat.isFile()) {
-    return basePath;
+  try {
+    const stat = statSync(basePath);
+    if (stat.isFile()) {
+      return [basePath];
+    }
+  } catch {
+    return [];
   }
 
-  return _traverseDirectory(basePath, extensions, recursive);
-};
+  readdirSync(basePath).forEach(entry => {
+    const full = join(basePath, entry);
+    try {
+      const stat = statSync(full);
+      if (stat.isDirectory()) {
+        if (recursive) {
+          files.push(...resolvePath(full, extensions, recursive));
+        }
+        return;
+      }
+      const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+      if (stat.isFile() && re.test(full) && basename(full)[0] !== '.') {
+        files.push(full);
+      }
+    } catch {
+      // ignore errors
+    }
+  });
 
-/**
- * Resolve a path that does not exist on disk.
- *
- * @param {string} p
- * @returns {string[]}
- */
-function _resolveNonExistingPath(p) {
-  if (exists(p + '.js')) {
-    return p + '.js';
-  }
-  const files = glob.sync(p);
-  if (!files.length) {
-    throw new Error("cannot resolve path (or pattern) '" + p + "'");
-  }
   return files;
 }
 
 /**
- * Safely get file stats, ignoring errors.
+ * Lookup file names at the given `path`.
  *
- * @param {string} p
- * @returns {fs.Stats|undefined}
+ * @api public
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
  */
-function _safeStatSync(p) {
-  try {
-    return statSync(p);
-  } catch (_) {
-    return undefined;
-  }
-}
-
-/**
- * Recursively collect files matching extensions.
- *
- * @param {string} dir
- * @param {string[]} extensions
- * @param {boolean} recursive
- * @returns {string[]}
- */
-function _traverseDirectory(dir, extensions, recursive) {
-  const collected = [];
-  readdirSync(dir).forEach(entry => {
-    const fullPath = join(dir, entry);
-    const stat = _safeStatSync(fullPath);
-    if (!stat) return;
-
-    if (stat.isDirectory()) {
-      if (recursive) {
-        collected.push(...exports.lookupFiles(fullPath, extensions, recursive));
-      }
-      return;
-    }
-
-    const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(fullPath) || basename(fullPath)[0] === '.') {
-      return;
-    }
-    collected.push(fullPath);
-  });
-  return collected;
-}
+exports.lookupFiles = function (path, extensions, recursive) {
+  return resolvePath(path, extensions, recursive);
+};
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -554,42 +528,50 @@ exports.getError = function (err) {
 };
 
 /**
- * Returns a stack trace filter function that removes internal Mocha and Node frames.
+ * Returns a stack trace filter function.
  *
  * @returns {Function}
  */
 exports.stackTraceFilter = function () {
-  const isNode = typeof document === 'undefined';
-  const slash = path.sep;
-  const cwd = isNode ? process.cwd() + slash : (typeof location === 'undefined' ? window.location : location).href.replace(/\/[^/]*$/, '/') + '/';
+  const is = typeof document === 'undefined' ? { node: true } : { browser: true };
+  let slash = path.sep;
+  let cwd;
 
-  function isMochaInternal(line) {
-    return line.includes('node_modules' + slash + 'mocha' + slash) ||
-      line.includes('node_modules' + slash + 'mocha.js') ||
-      line.includes('bower_components' + slash + 'mocha.js') ||
-      line.includes(slash + 'mocha.js');
+  if (is.node) {
+    cwd = process.cwd() + slash;
+  } else {
+    cwd = (typeof location === 'undefined' ? window.location : location).href.replace(/\/[^/]*$/, '/');
+    slash = '/';
   }
 
-  function isNodeInternal(line) {
-    return line.includes('(timers.js:') ||
-      line.includes('(events.js:') ||
-      line.includes('(node.js:') ||
-      line.includes('(module.js:') ||
-      line.includes('GeneratorFunctionPrototype.next (native)');
+  function isMochaInternal (line) {
+    return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
+      (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
+      (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
+      (~line.indexOf(slash + 'mocha.js'));
+  }
+
+  function isNodeInternal (line) {
+    return (~line.indexOf('(timers.js:')) ||
+      (~line.indexOf('(events.js:')) ||
+      (~line.indexOf('(node.js:')) ||
+      (~line.indexOf('(module.js:')) ||
+      (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
+      false;
   }
 
   return function (stack) {
-    return stack
-      .split('\n')
-      .filter(line => {
-        if (isMochaInternal(line)) return false;
-        if (isNode && isNodeInternal(line)) return false;
-        if (/\(?.+:\d+:\d+\)?$/.test(line)) {
-          line = line.replace(cwd, '');
-        }
-        return true;
-      })
-      .join('\n');
+    const lines = stack.split('\n');
+    const filtered = lines.reduce((list, line) => {
+      if (isMochaInternal(line)) return list;
+      if (is.node && isNodeInternal(line)) return list;
+      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
+        line = line.replace(cwd, '');
+      }
+      list.push(line);
+      return list;
+    }, []);
+    return filtered.join('\n');
   };
 };
 

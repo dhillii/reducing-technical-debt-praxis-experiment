@@ -50,24 +50,15 @@ describe("ast-utils", () => {
 		};
 	}
 
-	afterEach(() => {
-		callCounts.forEach((callCount, func) => {
-			assert(
-				callCount > 0,
-				`Expected ${func.toString()} to be called at least once but it was not called`,
-			);
-		});
-	});
-
 	/**
 	 * Asserts that the unique node of the given type in the code is either
 	 * in a loop or not in a loop.
+	 *
 	 * @param {string} code the code to check.
 	 * @param {string} nodeType the type of the node to consider. The code
-	 *      must have exactly one node of this type.
+	 *   must have exactly one node of this type.
 	 * @param {boolean} expectedInLoop the expected result for whether the
-	 *      node is in a loop.
-	 * @returns {void}
+	 *   node is in a loop.
 	 */
 	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 		const results = [];
@@ -92,6 +83,15 @@ describe("ast-utils", () => {
 		assert.lengthOf(results, 1);
 		assert.strictEqual(results[0], expectedInLoop);
 	}
+
+	afterEach(() => {
+		callCounts.forEach((callCount, func) => {
+			assert(
+				callCount > 0,
+				`Expected ${func.toString()} to be called at least once but it was not called`,
+			);
+		});
+	});
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
@@ -361,7 +361,7 @@ describe("ast-utils", () => {
 		});
 
 		it("should return false if reference is not assigned for class", () => {
-			linter.verify("class A { }\n foo(A);", {
+			linter.verify("class A { } foo(A);", {
 				plugins: {
 					test: {
 						rules: {
@@ -1561,10 +1561,6 @@ describe("ast-utils", () => {
 		}).tokens;
 		const expected = [
 			false,
-			false,
-			false,
-			false,
-			false,
 			true,
 			false,
 			false,
@@ -1572,7 +1568,11 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
+			false,
+			false,
+			false,
 			true,
+			false,
 			false,
 			false,
 		];
@@ -1860,22 +1860,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isOpeningBracketToken", () => {
+		describe("isClosingBracketToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isOpeningBracketToken(token),
+						astUtils.isClosingBracketToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotOpeningBracketToken", () => {
+		describe("isNotClosingBracketToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotOpeningBracketToken(token),
+						astUtils.isNotClosingBracketToken(token),
 						!expected[index],
 					);
 				});
@@ -1907,22 +1907,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isOpeningParenToken", () => {
+		describe("isClosingParenToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isOpeningParenToken(token),
+						astUtils.isClosingParenToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotOpeningParenToken", () => {
+		describe("isNotClosingParenToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotOpeningParenToken(token),
+						astUtils.isNotClosingParenToken(token),
 						!expected[index],
 					);
 				});
@@ -1931,7 +1931,144 @@ describe("ast-utils", () => {
 	}
 
 	{
-		const code = "if (obj && foo) { obj[foo](); }";
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		describe("isColonToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isColonToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotColonToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotColonToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		describe("isCommaToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isCommaToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotCommaToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotCommaToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "const obj = {foo: 1.5, bar: a.b};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+		];
+
+		describe("isDotToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isDotToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotDotToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${!expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotDotToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	describe("isSemicolonToken", () => {
+		const code = "const obj = {foo: 1, bar: 2};";
 		const tokens = espree.parse(code, {
 			ecmaVersion: 6,
 			tokens: true,
@@ -1954,25 +2091,46 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isSemicolonToken", () => {
-			tokens.forEach((token, index) => {
-				it(`should return ${expected[index]} for '${token.value}'.`, () => {
-					assert.strictEqual(
-						astUtils.isSemicolonToken(token),
-						expected[index],
-					);
-				});
+		tokens.forEach((token, index) => {
+			it(`should return ${expected[index]} for '${token.value}'.`, () => {
+				assert.strictEqual(
+					astUtils.isSemicolonToken(token),
+					expected[index],
+				);
 			});
 		});
+	});
 
-		describe("isNotSemicolonToken", () => {
-			tokens.forEach((token, index) => {
-				it(`should return ${expected[index]} for '${token.value}'.`, () => {
-					assert.strictEqual(
-						astUtils.isNotSemicolonToken(token),
-						!expected[index],
-					);
-				});
+	describe("isNotSemicolonToken", () => {
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+		];
+
+		tokens.forEach((token, index) => {
+			it(`should return ${expected[index]} for '${token.value}'.`, () => {
+				assert.strictEqual(
+					astUtils.isNotSemicolonToken(token),
+					!expected[index],
+				);
 			});
 		});
 	});
@@ -2152,12 +2310,12 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
+						value: /(?:)/u,
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
+						value: /(?:)/u,
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					expected: true,
@@ -2183,7 +2341,7 @@ describe("ast-utils", () => {
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/, // eslint-disable-line require-unicode-regexp, regexp/no-empty-group -- Checking non-Unicode regex
+						value: /(?:)/,
 						regex: { pattern: "(?:)", flags: "" },
 					},
 					expected: false,
@@ -2257,15 +2415,15 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: 2n,
-						bigint: "2",
+						value: 1n,
+						bigint: "1",
 					},
 					nodeB: {
 						type: "Literal",
 						value: 2n,
 						bigint: "2",
 					},
-					expected: true,
+					expected: false,
 				},
 			];
 

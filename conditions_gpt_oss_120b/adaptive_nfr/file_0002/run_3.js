@@ -25,23 +25,19 @@ interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
 /**
  * Returns a user‑friendly error message based on an HTTP status code.
  */
-function getImageUploadErrorMessage(statusCode: number): string {
-    const messages: Record<number, string> = {
-        413: 'Image size exceeds limit.',
-        415: 'The file type is not supported.'
-    };
-    return messages[statusCode] ?? 'Failed to upload image. Try again.';
+function getImageUploadErrorMessage(statusCode: number | undefined): string {
+    switch (statusCode) {
+        case 413:
+            return 'Image size exceeds limit.';
+        case 415:
+            return 'The file type is not supported.';
+        default:
+            return 'Failed to upload image. Try again.';
+    }
 }
 
 /**
- * Determines whether the post button should be disabled.
- */
-function computeIsDisabled(content: string, user: any, isPosting: boolean, maxLength: number): boolean {
-    return !content.trim() || !user || isPosting || content.length > maxLength;
-}
-
-/**
- * Generates placeholder text for the textarea.
+ * Generates the placeholder text for the textarea.
  */
 function getPlaceholder(replyTo?: NewNoteModalProps['replyTo']): string {
     if (!replyTo) {
@@ -55,7 +51,7 @@ function getPlaceholder(replyTo?: NewNoteModalProps['replyTo']): string {
 }
 
 /**
- * Resets modal state when it is closed.
+ * Resets modal state when it is opened.
  */
 function resetModalState(
     setContent: (v: string) => void,
@@ -80,53 +76,41 @@ function resetModalState(
 }
 
 /**
- * Handles posting either a note or a reply.
+ * Handles posting a reply.
  */
-async function executePost({
-    replyTo,
-    trimmedContent,
-    uploadedImageUrl,
-    altText,
-    noteMutation,
-    replyMutation,
-    onReply,
-    onReplyError,
-    navigate,
-    setIsOpen,
-    onOpenChange
-}: {
-    replyTo?: NewNoteModalProps['replyTo'];
-    trimmedContent: string;
-    uploadedImageUrl: string | null;
-    altText: string;
-    noteMutation: any;
-    replyMutation: any;
-    onReply?: () => void;
-    onReplyError?: () => void;
-    navigate: (path: string) => void;
-    setIsOpen: (open: boolean) => void;
-    onOpenChange?: (open: boolean) => void;
-}) {
-    if (replyTo) {
-        await replyMutation.mutateAsync({
-            inReplyTo: replyTo.object.id,
-            content: trimmedContent,
-            imageUrl: uploadedImageUrl ?? undefined,
-            altText: altText || undefined
-        });
-        onReply?.();
-    } else {
-        await noteMutation.mutateAsync({
-            content: trimmedContent,
-            imageUrl: uploadedImageUrl ?? undefined,
-            altText: altText || undefined
-        });
-        navigate('/notes');
-    }
+async function postReply(
+    replyTo: NewNoteModalProps['replyTo'],
+    trimmedContent: string,
+    uploadedImageUrl: string | null,
+    altText: string,
+    replyMutation: ReturnType<typeof useReplyMutationForUser>,
+    onReply?: () => void
+) {
+    await replyMutation.mutateAsync({
+        inReplyTo: replyTo.object.id,
+        content: trimmedContent,
+        imageUrl: uploadedImageUrl || undefined,
+        altText: altText || undefined
+    });
+    onReply?.();
+}
 
-    setIsOpen(false);
-    onOpenChange?.(false);
-    toast.success(replyTo ? 'Reply posted' : 'Note posted');
+/**
+ * Handles posting a new note.
+ */
+async function postNote(
+    trimmedContent: string,
+    uploadedImageUrl: string | null,
+    altText: string,
+    noteMutation: ReturnType<typeof useNoteMutationForUser>,
+    navigate: (path: string) => void
+) {
+    await noteMutation.mutateAsync({
+        content: trimmedContent,
+        imageUrl: uploadedImageUrl || undefined,
+        altText: altText || undefined
+    });
+    navigate('/notes');
 }
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({
@@ -147,6 +131,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isImageUploading, setIsImageUploading] = useState(false);
     const imageInputRef = useRef<HTMLInputElement>(null);
+
     const [content, setContent] = useState('');
     const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
     const [altText, setAltText] = useState('');
@@ -154,6 +139,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     const [isPosting, setIsPosting] = useState(false);
     const [isSticky, setIsSticky] = useState(false);
     const navigate = useNavigateWithBasePath();
+
     const MAX_CONTENT_LENGTH = 500;
 
     // Sync external open prop with internal state
@@ -166,34 +152,36 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            const timer = setTimeout(() => setIsSticky(true), 300);
+            const timer = setTimeout(() => {
+                setIsSticky(true);
+            }, 300);
             return () => clearTimeout(timer);
+        } else {
+            setIsSticky(false);
         }
-        setIsSticky(false);
     }, [isOpen, props.open]);
 
-    const isDisabled = computeIsDisabled(content, user, isPosting, MAX_CONTENT_LENGTH);
+    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
+
         if (!trimmedContent || !user) {
             return;
         }
+
         try {
             setIsPosting(true);
-            await executePost({
-                replyTo,
-                trimmedContent,
-                uploadedImageUrl,
-                altText,
-                noteMutation,
-                replyMutation,
-                onReply,
-                onReplyError,
-                navigate,
-                setIsOpen,
-                onOpenChange
-            });
+
+            if (replyTo) {
+                await postReply(replyTo, trimmedContent, uploadedImageUrl, altText, replyMutation, onReply);
+            } else {
+                await postNote(trimmedContent, uploadedImageUrl, altText, noteMutation, navigate);
+            }
+
+            setIsOpen(false);
+            onOpenChange?.(false);
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
             if (replyTo) {
                 onReplyError?.();
@@ -211,7 +199,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
         altText,
         onReply,
         onReplyError,
-        setIsOpen,
         navigate,
         onOpenChange
     ]);
@@ -231,7 +218,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
-            const timeoutId = setTimeout(() => textareaRef.current?.focus(), 100);
+            const timeoutId = setTimeout(() => {
+                textareaRef.current?.focus();
+            }, 100);
             return () => clearTimeout(timeoutId);
         }
     }, [isOpen, props.open]);
@@ -239,7 +228,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
     // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
-            const timeoutId = setTimeout(() => altTextInputRef.current?.focus(), 100);
+            const timeoutId = setTimeout(() => {
+                altTextInputRef.current?.focus();
+            }, 100);
             return () => clearTimeout(timeoutId);
         }
     }, [showAltInput]);
@@ -253,6 +244,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                 }
             }
         };
+
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
@@ -265,6 +257,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
         if (!items) {
             return;
         }
+
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             if (item.type.indexOf('image') !== -1) {
@@ -275,6 +268,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                         toast.error(FILE_SIZE_ERROR_MESSAGE);
                         return;
                     }
+
                     const previewUrl = URL.createObjectURL(file);
                     setImagePreview(previewUrl);
                     await handleImageUpload(file);
@@ -297,11 +291,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
             setIsImageUploading(true);
             const imageUrl = await uploadFile(file);
             setUploadedImageUrl(imageUrl);
-        } catch (error: any) {
+        } catch (error) {
             setImagePreview(null);
-            const status = typeof error === 'object' && 'statusCode' in error ? (error as any).statusCode : undefined;
-            const message = status ? getImageUploadErrorMessage(status) : 'Failed to upload image. Try again.';
-            toast.error(message);
+            const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as any).statusCode : undefined;
+            const errorMessage = getImageUploadErrorMessage(statusCode);
+            toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
         }
@@ -309,15 +303,19 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
+
         if (files && files.length > 0) {
             const file = files[0];
+
             if (file.size > MAX_FILE_SIZE) {
                 toast.error(FILE_SIZE_ERROR_MESSAGE);
                 e.target.value = '';
                 return;
             }
+
             const previewUrl = URL.createObjectURL(file);
             setImagePreview(previewUrl);
+
             await handleImageUpload(file);
         }
     };
@@ -331,6 +329,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
         if (imagePreview) {
             URL.revokeObjectURL(imagePreview);
         }
+
         if (imageInputRef.current) {
             imageInputRef.current.value = '';
         }
@@ -355,24 +354,26 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
     const placeholder = getPlaceholder(replyTo);
 
+    const handleDialogOpenChange = (open: boolean) => {
+        if (open) {
+            resetModalState(
+                setContent,
+                setImagePreview,
+                setUploadedImageUrl,
+                setAltText,
+                setShowAltInput,
+                imagePreview,
+                imageInputRef
+            );
+        }
+        setIsOpen(open);
+        onOpenChange?.(open);
+    };
+
     return (
         <Dialog
             open={props.open !== undefined ? props.open : isOpen}
-            onOpenChange={(open) => {
-                if (open) {
-                    resetModalState(
-                        setContent,
-                        setImagePreview,
-                        setUploadedImageUrl,
-                        setAltText,
-                        setShowAltInput,
-                        imagePreview,
-                        imageInputRef
-                    );
-                }
-                setIsOpen(open);
-                onOpenChange?.(open);
-            }}
+            onOpenChange={handleDialogOpenChange}
             {...(props.open !== undefined ? {} : props)}
         >
             <DialogTrigger asChild>{children}</DialogTrigger>

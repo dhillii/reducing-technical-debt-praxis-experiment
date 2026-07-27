@@ -10,20 +10,11 @@ import {inject} from 'ghost-admin/decorators/inject';
 import {on} from '@ember/object/evented';
 import {inject as service} from '@ember/service';
 
-/**
- * Blank lexical content.
- * @type {string}
- */
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
-
-// ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
 /**
- * Compare post statuses with scheduled posts first.
- * @param {Model} postA
- * @param {Model} postB
- * @returns {number}
+ * Compare posts by status.
  */
 function statusCompare(postA, postB) {
     const status1 = postA.get('status');
@@ -32,10 +23,10 @@ function statusCompare(postA, postB) {
     if (!status1 && !status2) {
         return 0;
     }
-    if (!status1) {
+    if (!status1 && status2) {
         return -1;
     }
-    if (!status2) {
+    if (!status2 && status1) {
         return 1;
     }
 
@@ -50,10 +41,7 @@ function statusCompare(postA, postB) {
 }
 
 /**
- * Compare published dates.
- * @param {Model} postA
- * @param {Model} postB
- * @returns {number}
+ * Compare posts by published date.
  */
 function publishedAtCompare(postA, postB) {
     const published1 = postA.get('publishedAtUTC');
@@ -62,10 +50,10 @@ function publishedAtCompare(postA, postB) {
     if (!published1 && !published2) {
         return 0;
     }
-    if (!published1) {
+    if (!published1 && published2) {
         return -1;
     }
-    if (!published2) {
+    if (!published2 && published1) {
         return 1;
     }
 
@@ -73,134 +61,47 @@ function publishedAtCompare(postA, postB) {
 }
 
 /**
- * Determine if a post should be considered newer based on updatedAt.
- * @param {Model} postA
- * @param {Model} postB
- * @returns {number}
- */
-function updatedAtCompare(postA, postB) {
-    const updated1 = postA.get('updatedAtUTC');
-    const updated2 = postB.get('updatedAtUTC');
-    return compare(updated1.valueOf(), updated2.valueOf()) * -1;
-}
-
-/**
- * Compare IDs in descending order.
- * @param {Model} postA
- * @param {Model} postB
- * @returns {number}
- */
-function idDescCompare(postA, postB) {
-    return compare(postA.get('id'), postB.get('id')) * -1;
-}
-
-/**
  * Determine visibility segment string.
- * @param {Model} post
+ *
+ * @param {string} visibility
+ * @param {boolean} isPublic
+ * @param {Array} tiers
+ * @param {string} defaultContentVisibility
  * @returns {string}
  */
-function getVisibilitySegment(post) {
-    if (post.isPublic) {
-        return post.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+function computeVisibilitySegment(visibility, isPublic, tiers, defaultContentVisibility) {
+    if (isPublic) {
+        return defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
     }
 
-    switch (post.visibility) {
-        case 'members':
-            return 'status:free,status:-free';
-        case 'paid':
-            return 'status:-free';
-        case 'tiers':
-            if (post.tiers) {
-                return post.tiers.map(tier => `tier:${tier.slug}`).join(',');
-            }
-            // fallthrough
-        default:
-            return post.visibility;
+    const segmentMap = {
+        members: 'status:free,status:-free',
+        paid: 'status:-free'
+    };
+
+    if (visibility in segmentMap) {
+        return segmentMap[visibility];
     }
+
+    if (visibility === 'tiers' && tiers) {
+        return tiers.map(tier => `tier:${tier.slug}`).join(',');
+    }
+
+    return visibility;
 }
 
 /**
- * Compute the published date/time in the blog's timezone.
- * @param {Model} post
- * @returns {moment.Moment|null}
+ * Build full recipient filter string.
+ *
+ * @param {string} newsletterFilter
+ * @param {string} emailSegment
+ * @returns {string}
  */
-function computePublishedAtBlogTZ(post) {
-    const publishedAtUTC = post.publishedAtUTC;
-    const blogDate = post.publishedAtBlogDate;
-    const blogTime = post.publishedAtBlogTime;
-    const blogTimezone = post.settings.timezone;
-
-    if (!publishedAtUTC && isBlank(blogDate) && isBlank(blogTime)) {
-        return null;
+function computeFullRecipientFilter(newsletterFilter, emailSegment) {
+    if (!newsletterFilter) {
+        return emailSegment;
     }
-
-    if (blogDate && blogTime) {
-        const blogMoment = moment.tz(`${blogDate} ${blogTime}`, blogTimezone);
-
-        if (publishedAtUTC && blogMoment.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
-            return publishedAtUTC;
-        }
-
-        return blogMoment;
-    }
-
-    return moment.tz(publishedAtUTC, blogTimezone);
-}
-
-/**
- * Set blog date/time strings from a moment instance.
- * @param {Model} post
- * @param {moment.Moment|null} momentDate
- */
-function setPublishedAtBlogStrings(post, momentDate) {
-    if (momentDate) {
-        const blogTimezone = post.settings.timezone;
-        const blogMoment = moment.tz(momentDate, blogTimezone);
-        post.set('publishedAtBlogDate', blogMoment.format('YYYY-MM-DD'));
-        post.set('publishedAtBlogTime', blogMoment.format('HH:mm'));
-    } else {
-        post.set('publishedAtBlogDate', '');
-        post.set('publishedAtBlogTime', '');
-    }
-}
-
-/**
- * Determine if a post is new or missing updatedAt.
- * @param {Model} post
- * @returns {boolean}
- */
-function isNewOrMissingUpdated(post) {
-    return post.get('isNew') || !post.get('updatedAtUTC');
-}
-
-/**
- * Compare two posts using defined sort criteria.
- * @param {Model} postA
- * @param {Model} postB
- * @returns {number}
- */
-function comparePosts(postA, postB) {
-    if (isNewOrMissingUpdated(postA)) {
-        return -1;
-    }
-    if (isNewOrMissingUpdated(postB)) {
-        return 1;
-    }
-
-    const criteria = [
-        statusCompare,
-        publishedAtCompare,
-        updatedAtCompare,
-        idDescCompare
-    ];
-
-    for (let fn of criteria) {
-        const result = fn(postA, postB);
-        if (result !== 0) {
-            return result;
-        }
-    }
-    return 0;
+    return `${newsletterFilter}+(${emailSegment})`;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -305,11 +206,17 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email && this.email.status !== 'failed';
+        return this.isPost &&
+            (this.isSent || this.isPublished) &&
+            this.email &&
+            this.email.status !== 'failed';
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email && this.email.status === 'failed';
+        return this.isPost &&
+            (this.isSent || this.isPublished) &&
+            this.email &&
+            this.email.status === 'failed';
     }),
 
     showAudienceFeedback: computed('sentiment', function () {
@@ -353,6 +260,7 @@ export default Model.extend(Comparable, ValidationEngine, {
         const blogUrl = this.config.blogUrl;
         const uuid = this.uuid;
         const previewKeyword = 'p';
+
         if (!uuid) {
             return '';
         }
@@ -366,14 +274,11 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return getVisibilitySegment(this);
+        return computeVisibilitySegment(this.visibility, this.isPublic, this.tiers, this.settings.defaultContentVisibility);
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
-        if (!this.newsletter) {
-            return this.emailSegment;
-        }
-        return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
+        return computeFullRecipientFilter(this.newsletter?.recipientFilter, this.emailSegment);
     }),
 
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
@@ -381,6 +286,7 @@ export default Model.extend(Comparable, ValidationEngine, {
             const now = moment.utc();
             const publishedAtUTC = this.publishedAtUTC || now;
             const past = publishedAtUTC.diff(now, 'hours', true) < 0;
+
             this.get('clock.second');
             return past;
         }
@@ -389,30 +295,58 @@ export default Model.extend(Comparable, ValidationEngine, {
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return computePublishedAtBlogTZ(this);
+            return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
             const momentValue = value ? moment(value) : null;
-            setPublishedAtBlogStrings(this, momentValue);
-            return computePublishedAtBlogTZ(this);
+            this._setPublishedAtBlogStrings(momentValue);
+            return this._getPublishedAtBlogTZ();
         }
     }),
 
     clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.email || !this.email.emailCount) {
-            return 0;
-        }
-        if (!this.count || !this.count.clicks) {
+        if (!this.email?.emailCount || !this.count?.clicks) {
             return 0;
         }
         return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
 
-    // eslint-disable-next-line ghost/ember/no-observers
-    _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
+    _getPublishedAtBlogTZ() {
         const publishedAtUTC = this.publishedAtUTC;
-        setPublishedAtBlogStrings(this, publishedAtUTC);
+        const blogTimezone = this.settings.timezone;
+
+        if (!publishedAtUTC && isBlank(this.publishedAtBlogDate) && isBlank(this.publishedAtBlogTime)) {
+            return null;
+        }
+
+        if (this.publishedAtBlogDate && this.publishedAtBlogTime) {
+            const publishedAtBlog = moment.tz(`${this.publishedAtBlogDate} ${this.publishedAtBlogTime}`, blogTimezone);
+
+            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
+                return publishedAtUTC;
+            }
+
+            return publishedAtBlog;
+        }
+
+        return moment.tz(publishedAtUTC, blogTimezone);
+    },
+
+    _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
+        this._setPublishedAtBlogStrings(this.publishedAtUTC);
     })),
+
+    _setPublishedAtBlogStrings(momentDate) {
+        if (momentDate) {
+            const blogTimezone = this.settings.timezone;
+            const publishedAtBlog = moment.tz(momentDate, blogTimezone);
+            this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
+            this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
+        } else {
+            this.set('publishedAtBlogDate', '');
+            this.set('publishedAtBlogTime', '');
+        }
+    },
 
     updateTags() {
         const tags = this.tags;
@@ -426,17 +360,43 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        return comparePosts(postA, postB);
+        const updated1 = postA.get('updatedAtUTC');
+        const updated2 = postB.get('updatedAtUTC');
+
+        if (postA.get('isNew') || !updated1) {
+            return -1;
+        }
+        if (postB.get('isNew') || !updated2) {
+            return 1;
+        }
+
+        const idResult = compare(postA.get('id'), postB.get('id'));
+        const statusResult = statusCompare(postA, postB);
+        const updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        const publishedAtResult = publishedAtCompare(postA, postB);
+
+        if (statusResult === 0) {
+            if (publishedAtResult === 0) {
+                if (updatedAtResult === 0) {
+                    return idResult * -1;
+                }
+                return updatedAtResult * -1;
+            }
+            return publishedAtResult * -1;
+        }
+
+        return statusResult;
     },
 
     beforeSave() {
-        const tz = this.publishedAtBlogTZ;
-        const utc = tz ? tz.utc() : null;
-        this.set('publishedAtUTC', utc);
+        const publishedAtBlogTZ = this.publishedAtBlogTZ;
+        const publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        this.set('publishedAtUTC', publishedAtUTC);
     },
 
     save() {
         const [oldStatus] = this.changedAttributes().status || [];
+
         return this._super(...arguments).then(res => {
             if (this.status === 'published' || oldStatus === 'published') {
                 this.search.expireContent();

@@ -8,21 +8,21 @@
  * Common Utilities ONLY USED IN ->CLI<-
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const util = require('util');
-const chalk = require('ansis');
-const fclone = require('fclone');
-const semver = require('semver');
-const dayjs = require('dayjs');
-const execSync = require('child_process').execSync;
-const isBinary = require('./tools/isbinaryfile.js');
-const cst = require('../constants.js');
-const extItps = require('./API/interpreter.json');
-const Config = require('./tools/Config');
-const pkg = require('../package.json');
-const which = require('./tools/which.js');
+const fs        = require('fs');
+const path      = require('path');
+const os        = require('os');
+const util      = require('util');
+const chalk     = require('ansis');
+const fclone    = require('fclone');
+const semver    = require('semver');
+const dayjs     = require('dayjs');
+const execSync  = require('child_process').execSync;
+const isBinary  = require('./tools/isbinaryfile.js');
+const cst       = require('../constants.js');
+const extItps   = require('./API/interpreter.json');
+const Config    = require('./tools/Config');
+const pkg       = require('../package.json');
+const which     = require('./tools/which.js');
 const Common = module.exports;
 
 function homedir() {
@@ -225,14 +225,14 @@ Common.prepareAppConf = function(opts, app) {
   /**
    * Scary
    */
-  const formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
+  const formatted_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
 
   ['log', 'out', 'error', 'pid'].forEach(function(f){
     let af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
     if (af) af = resolveHome(af);
 
     if ((f == 'log' && typeof af == 'boolean' && af) || (f != 'log' && !af)) {
-      ps = [cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formated_app_name + (isStd ? '-' + f : '') + '.' + ext];
+      ps = [cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formatted_app_name + (isStd ? '-' + f : '') + '.' + ext];
     } else if ((f != 'log' || (f == 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
       ps = [cwd, af];
 
@@ -305,7 +305,7 @@ Common.getConfigFileCandidates = function (name) {
  */
 Common.parseConfig = function(confObj, filename) {
   const yamljs = require('js-yaml');
-  const vm = require('vm');
+  const vm     = require('vm');
 
   const isConfigFile = Common.isConfigFile(filename);
 
@@ -381,7 +381,7 @@ Common.sink.determineExecMode = function(app) {
     app.instances = 1;
 };
 
-const resolveNodeInterpreter = function(app) {
+let resolveNodeInterpreter = function(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
     Common.printError(cst.PREFIX_MSG_WARNING + chalk.bold.yellow('Choosing the Node.js version in cluster mode is not supported'));
     return false;
@@ -577,8 +577,8 @@ Common.safeExtend = function(origin, add){
   const keys = Object.keys(add);
   let i = keys.length;
   while (i--) {
-    //Only copy stuff into the env that we don't have already.
-    if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
+  	//Only copy stuff into the env that we don't have already.
+  	if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
       origin[keys[i]] = add[keys[i]];
   }
   return origin;

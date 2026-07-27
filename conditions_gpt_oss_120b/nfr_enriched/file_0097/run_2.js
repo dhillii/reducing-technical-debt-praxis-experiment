@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -41,17 +41,16 @@ define([
         },
 
         /**
-         * Override `fetch` method to support pagination.
+         * Override `fetch` method to keep a full copy of the collection
+         * and apply pagination after a successful fetch.
          */
         fetch: function(options) {
-            const opts = options || {};
-            opts.options = opts.options || {};
-
+            const opts = Object.assign({options: {}}, options);
             if (!_.isUndefined(opts.pageSize)) {
                 this.state.pageSize = Number(opts.pageSize);
             }
 
-            // Do not use pagination
+            // No pagination required
             if (this.state.pageSize === 0) {
                 return Backbone.Collection.prototype.fetch.call(this, opts);
             }
@@ -60,16 +59,10 @@ define([
             const self = this;
 
             opts.success = function(resp) {
-                // Keep full collection in memory
-                self.fullCollection = self.clone();
-
-                // Sort the collection
-                self.fullCollection.sortItOut();
-
-                // Pagination
+                self._storeFullCollection();
+                self._applySorting();
                 self._updateTotalPages();
                 self.getPage(opts.page || self.state.firstPage);
-
                 if (originalSuccess) {
                     originalSuccess(self, resp);
                 }
@@ -83,37 +76,44 @@ define([
         },
 
         /**
+         * Store a clone of the fetched collection for pagination.
+         */
+        _storeFullCollection: function() {
+            this.fullCollection = this.clone();
+        },
+
+        /**
+         * Sort the full collection according to the defined comparator.
+         */
+        _applySorting: function() {
+            if (this.fullCollection) {
+                this.fullCollection.sortItOut();
+            }
+        },
+
+        /**
          * Register collection events.
          */
         registerEvents: function() {
             this.vent = Radio.channel(this.storeName);
-
-            // Sort the collection again when favorite status is changed
             this.listenTo(this, 'change:isFavorite', this.sortItOut);
             this.listenTo(this, 'reset', this.sortItOut);
-
-            // Listen to model related events
             this.listenTo(this.vent, 'update:model', this._onAddItem, this);
             this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
             this.listenTo(this.vent, 'restore:model', this._onRestore, this);
-
             return this;
         },
 
         /**
-         * Clean up collection resources.
+         * Clean up resources and listeners.
          */
         removeEvents: function() {
-            // Destroy a full collection
             if (this.fullCollection) {
                 this.fullCollection.reset();
                 this.fullCollection = null;
             }
-
-            // Remove all the event listeners
             this.stopListening();
             this.stopListening(this.vent);
-
             return this;
         },
 
@@ -128,7 +128,7 @@ define([
         },
 
         /**
-         * Retrieves a specific page of models.
+         * Retrieve a specific page of models.
          */
         getPage: function(number) {
             const pageStart = this.getOffset(number);
@@ -156,7 +156,6 @@ define([
             if (!this.fullCollection) {
                 return;
             }
-
             this.fullCollection.sortItOut();
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
@@ -193,7 +192,7 @@ define([
             const index = model ? this.indexOf(model) + 1 : 0;
 
             if (index >= this.models.length) {
-                return this.trigger(this.hasNextPage() ? 'page:next' : 'page:end');
+                return this._triggerPageBoundary(this.hasNextPage(), 'page:next', 'page:end');
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
@@ -211,14 +210,21 @@ define([
             const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
             if (index < 0) {
-                return this.trigger(this.hasPreviousPage() ? 'page:previous' : 'page:start');
+                return this._triggerPageBoundary(this.hasPreviousPage(), 'page:previous', 'page:start');
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
-         * Handle model removal and navigate appropriately.
+         * Helper to trigger appropriate page‑boundary events.
+         */
+        _triggerPageBoundary: function(hasPage, pageEvent, endEvent) {
+            return this.trigger(hasPage ? pageEvent : endEvent);
+        },
+
+        /**
+         * After a model removal, navigate to an appropriate neighbour.
          */
         _navigateOnRemove: function(model) {
             const target = this.get(model.id);
@@ -227,43 +233,52 @@ define([
             }
 
             const collection = this.fullCollection || this;
-            const removedIndex = this.indexOf(target);
+            const index = this.indexOf(target);
 
             collection.remove(target);
             this.sortFullCollection();
 
-            const newIndex = this.at(removedIndex) ? removedIndex : removedIndex - 1;
-
-            if (newIndex < 0) {
+            const adjustedIndex = this._adjustIndexAfterRemoval(index);
+            if (adjustedIndex === null) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(newIndex));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(adjustedIndex));
         },
 
         /**
-         * Restore a model from trash, delegating to add or remove logic.
+         * Adjust index after a removal to ensure a valid model exists.
+         */
+        _adjustIndexAfterRemoval: function(index) {
+            if (!this.at(index)) {
+                index--;
+            }
+            if (!this.at(index)) {
+                return null;
+            }
+            return index;
+        },
+
+        /**
+         * Handle model restoration based on current filter.
          */
         _onRestore: function(model) {
             if (this.conditionFilter !== 'trashed') {
                 return this._onAddItem(model);
             }
-
             if (this.length > 1) {
                 return this._navigateOnRemove(model);
             }
         },
 
         /**
-         * Add a model to the collection respecting filters and profile.
+         * Add a model to the collection respecting filters and pagination.
          */
         _onAddItem: function(model) {
-            // Ignore models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
             }
 
-            // Remove if it doesn't meet the current filter condition
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
@@ -283,12 +298,14 @@ define([
          * Remove a model and refresh pagination.
          */
         _onRemoveItem: function(model) {
-            this.fullCollection.remove(model);
-            this.sortFullCollection();
+            if (this.fullCollection) {
+                this.fullCollection.remove(model);
+                this.sortFullCollection();
+            }
         },
 
         /**
-         * Update total page count based on collection size.
+         * Recalculate total page count.
          */
         _updateTotalPages: function() {
             this.state.totalPages = Math.ceil(this.fullCollection.length / this.state.pageSize);

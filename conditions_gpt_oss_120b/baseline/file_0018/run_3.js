@@ -167,7 +167,7 @@ export default class OfferPage extends React.Component {
     }
 
     getFormErrors(state) {
-        const checkboxRequired = this.context.site?.portal_signup_checkbox_required && this.context.site?.portal_signup_terms_html;
+        const checkboxRequired = this.context.site.portal_signup_checkbox_required && this.context.site.portal_signup_terms_html;
         const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
 
         return {
@@ -217,14 +217,16 @@ export default class OfferPage extends React.Component {
         }
         fields[0].autoFocus = true;
         if (fieldNames && fieldNames.length > 0) {
-            return fields.filter((f) => fieldNames.includes(f.name));
+            return fields.filter((f) => {
+                return fieldNames.includes(f.name);
+            });
         }
         return fields;
     }
 
     renderSignupTerms() {
         const {site} = this.context;
-        if (!site?.portal_signup_terms_html) {
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
             return null;
         }
 
@@ -235,13 +237,12 @@ export default class OfferPage extends React.Component {
         };
 
         const termsText = (
-            <div
-                className="gh-portal-signup-terms-content"
+            <div className="gh-portal-signup-terms-content"
                 dangerouslySetInnerHTML={{__html: sanitizeHtml(site.portal_signup_terms_html)}}
             ></div>
         );
 
-        const signupTerms = site?.portal_signup_checkbox_required ? (
+        const signupTerms = site.portal_signup_checkbox_required ? (
             <label>
                 <input
                     type="checkbox"
@@ -267,7 +268,7 @@ export default class OfferPage extends React.Component {
 
     onKeyDown(e) {
         // Handles submit on Enter press
-        if (e.keyCode === 13) {
+        if (e.keyCode === 13){
             this.handleSignup(e);
         }
     }
@@ -275,17 +276,19 @@ export default class OfferPage extends React.Component {
     handleSignup(e) {
         e.preventDefault();
         const {pageData: offer, site} = this.context;
-        if (!offer || !offer.tier) {
+        if (!offer?.tier) {
             return null;
         }
         const product = getProductFromId({site, productId: offer.tier.id});
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
-        this.setState((state) => ({
-            errors: this.getFormErrors(state)
-        }), () => {
+        this.setState((state) => {
+            return {
+                errors: this.getFormErrors(state)
+            };
+        }, () => {
             const {doAction} = this.context;
             const {name, email, phonenumber, errors} = this.state;
-            const hasFormErrors = errors && Object.values(errors).filter(d => !!d).length > 0;
+            const hasFormErrors = (errors && Object.values(errors).filter(d => !!d).length > 0);
             if (!hasFormErrors) {
                 const signupData = {
                     name,
@@ -320,8 +323,13 @@ export default class OfferPage extends React.Component {
 
     renderSiteLogo() {
         const {site} = this.context;
+
         const siteLogo = site.icon;
+
+        const logoStyle = {};
+
         if (siteLogo) {
+            logoStyle.backgroundImage = `url(${siteLogo})`;
             return (
                 <img className='gh-portal-signup-logo' src={siteLogo} alt={site.title} />
             );
@@ -389,7 +397,7 @@ export default class OfferPage extends React.Component {
             retry = true;
         }
 
-        const disabled = action === 'signup:running';
+        const disabled = (action === 'signup:running') ? true : false;
         return (
             <ActionButton
                 style={{width: '100%'}}
@@ -429,7 +437,9 @@ export default class OfferPage extends React.Component {
         const {pageData: offer} = this.context;
 
         if (offer.amount <= 0) {
-            return <></>;
+            return (
+                <></>
+            );
         }
 
         if (offer.type === 'fixed') {
@@ -447,7 +457,7 @@ export default class OfferPage extends React.Component {
         }
 
         return (
-            <h5 className="gh-portal-discount-label">{t('{amount} off', {amount: `${offer.amount}%`})}</h5>
+            <h5 className="gh-portal-discount-label">{t('{amount} off', {amount: offer.amount + '%'})}</h5>
         );
     }
 
@@ -456,12 +466,14 @@ export default class OfferPage extends React.Component {
         if (!benefits?.length) {
             return;
         }
-        const benefitsUI = benefits.map((benefit, idx) => (
-            <div className="gh-portal-product-benefit" key={`${benefit.name}-${idx}`}>
-                <CheckmarkIcon className='gh-portal-benefit-checkmark' />
-                <div className="gh-portal-benefit-title">{benefit.name}</div>
-            </div>
-        ));
+        const benefitsUI = benefits.map((benefit, idx) => {
+            return (
+                <div className="gh-portal-product-benefit" key={`${benefit.name}-${idx}`}>
+                    <CheckmarkIcon className='gh-portal-benefit-checkmark' />
+                    <div className="gh-portal-benefit-title">{benefit.name}</div>
+                </div>
+            );
+        });
         return (
             <div className="gh-portal-product-benefits">
                 {benefitsUI}
@@ -618,8 +630,8 @@ export default class OfferPage extends React.Component {
                 <div>
                     <div className='gh-portal-product-card bottom'>
                         <div className='gh-portal-product-card-detaildata'>
-                            {product?.description ? <div className="gh-portal-product-description">{product.description}</div> : ''}
-                            {benefits?.length ? this.renderBenefits({product}) : ''}
+                            {(product.description ? <div className="gh-portal-product-description">{product.description}</div> : '')}
+                            {(benefits.length ? this.renderBenefits({product}) : '')}
                         </div>
                     </div>
 
@@ -637,7 +649,7 @@ export default class OfferPage extends React.Component {
 
     render() {
         const {pageData: offer, site} = this.context;
-        if (!offer || !offer.tier) {
+        if (!offer?.tier) {
             return null;
         }
         const product = getProductFromId({site, productId: offer.tier.id});
@@ -658,10 +670,10 @@ export default class OfferPage extends React.Component {
 
                     <div className="gh-portal-offer-bar">
                         <div className="gh-portal-offer-title">
-                            {offer.display_title ? <h4>{offer.display_title}</h4> : <h4 className='placeholder'>{t('Black Friday')}</h4>}
+                            {(offer.display_title ? <h4>{offer.display_title}</h4> : <h4 className='placeholder'>{t('Black Friday')}</h4>)}
                             {this.renderOfferTag()}
                         </div>
-                        {offer.display_description ? <p>{offer.display_description}</p> : ''}
+                        {(offer.display_description ? <p>{offer.display_description}</p> : '')}
                     </div>
 
                     {this.renderForm()}

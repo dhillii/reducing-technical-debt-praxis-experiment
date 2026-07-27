@@ -241,7 +241,7 @@ class Strapi {
       if (err) return this.stopWithError(err);
 
       // Is the project initialised?
-      const isInitialised = utils.isInitialised(this);
+      const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
       const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
@@ -275,7 +275,7 @@ class Strapi {
           this.config.get('server.admin.autoOpen', true) !== false) ||
         !isInitialised
       ) {
-        utils.openBrowser.call(this);
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -335,7 +335,8 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    // Call bootstrap without awaiting as it may not return a promise.
+    bootstrap(this);
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({

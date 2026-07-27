@@ -37,27 +37,33 @@ describe("ast-utils", () => {
 	});
 
 	/**
-	 * Asserts that a given function is called at least once during a test
-	 * @param {Function} func The function that must be called at least once
-	 * @returns {Function} A wrapper around the same function
+	 * Wraps a function to ensure it is called at least once during a test.
+	 * @param {Function} func The function that must be called.
+	 * @returns {Function} A wrapper that tracks calls.
 	 */
 	function mustCall(func) {
 		callCounts.set(func, 0);
 		return function Wrapper(...args) {
 			callCounts.set(func, callCounts.get(func) + 1);
-
 			return func.call(this, ...args);
 		};
 	}
 
+	afterEach(() => {
+		callCounts.forEach((callCount, func) => {
+			assert(
+				callCount > 0,
+				`Expected ${func.toString()} to be called at least once but it was not called`,
+			);
+		});
+	});
+
 	/**
 	 * Asserts that the unique node of the given type in the code is either
 	 * in a loop or not in a loop.
-	 * @param {string} code the code to check.
-	 * @param {string} nodeType the type of the node to consider. The code
-	 *      must have exactly one node of this type.
-	 * @param {boolean} expectedInLoop the expected result for whether the
-	 *      node is in a loop.
+	 * @param {string} code The source code to lint.
+	 * @param {string} nodeType The AST node type to target.
+	 * @param {boolean} expectedInLoop Expected result of `astUtils.isInLoop`.
 	 */
 	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 		const results = [];
@@ -82,15 +88,6 @@ describe("ast-utils", () => {
 		assert.lengthOf(results, 1);
 		assert.strictEqual(results[0], expectedInLoop);
 	}
-
-	afterEach(() => {
-		callCounts.forEach((callCount, func) => {
-			assert(
-				callCount > 0,
-				`Expected ${func.toString()} to be called at least once but it was not called`,
-			);
-		});
-	});
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
@@ -637,12 +634,6 @@ describe("ast-utils", () => {
 			12: "12",
 			".12": "0.12",
 			0.12: "0.12",
-			1: "1",
-			"1.": "1",
-			".1": "0.1",
-			12: "12",
-			".12": "0.12",
-			0.12: "0.12",
 			12.34: "12.34",
 			"12e3": "12000",
 			"12e-3": "0.012",
@@ -863,7 +854,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), null);
 		});
 
-		it("should return null for `[`${b}`]: 1`", () => {
+		it("should return null for `[${b}]: 1`", () => {
 			const ast = espree.parse("({[`${b}`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -1421,8 +1412,6 @@ describe("ast-utils", () => {
 			"1 && 2": false,
 			"1 && foo": true,
 			"foo && 2": false,
-
-			// A future improvement could detect the left side as statically falsy, making this false.
 			"false && foo": true,
 			"foo &&= 2": false,
 			"foo.bar ??= 2": true,
@@ -1566,38 +1555,38 @@ describe("ast-utils", () => {
 		}).tokens;
 		const expected = [
 			false,
-			true,
-			false,
-			false,
-			false,
-			false,
-			false,
 			false,
 			false,
 			false,
 			false,
 			true,
 			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
 			false,
 			false,
 		];
 
-		describe("isOpeningParenToken", () => {
+		describe("isClosingParenToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isOpeningParenToken(token),
+						astUtils.isClosingParenToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotOpeningParenToken", () => {
+		describe("isNotClosingParenToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotOpeningParenToken(token),
+						astUtils.isNotClosingParenToken(token),
 						!expected[index],
 					);
 				});
@@ -1818,22 +1807,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isClosingParenToken", () => {
+		describe("isClosingBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isClosingParenToken(token),
+						astUtils.isClosingBraceToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotClosingParenToken", () => {
+		describe("isNotClosingBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotClosingParenToken(token),
+						astUtils.isNotClosingBraceToken(token),
 						!expected[index],
 					);
 				});
@@ -1842,7 +1831,7 @@ describe("ast-utils", () => {
 	}
 
 	{
-		const code = "const obj = {foo: 1, bar: 2};";
+		const code = "if (obj && foo) { obj[foo](); }";
 		const tokens = espree.parse(code, {
 			ecmaVersion: 6,
 			tokens: true,
@@ -1855,11 +1844,107 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
+			false,
 			true,
 			false,
 			false,
 			false,
 			false,
+			false,
+			false,
+		];
+
+		describe("isClosingBracketToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isClosingBracketToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotClosingBracketToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotClosingBracketToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+		];
+
+		describe("isOpeningParenToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isOpeningParenToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotOpeningParenToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotOpeningParenToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
 			false,
 		];
 
@@ -2234,7 +2319,6 @@ describe("ast-utils", () => {
 			"foo\\\nbar\\2baz": true,
 			"\\\n\\8": true,
 			"foo\\\nbar\\9baz": true,
-
 			"\\0": false,
 			" \\0": false,
 			"\\0 ": false,
@@ -2465,7 +2549,6 @@ describe("ast-utils", () => {
 													assertForNode(node);
 
 													if (!expectedRetVal) {
-														// The flow parser sets `directive` to null on non-directive ExpressionStatement nodes.
 														node.directive = null;
 														assertForNode(node);
 													}

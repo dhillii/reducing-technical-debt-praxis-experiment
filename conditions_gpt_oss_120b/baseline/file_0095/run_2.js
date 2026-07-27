@@ -36,7 +36,7 @@ define([
      * 10. `encrypt:models` - encrypt a Backbone collection
      * 11. `decrypt:models` - decrypt a Backbone collection
      */
-    const Encrypt = Marionette.Object.extend({
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
 
@@ -325,7 +325,7 @@ define([
                     new Q(self.sjcl.decryptLegacy({
                         configs : self.configs,
                         string  : model.get(key),
-                        keys    : self.keys
+                        keys    : this.keys
                     }))
                     .then(function(data) {
                         model.set(key, data);

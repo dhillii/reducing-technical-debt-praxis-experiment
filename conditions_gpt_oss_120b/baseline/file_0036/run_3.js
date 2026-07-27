@@ -24,54 +24,11 @@ function finaliseStructuredData(meta) {
                     head.push(writeMetaTag(property, escapeExpression(keyword)));
                 }
             });
+            head.push('');
         } else if (content != null) {
             head.push(writeMetaTag(property, escapeExpression(content)));
         }
     });
-    return head;
-}
-
-function buildMetaTags(meta, context, excludeList, referrerPolicy, favicon, iconType, safeVersion) {
-    const head = [];
-
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription) {
-            head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
-        }
-        if (settingsCache.get('icon')) {
-            head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
-        }
-        head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
-
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
-    }
-
-    if (meta.previousUrl) {
-        head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
-    }
-    if (meta.nextUrl) {
-        head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
-    }
-
-    if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
-        if (!excludeList.has('social_data')) {
-            head.push('');
-            head.push(...finaliseStructuredData(meta));
-            head.push('');
-        }
-        if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
-        }
-    }
-
-    head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
-    head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
-
     return head;
 }
 
@@ -82,7 +39,7 @@ function getMembersHelper(data, frontendKey, excludeList) {
     let out = '';
     if (!excludeList.has('portal')) {
         const {scriptUrl} = getFrontendAppConfig('portal');
-        const color = _.has(data, 'site._preview') && data.site.accent_color ? data.site.accent_color : '';
+        const colorString = _.has(data, 'site._preview') && data.site.accent_color ? data.site.accent_color : '';
         const attrs = {
             i18n: true,
             ghost: urlUtils.getSiteUrl(),
@@ -90,8 +47,9 @@ function getMembersHelper(data, frontendKey, excludeList) {
             api: urlUtils.urlFor('api', {type: 'content'}, true),
             locale: settingsCache.get('locale') || 'en'
         };
-        if (color) attrs['accent-color'] = color;
-        out += `<script defer src="${scriptUrl}" ${getDataAttributes(attrs)} crossorigin="anonymous"></script>`;
+        if (colorString) attrs['accent-color'] = colorString;
+        const dataAttrs = getDataAttributes(attrs);
+        out += `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
     }
     if (!excludeList.has('cta_styles')) {
         out += `<style id="gh-members-styles">${templateStyles}</style>`;
@@ -106,14 +64,14 @@ function getMembersHelper(data, frontendKey, excludeList) {
 function getSearchHelper(frontendKey) {
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
     if (!scriptUrl) return '';
-    const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const attrs = {
         key: frontendKey,
         styles: stylesUrl,
-        'sodo-search': adminUrl,
+        'sodo-search': urlUtils.getAdminUrl() || urlUtils.getSiteUrl(),
         locale: settingsCache.get('locale') || 'en'
     };
-    return `<script defer src="${scriptUrl}" ${getDataAttributes(attrs)} crossorigin="anonymous"></script>`;
+    const dataAttrs = getDataAttributes(attrs);
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
 function getAnnouncementBarHelper(data) {
@@ -128,16 +86,17 @@ function getAnnouncementBarHelper(data) {
         'api-url': announcementUrl
     };
     if (preview) {
-        const params = new URLSearchParams(preview);
-        const ann = params.get('announcement');
-        const bg = params.has('announcement_bg') ? params.get('announcement_bg') : '';
-        const vis = params.has('announcement_vis');
+        const sp = new URLSearchParams(preview);
+        const ann = sp.get('announcement');
+        const bg = sp.has('announcement_bg') ? sp.get('announcement_bg') : '';
+        const vis = sp.has('announcement_vis');
         if (!ann || !vis) return '';
         attrs.announcement = escapeExpression(ann);
         attrs['announcement-background'] = escapeExpression(bg);
         attrs.preview = true;
     }
-    return `<script defer src="${scriptUrl}" ${getDataAttributes(attrs)} crossorigin="anonymous"></script>`;
+    const dataAttrs = getDataAttributes(attrs);
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
 function getWebmentionDiscoveryLink() {
@@ -173,39 +132,85 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false"${datasource ? ` data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}"${token && env !== 'production' ? ` data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function addCardAssets(head, excludeList) {
-    if (excludeList.has('card_assets')) return;
-    if (cardAssets.hasFile('js')) {
-        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+/* Helper sections for building head */
+function addMetaData(head, meta, context, excludeList, safeVersion, referrerPolicy, favicon, iconType) {
+    if (excludeList.has('metadata')) return;
+    if (meta.metaDescription) {
+        head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
     }
-    if (cardAssets.hasFile('css')) {
-        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    if (settingsCache.get('icon')) {
+        head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
+    }
+    head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 }
 
-function addCommentCounts(head, excludeList) {
-    if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') return;
-    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+function addPrevNext(head, meta) {
+    if (meta.previousUrl) {
+        head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
+    }
+    if (meta.nextUrl) {
+        head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
+    }
 }
 
-function addMemberAttribution(head) {
+function addStructuredAndSchema(head, meta, context, excludeList, useStructuredData) {
+    if (_.includes(context, 'paged') || !useStructuredData) return;
+    if (!excludeList.has('social_data')) {
+        head.push('');
+        head.push(...finaliseStructuredData(meta));
+        head.push('');
+    }
+    if (!excludeList.has('schema') && meta.schema) {
+        head.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
+    }
+}
+
+function addGeneratorAndRss(head, safeVersion, meta) {
+    head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
+    head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
+}
+
+function addAssets(head, excludeList, frontendKey, options) {
+    head.push(getMembersHelper(options.data, frontendKey, excludeList));
+    if (!excludeList.has('search')) head.push(getSearchHelper(frontendKey));
+    if (!excludeList.has('announcement')) head.push(getAnnouncementBarHelper(options.data));
+    try {
+        head.push(getWebmentionDiscoveryLink());
+    } catch (e) {
+        logging.warn(e);
+    }
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        if (cardAssets.hasFile('css')) head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    }
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
     if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
         head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 }
 
 function addAnalytics(head, dataRoot, excludeList) {
-    if (!settingsHelpers.isWebAnalyticsEnabled()) return;
-    head.push(getTinybirdTrackerScript(dataRoot));
-    if (dataRoot._locals) {
-        dataRoot._locals.ghostAnalytics = true;
+    if (excludeList.has('analytics')) return;
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) dataRoot._locals.ghostAnalytics = true;
     }
 }
 
-function addAccentColorStyle(head, accentColor) {
-    const escaped = escapeExpression(accentColor);
+function addAccentColor(head, options) {
+    const accent = options.data.site.accent_color;
+    if (!accent) return;
+    const escaped = escapeExpression(accent);
     const styleTag = `<style>:root {--ghost-accent-color: ${escaped};}</style>`;
-    const idx = _.findLastIndex(head, str => /<\/(style|script)>/.test(str));
+    const idx = _.findLastIndex(head, s => /<\/(style|script)>/.test(s));
     if (idx !== -1) {
         head[idx] = head[idx] + styleTag;
     } else {
@@ -213,33 +218,39 @@ function addAccentColorStyle(head, accentColor) {
     }
 }
 
-function addCustomFonts(head, data) {
-    const isPreview = data?.site?._preview ?? false;
-    const headingFont = isPreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isPreview ? data?.site?.body_font : settingsCache.get('body_font');
-
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        const selection = {};
-        if (headingFont) selection.heading = headingFont;
-        if (bodyFont) selection.body = bodyFont;
-        const css = generateCustomFontCss(selection);
-        head.push(new SafeString(css));
-    }
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    if (!_.isEmpty(globalCodeinjection)) head.push(globalCodeinjection);
+    if (!_.isEmpty(postCodeInjection)) head.push(postCodeInjection);
+    if (!_.isEmpty(tagCodeInjection)) head.push(tagCodeInjection);
 }
 
+function addCustomFonts(head, options, dataRoot) {
+    const isPreview = options.data?.site?._preview ?? false;
+    const headingFont = isPreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isPreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+    const hasValid = (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+                     (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
+    if (!hasValid) return;
+    const selection = {};
+    if (headingFont) selection.heading = headingFont;
+    if (bodyFont) selection.body = bodyFont;
+    const css = generateCustomFontCss(selection);
+    head.push(new SafeString(css));
+}
+
+/* Main helper */
 module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
     if (options.data.root.statusCode >= 500) return;
-
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context || null;
     const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot.post?.codeinjection_head || null;
-    const tagCodeInjection = dataRoot.tag?.codeinjection_head || null;
+    const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
+    const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
     const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
@@ -248,32 +259,20 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         const meta = await getMetaData(dataRoot, dataRoot);
         const frontendKey = await getFrontendKey();
 
-        head.push(...buildMetaTags(meta, context, excludeList, referrerPolicy, favicon, iconType, safeVersion));
+        debug('end fetch');
 
-        head.push(getMembersHelper(options.data, frontendKey, excludeList));
-        if (!excludeList.has('search')) head.push(getSearchHelper(frontendKey));
-        if (!excludeList.has('announcement')) head.push(getAnnouncementBarHelper(options.data));
-
-        try {
-            head.push(getWebmentionDiscoveryLink());
-        } catch (err) {
-            logging.warn(err);
+        if (context) {
+            addMetaData(head, meta, context, excludeList, safeVersion, referrerPolicy, favicon, iconType);
+            addPrevNext(head, meta);
+            addStructuredAndSchema(head, meta, context, excludeList, useStructuredData);
         }
 
-        addCardAssets(head, excludeList);
-        addCommentCounts(head, excludeList);
-        addMemberAttribution(head);
+        addGeneratorAndRss(head, safeVersion, meta);
+        addAssets(head, excludeList, frontendKey, options);
         addAnalytics(head, dataRoot, excludeList);
-
-        if (options.data.site.accent_color) {
-            addAccentColorStyle(head, options.data.site.accent_color);
-        }
-
-        if (!_.isEmpty(globalCodeinjection)) head.push(globalCodeinjection);
-        if (!_.isEmpty(postCodeInjection)) head.push(postCodeInjection);
-        if (!_.isEmpty(tagCodeInjection)) head.push(tagCodeInjection);
-
-        addCustomFonts(head, options.data);
+        addAccentColor(head, options);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options, dataRoot);
 
         debug('end');
         return new SafeString(head.join('\n    ').trim());

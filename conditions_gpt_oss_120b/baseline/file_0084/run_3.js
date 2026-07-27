@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -91,16 +92,7 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<{
-        autoFocus?: boolean
-        context: string
-        forceValidation?: boolean
-        typeLabel: string
-        onChange?: (value: number | null) => void
-        type: string
-        value: number | null
-        [key: string]: any
-      }>) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -204,7 +196,9 @@ export function controller(
   }
 }
 
-export function Field(props: Readonly<FieldProps<typeof controller>>) {
+export function Field(
+  props: Readonly<FieldProps<typeof controller>>
+) {
   const { field, value, onChange, autoFocus, forceValidation, isRequired } = props
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault

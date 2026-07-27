@@ -234,45 +234,17 @@ class Strapi {
   }
 
   /**
-   * Determines whether the startup message should be hidden.
-   *
-   * @returns {boolean}
+   * Add behaviors to the server
    */
-  shouldHideStartupMessage() {
-    const envVar = process.env.STRAPI_HIDE_STARTUP_MESSAGE;
-    return envVar ? envVar === 'true' : false;
-  }
-
-  /**
-   * Determines whether the browser should be opened automatically.
-   *
-   * @param {boolean} isInitialised
-   * @returns {boolean}
-   */
-  shouldAutoOpenBrowser(isInitialised) {
-    const dev = this.config.environment === 'development';
-    const autoOpen = this.config.get('server.admin.autoOpen', true) !== false;
-    return (dev && autoOpen) || !isInitialised;
-  }
-
   async listen(cb) {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
-      const isInitialised = await Promise.resolve(utils.isInitialised(this));
+      await this._handleStartupSequence();
 
-      if (!this.shouldHideStartupMessage()) {
-        if (!isInitialised) {
-          this.logFirstStartupMessage();
-        } else {
-          this.logStartupMessage();
-        }
-      }
-
-      const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
-
+      // Emit started event.
       await this.telemetry.send('didStartServer', {
-        database: databaseClients,
+        database: _.map(this.config.get('connections'), _.property('settings.client')),
         plugins: this.config.installedPlugins,
         providers: this.config.installedProviders,
       });
@@ -281,8 +253,8 @@ class Strapi {
         cb();
       }
 
-      if (this.shouldAutoOpenBrowser(isInitialised)) {
-        await Promise.resolve(utils.openBrowser.call(this));
+      if (await this._shouldOpenBrowser()) {
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -298,6 +270,51 @@ class Strapi {
         listenErrHandler
       );
     }
+  }
+
+  /**
+   * Handles startup messages and browser opening logic.
+   *
+   * @private
+   */
+  async _handleStartupSequence() {
+    const isInitialised = await utils.isInitialised(this);
+    const hideStartupMessage = this._isStartupMessageHidden();
+
+    if (!hideStartupMessage) {
+      if (!isInitialised) {
+        this.logFirstStartupMessage();
+      } else {
+        this.logStartupMessage();
+      }
+    }
+  }
+
+  /**
+   * Determines whether the startup message should be hidden.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  _isStartupMessageHidden() {
+    if (process.env.STRAPI_HIDE_STARTUP_MESSAGE) {
+      return process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
+    }
+    return false;
+  }
+
+  /**
+   * Determines if the browser should be opened after server start.
+   *
+   * @private
+   * @returns {Promise<boolean>}
+   */
+  async _shouldOpenBrowser() {
+    const isInitialised = await utils.isInitialised(this);
+    const devEnv = this.config.environment === 'development';
+    const autoOpen = this.config.get('server.admin.autoOpen', true) !== false;
+
+    return (devEnv && autoOpen) || !isInitialised;
   }
 
   stopWithError(err, customMessage) {
@@ -342,7 +359,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    await this._maybeAwait(bootstrap(this));
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -390,6 +407,19 @@ class Strapi {
     return this;
   }
 
+  /**
+   * Awaits the value if it is a thenable.
+   *
+   * @private
+   * @param {*} value
+   * @returns {Promise<void>}
+   */
+  async _maybeAwait(value) {
+    if (value && typeof value.then === 'function') {
+      await value;
+    }
+  }
+
   async startWebhooks() {
     const webhooks = await this.webhookStore.findWebhooks();
     webhooks.forEach(webhook => this.webhookRunner.add(webhook));
@@ -435,45 +465,72 @@ class Strapi {
     return reload;
   }
 
-  /**
-   * Executes a lifecycle function, handling both sync and async returns.
-   *
-   * @param {Function} fn
-   * @returns {Promise<void>}
-   */
-  async execLifecycle(fn) {
-    if (!fn) {
-      return;
-    }
-    await Promise.resolve(fn());
+  async runLifecyclesFunctions(lifecycleName) {
+    await this._runPluginLifecycles(lifecycleName);
+    await this._runUserLifecycle(lifecycleName);
+    await this._runAdminLifecycle(lifecycleName);
   }
 
-  async runLifecyclesFunctions(lifecycleName) {
+  /**
+   * Executes lifecycle functions for all plugins.
+   *
+   * @private
+   * @param {string} lifecycleName
+   */
+  async _runPluginLifecycles(lifecycleName) {
     const configPath = `functions.${lifecycleName}`;
 
-    // plugins
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
         const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
-
-        return this.execLifecycle(pluginFunc).catch(err => {
+        return this._execLifecycle(pluginFunc).catch(err => {
           strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
           strapi.log.error(err);
           strapi.stop();
         });
       })
     );
+  }
 
-    // user
-    await this.execLifecycle(_.get(this.config, configPath));
+  /**
+   * Executes the user-defined lifecycle function.
+   *
+   * @private
+   * @param {string} lifecycleName
+   */
+  async _runUserLifecycle(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
+    await this._execLifecycle(_.get(this.config, configPath));
+  }
 
-    // admin
+  /**
+   * Executes the admin lifecycle function.
+   *
+   * @private
+   * @param {string} lifecycleName
+   */
+  async _runAdminLifecycle(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
     const adminFunc = _.get(this.admin.config, configPath);
-    return this.execLifecycle(adminFunc).catch(err => {
+    await this._execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();
     });
+  }
+
+  /**
+   * Executes a lifecycle function if it exists.
+   *
+   * @private
+   * @param {Function} fn
+   * @returns {Promise<*>}
+   */
+  async _execLifecycle(fn) {
+    if (!fn) {
+      return;
+    }
+    return fn();
   }
 
   async freeze() {
@@ -490,7 +547,6 @@ class Strapi {
 
   /**
    * Binds queries with a specific model
-   *
    * @param {string} entity - entity name
    * @param {string} plugin - plugin name or null
    */

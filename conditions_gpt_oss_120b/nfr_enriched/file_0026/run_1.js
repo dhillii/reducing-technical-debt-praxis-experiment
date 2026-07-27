@@ -31,31 +31,32 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
 
 /**
  * Returns a human‑readable label for a device identifier.
- * Handles known device codes and falls back to the raw value.
+ * Extracted from a nested ternary to improve readability.
  */
-const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') {
-        return 'iOS';
+const getDeviceLabel = (device: string): string => {
+    switch (device) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return device;
     }
-    if (value === 'mobile-android') {
-        return 'Android';
-    }
-    if (value === 'desktop') {
-        return 'Desktop';
-    }
-    if (value === 'bot') {
-        return 'Bot';
-    }
-    if (value === 'unknown') {
-        return 'Unknown';
-    }
-    return value;
 };
 
+// Configuration for each filter field type
 interface FilterFieldDefinition {
     endpoint: string;
     valueKey: string;
+    // Transform value and get display label
     transformValue?: (value: string) => {value: string; label: string};
+    // Filter out invalid items from API response
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
@@ -112,6 +113,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     }
 };
 
+// Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -127,12 +129,14 @@ const buildFilterParams = (
         const value = filter.values[0] as string;
 
         if (filter.field === 'post') {
+            // Determine if the value is a post_uuid or a pathname
             if (value.startsWith('/')) {
                 params.pathname = value;
             } else {
                 params.post_uuid = value;
             }
         } else if (filter.field === 'audience') {
+            // Skip audience - handled separately via member_status
             return;
         } else if (filter.field === 'source' || filter.field === 'device' || filter.field === 'location' || filter.field.startsWith('utm_')) {
             params[filter.field] = value;
@@ -147,6 +151,7 @@ interface UseTinybirdFilterOptionsConfig {
 }
 
 // Generic hook to fetch filter options from Tinybird
+// Handles the common pattern: fetch data, transform to options, ensure selected value is included
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
@@ -158,11 +163,13 @@ const useTinybirdFilterOptions = (
 
     const definition = FILTER_FIELD_DEFINITIONS[fieldKey];
 
+    // Derive audience from filters (URL is the source of truth)
     const audience = useMemo(() => {
         const audienceFilter = currentFilters.find(f => f.field === 'audience');
         return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
     }, [currentFilters]);
 
+    // Build params including filters from other fields
     const params = useMemo(() => {
         const baseParams: Record<string, string> = {
             site_uuid: statsConfig?.id || '',
@@ -190,6 +197,7 @@ const useTinybirdFilterOptions = (
 
         const items = (data as unknown as Array<Record<string, unknown>>) || [];
 
+        // Filter and transform items
         return items
             .filter(item => (definition.filterItem ? definition.filterItem(item) : true))
             .map((item) => {
@@ -214,17 +222,20 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-// Hook to fetch posts/pages options from Ghost API
+// Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
+// This uses a different API pattern so it can't use the generic hook
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
     const {enabled = true} = config;
     const {range} = useGlobalData();
     const {startDate, endDate, timezone} = getRangeDates(range);
 
+    // Derive audience from filters (URL is the source of truth)
     const audience = useMemo(() => {
         const audienceFilter = currentFilters.find(f => f.field === 'audience');
         return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
     }, [currentFilters]);
 
+    // Build query params including filters from other fields (excluding post to avoid circular filtering)
     const queryParams = useMemo(() => {
         const baseParams: Record<string, string> = {
             date_from: formatQueryDate(startDate),
@@ -239,6 +250,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
         return buildFilterParams(currentFilters, 'post', baseParams);
     }, [startDate, endDate, timezone, audience, currentFilters]);
 
+    // Fetch top content data from Ghost API (which queries Tinybird and enriches with titles)
     const {data: topContentData, isLoading} = useTopContent({
         searchParams: queryParams,
         enabled
@@ -247,6 +259,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     const options = useMemo(() => {
         const stats = topContentData?.stats;
 
+        // Deduplicate items - prefer post_uuid for posts/pages, use pathname for other content
         const seen = new Set<string>();
         return (stats || [])
             .filter((item) => {
@@ -278,22 +291,29 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
 function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {appSettings} = useAppContext();
 
+    // Track which filter field is currently being selected (lazy loading)
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
+
+    // Track screen width for responsive popover alignment
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
-        const mediaQuery = window.matchMedia('(max-width: 1024px)');
+        const mediaQuery = window.matchMedia('(max-width: 1024px)'); // lg breakpoint
 
         const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
             setIsMobile(e.matches);
         };
 
+        // Set initial value
         handleChange(mediaQuery);
+
+        // Listen for changes
         mediaQuery.addEventListener('change', handleChange);
 
         return () => mediaQuery.removeEventListener('change', handleChange);
     }, []);
 
+    // Filter audience options based on site settings
     const audienceOptions = useMemo(() => {
         const options = [
             {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
@@ -303,12 +323,17 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
         return appSettings?.paidMembersEnabled ? options : options.filter(opt => opt.value !== 'paid');
     }, [appSettings?.paidMembersEnabled]);
 
+    // Helper: determine if a filter field should fetch options
+    // Enable fetching when the field is active OR has an applied filter value (for label display)
     const shouldFetchOptions = useCallback((fieldKey: string) => {
         const isActive = activeFilterField === fieldKey;
         const hasAppliedFilter = filters.some(f => f.field === fieldKey);
         return isActive || hasAppliedFilter;
     }, [activeFilterField, filters]);
 
+    // Fetch options for all Tinybird-backed fields using the generic hook
+    // Options are contextual - filtered based on currently applied filters
+    // Lazy loading: only fetch when field is active or has applied filter
     const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetchOptions('utm_source')});
     const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetchOptions('utm_medium')});
     const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchOptions('utm_campaign')});
@@ -318,12 +343,15 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchOptions('device')});
     const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchOptions('location')});
 
+    // Fetch options for posts - data is contextual based on current filters
     const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
 
+    // Note: Only 'is' operator supported - Tinybird pipes only support exact match
     const supportedOperators = useMemo(() => [
         {value: 'is', label: 'is'}
     ], []);
 
+    // Grouped fields - memoized to avoid recreation on every render
     const groupedFields: FilterFieldConfig[] = useMemo(() => {
         const utmFields: FilterFieldConfig[] = [
             {
@@ -485,20 +513,9 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
                 fields: utmFields
             }
         ];
-    }, [
-        utmSourceOptions, utmSourceLoading,
-        utmMediumOptions, utmMediumLoading,
-        utmCampaignOptions, utmCampaignLoading,
-        utmContentOptions, utmContentLoading,
-        utmTermOptions, utmTermLoading,
-        supportedOperators,
-        postOptions, postLoading,
-        audienceOptions,
-        sourceOptions, sourceLoading,
-        deviceOptions, deviceLoading,
-        locationOptions, locationLoading
-    ]);
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
 
+    // Show clear button when there's at least one filter
     const hasFilters = filters.length > 0;
 
     const handleClearFilters = useCallback(() => {

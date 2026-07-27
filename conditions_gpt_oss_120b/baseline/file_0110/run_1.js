@@ -39,7 +39,7 @@ const wrapThunk = require('./helpers/query/wrapThunk');
 
 /**
  * Query constructor used for building queries. You do not need
- * instantiate a `Query` directly. Instead use Model functions like
+ * to instantiate a `Query` directly. Instead use Model functions like
  * [`Model.find()`](/docs/api.html#find_find).
  *
  * ####Example:
@@ -151,7 +151,7 @@ Query.use$geoWithin = mquery.use$geoWithin;
  *     // create a custom Query constructor based off these settings
  *     const Adventure = query.toConstructor();
  *
- *     // Adventure is now a subclass of mongoose.Query and works the same way but with the
+ *     // Adventure is now a subclass of mongoose.Query and works the same way but the
  *     // default query parameters and options set.
  *     Adventure().exec(callback)
  *
@@ -1163,7 +1163,7 @@ Query.prototype.writeConcern = function writeConcern(val) {
  *
  * ####Example:
  *
- *     // The majority option means the `deleteOne()` promise won't resolve
+ *     // The 'majority' option means the `deleteOne()` promise won't resolve
  *     // until the `deleteOne()` has propagated to the majority of the replica set
  *     await mongoose.model('Person').
  *       deleteOne({ name: 'Ned Stark' }).
@@ -1233,8 +1233,8 @@ Query.prototype.j = function j(val) {
 };
 
 /**
- * If [`w > 1`](/docs/api.html#query_Query-w), the maximum amount of time
- * to wait for this write to propagate through the replica set before this
+ * If [`w > 1`](/docs/api.html#query_Query-w), the maximum amount of time to
+ * wait for this write to propagate through the replica set before this
  * operation fails. The default is `0`, which means no timeout.
  *
  * This option is only valid for operations that write to the database:
@@ -1308,8 +1308,8 @@ Query.prototype.wtimeout = function wtimeout(ms) {
  *     local         MongoDB 3.2+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
  *     available     MongoDB 3.6+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
  *     majority      MongoDB 3.2+ The query returns the data that has been acknowledged by a majority of the replica set members. The documents returned by the read operation are durable, even in the event of failure.
- *     linearizable  MongoDB 3.4+ The query returns data that reflects all successful majority-acknowledged writes that completed prior to the start of the read operation. The query may wait for concurrently executing writes to propagate to a majority of replica set members before returning results.
- *     snapshot      MongoDB 4.0+ Only available for operations within multi-document transactions. Upon transaction commit with write concern "majority", the transaction operations are guaranteed to have read from a snapshot of majority-committed data.
+ *     linearizable  MongoDB 4.4+ The query returns data that reflects all successful majority-acknowledged writes that completed prior to the start of the read operation. The query may wait for concurrently executing writes to propagate to a majority of replica set members before returning results.
+ *     snapshot      MongoDB 4.0+ Only available for operations within multi-document transactions. Upon transaction commit with write concern "majority", the transaction operations are guaranteed to read from a snapshot of majority-committed data.
  *
  * Aliases
  *
@@ -1356,10 +1356,10 @@ Query.prototype.getOptions = function() {
  *
  * - [tailable](http://www.mongodb.org/display/DOCS/Tailable+Cursors)
  * - [sort](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bsort(\)%7D%7D)
- * - [limit](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Blimit%29%7D%7D)
- * - [skip](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bskip%29%7D%7D)
+ * - [limit](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Blimit%28%29%7D%7D)
+ * - [skip](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bskip%28%29%7D%7D)
  * - [allowDiskUse](https://docs.mongodb.com/manual/reference/method/cursor.allowDiskUse/)
- * - [batchSize](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7BbatchSize%29%7D%7D)
+ * - [batchSize](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7BbatchSize%28%29%7D%7D)
  * - [readPreference](http://docs.mongodb.org/manual/applications/replication/#read-preference)
  * - [hint](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24hint)
  * - [comment](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24comment)
@@ -1414,51 +1414,50 @@ Query.prototype.setOptions = function(options, overwrite) {
     }
     return this;
   }
+
   if (options == null) {
     return this;
   }
+
   if (typeof options !== 'object') {
     throw new Error('Options must be an object, got "' + options + '"');
   }
 
+  // Handle populate array separately
   if (Array.isArray(options.populate)) {
     const populate = options.populate;
     delete options.populate;
-    const _numPopulate = populate.length;
-    for (let i = 0; i < _numPopulate; ++i) {
-      this.populate(populate[i]);
+    populate.forEach(p => this.populate(p));
+  }
+
+  // List of simple option keys that map directly to mongooseOptions
+  const simpleKeys = [
+    'useFindAndModify',
+    'omitUndefined',
+    'setDefaultsOnInsert',
+    'overwriteDiscriminatorKey',
+    'sanitizeProjection',
+    'defaults'
+  ];
+
+  simpleKeys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(options, key)) {
+      if (key === 'sanitizeProjection') {
+        if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
+          sanitizeProjection(this._fields);
+        }
+        this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
+        // do not delete to preserve defaults behavior
+        return;
+      }
+
+      this._mongooseOptions[key] = options[key];
+      // For all keys except 'defaults', remove from options to avoid passing to mquery
+      if (key !== 'defaults') {
+        delete options[key];
+      }
     }
-  }
-
-  if ('useFindAndModify' in options) {
-    this._mongooseOptions.useFindAndModify = options.useFindAndModify;
-    delete options.useFindAndModify;
-  }
-  if ('omitUndefined' in options) {
-    this._mongooseOptions.omitUndefined = options.omitUndefined;
-    delete options.omitUndefined;
-  }
-  if ('setDefaultsOnInsert' in options) {
-    this._mongooseOptions.setDefaultsOnInsert = options.setDefaultsOnInsert;
-    delete options.setDefaultsOnInsert;
-  }
-  if ('overwriteDiscriminatorKey' in options) {
-    this._mongooseOptions.overwriteDiscriminatorKey = options.overwriteDiscriminatorKey;
-    delete options.overwriteDiscriminatorKey;
-  }
-  if ('sanitizeProjection' in options) {
-    if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
-      sanitizeProjection(this._fields);
-    }
-
-    this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
-    delete options.sanitizeProjection;
-  }
-
-  if ('defaults' in options) {
-    this._mongooseOptions.defaults = options.defaults;
-    // deleting options.defaults will cause 7287 to fail
-  }
+  });
 
   return Query.base.setOptions.call(this, options);
 };
@@ -2360,7 +2359,7 @@ Query.prototype._count = wrapThunk(function(callback) {
  * Thunk around countDocuments()
  *
  * @param {Function} [callback]
- * @see countDocuments http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#countDocuments
+ * @see countDocuments http://docs.mongodb.org/manual/reference/method/db.collection.countDocuments/
  * @api private
  */
 
@@ -2387,7 +2386,7 @@ Query.prototype._countDocuments = wrapThunk(function(callback) {
  * Thunk around estimatedDocumentCount()
  *
  * @param {Function} [callback]
- * @see estimatedDocumentCount http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#estimatedDocumentCount
+ * @see estimatedDocumentCount http://docs.mongodb.org/manual/reference/method/db.collection.estimatedDocumentCount/
  * @api private
  */
 
@@ -2414,7 +2413,7 @@ Query.prototype._estimatedDocumentCount = wrapThunk(function(callback) {
  *
  * - `count()`
  *
- * ####Example
+ * ####Example:
  *
  *     const countQuery = model.where({ 'color': 'black' }).count();
  *
@@ -2534,8 +2533,8 @@ Query.prototype.estimatedDocumentCount = function(options, callback) {
  * and the suggested replacement:
  *
  * - `$where`: [`$expr`](https://docs.mongodb.com/manual/reference/operator/query/expr/)
- * - `$near`: [`$geoWithin`](https://docs.mongodb.com/manual/reference/operator/query/geoWithin/) with [`$center`](https://docs.mongodb.org/manual/reference/operator/query/center/#op._S_center)
- * - `$nearSphere`: [`$geoWithin`](https://docs.mongodb.com/manual/reference/operator/query/geoWithin/) with [`$centerSphere`](https://docs.mongodb.org/manual/reference/operator/query/centerSphere/#op._S_centerSphere)
+ * - `$near`: [`$geoWithin`](https://docs.mongodb.org/manual/reference/operator/geoWithin/) with [`$center`](https://docs.mongodb.org/manual/reference/operator/query/center/#op._S_center)
+ * - `$nearSphere`: [`$geoWithin`](https://docs.mongodb.org/manual/reference/operator/geoWithin/) with [`$centerSphere`](https://docs.mongodb.org/manual/reference/operator/query/centerSphere/#op._S_centerSphere)
  *
  * @param {Object} [filter] mongodb selector
  * @param {Function} [callback] optional params are (error, count)
@@ -2790,7 +2789,7 @@ Query.prototype._remove = wrapThunk(function(callback) {
  *     // Using callbacks:
  *     Character.deleteOne({ name: 'Eddard Stark' }, callback);
  *
- * This function calls the MongoDB driver's [`Collection#deleteOne()` function`](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteOne).
+ * This function calls the MongoDB driver's [`Collection#deleteOne()` function](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteOne).
  * The returned [promise](https://mongoosejs.com/docs/queries.html) resolves to an
  * object that contains 3 properties:
  *
@@ -2876,7 +2875,7 @@ Query.prototype._deleteOne = wrapThunk(function(callback) {
  *     // Using callbacks:
  *     Character.deleteMany({ name: /Stark/, age: { $gte: 18 } }, callback);
  *
- * This function calls the MongoDB driver's [`Collection#deleteMany()` function`](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteMany).
+ * This function calls the MongoDB driver's [`Collection#deleteMany()` function](http://mongodb.github.io/node-mongodb-native/3.1/api/Collection.html#deleteMany).
  * The returned [promise](https://mongoosejs.com/docs/queries.html) resolves to an
  * object that contains 3 properties:
  *
@@ -3071,6 +3070,7 @@ function prepareDiscriminatorCriteria(query) {
  * @param {Object} [options.lean] if truthy, mongoose will return the document as a plain JavaScript object rather than a mongoose document. See [`Query.lean()`](/docs/api.html#query_Query-lean) and [the Mongoose lean tutorial](/docs/tutorials/lean.html).
  * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
  * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
  * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
  * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Note that this allows you to overwrite timestamps. Does nothing if schema-level timestamps are not set.
  * @param {Boolean} [options.returnOriginal=null] An alias for the `new` option. `returnOriginal: false` is equivalent to `new: true`.
@@ -3177,7 +3177,7 @@ Query.prototype._findOneAndUpdate = wrapThunk(function(callback) {
  *
  * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
  * - `maxTimeMS`: puts a time limit on the query - requires mongodb >= 2.6.0
- * - `rawResult`: if true, resolves to the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
+ * - `rawResult`: if true, returns the [raw result from the MongoDB driver](http://mongodb.github.io/node-mongodb-native/2.0/api/Collection.html#findAndModify)
  *
  * ####Callback Signature
  *     function(error, doc) {
@@ -3311,7 +3311,7 @@ Query.prototype.findOneAndDelete = function(conditions, options, callback) {
         options = undefined;
       }
       break;
-  }
+    }
 
   if (mquery.canMerge(conditions)) {
     this.merge(conditions);
@@ -3409,6 +3409,7 @@ Query.prototype._findOneAndDelete = wrapThunk(function(callback) {
  * @param {Boolean} [options.new=false] By default, `findOneAndUpdate()` returns the document as it was **before** `update` was applied. If you set `new: true`, `findOneAndUpdate()` will instead give you the object after `update` was applied.
  * @param {Object} [options.lean] if truthy, mongoose will return the document as a plain JavaScript object rather than a mongoose document. See [`Query.lean()`](/docs/api.html#query_Query-lean) and [the Mongoose lean tutorial](/docs/tutorials/lean.html).
  * @param {ClientSession} [options.session=null] The session associated with this query. See [transactions docs](/docs/transactions.html).
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
  * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](http://mongoosejs.com/docs/guide.html#strict)
  * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
  * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Note that this allows you to overwrite timestamps. Does nothing if schema-level timestamps are not set.
@@ -3769,4 +3770,630 @@ const _legacyFindAndModify = util.deprecate(function(filter, update, opts, cb) {
     update = update.toBSON();
   }
   const collection = this._collection;
-  const sort = opts != null && Array.isArray(opts.sort) ? opts.sort : []
+  const sort = opts != null && Array.isArray(opts.sort) ? opts.sort : [];
+  const _cb = _wrapThunkCallback(this, function(error, res) {
+    return cb(error, res ? res.value : res, res);
+  });
+  collection.collection._findAndModify(filter, sort, update, opts, _cb);
+}, 'Mongoose: `findOneAndUpdate()` and `findOneAndDelete()` without the ' +
+  '`useFindAndModify` option set to false are deprecated. See: ' +
+  'https://mongoosejs.com/docs/5.x/docs/deprecations.html#findandmodify');
+
+/*!
+ * Override mquery.prototype._mergeUpdate to handle mongoose objects in
+ * updates.
+ *
+ * @param {Object} doc
+ * @api private
+ */
+
+Query.prototype._mergeUpdate = function(doc) {
+  if (doc == null || (typeof doc === 'object' && Object.keys(doc).length === 0)) {
+    return;
+  }
+
+  if (!this._update) {
+    this._update = Array.isArray(doc) ? [] : {};
+  }
+  if (doc instanceof Query) {
+    if (Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    if (doc._update) {
+      utils.mergeClone(this._update, doc._update);
+    }
+  } else if (Array.isArray(doc)) {
+    if (!Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    this._update = this._update.concat(doc);
+  } else {
+    if (Array.isArray(this._update)) {
+      throw new Error('Cannot mix array and object updates');
+    }
+    utils.mergeClone(this._update, doc);
+  }
+};
+
+/*!
+ * The mongodb driver 1.3.23 only supports the nested array sort
+ * syntax. We must convert it or sorting findAndModify will not work.
+ */
+
+function convertSortToArray(opts) {
+  if (Array.isArray(opts.sort)) {
+    return;
+  }
+  if (!utils.isObject(opts.sort)) {
+    return;
+  }
+
+  const sort = [];
+
+  for (const key in opts.sort) {
+    if (utils.object.hasOwnProperty(opts.sort, key)) {
+      sort.push([key, opts.sort[key]]);
+    }
+  }
+
+  opts.sort = sort;
+}
+
+/*!
+ * ignore
+ */
+
+function _updateThunk(op, callback) {
+  this._castConditions();
+
+  _castArrayFilters(this);
+
+  if (this.error() != null) {
+    callback(this.error());
+    return null;
+  }
+
+  callback = _wrapThunkCallback(this, callback);
+  const oldCb = callback;
+  callback = function(error, result) {
+    oldCb(error, result ? result.result : { ok: 0, n: 0, nModified: 0 });
+  };
+
+  const castedQuery = this._conditions;
+  const options = this._optionsForExec(this.model);
+
+  ++this._executionCount;
+
+  this._update = utils.clone(this._update, options);
+  const isOverwriting = this.options.overwrite && !hasDollarKeys(this._update);
+  if (isOverwriting) {
+    if (op === 'updateOne' || op === 'updateMany') {
+      return callback(new MongooseError('The MongoDB server disallows ' +
+        'overwriting documents using `' + op + '`. See: ' +
+        'https://mongoosejs.com/docs/deprecations.html#update'));
+    }
+    this._update = new this.model(this._update, null, true);
+  } else {
+    this._update = castDoc(this, options.overwrite);
+
+    if (this._update instanceof Error) {
+      callback(this._update);
+      return null;
+    }
+
+    if (this._update == null || Object.keys(this._update).length === 0) {
+      callback(null, 0);
+      return null;
+    }
+
+    const _opts = Object.assign({}, options, {
+      setDefaultsOnInsert: this._mongooseOptions.setDefaultsOnInsert
+    });
+    this._update = setDefaultsOnInsert(this._conditions, this.model.schema,
+      this._update, _opts);
+  }
+
+  if (Array.isArray(options.arrayFilters)) {
+    options.arrayFilters = removeUnusedArrayFilters(this._update, options.arrayFilters);
+  }
+
+  const runValidators = _getOption(this, 'runValidators', false);
+  if (runValidators) {
+    this.validate(this._update, options, isOverwriting, err => {
+      if (err) {
+        return callback(err);
+      }
+
+      if (this._update.toBSON) {
+        this._update = this._update.toBSON();
+      }
+      this._collection[op](castedQuery, this._update, options, callback);
+    });
+    return null;
+  }
+
+  if (this._update.toBSON) {
+    this._update = this._update.toBSON();
+  }
+
+  this._collection[op](castedQuery, this._update, options, callback);
+  return null;
+}
+
+/*!
+ * Mongoose calls this function internally to validate the query if
+ * `runValidators` is set
+ *
+ * @param {Object} castedDoc the update, after casting
+ * @param {Object} options the options from `_optionsForExec()`
+ * @param {Function} callback
+ * @api private
+ */
+
+Query.prototype.validate = function validate(castedDoc, options, isOverwriting, callback) {
+  return promiseOrCallback(callback, cb => {
+    try {
+      if (isOverwriting) {
+        castedDoc.validate(cb);
+      } else {
+        updateValidators(this, this.model.schema, castedDoc, options, cb);
+      }
+    } catch (err) {
+      immediate(function() {
+        cb(err);
+      });
+    }
+  });
+};
+
+/*!
+ * Internal thunk for .update()
+ *
+ * @param {Function} callback
+ * @see Model.update #model_Model.update
+ * @api private
+ */
+Query.prototype._execUpdate = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'update', callback);
+});
+
+/*!
+ * Internal thunk for .updateMany()
+ *
+ * @param {Function} callback
+ * @see Model.update #model_Model.update
+ * @api private
+ */
+Query.prototype._updateMany = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'updateMany', callback);
+});
+
+/*!
+ * Internal thunk for .updateOne()
+ *
+ * @param {Function} callback
+ * @see Model.update #model_Model.update
+ * @api private
+ */
+Query.prototype._updateOne = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'updateOne', callback);
+});
+
+/*!
+ * Internal thunk for .replaceOne()
+ *
+ * @param {Function} callback
+ * @see Model.replaceOne #model_Model.replaceOne
+ * @api private
+ */
+Query.prototype._replaceOne = wrapThunk(function(callback) {
+  return _updateThunk.call(this, 'replaceOne', callback);
+});
+
+/**
+ * Declare and/or execute this query as an update() operation.
+ *
+ * _All paths passed that are not [atomic](https://docs.mongodb.com/manual/tutorial/model-data-for-atomic-operations/#pattern) operations will become `$set` ops._
+ *
+ * This function triggers the following middleware.
+ *
+ * - `update()`
+ *
+ * ####Example
+ *
+ *     Model.where({ _id: id }).update({ title: 'words' })
+ *
+ *     // becomes
+ *
+ *     Model.where({ _id: id }).update({ $set: { title: 'words' }})
+ *
+ * ####Valid options:
+ *
+ *  - `upsert` (boolean) whether to create the doc if it doesn't match (false)
+ *  - `multi` (boolean) whether multiple documents should be updated (false)
+ *  - `runValidators`: if true, runs [update validators](/docs/validation.html#update-validators) on this command. Update validators validate the update operation against the model's schema.
+ *  - `setDefaultsOnInsert`: if this and `upsert` are true, mongoose will apply the [defaults](http://mongoosejs.com/docs/defaults.html) specified in the model's schema if a new document is created. This option only works on MongoDB >= 2.4 because it relies on [MongoDB's `$setOnInsert` operator](https://docs.mongodb.org/v2.4/reference/operator/update/setOnInsert/).
+ *  - `strict` (boolean) overrides the `strict` option for this update
+ *  - `overwrite` (boolean) disables update-only mode, allowing you to overwrite the doc (false)
+ *  - `context` (string) if set to 'query' and `runValidators` is on, `this` will refer to the query in custom validator functions that update validation runs. Does nothing if `runValidators` is false.
+ *  - `read`
+ *  - `writeConcern`
+ *
+ * ####Note
+ *
+ * Passing an empty object `{}` as the doc will result in a no-op unless the `overwrite` option is passed. Without the `overwrite` option set, the update operation will be ignored and the callback executed without sending the command to MongoDB so as to prevent accidently overwritting documents in the collection.
+ *
+ * ####Note
+ *
+ * The operation is only executed when a callback is passed. To force execution without a callback, we must first call update() and then execute it by using the `exec()` method.
+ *
+ *     const q = Model.where({ _id: id });
+ *     q.update({ $set: { name: 'bob' }}).update(); // not executed
+ *
+ *     q.update({ $set: { name: 'bob' }}).exec(); // executed
+ *
+ *     // keys that are not [atomic](https://docs.mongodb.org/manual/tutorial/model-data-for-atomic-operations/#pattern) ops become `$set`.
+ *     // this executes the same command as the previous example.
+ *     q.update({ name: 'bob' }).exec();
+ *
+ *     // overwriting with empty docs
+ *     const q = Model.where({ _id: id }).setOptions({ overwrite: true })
+ *     q.update({ }, callback); // executes
+ *
+ *     // multi update with overwrite to empty doc
+ *     const q = Model.where({ _id: id });
+ *     q.setOptions({ multi: true, overwrite: true })
+ *     q.update({ });
+ *     q.update(callback); // executed
+ *
+ *     // multi updates
+ *     Model.where()
+ *          .update({ name: /^match/ }, { $set: { arr: [] }}, { multi: true }, callback)
+ *
+ *     // more multi updates
+ *     Model.where()
+ *          .setOptions({ multi: true })
+ *          .update({ $set: { arr: [] }}, callback)
+ *
+ *     // single update by default
+ *     Model.where({ email: 'address@example.com' })
+ *          .update({ $inc: { counter: 1 }}, callback)
+ *
+ * API summary
+ *
+ *     update(filter, doc, options, cb) // executes
+ *     update(filter, doc, options)
+ *     update(filter, doc, cb) // executes
+ *     update(filter, doc)
+ *     update(doc, cb) // executes
+ *     update(doc)
+ *     update(cb) // executes
+ *     update(true) // executes
+ *     update()
+ *
+ * @param {Object} [filter]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @param {Boolean} [options.multipleCastError] by default, mongoose only returns the first error that occurred in casting the query. Turn on this option to aggregate all the cast errors.
+ * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](/docs/guide.html#strict)
+ * @param {Boolean} [options.upsert=false] if true, and no documents found, insert a new document
+ * @param {Object} [options.writeConcern=null] sets the [write concern](https://docs.mongodb.com/manual/reference/write-concern/) for replica sets. Overrides the [schema-level write concern](/docs/guide.html#writeConcern)
+ * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Does nothing if schema-level timestamps are not set.
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @see Model.update #model_Model.update
+ * @see Query docs https://mongoosejs.com/docs/queries.html
+ * @see update http://docs.mongodb.org/manual/reference/method/db.collection.update/
+ * @see writeOpResult http://mongodb.github.io/node-mongodb-native/2.2/api/Collection.html#~WriteOpResult
+ * @see MongoDB docs https://mongodb.com/manual/reference/command/update/#update-command-output
+ * @api public
+ */
+
+Query.prototype.update = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'update', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as an updateMany() operation. Same as
+ * `update()`, except MongoDB will update _all_ documents that match
+ * `filter` (as opposed to just the first one) regardless of the value of
+ * the `multi` option.
+ *
+ * **Note** updateMany will _not_ fire update middleware. Use `pre('updateMany')`
+ * and `post('updateMany')` instead.
+ *
+ * ####Example:
+ *     const res = await Person.updateMany({ name: /Stark$/ }, { isDeleted: true });
+ *     res.n; // Number of documents matched
+ *     res.nModified; // Number of documents modified
+ *
+ * This function triggers the following middleware.
+ *
+ * - `updateMany()`
+ *
+ * @param {Object} [filter]
+ * @param {Object|Array} [update] the update command
+ * @param {Object} [options]
+ * @param {Boolean} [options.multipleCastError] by default, mongoose only returns the first error that occurred in casting the query. Turn on this option to aggregate all the cast errors.
+ * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](/docs/guide.html#strict)
+ * @param {Boolean} [options.upsert=false] if true, and no documents found, insert a new document
+ * @param {Object} [options.writeConcern=null] sets the [write concern](https://docs.mongodb.org/manual/reference/write-concern/) for replica sets. Overrides the [schema-level writeConcern](/docs/guide.html#writeConcern)
+ * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Does nothing if schema-level timestamps are not set.
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @see Model.update #model_Model.update
+ * @see Query docs https://mongoosejs.com/docs/queries.html
+ * @see update http://docs.mongodb.org/manual/reference/method/db.collection.update/
+ * @see writeOpResult http://mongodb.github.io/node-mongodb-native/2.2/api/Collection.html#~WriteOpResult
+ * @see MongoDB docs https://docs.mongodb.org/manual/reference/command/update/#update-command-output
+ * @api public
+ */
+
+Query.prototype.updateMany = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'updateMany', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as an updateOne() operation. Same as
+ * `update()`, except it does not support the `multi` or `overwrite` options.
+ *
+ * - MongoDB will update _only_ the first document that matches `filter` regardless of the value of the `multi` option.
+ * - Use `replaceOne()` if you want to overwrite an entire document rather than using [atomic](https://docs.mongodb.org/manual/tutorial/model-data-for-atomic-operations/#pattern) operators like `$set`.
+ *
+ * **Note** updateOne will _not_ fire update middleware. Use `pre('updateOne')`
+ * and `post('updateOne')` instead.
+ *
+ * ####Example:
+ *     const res = await Person.updateOne({ name: 'Jean-Luc Picard' }, { ship: 'USS Enterprise' });
+ *     res.n; // Number of documents matched
+ *     res.nModified; // Number of documents modified
+ *
+ * This function triggers the following middleware.
+ *
+ * - `updateOne()`
+ *
+ * @param {Object} [filter]
+ * @param {Object|Array} [update] the update command
+ * @param {Object} [options]
+ * @param {Boolean} [options.multipleCastError] by default, mongoose only returns the first error that occurred in casting the query. Turn on this option to aggregate all the cast errors.
+ * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](/docs/guide.html#strict)
+ * @param {Boolean} [options.upsert=false] if true, and no documents found, insert a new document
+ * @param {Object} [options.writeConcern=null] sets the [write concern](https://docs.mongodb.org/manual/reference/write-concern/) for replica sets. Overrides the [schema-level writeConcern](/docs/guide.html#writeConcern)
+ * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Note that this allows you to overwrite timestamps. Does nothing if schema-level timestamps are not set.
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @see Model.update #model_Model.update
+ * @see Query docs https://mongoosejs.com/docs/queries.html
+ * @see update http://docs.mongodb.org/manual/reference/method/db.collection.update/
+ * @see writeOpResult http://mongodb.github.io/node-mongodb-native/2.2/api/Collection.html#~WriteOpResult
+ * @see MongoDB docs https://docs.mongodb.org/manual/reference/command/update/#update-command-output
+ * @api public
+ */
+
+Query.prototype.updateOne = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  return _update(this, 'updateOne', conditions, doc, options, callback);
+};
+
+/**
+ * Declare and/or execute this query as a replaceOne() operation. Same as
+ * `update()`, except MongoDB will replace the existing document and will
+ * not accept any [atomic](https://docs.mongodb.com/manual/tutorial/model-data-for-atomic-operations/#pattern) operators (`$set`, etc.)
+ *
+ * **Note** replaceOne will _not_ fire update middleware. Use `pre('replaceOne')`
+ * and `post('replaceOne')` instead.
+ *
+ * ####Example:
+ *     const res = await Person.replaceOne({ _id: 24601 }, { name: 'Jean Valjean' });
+ *     res.n; // Number of documents matched
+ *     res.nModified; // Number of documents modified
+ *
+ * This function triggers the following middleware.
+ *
+ * - `replaceOne()`
+ *
+ * @param {Object} [filter]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @param {Boolean} [options.multipleCastError] by default, mongoose only returns the first error that occurred in casting the query. Turn on this option to aggregate all the cast errors.
+ * @param {Boolean} [options.omitUndefined=false] If true, delete any properties whose value is `undefined` when casting an update. In other words, if this is set, Mongoose will delete `baz` from the update in `Model.updateOne({}, { foo: 'bar', baz: undefined })` before sending the update to the server.
+ * @param {Boolean|String} [options.strict] overwrites the schema's [strict mode option](/docs/guide.html#strict)
+ * @param {Boolean} [options.upsert=false] if true, and no documents found, insert a new document
+ * @param {Object} [options.writeConcern=null] sets the [write concern](https://docs.mongodb.org/manual/reference/write-concern/) for replica sets. Overrides the [schema-level writeConcern](/docs/guide.html#writeConcern)
+ * @param {Boolean} [options.timestamps=null] If set to `false` and [schema-level timestamps](/docs/guide.html#timestamps) are enabled, skip timestamps for this update. Does nothing if schema-level timestamps are not set.
+ * @param {Function} [callback] params are (error, writeOpResult)
+ * @return {Query} this
+ * @see Model.update #model_Model.update
+ * @see Query docs https://mongoosejs.com/docs/queries.html
+ * @see update http://docs.mongodb.org/manual/reference/method/db.collection.update/
+ * @see writeOpResult http://mongodb.github.io/node-mongodb-native/2.2/api/Collection.html#~WriteOpResult
+ * @see MongoDB docs https://docs.mongodb.org/manual/reference/command/update/#update-command-output
+ * @api public
+ */
+
+Query.prototype.replaceOne = function(conditions, doc, options, callback) {
+  if (typeof options === 'function') {
+    // .update(conditions, doc, callback)
+    callback = options;
+    options = null;
+  } else if (typeof doc === 'function') {
+    // .update(doc, callback);
+    callback = doc;
+    doc = conditions;
+    conditions = {};
+    options = null;
+  } else if (typeof conditions === 'function') {
+    // .update(callback)
+    callback = conditions;
+    conditions = undefined;
+    doc = undefined;
+    options = undefined;
+  } else if (typeof conditions === 'object' && !doc && !options && !callback) {
+    // .update(doc)
+    doc = conditions;
+    conditions = undefined;
+    options = undefined;
+    callback = undefined;
+  }
+
+  this.setOptions({ overwrite: true });
+  return _update(this, 'replaceOne', conditions, doc, options, callback);
+};
+
+/*!
+ * Internal helper for update, updateMany, updateOne, replaceOne
+ */
+
+function _update(query, op, filter, doc, options, callback) {
+  // make sure we don't send in the whole Document to merge()
+  query.op = op;
+  filter = utils.toObject(filter);
+  doc = doc || {};
+
+  // strict is an option used in the update checking, make sure it gets set
+  if (options != null) {
+    if ('strict' in options) {
+      query._mongooseOptions.strict = options.strict;
+    }
+  }
+
+  if (!(filter instanceof Query) &&
+      filter != null &&
+      filter.toString() !== '[object Object]') {
+    query.error(new ObjectParameterError(filter, 'filter', op));
+  } else {
+    query.merge(filter);
+  }
+
+  if (utils.isObject(options)) {
+    query.setOptions(options);
+  }
+
+  query._mergeUpdate(doc);
+
+  // Hooks
+  if (callback) {
+    query.exec(callback);
+
+    return query;
+  }
+
+  return Query.base[op].call(query, filter, void 0, options, callback);
+}
+
+/**
+ * Runs a function `fn` and treats the return value of `fn` as the new value
+ * for the query to resolve to.
+ *
+ * Any functions you pass to `map()` will run **after** any post hooks.
+ *
+ * ####Example:
+ *
+ *     const res = await MyModel.findOne().map(res => {
+ *       // Sets a `loadedAt` property on the doc that tells you the time the
+ *       // document was loaded.
+ *       return res == null ?
+ *         res :
+ *         Object.assign(res, { loadedAt: new Date() });
+ *     });
+ *
+ * @method map
+ * @memberOf Query
+ * @instance
+ * @param {Function} fn function to run to transform the query result
+ * @return {Query} this
+ */
+
+Query.prototype.map = function(fn) {
+  this._transforms.push(fn);
+  return this;
+};
+
+/**
+ * Make this query throw an error if no documents match the given `filter`.
+ * This is handy for integrating with async/await, because `orFail()` saves you
+ * an extra `if` statement to check if no document was found.
+ *
+ * ####Example:
+ *
+ *     // Throws if no doc returned
+ *     await Model.findOne({ foo: 'bar' }).orFail();
+ *
+ *     // Throws if no document was updated
+ *     await Model.updateOne({ foo: 'bar' }, { name: 'test' }).orFail();
+ *
+ *     // Throws "No docs

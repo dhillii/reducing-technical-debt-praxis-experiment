@@ -35,10 +35,10 @@ type PaidMembersChangeChartProps = {
     isLoading: boolean;
 };
 
-type ResolutionOption = 'daily' | 'weekly' | 'monthly';
+type DataPoint = {date: string; signups: number; cancellations: number};
 
 const fillMissingDataPoints = (
-    data: {date: string; signups: number; cancellations: number}[],
+    data: DataPoint[],
     dateRange: number,
     overrideStrategy?: 'none' | 'weekly' | 'monthly' | 'monthly-exact'
 ) => {
@@ -56,11 +56,11 @@ const fillMissingDataPoints = (
     const dateSpan = moment(endDate).diff(moment(startDate), 'days');
     const strategy = determineAggregationStrategy(dateRange, dateSpan, 'sum', overrideStrategy);
     const dataMap = new Map(data.map(item => [item.date, item]));
-    const filledData: {date: string; signups: number; cancellations: number}[] = [];
+    const filled: DataPoint[] = [];
 
     const addPeriod = (key: string) => {
         const existing = dataMap.get(key);
-        filledData.push(existing ?? {date: key, signups: 0, cancellations: 0});
+        filled.push(existing ?? {date: key, signups: 0, cancellations: 0});
     };
 
     if (strategy === 'monthly') {
@@ -86,8 +86,10 @@ const fillMissingDataPoints = (
         }
     }
 
-    return filledData;
+    return filled;
 };
+
+type ResolutionOption = 'daily' | 'weekly' | 'monthly';
 
 const getActualDateSpan = (range: number): number => {
     if (range === -1) {
@@ -109,99 +111,57 @@ const getDefaultResolution = (range: number): ResolutionOption => {
     return span >= 91 ? 'monthly' : 'weekly';
 };
 
-type ChartRow = {
-    date: string;
-    rawDate: string;
-    new: number;
-    cancelled: number;
+const formatChartItem = (
+    item: {date: string; signups?: number; cancellations?: number; paid_subscribed?: number; paid_canceled?: number},
+    selectedResolution: ResolutionOption,
+    range: number
+) => {
+    let effectiveRange = range;
+    if (selectedResolution === 'weekly' && range < 91) effectiveRange = 91;
+    else if (selectedResolution === 'monthly' && range < 365) effectiveRange = 365;
+
+    return {
+        date: formatDisplayDateWithRange(item.date, effectiveRange),
+        rawDate: item.date,
+        new: item.signups ?? item.paid_subscribed ?? 0,
+        cancelled: -((item.cancellations ?? item.paid_canceled) ?? 0)
+    };
 };
 
-const buildChartRows = (
-    data: {date: string; signups: number; cancellations: number}[],
-    range: number,
-    selectedResolution: ResolutionOption
-): ChartRow[] => {
-    const filled = fillMissingDataPoints(data, range, selectedResolution);
-    return filled.map(item => {
-        let effectiveRange = range;
-        if (selectedResolution === 'weekly' && range < 91) effectiveRange = 91;
-        if (selectedResolution === 'monthly' && range < 365) effectiveRange = 365;
-        return {
-            date: formatDisplayDateWithRange(item.date, effectiveRange),
-            rawDate: item.date,
-            new: item.signups,
-            cancelled: -(item.cancellations)
-        };
-    });
-};
-
-const computePaidChangeChartData = (
-    subscriptionData: PaidMembersChangeChartProps['subscriptionData'],
-    memberData: PaidMembersChangeChartProps['memberData'],
-    range: number,
-    aggregationStrategy: 'none' | 'weekly' | 'monthly',
-    selectedResolution: ResolutionOption
-): ChartRow[] => {
-    const today = moment().format('YYYY-MM-DD');
-
-    const handleToday = (newVal: number, cancelVal: number) => [{
-        date: formatDisplayDateWithRange(today, range),
-        rawDate: today,
-        new: newVal,
-        cancelled: -(cancelVal)
-    }];
-
-    if (subscriptionData?.length) {
-        if (range === 1) {
-            const todayData = subscriptionData.find(i => i.date === today);
-            return handleToday(todayData?.signups || 0, todayData?.cancellations || 0);
+const combineSubscriptionData = (subscriptionData: DataPoint[], range: number, aggregationStrategy: string) => {
+    const signups = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
+    const cancellations = sanitizeChartData(subscriptionData, range, 'cancellations', 'sum', aggregationStrategy);
+    const cancelMap = new Map(cancellations.map(c => [c.date, c]));
+    const combined = signups.map(s => ({
+        date: s.date,
+        signups: s.signups || 0,
+        cancellations: cancelMap.get(s.date)?.cancellations || 0
+    }));
+    cancellations.forEach(c => {
+        if (!combined.find(d => d.date === c.date)) {
+            combined.push({date: c.date, signups: 0, cancellations: c.cancellations || 0});
         }
+    });
+    combined.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return fillMissingDataPoints(combined, range, aggregationStrategy);
+};
 
-        const signups = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
-        const cancellations = sanitizeChartData(subscriptionData, range, 'cancellations', 'sum', aggregationStrategy);
-        const cancelMap = new Map(cancellations.map(c => [c.date, c.cancellations]));
-
-        const combined = signups.map(s => ({
-            date: s.date,
-            signups: s.signups,
-            cancellations: cancelMap.get(s.date) ?? 0
-        }));
-
-        cancellations.forEach(c => {
-            if (!combined.some(d => d.date === c.date)) {
-                combined.push({date: c.date, signups: 0, cancellations: c.cancellations});
-            }
-        });
-
-        combined.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        return buildChartRows(combined, range, selectedResolution);
-    }
-
-    if (!memberData?.length) return [];
-
-    if (range === 1) {
-        const todayData = memberData.find(i => i.date === today);
-        return handleToday(todayData?.paid_subscribed || 0, todayData?.paid_canceled || 0);
-    }
-
+const combineMemberData = (memberData: any[], range: number, aggregationStrategy: string) => {
     const subscribed = sanitizeChartData(memberData, range, 'paid_subscribed', 'sum', aggregationStrategy);
     const canceled = sanitizeChartData(memberData, range, 'paid_canceled', 'sum', aggregationStrategy);
-    const cancelMap = new Map(canceled.map(c => [c.date, c.paid_canceled]));
-
+    const cancelMap = new Map(canceled.map(c => [c.date, c]));
     const combined = subscribed.map(s => ({
         date: s.date,
-        signups: s.paid_subscribed ?? 0,
-        cancellations: cancelMap.get(s.date) ?? 0
+        paid_subscribed: s.paid_subscribed || 0,
+        paid_canceled: cancelMap.get(s.date)?.paid_canceled || 0
     }));
-
     canceled.forEach(c => {
-        if (!combined.some(d => d.date === c.date)) {
-            combined.push({date: c.date, signups: 0, cancellations: c.paid_canceled ?? 0});
+        if (!combined.find(d => d.date === c.date)) {
+            combined.push({date: c.date, paid_subscribed: 0, paid_canceled: c.paid_canceled || 0});
         }
     });
-
     combined.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    return buildChartRows(combined, range, selectedResolution);
+    return combined;
 };
 
 const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
@@ -218,18 +178,36 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
 
     const availableResolutions = useMemo(() => getAvailableResolutions(range), [range]);
 
-    const aggregationStrategy = useMemo<'none' | 'weekly' | 'monthly'>(() => {
-        if (selectedResolution === 'daily') return 'none';
-        return selectedResolution;
+    const aggregationStrategy = useMemo(() => {
+        switch (selectedResolution) {
+            case 'daily': return 'none' as const;
+            case 'weekly': return 'weekly' as const;
+            case 'monthly': return 'monthly' as const;
+        }
     }, [selectedResolution]);
 
-    const paidChangeChartData = useMemo(() => computePaidChangeChartData(
-        subscriptionData,
-        memberData,
-        range,
-        aggregationStrategy,
-        selectedResolution
-    ), [subscriptionData, memberData, range, aggregationStrategy, selectedResolution]);
+    const paidChangeChartData = useMemo(() => {
+        if (subscriptionData?.length) {
+            if (range === 1) {
+                const today = moment().format('YYYY-MM-DD');
+                const todayData = subscriptionData.find(item => item.date === today);
+                return [formatChartItem({date: today, signups: todayData?.signups, cancellations: todayData?.cancellations}, selectedResolution, range)];
+            }
+            const filled = combineSubscriptionData(subscriptionData, range, aggregationStrategy);
+            return filled.map(item => formatChartItem(item, selectedResolution, range));
+        }
+
+        if (!memberData?.length) return [];
+
+        if (range === 1) {
+            const today = moment().format('YYYY-MM-DD');
+            const todayData = memberData.find(item => item.date === today);
+            return [formatChartItem({date: today, paid_subscribed: todayData?.paid_subscribed, paid_canceled: todayData?.paid_canceled}, selectedResolution, range)];
+        }
+
+        const combined = combineMemberData(memberData, range, aggregationStrategy);
+        return combined.map(item => formatChartItem(item, selectedResolution, range));
+    }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 
     const paidChangeChartConfig = {
         new: {label: 'New', color: 'hsl(var(--chart-teal))'},
@@ -237,8 +215,8 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     } satisfies ChartConfig;
 
     const totals = useMemo(() => {
-        const newTotal = paidChangeChartData.reduce((a, b) => a + b.new, 0);
-        const cancelledTotal = paidChangeChartData.reduce((a, b) => a + Math.abs(b.cancelled), 0);
+        const newTotal = paidChangeChartData.reduce((sum, d) => sum + d.new, 0);
+        const cancelledTotal = paidChangeChartData.reduce((sum, d) => sum + Math.abs(d.cancelled), 0);
         return {new: newTotal, cancelled: cancelledTotal};
     }, [paidChangeChartData]);
 
@@ -294,12 +272,13 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                         className='!min-w-[120px] px-3 py-2'
                                         formatter={(value, name, payload, index) => {
                                             const raw = Number(value);
-                                            const display = raw === 0 ? '0' : formatNumber(Math.abs(raw));
-                                            const net = Number(payload?.payload?.new ?? 0) + Number(payload?.payload?.cancelled ?? 0);
+                                            const display = raw === 0 ? '0' : formatNumber(raw < 0 ? -raw : raw);
+                                            const net = Number(payload?.payload?.new || 0) + Number(payload?.payload?.cancelled || 0);
                                             const netDisplay = net === 0 ? '0' : (net > 0 ? `+${formatNumber(net)}` : formatNumber(net));
                                             let tooltipDate = payload?.payload?.date;
                                             if (payload?.payload?.rawDate) {
-                                                const fmtRange = selectedResolution === 'monthly' ? 366 : selectedResolution === 'weekly' ? 91 : 30;
+                                                const r = selectedResolution;
+                                                const fmtRange = r === 'monthly' ? 366 : r === 'weekly' ? 91 : 30;
                                                 tooltipDate = formatDisplayDateWithRange(payload.payload.rawDate, fmtRange);
                                             }
                                             return (
@@ -307,24 +286,19 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                                     {index === 0 && <div className="mb-1 text-sm font-medium text-foreground">{tooltipDate}</div>}
                                                     <div className='flex w-full items-center justify-between gap-4'>
                                                         <div className='flex items-center gap-1'>
-                                                            <div
-                                                                className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50"
+                                                            <div className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50"
                                                                 style={{'--color-bg': `var(--color-${name})`} as React.CSSProperties}
                                                             />
                                                             <span className='text-sm text-muted-foreground'>
                                                                 {paidChangeChartConfig[name as keyof typeof paidChangeChartConfig]?.label || name}
                                                             </span>
                                                         </div>
-                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                            {display}
-                                                        </div>
+                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">{display}</div>
                                                     </div>
                                                     {index === 1 && (
                                                         <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
                                                             <span className='text-sm text-muted-foreground'>Net change</span>
-                                                            <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                                {netDisplay}
-                                                            </div>
+                                                            <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">{netDisplay}</div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -336,35 +310,18 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                     isAnimationActive={false}
                                     position={{y: 10}}
                                 />
-                                <Recharts.Bar
-                                    activeBar={{fillOpacity: 1}}
-                                    dataKey="new"
-                                    fill='url(#tealGradient)'
-                                    fillOpacity={0.75}
-                                    maxBarSize={32}
-                                    minPointSize={3}
-                                    radius={[4, 4, 0, 0]}
-                                    stackId="a"
-                                />
-                                <Recharts.Bar
-                                    activeBar={{fillOpacity: 1}}
-                                    dataKey="cancelled"
-                                    fill='url(#roseGradient)'
-                                    fillOpacity={0.75}
-                                    maxBarSize={32}
-                                    radius={[4, 4, 0, 0]}
-                                    stackId="a"
-                                />
+                                <Recharts.Bar activeBar={{fillOpacity: 1}} dataKey="new" fill='url(#tealGradient)' fillOpacity={0.75} maxBarSize={32} minPointSize={3} radius={[4, 4, 0, 0]} stackId="a" />
+                                <Recharts.Bar activeBar={{fillOpacity: 1}} dataKey="cancelled" fill='url(#roseGradient)' fillOpacity={0.75} maxBarSize={32} radius={[4, 4, 0, 0]} stackId="a" />
                             </Recharts.BarChart>
                         </ChartContainer>
                         <div className='mt-3 flex items-center justify-center gap-6 text-sm text-muted-foreground'>
                             <div className='flex items-center gap-2'>
-                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.new.color}} />
+                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.new.color}}></span>
                                 <span>New</span>
                                 <span className='font-medium text-foreground'>{formatNumber(totals.new)}</span>
                             </div>
                             <div className='flex items-center gap-2'>
-                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.cancelled.color}} />
+                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.cancelled.color}}></span>
                                 <span>Cancelled</span>
                                 <span className='font-medium text-foreground'>{formatNumber(totals.cancelled)}</span>
                             </div>
@@ -372,10 +329,7 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                     </div>
                 ) : (
                     <div className="py-12">
-                        <EmptyIndicator
-                            description={`No paid subscription changes ${getPeriodText(range)}.`}
-                            title="No paid member changes"
-                        >
+                        <EmptyIndicator description={`No paid subscription changes ${getPeriodText(range)}.`} title="No paid member changes">
                             <LucideIcon.BarChart3 strokeWidth={1.5} />
                         </EmptyIndicator>
                     </div>

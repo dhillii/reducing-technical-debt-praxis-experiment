@@ -29,7 +29,7 @@ define([
      * 2. `page:previous` - when the previous model was requested but a user
      *     has reached the first model on the page.
      */
-    const PageableCollection = Backbone.Collection.extend({
+    var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
         state: {
@@ -244,13 +244,13 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model = this.get(model.id);
+            model     = this.get(model.id);
             if (!model) {
                 return false;
             }
 
-            const coll  = this.fullCollection || this,
-                  index = this.indexOf(model);
+            const coll  = this.fullCollection || this;
+            let index = this.indexOf(model);
 
             coll.remove(model);
             this.sortFullCollection();

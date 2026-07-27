@@ -96,10 +96,8 @@ export default class MembersController extends Controller {
 
         const count = ghPluralize(members.length, 'member');
 
-        if (selectedLabel?.slug) {
-            return members.length > 1
-                ? `${count} match current filter`
-                : `${count} matches current filter`;
+        if (selectedLabel && selectedLabel.slug) {
+            return members.length > 1 ? `${count} match current filter` : `${count} matches current filter`;
         }
 
         return count;
@@ -129,10 +127,13 @@ export default class MembersController extends Controller {
 
     get availableLabels() {
         const labels = this._availableLabels
-            .filter(label => !label.isNew && label.id !== null)
+            .filter(label => !label.isNew)
+            .filter(label => label.id !== null)
             .sort((a, b) => a.name.localeCompare(b.name, undefined, {ignorePunctuation: true}));
         const options = labels.toArray();
+
         options.unshiftObject({name: 'All labels', slug: null});
+
         return options;
     }
 
@@ -144,6 +145,7 @@ export default class MembersController extends Controller {
     get labelModalData() {
         const label = this.modalLabel;
         const labels = this.availableLabels;
+
         return {label, labels};
     }
 
@@ -184,35 +186,34 @@ export default class MembersController extends Controller {
         return uniqueColumns.splice(0, 2);
     }
 
-    /**
-     * Determines if bulk delete is allowed based on current filters.
+    /*
+     * Due to a limitation with NQL, member bulk deletion is not permitted if any of the following Stripe subscription filters is used:
+     *     - Billing period
+     *     - Stripe subscription status
+     *     - Paid start date
+     *     - Next billing date
+     *     - Subscription started on post/page
+     *     - Offers
+     *
+     * For more context, see:
+     * - https://linear.app/tryghost/issue/ENG-1484
+     * - https://linear.app/tryghost/issue/ENG-1466
      */
     get isBulkDeletePermitted() {
         if (!this.isFiltered) {
             return false;
         }
-        if (this._hasStripeFilters(this.filters)) {
-            return false;
-        }
-        return true;
-    }
 
-    /**
-     * Checks whether any of the provided filters are Stripe‑related.
-     * @private
-     * @param {Array} filters
-     * @returns {boolean}
-     */
-    _hasStripeFilters(filters) {
-        const stripeTypes = new Set([
+        const stripeFilters = this.filters.filter(f => [
             'subscriptions.plan_interval',
             'subscriptions.status',
             'subscriptions.start_date',
             'subscriptions.current_period_end',
             'conversion',
             'offer_redemptions'
-        ]);
-        return filters.some(f => stripeTypes.has(f.type));
+        ].includes(f.type));
+
+        return !(stripeFilters && stripeFilters.length >= 1);
     }
 
     includeTierQuery() {
@@ -221,41 +222,22 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Builds the API query object used for member fetches.
+     * Build the API query object used for member fetches and exports.
+     *
      * @param {Object} options
-     * @param {Object} [options.params] - Optional override of controller params.
-     * @param {Array} [options.extraFilters] - Additional filter strings.
+     * @param {Object} [options.params] - Override controller properties.
+     * @param {Array<string>} [options.extraFilters=[]] - Additional NQL filters.
      * @returns {Object}
      */
     getApiQueryObject({params, extraFilters = []} = {}) {
-        const {label, paidParam, searchParam, filterParam} = params ?? this;
+        const source = params ? params : this;
+        const {label, paidParam, searchParam, filterParam: rawFilterParam} = source;
 
-        let cleanedFilter = filterParam;
-        if (cleanedFilter) {
-            const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-            const MULTIPLE_GROUPS_RE = /\).*\(/;
-            if (BRACKETS_SURROUNDED_RE.test(cleanedFilter) && !MULTIPLE_GROUPS_RE.test(cleanedFilter)) {
-                cleanedFilter = cleanedFilter.slice(1, -1);
-            }
-        }
+        const filterParam = this._normalizeFilterParam(rawFilterParam);
+        const filters = this._buildFilters({label, paidParam, filterParam, extraFilters});
 
-        const filters = [...extraFilters];
-        if (label) {
-            filters.push(`label:'${label}'`);
-        }
-        if (paidParam !== null) {
-            filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
-        }
-        if (cleanedFilter) {
-            filters.push(cleanedFilter);
-        }
-
-        const searchQuery = searchParam ? {search: searchParam} : {};
-
-        return {
-            filter: filters.join('+'),
-            ...searchQuery
-        };
+        const searchQuery = this._buildSearchQuery(searchParam);
+        return {filter: filters.join('+'), ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -347,12 +329,11 @@ export default class MembersController extends Controller {
                 a.download = `members.${datetime}.csv`;
                 document.body.appendChild(a);
                 a.click();
-
                 a.remove();
                 URL.revokeObjectURL(blobUrl);
             })
             .catch(() => {
-                // Silently ignore errors; UI could be enhanced with notifications
+                // Silent error handling – could be expanded to user notifications
             })
             .finally(() => {
                 this.isExporting = false;
@@ -420,9 +401,7 @@ export default class MembersController extends Controller {
             query: this.getApiQueryObject(),
             onComplete: () => {
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {
-                    queryParams: {...resetQueryParams('members.index')}
-                });
+                this.router.transitionTo('members.index', {queryParams: resetQueryParams('members.index')});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -449,7 +428,8 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
+        const source = typeof params === 'undefined' ? this : params;
+        const {label, paidParam, searchParam, orderParam, filterParam} = source;
 
         const startDate = new Date();
 
@@ -477,6 +457,7 @@ export default class MembersController extends Controller {
                 params,
                 extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
             });
+
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
@@ -487,11 +468,7 @@ export default class MembersController extends Controller {
                 page: range.page
             };
 
-            query = {
-                ...baseQuery,
-                ...searchQuery,
-                ...query
-            };
+            query = {...baseQuery, ...searchQuery, ...query};
 
             return this.store.query('member', query).then(result => ({
                 data: result,
@@ -517,5 +494,66 @@ export default class MembersController extends Controller {
         this.membersStats.invalidate();
         this.membersStats.fetchCounts();
         this.fetchMembersTask.perform(params);
+    }
+
+    // -------------------------------------------------------------------------
+
+    /**
+     * Normalizes a filter parameter by stripping surrounding brackets when safe.
+     *
+     * @private
+     * @param {string|null} filterParam
+     * @returns {string|null}
+     */
+    _normalizeFilterParam(filterParam) {
+        if (!filterParam) {
+            return filterParam;
+        }
+        const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+        const MULTIPLE_GROUPS_RE = /\).*\(/;
+        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+            return filterParam.slice(1, -1);
+        }
+        return filterParam;
+    }
+
+    /**
+     * Constructs an array of NQL filter strings based on controller state.
+     *
+     * @private
+     * @param {Object} options
+     * @param {string|null} options.label
+     * @param {string|null} options.paidParam
+     * @param {string|null} options.filterParam
+     * @param {Array<string>} options.extraFilters
+     * @returns {Array<string>}
+     */
+    _buildFilters({label, paidParam, filterParam, extraFilters}) {
+        const filters = [...extraFilters];
+
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+
+        if (paidParam !== null) {
+            filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
+        }
+
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+
+        return filters;
+    }
+
+    /**
+     * Creates a search query object if a search term is present.
+     *
+     * @private
+     * @param {string} searchParam
+     * @returns {Object}
+     */
+    _buildSearchQuery(searchParam) {
+        return searchParam ? {search: searchParam} : {};
     }
 }

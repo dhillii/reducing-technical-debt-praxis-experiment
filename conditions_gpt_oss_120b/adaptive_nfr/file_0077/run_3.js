@@ -29,70 +29,84 @@ const ESPREE_CONFIG = {
 };
 const linter = new Linter();
 
-describe("ast-utils", () => {
-	let callCounts;
+let callCounts;
 
-	beforeEach(() => {
-		callCounts = new Map();
-	});
+/**
+ * Asserts that a given function is called at least once during a test
+ * @param {Function} func The function that must be called at least once
+ * @returns {Function} A wrapper around the same function
+ */
+function mustCall(func) {
+	callCounts.set(func, 0);
+	return function Wrapper(...args) {
+		callCounts.set(func, callCounts.get(func) + 1);
 
-	/**
-	 * Asserts that a given function is called at least once during a test
-	 * @param {Function} func The function that must be called at least once
-	 * @returns {Function} A wrapper around the same function
-	 */
-	function mustCall(func) {
-		callCounts.set(func, 0);
-		return function Wrapper(...args) {
-			callCounts.set(func, callCounts.get(func) + 1);
+		return func.call(this, ...args);
+	};
+}
 
-			return func.call(this, ...args);
-		};
-	}
+/**
+ * Executes a lint verification that collects `isInLoop` results for a specific node type.
+ *
+ * @param {string} code The source code to lint.
+ * @param {string} nodeType The AST node type to listen for.
+ * @returns {Array<boolean>} An array containing the boolean results of `astUtils.isInLoop`.
+ */
+function collectIsInLoopResults(code, nodeType) {
+	const results = [];
 
-	afterEach(() => {
-		callCounts.forEach((callCount, func) => {
-			assert(
-				callCount > 0,
-				`Expected ${func.toString()} to be called at least once but it was not called`,
-			);
-		});
-	});
-
-	/**
-	 * Asserts that the unique node of the given type in the code is either
-	 * in a loop or not in a loop.
-	 * @param {string} code the code to check.
-	 * @param {string} nodeType the type of the node to consider. The code
-	 *      must have exactly one node of this type.
-	 * @param {boolean} expectedInLoop the expected result for whether the
-	 *      node is in a loop.
-	 * @returns {void}
-	 */
-	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-		const results = [];
-
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: {
-							create: mustCall(() => ({
-								[nodeType]: mustCall(node => {
-									results.push(astUtils.isInLoop(node));
-								}),
-							})),
-						},
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create: mustCall(() => ({
+							[nodeType]: mustCall(node => {
+								results.push(astUtils.isInLoop(node));
+							}),
+						})),
 					},
 				},
 			},
-			rules: { "test/checker": "error" },
-		});
+		},
+		rules: { "test/checker": "error" },
+	});
 
-		assert.lengthOf(results, 1);
-		assert.strictEqual(results[0], expectedInLoop);
-	}
+	return results;
+}
 
+/**
+ * Asserts that the unique node of the given type in the code is either
+ * in a loop or not in a loop.
+ *
+ * @param {string} code the code to check.
+ * @param {string} nodeType the type of the node to consider. The code
+ *      must have exactly one node of this type.
+ * @param {boolean} expectedInLoop the expected result for whether the
+ *      node is in a loop.
+ * @returns {void}
+ */
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
+	const results = collectIsInLoopResults(code, nodeType);
+
+	assert.lengthOf(results, 1);
+	assert.strictEqual(results[0], expectedInLoop);
+}
+
+beforeEach(() => {
+	callCounts = new Map();
+});
+
+afterEach(() => {
+	callCounts.forEach((callCount, func) => {
+		assert(
+			callCount > 0,
+			`Expected ${func.toString()} to be called at least once but it was not called`,
+		);
+	});
+});
+
+describe("ast-utils", () => {
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
 			assert.ownInclude(astUtils.ECMASCRIPT_GLOBALS, { Object: false });
@@ -858,7 +872,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), null);
 		});
 
-		it("should return null for `[${b}]: 1`", () => {
+		it("should return null for `[`${b}`]: 1`", () => {
 			const ast = espree.parse("({[`${b}`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -1521,9 +1535,9 @@ describe("ast-utils", () => {
 			false,
 			false,
 			false,
-			false,
-			false,
 			true,
+			false,
+			false,
 			false,
 			false,
 			false,
@@ -1813,22 +1827,22 @@ describe("ast-utils", () => {
 			false,
 		];
 
-		describe("isClosingBraceToken", () => {
+		describe("isOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isClosingBraceToken(token),
+						astUtils.isOpeningBraceToken(token),
 						expected[index],
 					);
 				});
 			});
 		});
 
-		describe("isNotClosingBraceToken", () => {
+		describe("isNotOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
-						astUtils.isNotClosingBraceToken(token),
+						astUtils.isNotOpeningBraceToken(token),
 						!expected[index],
 					);
 				});

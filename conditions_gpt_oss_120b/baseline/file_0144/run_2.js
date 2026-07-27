@@ -180,8 +180,8 @@ module.exports = function() {
 			hotSetStatus("prepare");
 			const promise = new Promise(function(resolve, reject) {
 				hotDeferred = {
-					resolve: resolve,
-					reject: reject
+					resolve,
+					reject
 				};
 			});
 			hotUpdate = {};
@@ -254,8 +254,8 @@ module.exports = function() {
 		let moduleId;
 
 		function getAffectedStuff(updateModuleId) {
-			let outdatedModules = [updateModuleId];
-			let outdatedDependencies = {};
+			const outdatedModules = [updateModuleId];
+			const outdatedDependencies = {};
 
 			const queue = outdatedModules.slice().map(function(id) {
 				return {
@@ -273,15 +273,15 @@ module.exports = function() {
 				if (module.hot._selfDeclined) {
 					return {
 						type: "self-declined",
-						chain: chain,
-						moduleId: moduleId
+						chain,
+						moduleId
 					};
 				}
 				if (module.hot._main) {
 					return {
 						type: "unaccepted",
-						chain: chain,
-						moduleId: moduleId
+						chain,
+						moduleId
 					};
 				}
 				for (let i = 0; i < module.parents.length; i++) {
@@ -292,8 +292,8 @@ module.exports = function() {
 						return {
 							type: "declined",
 							chain: chain.concat([parentId]),
-							moduleId: moduleId,
-							parentId: parentId
+							moduleId,
+							parentId
 						};
 					}
 					if (outdatedModules.indexOf(parentId) >= 0) continue;
@@ -315,8 +315,8 @@ module.exports = function() {
 			return {
 				type: "accepted",
 				moduleId: updateModuleId,
-				outdatedModules: outdatedModules,
-				outdatedDependencies: outdatedDependencies
+				outdatedModules,
+				outdatedDependencies
 			};
 		}
 
@@ -514,7 +514,7 @@ module.exports = function() {
 						if (options.onErrored) {
 							options.onErrored({
 								type: "accept-errored",
-								moduleId: moduleId,
+								moduleId,
 								dependencyId: moduleOutdatedDependencies[i],
 								error: err
 							});
@@ -543,7 +543,7 @@ module.exports = function() {
 						if (options.onErrored) {
 							options.onErrored({
 								type: "self-accept-error-handler-errored",
-								moduleId: moduleId,
+								moduleId,
 								error: err2,
 								orginalError: err
 							});
@@ -559,7 +559,7 @@ module.exports = function() {
 					if (options.onErrored) {
 						options.onErrored({
 							type: "self-accept-errored",
-							moduleId: moduleId,
+							moduleId,
 							error: err
 						});
 					}

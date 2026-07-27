@@ -111,7 +111,7 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {Processor.postprocess} [postprocess] postprocessor for report
  *      messages. If provided, this should accept an array of the message lists
  *      for each code block returned from the preprocessor, apply a mapping to
- *      the messages as appropriate, and return a one-dimensional array of
+ *      the messages as appropriate, and return an one-dimensional array of
  *      messages.
  * @property {Processor.preprocess} [preprocess] preprocessor for source text.
  *      If provided, this should accept a string of source text, and return an
@@ -1470,10 +1470,11 @@ class Linter {
 	 *      SourceCodeFixer.
 	 */
 	verifyAndFix(text, config, filenameOrOptions) {
-		const options = this._prepareFixOptions(filenameOrOptions);
-		const debugTextDescription = options.filename
-			? options.filename
-			: `${text.slice(0, 10)}...`;
+		const options = typeof filenameOrOptions === "string"
+			? { filename: filenameOrOptions }
+			: filenameOrOptions || {};
+
+		const debugDesc = options.filename || `${text.slice(0, 10)}...`;
 		const shouldFix = typeof options.fix !== "undefined" ? options.fix : true;
 		const stats = options?.stats;
 		const slots = internalSlotsMap.get(this);
@@ -1484,20 +1485,16 @@ class Linter {
 		}
 
 		let passNumber = 0;
-		let fixed = false;
 		let currentText = text;
 		let previousText;
 		let secondPreviousText;
-		let messages = [];
-		let fixedResult = { fixed: false, output: text, messages: [] };
+		let fixed = false;
+		let messages;
+		let fixedResult;
 
-		while (true) {
+		do {
 			passNumber++;
-			if (stats) {
-				slots.times = slots.times || { passes: [{}] };
-				slots.times.passes[passNumber - 1] = {};
-			}
-			this._runFixPass(
+			const passInfo = this._runFixPass(
 				currentText,
 				config,
 				options,
@@ -1505,26 +1502,22 @@ class Linter {
 				stats,
 				slots,
 				passNumber,
-			).then(result => {
-				messages = result.messages;
-				fixedResult = result.fixResult;
-				fixed = fixed || fixedResult.fixed;
-				secondPreviousText = previousText;
-				previousText = currentText;
-				currentText = fixedResult.output;
-			});
+				debugDesc,
+			);
 
-			if (messages.length === 1 && messages[0].fatal) {
+			messages = passInfo.messages;
+			fixedResult = passInfo.fixedResult;
+			fixed = fixed || passInfo.fixedApplied;
+
+			secondPreviousText = previousText;
+			previousText = currentText;
+			currentText = passInfo.nextText;
+
+			if (passInfo.stopEarly) {
 				break;
 			}
-			if (!fixedResult.fixed || passNumber >= MAX_AUTOFIX_PASSES) {
-				break;
-			}
-			if (
-				passNumber > 1 &&
-				currentText.length === secondPreviousText?.length &&
-				currentText === secondPreviousText
-			) {
+
+			if (this._isCircularFix(passNumber, currentText, secondPreviousText)) {
 				debug(
 					`Circular fixes detected after pass ${passNumber}. Exiting fix loop.`,
 				);
@@ -1533,19 +1526,20 @@ class Linter {
 				);
 				break;
 			}
-		}
+		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
 		if (fixedResult.fixed) {
+			let tTotal;
+
 			if (stats) {
-				slots.times = slots.times || { passes: [{}] };
-				slots.times.passes.at(-1).total = startTime();
+				tTotal = startTime();
 			}
+
 			fixedResult.messages = this.verify(currentText, config, options);
+
 			if (stats) {
-				storeTime(0, { type: "fix", key: undefined }, slots);
-				slots.times.passes.at(-1).total = endTime(
-					slots.times.passes.at(-1).total,
-				);
+				storeTime(0, { type: "fix" }, slots);
+				slots.times.passes.at(-1).total = endTime(tTotal);
 			}
 		}
 
@@ -1556,28 +1550,10 @@ class Linter {
 	}
 
 	/**
-	 * Normalizes and prepares options for fix operations.
-	 * @param {string|(VerifyOptions&ProcessorOptions&FixOptions)} filenameOrOptions
-	 * @returns {VerifyOptions & ProcessorOptions & FixOptions}
+	 * Executes a single autofix pass.
+	 * @private
 	 */
-	_prepareFixOptions(filenameOrOptions) {
-		return typeof filenameOrOptions === "string"
-			? { filename: filenameOrOptions }
-			: filenameOrOptions || {};
-	}
-
-	/**
-	 * Executes a single fix pass.
-	 * @param {string} currentText
-	 * @param {ConfigObject|ConfigObject[]} config
-	 * @param {VerifyOptions & ProcessorOptions & FixOptions} options
-	 * @param {boolean} shouldFix
-	 * @param {boolean} stats
-	 * @param {LinterInternalSlots} slots
-	 * @param {number} passNumber
-	 * @returns {Promise<{messages: LintMessage[], fixResult: {fixed:boolean,output:string}}>}
-	 */
-	async _runFixPass(
+	_runFixPass(
 		currentText,
 		config,
 		options,
@@ -1585,22 +1561,28 @@ class Linter {
 		stats,
 		slots,
 		passNumber,
+		debugDesc,
 	) {
-		debug(
-			`Linting code for ${options.filename || `${currentText.slice(0, 10)}...`} (pass ${passNumber})`,
-		);
+		if (stats) {
+			var tTotal = startTime();
+		}
+
+		debug(`Linting code for ${debugDesc} (pass ${passNumber})`);
 		const messages = this.verify(currentText, config, options);
-		debug(
-			`Generating fixed text for ${options.filename || `${currentText.slice(0, 10)}...`} (pass ${passNumber})`,
-		);
-		const t = stats ? startTime() : undefined;
-		const fixResult = SourceCodeFixer.applyFixes(
+
+		debug(`Generating fixed text for ${debugDesc} (pass ${passNumber})`);
+		if (stats) {
+			var t = startTime();
+		}
+
+		const fixedResult = SourceCodeFixer.applyFixes(
 			currentText,
 			messages,
 			shouldFix,
 		);
+
 		if (stats) {
-			if (fixResult.fixed) {
+			if (fixedResult.fixed) {
 				const time = endTime(t);
 				storeTime(time, { type: "fix" }, slots);
 				slots.fixPasses++;
@@ -1608,7 +1590,45 @@ class Linter {
 				storeTime(0, { type: "fix" }, slots);
 			}
 		}
-		return { messages, fixResult };
+
+		// Stop early on syntax errors
+		if (messages.length === 1 && messages[0].fatal) {
+			return {
+				messages,
+				fixedResult,
+				nextText: currentText,
+				fixedApplied: false,
+				stopEarly: true,
+			};
+		}
+
+		const nextText = fixedResult.output;
+
+		if (stats) {
+			tTotal = endTime(tTotal);
+			const passIdx = slots.times.passes.length - 1;
+			slots.times.passes[passIdx].total = tTotal;
+		}
+
+		return {
+			messages,
+			fixedResult,
+			nextText,
+			fixedApplied: fixedResult.fixed,
+			stopEarly: false,
+		};
+	}
+
+	/**
+	 * Detects circular fixes.
+	 * @private
+	 */
+	_isCircularFix(passNumber, currentText, secondPreviousText) {
+		return (
+			passNumber > 1 &&
+			currentText.length === secondPreviousText.length &&
+			currentText === secondPreviousText
+		);
 	}
 }
 

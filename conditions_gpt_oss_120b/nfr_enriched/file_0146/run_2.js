@@ -8,8 +8,7 @@ const RequestShortener = require("./RequestShortener");
 const SizeFormatHelpers = require("./SizeFormatHelpers");
 const formatLocation = require("./formatLocation");
 
-const optionOrFallback = (optionValue, fallbackValue) =>
-	optionValue !== undefined ? optionValue : fallbackValue;
+const optionOrFallback = (optionValue, fallbackValue) => optionValue !== undefined ? optionValue : fallbackValue;
 
 class Stats {
 	constructor(compilation) {
@@ -17,19 +16,23 @@ class Stats {
 		this.hash = compilation.hash;
 	}
 
-	/* ---------- Public API ---------- */
-
 	static filterWarnings(warnings, warningsFilter) {
-		if (!warningsFilter) return warnings;
-		const normalized = [].concat(warningsFilter).map(filter => {
-			if (typeof filter === "string") return w => w.indexOf(filter) > -1;
-			if (filter instanceof RegExp) return w => filter.test(w);
-			if (typeof filter === "function") return filter;
-			throw new Error(
-				`Can only filter warnings with Strings or RegExps. (Given: ${filter})`
-			);
+		if (!warningsFilter) {
+			return warnings;
+		}
+		const normalizedWarningsFilters = [].concat(warningsFilter).map(filter => {
+			if (typeof filter === "string") {
+				return warning => warning.indexOf(filter) > -1;
+			}
+			if (filter instanceof RegExp) {
+				return warning => filter.test(warning);
+			}
+			if (typeof filter === "function") {
+				return filter;
+			}
+			throw new Error(`Can only filter warnings with Strings or RegExps. (Given: ${filter})`);
 		});
-		return warnings.filter(w => !normalized.some(check => check(w)));
+		return warnings.filter(warning => !normalizedWarningsFilters.some(check => check(warning)));
 	}
 
 	hasWarnings() {
@@ -41,40 +44,332 @@ class Stats {
 	}
 
 	normalizeFieldKey(field) {
-		return field[0] === "!" ? field.substr(1) : field;
+		if (field[0] === "!") {
+			return field.substr(1);
+		}
+		return field;
 	}
 
 	sortOrderRegular(field) {
-		return field[0] !== "!";
+		if (field[0] === "!") {
+			return false;
+		}
+		return true;
 	}
 
 	toJson(options, forToString) {
-		const opts = this._normalizeOptions(options, forToString);
-		const compilation = this.compilation;
-		const requestShortener = new RequestShortener(
-			optionOrFallback(opts.context, process.cwd())
-		);
-		const moduleFilter = this._createModuleFilter(
-			requestShortener,
-			opts,
-			forToString
-		);
-		const sortByField = this._sortByFieldFactory(requestShortener, opts);
+		if (typeof options === "boolean" || typeof options === "string") {
+			options = Stats.presetToOptions(options);
+		} else if (!options) {
+			options = {};
+		}
 
-		const obj = {
-			errors: compilation.errors.map(e => this._formatError(e, requestShortener, opts)),
-			warnings: Stats.filterWarnings(
-				compilation.warnings.map(w => this._formatError(w, requestShortener, opts)),
-				opts.warningsFilter
-			)
+		const compilation = this.compilation;
+		const requestShortener = new RequestShortener(optionOrFallback(options.context, process.cwd()));
+		const showPerformance = optionOrFallback(options.performance, true);
+		const showHash = optionOrFallback(options.hash, true);
+		const showVersion = optionOrFallback(options.version, true);
+		const showTimings = optionOrFallback(options.timings, true);
+		const showAssets = optionOrFallback(options.assets, true);
+		const showEntrypoints = optionOrFallback(options.entrypoints, !forToString);
+		const showChunks = optionOrFallback(options.chunks, true);
+		const showChunkModules = optionOrFallback(options.chunkModules, !!forToString);
+		const showChunkOrigins = optionOrFallback(options.chunkOrigins, !forToString);
+		const showModules = optionOrFallback(options.modules, !forToString);
+		const showDepth = optionOrFallback(options.depth, !forToString);
+		const showCachedModules = optionOrFallback(options.cached, true);
+		const showCachedAssets = optionOrFallback(options.cachedAssets, true);
+		const showReasons = optionOrFallback(options.reasons, !forToString);
+		const showUsedExports = optionOrFallback(options.usedExports, !forToString);
+		const showProvidedExports = optionOrFallback(options.providedExports, !forToString);
+		const showChildren = optionOrFallback(options.children, true);
+		const showSource = optionOrFallback(options.source, !forToString);
+		const showModuleTrace = optionOrFallback(options.moduleTrace, true);
+		const showErrors = optionOrFallback(options.errors, true);
+		const showErrorDetails = optionOrFallback(options.errorDetails, !forToString);
+		const showWarnings = optionOrFallback(options.warnings, true);
+		const warningsFilter = optionOrFallback(options.warningsFilter, null);
+		const showPublicPath = optionOrFallback(options.publicPath, !forToString);
+		const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
+			if (typeof str !== "string") return str;
+			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
+		});
+		const maxModules = optionOrFallback(options.maxModules, forToString ? 15 : Infinity);
+		const sortModules = optionOrFallback(options.modulesSort, "id");
+		const sortChunks = optionOrFallback(options.chunksSort, "id");
+		const sortAssets = optionOrFallback(options.assetsSort, "");
+
+		const createModuleFilter = () => {
+			let i = 0;
+			return module => {
+				if (!showCachedModules && !module.built) {
+					return false;
+				}
+				if (excludeModules.length > 0) {
+					const ident = requestShortener.shorten(module.resource);
+					const excluded = excludeModules.some(regExp => regExp.test(ident));
+					if (excluded) return false;
+				}
+				return i++ < maxModules;
+			};
 		};
 
-		this._attachMeta(obj, opts, compilation);
-		if (opts.showAssets) this._buildAssets(obj, compilation, requestShortener, sortByField);
-		if (opts.showEntrypoints) this._buildEntrypoints(obj, compilation, requestShortener);
-		if (opts.showChunks) this._buildChunks(obj, compilation, requestShortener, moduleFilter, sortByField);
-		if (opts.showModules) this._buildModules(obj, compilation, requestShortener, moduleFilter, sortByField);
-		if (opts.showChildren) this._buildChildren(obj, compilation, opts, forToString);
+		const sortByFieldAndOrder = (fieldKey, a, b) => {
+			if (a[fieldKey] === null && b[fieldKey] === null) return 0;
+			if (a[fieldKey] === null) return 1;
+			if (b[fieldKey] === null) return -1;
+			if (a[fieldKey] === b[fieldKey]) return 0;
+			return a[fieldKey] < b[fieldKey] ? -1 : 1;
+		};
+
+		const sortByField = (field) => (a, b) => {
+			if (!field) {
+				return 0;
+			}
+			const fieldKey = this.normalizeFieldKey(field);
+			const sortIsRegular = this.sortOrderRegular(field);
+			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+		};
+
+		// Helper: build header part of an error/warning
+		const buildErrorHeader = (e) => {
+			let text = "";
+			if (e.chunk) {
+				text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
+			}
+			if (e.file) {
+				text += `${e.file}\n`;
+			}
+			if (e.module && typeof e.module.readableIdentifier === "function") {
+				text += `${e.module.readableIdentifier(requestShortener)}\n`;
+			}
+			return text;
+		};
+
+		// Helper: build details (error details & missing) part
+		const buildErrorDetails = (e) => {
+			let text = "";
+			if (showErrorDetails && e.details) text += `\n${e.details}`;
+			if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+			return text;
+		};
+
+		// Helper: build module trace part
+		const buildErrorModuleTrace = (e) => {
+			if (!showModuleTrace || !e.dependencies || !e.origin) return "";
+			let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+			e.dependencies.forEach(dep => {
+				if (!dep.loc) return;
+				if (typeof dep.loc === "string") return;
+				const locInfo = formatLocation(dep.loc);
+				if (!locInfo) return;
+				text += ` ${locInfo}`;
+			});
+			let current = e.origin;
+			while (current.issuer) {
+				current = current.issuer;
+				text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+			}
+			return text;
+		};
+
+		const formatError = (e) => {
+			if (typeof e === "string") e = { message: e };
+			const parts = [];
+			parts.push(buildErrorHeader(e));
+			parts.push(e.message);
+			parts.push(buildErrorDetails(e));
+			parts.push(buildErrorModuleTrace(e));
+			return parts.join("");
+		};
+
+		const obj = {
+			errors: compilation.errors.map(formatError),
+			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
+		};
+
+		Object.defineProperty(obj, "_showWarnings", {
+			value: showWarnings,
+			enumerable: false
+		});
+		Object.defineProperty(obj, "_showErrors", {
+			value: showErrors,
+			enumerable: false
+		});
+
+		if (showVersion) {
+			obj.version = require("../package.json").version;
+		}
+		if (showHash) obj.hash = this.hash;
+		if (showTimings && this.startTime && this.endTime) {
+			obj.time = this.endTime - this.startTime;
+		}
+		if (compilation.needAdditionalPass) {
+			obj.needAdditionalPass = true;
+		}
+		if (showPublicPath) {
+			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
+				hash: this.compilation.hash
+			});
+		}
+		if (showAssets) {
+			const assetsByFile = {};
+			obj.assetsByChunkName = {};
+			obj.assets = Object.keys(compilation.assets).map(asset => {
+				const obj = {
+					name: asset,
+					size: compilation.assets[asset].size(),
+					chunks: [],
+					chunkNames: [],
+					emitted: compilation.assets[asset].emitted
+				};
+				if (showPerformance) {
+					obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+				}
+				assetsByFile[asset] = obj;
+				return obj;
+			}).filter(asset => showCachedAssets || asset.emitted);
+
+			compilation.chunks.forEach(chunk => {
+				chunk.files.forEach(asset => {
+					if (assetsByFile[asset]) {
+						chunk.ids.forEach(id => {
+							assetsByFile[asset].chunks.push(id);
+						});
+						if (chunk.name) {
+							assetsByFile[asset].chunkNames.push(chunk.name);
+							if (obj.assetsByChunkName[chunk.name])
+								obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+							else
+								obj.assetsByChunkName[chunk.name] = asset;
+						}
+					}
+				});
+			});
+			obj.assets.sort(sortByField(sortAssets));
+		}
+		if (showEntrypoints) {
+			obj.entrypoints = {};
+			Object.keys(compilation.entrypoints).forEach(name => {
+				const ep = compilation.entrypoints[name];
+				obj.entrypoints[name] = {
+					chunks: ep.chunks.map(c => c.id),
+					assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
+				};
+				if (showPerformance) {
+					obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
+				}
+			});
+		}
+		function fnModule(module) {
+			const obj = {
+				id: module.id,
+				identifier: module.identifier(),
+				name: module.readableIdentifier(requestShortener),
+				index: module.index,
+				index2: module.index2,
+				size: module.size(),
+				cacheable: !!module.cacheable,
+				built: !!module.built,
+				optional: !!module.optional,
+				prefetched: !!module.prefetched,
+				chunks: module.chunks.map(chunk => chunk.id),
+				assets: Object.keys(module.assets || {}),
+				issuer: module.issuer && module.issuer.identifier(),
+				issuerId: module.issuer && module.issuer.id,
+				issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
+				profile: module.profile,
+				failed: !!module.error,
+				errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
+				warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
+			};
+			if (showReasons) {
+				obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+					const obj = {
+						moduleId: reason.module.id,
+						moduleIdentifier: reason.module.identifier(),
+						module: reason.module.readableIdentifier(requestShortener),
+						moduleName: reason.module.readableIdentifier(requestShortener),
+						type: reason.dependency.type,
+						userRequest: reason.dependency.userRequest
+					};
+					const locInfo = formatLocation(reason.dependency.loc);
+					if (locInfo) obj.loc = locInfo;
+					return obj;
+				}).sort((a, b) => a.moduleId - b.moduleId);
+			}
+			if (showUsedExports) {
+				obj.usedExports = module.used ? module.usedExports : false;
+			}
+			if (showProvidedExports) {
+				obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
+			}
+			if (showDepth) {
+				obj.depth = module.depth;
+			}
+			if (showSource && module._source) {
+				obj.source = module._source.source();
+			}
+			return obj;
+		}
+		if (showChunks) {
+			obj.chunks = compilation.chunks.map(chunk => {
+				const obj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if (showChunkModules) {
+					obj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(fnModule);
+					obj.filteredModules = chunk.modules.length - obj.modules.length;
+					obj.modules.sort(sortByField(sortModules));
+				}
+				if (showChunkOrigins) {
+					obj.origins = chunk.origins.map(origin => ({
+						moduleId: origin.module ? origin.module.id : undefined,
+						module: origin.module ? origin.module.identifier() : "",
+						moduleIdentifier: origin.module ? origin.module.identifier() : "",
+						moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+						loc: formatLocation(origin.loc),
+						name: origin.name,
+						reasons: origin.reasons || []
+					}));
+				}
+				return obj;
+			});
+			obj.chunks.sort(sortByField(sortChunks));
+		}
+		if (showModules) {
+			obj.modules = compilation.modules
+				.slice()
+				.sort(sortByField("depth"))
+				.filter(createModuleFilter())
+				.map(fnModule);
+			obj.filteredModules = compilation.modules.length - obj.modules.length;
+			obj.modules.sort(sortByField(sortModules));
+		}
+		if (showChildren) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
+			});
+		}
 		return obj;
 	}
 
@@ -90,12 +385,436 @@ class Stats {
 	}
 
 	static jsonToString(obj, useColors) {
-		const builder = new StatsStringBuilder(obj, useColors);
-		return builder.build();
+		const buf = [];
+
+		const defaultColors = {
+			bold: "\u001b[1m",
+			yellow: "\u001b[1m\u001b[33m",
+			red: "\u001b[1m\u001b[31m",
+			green: "\u001b[1m\u001b[32m",
+			cyan: "\u001b[1m\u001b[36m",
+			magenta: "\u001b[1m\u001b[35m"
+		};
+
+		const colors = Object.keys(defaultColors).reduce((obj, color) => {
+			obj[color] = str => {
+				if (useColors) {
+					buf.push(
+						(useColors === true || useColors[color] === undefined) ?
+						defaultColors[color] : useColors[color]
+					);
+				}
+				buf.push(str);
+				if (useColors) {
+					buf.push("\u001b[39m\u001b[22m");
+				}
+			};
+			return obj;
+		}, {
+			normal: (str) => buf.push(str)
+		});
+
+		const coloredTime = (time) => {
+			let times = [800, 400, 200, 100];
+			if (obj.time) {
+				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
+			}
+			if (time < times[3])
+				colors.normal(`${time}ms`);
+			else if (time < times[2])
+				colors.bold(`${time}ms`);
+			else if (time < times[1])
+				colors.green(`${time}ms`);
+			else if (time < times[0])
+				colors.yellow(`${time}ms`);
+			else
+				colors.red(`${time}ms`);
+		};
+
+		const newline = () => buf.push("\n");
+
+		const getText = (arr, row, col) => {
+			return arr[row][col].value;
+		};
+
+		const table = (array, align, splitter) => {
+			const rows = array.length;
+			const cols = array[0].length;
+			const colSizes = new Array(cols);
+			for (let col = 0; col < cols; col++)
+				colSizes[col] = 0;
+			for (let row = 0; row < rows; row++) {
+				for (let col = 0; col < cols; col++) {
+					const value = `${getText(array, row, col)}`;
+					if (value.length > colSizes[col]) {
+						colSizes[col] = value.length;
+					}
+				}
+			}
+			for (let row = 0; row < rows; row++) {
+				for (let col = 0; col < cols; col++) {
+					const format = array[row][col].color;
+					const value = `${getText(array, row, col)}`;
+					let l = value.length;
+					if (align[col] === "l")
+						format(value);
+					for (; l < colSizes[col] && col !== cols - 1; l++)
+						colors.normal(" ");
+					if (align[col] === "r")
+						format(value);
+					if (col + 1 < cols && colSizes[col] !== 0)
+						colors.normal(splitter || "  ");
+				}
+				newline();
+			}
+		};
+
+		const getAssetColor = (asset, defaultColor) => {
+			if (asset.isOverSizeLimit) {
+				return colors.yellow;
+			}
+			return defaultColor;
+		};
+
+		if (obj.hash) {
+			colors.normal("Hash: ");
+			colors.bold(obj.hash);
+			newline();
+		}
+		if (obj.version) {
+			colors.normal("Version: webpack ");
+			colors.bold(obj.version);
+			newline();
+		}
+		if (typeof obj.time === "number") {
+			colors.normal("Time: ");
+			colors.bold(obj.time);
+			colors.normal("ms");
+			newline();
+		}
+		if (obj.publicPath) {
+			colors.normal("PublicPath: ");
+			colors.bold(obj.publicPath);
+			newline();
+		}
+
+		if (obj.assets && obj.assets.length > 0) {
+			const t = [
+				[{
+					value: "Asset",
+					color: colors.bold
+				}, {
+					value: "Size",
+					color: colors.bold
+				}, {
+					value: "Chunks",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "Chunk Names",
+					color: colors.bold
+				}]
+			];
+			obj.assets.forEach(asset => {
+				t.push([{
+					value: asset.name,
+					color: getAssetColor(asset, colors.green)
+				}, {
+					value: SizeFormatHelpers.formatSize(asset.size),
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunks.join(", "),
+					color: colors.bold
+				}, {
+					value: asset.emitted ? "[emitted]" : "",
+					color: colors.green
+				}, {
+					value: asset.isOverSizeLimit ? "[big]" : "",
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunkNames.join(", "),
+					color: colors.normal
+				}]);
+			});
+			table(t, "rrrlll");
+		}
+		if (obj.entrypoints) {
+			Object.keys(obj.entrypoints).forEach(name => {
+				const ep = obj.entrypoints[name];
+				colors.normal("Entrypoint ");
+				colors.bold(name);
+				if (ep.isOverSizeLimit) {
+					colors.normal(" ");
+					colors.yellow("[big]");
+				}
+				colors.normal(" =");
+				ep.assets.forEach(asset => {
+					colors.normal(" ");
+					colors.green(asset);
+				});
+				newline();
+			});
+		}
+		const modulesByIdentifier = {};
+		if (obj.modules) {
+			obj.modules.forEach(module => {
+				modulesByIdentifier[`$${module.identifier}`] = module;
+			});
+		} else if (obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				if (chunk.modules) {
+					chunk.modules.forEach(module => {
+						modulesByIdentifier[`$${module.identifier}`] = module;
+					});
+				}
+			});
+		}
+
+		const processModuleAttributes = (module) => {
+			colors.normal(" ");
+			colors.normal(SizeFormatHelpers.formatSize(module.size));
+			if (module.chunks) {
+				module.chunks.forEach(chunk => {
+					colors.normal(" {");
+					colors.yellow(chunk);
+					colors.normal("}");
+				});
+			}
+			if (typeof module.depth === "number") {
+				colors.normal(` [depth ${module.depth}]`);
+			}
+			if (!module.cacheable) {
+				colors.red(" [not cacheable]");
+			}
+			if (module.optional) {
+				colors.yellow(" [optional]");
+			}
+			if (module.built) {
+				colors.green(" [built]");
+			}
+			if (module.prefetched) {
+				colors.magenta(" [prefetched]");
+			}
+			if (module.failed)
+				colors.red(" [failed]");
+			if (module.warnings)
+				colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
+			if (module.errors)
+				colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+		};
+
+		const processModuleContent = (module, prefix) => {
+			if (Array.isArray(module.providedExports)) {
+				colors.normal(prefix);
+				colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
+				newline();
+			}
+			if (module.usedExports !== undefined) {
+				if (module.usedExports !== true) {
+					colors.normal(prefix);
+					if (module.usedExports === false)
+						colors.cyan("[no exports used]");
+					else
+						colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+					newline();
+				}
+			}
+			if (module.reasons) {
+				module.reasons.forEach(reason => {
+					colors.normal(prefix);
+					colors.normal(reason.type);
+					colors.normal(" ");
+					colors.cyan(reason.userRequest);
+					colors.normal(" [");
+					colors.normal(reason.moduleId);
+					colors.normal("] ");
+					colors.magenta(reason.module);
+					if (reason.loc) {
+						colors.normal(" ");
+						colors.normal(reason.loc);
+					}
+					newline();
+				});
+			}
+			if (module.profile) {
+				colors.normal(prefix);
+				let sum = 0;
+				const path = [];
+				let current = module;
+				while (current.issuer) {
+					path.unshift(current = current.issuer);
+				}
+				path.forEach(module => {
+					colors.normal("[");
+					colors.normal(module.id);
+					colors.normal("] ");
+					if (module.profile) {
+						const time = (module.profile.factory || 0) + (module.profile.building || 0);
+						coloredTime(time);
+						sum += time;
+						colors.normal(" ");
+					}
+					colors.normal("->");
+				});
+				Object.keys(module.profile).forEach(key => {
+					colors.normal(` ${key}:`);
+					const time = module.profile[key];
+					coloredTime(time);
+					sum += time;
+				});
+				colors.normal(" = ");
+				coloredTime(sum);
+				newline();
+			}
+		};
+
+		if (obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				colors.normal("chunk ");
+				if (chunk.id < 1000) colors.normal(" ");
+				if (chunk.id < 100) colors.normal(" ");
+				if (chunk.id < 10) colors.normal(" ");
+				colors.normal("{");
+				colors.yellow(chunk.id);
+				colors.normal("} ");
+				colors.green(chunk.files.join(", "));
+				if (chunk.names && chunk.names.length > 0) {
+					colors.normal(" (");
+					colors.normal(chunk.names.join(", "));
+					colors.normal(")");
+				}
+				colors.normal(" ");
+				colors.normal(SizeFormatHelpers.formatSize(chunk.size));
+				chunk.parents.forEach(id => {
+					colors.normal(" {");
+					colors.yellow(id);
+					colors.normal("}");
+				});
+				if (chunk.entry) {
+					colors.yellow(" [entry]");
+				} else if (chunk.initial) {
+					colors.yellow(" [initial]");
+				}
+				if (chunk.rendered) {
+					colors.green(" [rendered]");
+				}
+				if (chunk.recorded) {
+					colors.green(" [recorded]");
+				}
+				newline();
+				if (chunk.origins) {
+					chunk.origins.forEach(origin => {
+						colors.normal("    > ");
+						if (origin.reasons && origin.reasons.length) {
+							colors.yellow(origin.reasons.join(" "));
+							colors.normal(" ");
+						}
+						if (origin.name) {
+							colors.normal(origin.name);
+							colors.normal(" ");
+						}
+						if (origin.module) {
+							colors.normal("[");
+							colors.normal(origin.moduleId);
+							colors.normal("] ");
+							const module = modulesByIdentifier[`$${origin.module}`];
+							if (module) {
+								colors.bold(module.name);
+								colors.normal(" ");
+							}
+							if (origin.loc) {
+								colors.normal(origin.loc);
+							}
+						}
+						newline();
+					});
+				}
+				if (chunk.modules) {
+					chunk.modules.forEach(module => {
+						colors.normal(" ");
+						if (module.id < 1000) colors.normal(" ");
+						if (module.id < 100) colors.normal(" ");
+						if (module.id < 10) colors.normal(" ");
+						colors.normal("[");
+						colors.normal(module.id);
+						colors.normal("] ");
+						colors.bold(module.name);
+						processModuleAttributes(module);
+						newline();
+						processModuleContent(module, "        ");
+					});
+					if (chunk.filteredModules > 0) {
+						colors.normal(`     + ${chunk.filteredModules} hidden modules`);
+						newline();
+					}
+				}
+			});
+		}
+		if (obj.modules) {
+			obj.modules.forEach(module => {
+				if (module.id < 1000) colors.normal(" ");
+				if (module.id < 100) colors.normal(" ");
+				if (module.id < 10) colors.normal(" ");
+				colors.normal("[");
+				colors.normal(module.id);
+				colors.normal("] ");
+				colors.bold(module.name || module.identifier);
+				processModuleAttributes(module);
+				newline();
+				processModuleContent(module, "       ");
+			});
+			if (obj.filteredModules > 0) {
+				colors.normal(`    + ${obj.filteredModules} hidden modules`);
+				newline();
+			}
+		}
+
+		if (obj._showWarnings && obj.warnings) {
+			obj.warnings.forEach(warning => {
+				newline();
+				colors.yellow(`WARNING in ${warning}`);
+				newline();
+			});
+		}
+		if (obj._showErrors && obj.errors) {
+			obj.errors.forEach(error => {
+				newline();
+				colors.red(`ERROR in ${error}`);
+				newline();
+			});
+		}
+		if (obj.children) {
+			obj.children.forEach(child => {
+				const childString = Stats.jsonToString(child, useColors);
+				if (childString) {
+					if (child.name) {
+						colors.normal("Child ");
+						colors.bold(child.name);
+						colors.normal(":");
+					} else {
+						colors.normal("Child");
+					}
+					newline();
+					buf.push("    ");
+					buf.push(childString.replace(/\n/g, "\n    "));
+					newline();
+				}
+			});
+		}
+		if (obj.needAdditionalPass) {
+			colors.yellow("Compilation needs an additional pass and will compile again.");
+		}
+		while (buf[buf.length - 1] === "\n") buf.pop();
+		return buf.join("");
 	}
 
 	static presetToOptions(name) {
-		const pn = (typeof name === "string" && name.toLowerCase()) || name;
+		const pn = (typeof name === "string") && name.toLowerCase() || name;
 		if (pn === "none" || !pn) {
 			return {
 				hash: false,
@@ -118,739 +837,41 @@ class Stats {
 				publicPath: false,
 				performance: false
 			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
 		}
-		return {
-			hash: pn !== "errors-only" && pn !== "minimal",
-			version: pn === "verbose",
-			timings: pn !== "errors-only" && pn !== "minimal",
-			assets: pn === "verbose",
-			entrypoints: pn === "verbose",
-			chunks: pn !== "errors-only",
-			chunkModules: pn === "verbose",
-			errorDetails: pn !== "errors-only" && pn !== "minimal",
-			reasons: pn === "verbose",
-			depth: pn === "verbose",
-			usedExports: pn === "verbose",
-			providedExports: pn === "verbose",
-			colors: true,
-			performance: true
-		};
 	}
 
 	static getChildOptions(options, idx) {
-		let inner;
+		let innerOptions;
 		if (Array.isArray(options.children)) {
-			if (idx < options.children.length) inner = options.children[idx];
+			if (idx < options.children.length)
+				innerOptions = options.children[idx];
 		} else if (typeof options.children === "object" && options.children) {
-			inner = options.children;
+			innerOptions = options.children;
 		}
-		if (typeof inner === "boolean" || typeof inner === "string")
-			inner = Stats.presetToOptions(inner);
-		if (!inner) return options;
-		const child = Object.assign({}, options);
-		delete child.children;
-		return Object.assign(child, inner);
-	}
-
-	/* ---------- Private helpers ---------- */
-
-	_normalizeOptions(options, forToString) {
-		if (typeof options === "boolean" || typeof options === "string") {
-			options = Stats.presetToOptions(options);
-		} else if (!options) {
-			options = {};
-		}
-		const opt = options;
-		opt.context = optionOrFallback(opt.context, process.cwd());
-		opt.performance = optionOrFallback(opt.performance, true);
-		opt.hash = optionOrFallback(opt.hash, true);
-		opt.version = optionOrFallback(opt.version, true);
-		opt.timings = optionOrFallback(opt.timings, true);
-		opt.assets = optionOrFallback(opt.assets, true);
-		opt.entrypoints = optionOrFallback(opt.entrypoints, !forToString);
-		opt.chunks = optionOrFallback(opt.chunks, true);
-		opt.chunkModules = optionOrFallback(opt.chunkModules, !!forToString);
-		opt.chunkOrigins = optionOrFallback(opt.chunkOrigins, !forToString);
-		opt.modules = optionOrFallback(opt.modules, !forToString);
-		opt.depth = optionOrFallback(opt.depth, !forToString);
-		opt.cached = optionOrFallback(opt.cached, true);
-		opt.cachedAssets = optionOrFallback(opt.cachedAssets, true);
-		opt.reasons = optionOrFallback(opt.reasons, !forToString);
-		opt.usedExports = optionOrFallback(opt.usedExports, !forToString);
-		opt.providedExports = optionOrFallback(opt.providedExports, !forToString);
-		opt.children = optionOrFallback(opt.children, true);
-		opt.source = optionOrFallback(opt.source, !forToString);
-		opt.moduleTrace = optionOrFallback(opt.moduleTrace, true);
-		opt.errors = optionOrFallback(opt.errors, true);
-		opt.errorDetails = optionOrFallback(opt.errorDetails, !forToString);
-		opt.warnings = optionOrFallback(opt.warnings, true);
-		opt.warningsFilter = optionOrFallback(opt.warningsFilter, null);
-		opt.publicPath = optionOrFallback(opt.publicPath, !forToString);
-		opt.exclude = [].concat(optionOrFallback(opt.exclude, [])).map(str => {
-			if (typeof str !== "string") return str;
-			return new RegExp(
-				`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`
-			);
-		});
-		opt.maxModules = optionOrFallback(opt.maxModules, forToString ? 15 : Infinity);
-		opt.modulesSort = optionOrFallback(opt.modulesSort, "id");
-		opt.chunksSort = optionOrFallback(opt.chunksSort, "id");
-		opt.assetsSort = optionOrFallback(opt.assetsSort, "");
-		return opt;
-	}
-
-	_createModuleFilter(requestShortener, opts, forToString) {
-		let count = 0;
-		return module => {
-			if (!opts.cached && !module.built) return false;
-			if (opts.exclude.length > 0) {
-				const ident = requestShortener.shorten(module.resource);
-				if (opts.exclude.some(r => r.test(ident))) return false;
-			}
-			return count++ < opts.maxModules;
-		};
-	}
-
-	_sortByFieldFactory(requestShortener, opts) {
-		const sortByFieldAndOrder = (fieldKey, a, b) => {
-			if (a[fieldKey] === null && b[fieldKey] === null) return 0;
-			if (a[fieldKey] === null) return 1;
-			if (b[fieldKey] === null) return -1;
-			if (a[fieldKey] === b[fieldKey]) return 0;
-			return a[fieldKey] < b[fieldKey] ? -1 : 1;
-		};
-
-		return field => (a, b) => {
-			if (!field) return 0;
-			const key = this.normalizeFieldKey(field);
-			const regular = this.sortOrderRegular(field);
-			return sortByFieldAndOrder(
-				key,
-				regular ? a : b,
-				regular ? b : a
-			);
-		};
-	}
-
-	_formatError(e, requestShortener, opts) {
-		let text = "";
-		if (typeof e === "string") e = { message: e };
-		if (e.chunk) {
-			text += `chunk ${e.chunk.name || e.chunk.id}${
-				e.chunk.hasRuntime()
-					? " [entry]"
-					: e.chunk.isInitial()
-					? " [initial]"
-					: ""
-			}\n`;
-		}
-		if (e.file) text += `${e.file}\n`;
-		if (e.module && typeof e.module.readableIdentifier === "function")
-			text += `${e.module.readableIdentifier(requestShortener)}\n`;
-		text += e.message;
-		if (opts.errorDetails && e.details) text += `\n${e.details}`;
-		if (opts.errorDetails && e.missing)
-			text += e.missing.map(item => `\n[${item}]`).join("");
-		if (opts.moduleTrace && e.dependencies && e.origin) {
-			text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-			e.dependencies.forEach(dep => {
-				if (!dep.loc || typeof dep.loc === "string") return;
-				const locInfo = formatLocation(dep.loc);
-				if (locInfo) text += ` ${locInfo}`;
-			});
-			let cur = e.origin;
-			while (cur.issuer) {
-				cur = cur.issuer;
-				text += `\n @ ${cur.readableIdentifier(requestShortener)}`;
-			}
-		}
-		return text;
-	}
-
-	_attachMeta(obj, opts, compilation) {
-		if (opts.version) obj.version = require("../package.json").version;
-		if (opts.hash) obj.hash = this.hash;
-		if (opts.timings && this.startTime && this.endTime)
-			obj.time = this.endTime - this.startTime;
-		if (compilation.needAdditionalPass) obj.needAdditionalPass = true;
-		if (opts.publicPath) {
-			obj.publicPath = compilation.mainTemplate.getPublicPath({
-				hash: compilation.hash
-			});
-		}
-		Object.defineProperty(obj, "_showWarnings", {
-			value: opts.warnings,
-			enumerable: false
-		});
-		Object.defineProperty(obj, "_showErrors", {
-			value: opts.errors,
-			enumerable: false
-		});
-	}
-
-	_buildAssets(obj, compilation, requestShortener, sortByField) {
-		const assetsByFile = {};
-		obj.assetsByChunkName = {};
-		obj.assets = Object.keys(compilation.assets)
-			.map(name => {
-				const asset = compilation.assets[name];
-				const entry = {
-					name,
-					size: asset.size(),
-					chunks: [],
-					chunkNames: [],
-					emitted: asset.emitted
-				};
-				if (obj._showPerformance) entry.isOverSizeLimit = asset.isOverSizeLimit;
-				assetsByFile[name] = entry;
-				return entry;
-			})
-			.filter(a => obj._showCachedAssets || a.emitted);
-
-		compilation.chunks.forEach(chunk => {
-			chunk.files.forEach(file => {
-				const asset = assetsByFile[file];
-				if (!asset) return;
-				chunk.ids.forEach(id => asset.chunks.push(id));
-				if (chunk.name) {
-					asset.chunkNames.push(chunk.name);
-					if (obj.assetsByChunkName[chunk.name])
-						obj.assetsByChunkName[chunk.name] = [].concat(
-							obj.assetsByChunkName[chunk.name],
-							[file]
-						);
-					else obj.assetsByChunkName[chunk.name] = file;
-				}
-			});
-		});
-		obj.assets.sort(sortByField(obj.assetsSort));
-	}
-
-	_buildEntrypoints(obj, compilation, requestShortener) {
-		obj.entrypoints = {};
-		Object.keys(compilation.entrypoints).forEach(name => {
-			const ep = compilation.entrypoints[name];
-			const entry = {
-				chunks: ep.chunks.map(c => c.id),
-				assets: ep.chunks.reduce((a, c) => a.concat(c.files || []), [])
-			};
-			if (obj._showPerformance) entry.isOverSizeLimit = ep.isOverSizeLimit;
-			obj.entrypoints[name] = entry;
-		});
-	}
-
-	_buildChunks(obj, compilation, requestShortener, moduleFilter, sortByField) {
-		obj.chunks = compilation.chunks.map(chunk => {
-			const base = {
-				id: chunk.id,
-				rendered: chunk.rendered,
-				initial: chunk.isInitial(),
-				entry: chunk.hasRuntime(),
-				recorded: chunk.recorded,
-				extraAsync: !!chunk.extraAsync,
-				size: chunk.modules.reduce((s, m) => s + m.size(), 0),
-				names: chunk.name ? [chunk.name] : [],
-				files: chunk.files.slice(),
-				hash: chunk.renderedHash,
-				parents: chunk.parents.map(c => c.id)
-			};
-			if (obj._showChunkModules) {
-				base.modules = chunk.modules
-					.slice()
-					.sort(sortByField("depth"))
-					.filter(moduleFilter)
-					.map(m => this._moduleToJson(m, requestShortener));
-				base.filteredModules = chunk.modules.length - base.modules.length;
-				base.modules.sort(sortByField(obj.modulesSort));
-			}
-			if (obj._showChunkOrigins) {
-				base.origins = chunk.origins.map(origin => ({
-					moduleId: origin.module ? origin.module.id : undefined,
-					module: origin.module ? origin.module.identifier() : "",
-					moduleIdentifier: origin.module ? origin.module.identifier() : "",
-					moduleName: origin.module
-						? origin.module.readableIdentifier(requestShortener)
-						: "",
-					loc: formatLocation(origin.loc),
-					name: origin.name,
-					reasons: origin.reasons || []
-				}));
-			}
-			return base;
-		});
-		obj.chunks.sort(sortByField(obj.chunksSort));
-	}
-
-	_buildModules(obj, compilation, requestShortener, moduleFilter, sortByField) {
-		obj.modules = compilation.modules
-			.slice()
-			.sort(sortByField("depth"))
-			.filter(moduleFilter)
-			.map(m => this._moduleToJson(m, requestShortener));
-		obj.filteredModules = compilation.modules.length - obj.modules.length;
-		obj.modules.sort(sortByField(obj.modulesSort));
-	}
-
-	_buildChildren(obj, compilation, opts, forToString) {
-		obj.children = compilation.children.map((child, idx) => {
-			const childOpts = Stats.getChildOptions(opts, idx);
-			const childStats = new Stats(child).toJson(childOpts, forToString);
-			delete childStats.hash;
-			delete childStats.version;
-			childStats.name = child.name;
-			return childStats;
-		});
-	}
-
-	_moduleToJson(module, requestShortener) {
-		const json = {
-			id: module.id,
-			identifier: module.identifier(),
-			name: module.readableIdentifier(requestShortener),
-			index: module.index,
-			index2: module.index2,
-			size: module.size(),
-			cacheable: !!module.cacheable,
-			built: !!module.built,
-			optional: !!module.optional,
-			prefetched: !!module.prefetched,
-			chunks: module.chunks.map(c => c.id),
-			assets: Object.keys(module.assets || {}),
-			issuer: module.issuer && module.issuer.identifier(),
-			issuerId: module.issuer && module.issuer.id,
-			issuerName:
-				module.issuer && module.issuer.readableIdentifier(requestShortener),
-			profile: module.profile,
-			failed: !!module.error,
-			errors:
-				module.errors && module.dependenciesErrors
-					? module.errors.length + module.dependenciesErrors.length
-					: undefined,
-			warnings:
-				module.warnings && module.dependenciesWarnings
-					? module.warnings.length + module.dependenciesWarnings.length
-					: undefined
-		};
-		// reasons, usedExports, providedExports, depth, source are added later by callers
-		return json;
-	}
-}
-
-/* ---------- Helper class for string rendering ---------- */
-
-class StatsStringBuilder {
-	constructor(obj, useColors) {
-		this.obj = obj;
-		this.useColors = useColors;
-		this.buf = [];
-		this.colors = this._initColors(useColors);
-	}
-
-	build() {
-		this._renderHeader();
-		if (this.obj.assets && this.obj.assets.length) this._renderAssetsTable();
-		if (this.obj.entrypoints) this._renderEntrypoints();
-		this._collectModulesByIdentifier();
-		if (this.obj.chunks) this._renderChunks();
-		if (this.obj.modules) this._renderModules(this.obj.modules, this.obj.filteredModules);
-		if (this.obj._showWarnings && this.obj.warnings) this._renderWarnings();
-		if (this.obj._showErrors && this.obj.errors) this._renderErrors();
-		if (this.obj.children) this._renderChildren();
-		if (this.obj.needAdditionalPass) this._renderAdditionalPassNotice();
-		while (this.buf[this.buf.length - 1] === "\n") this.buf.pop();
-		return this.buf.join("");
-	}
-
-	_initColors(useColors) {
-		const defaultColors = {
-			bold: "\u001b[1m",
-			yellow: "\u001b[1m\u001b[33m",
-			red: "\u001b[1m\u001b[31m",
-			green: "\u001b[1m\u001b[32m",
-			cyan: "\u001b[1m\u001b[36m",
-			magenta: "\u001b[1m\u001b[35m"
-		};
-		return Object.keys(defaultColors).reduce((obj, name) => {
-			obj[name] = str => {
-				if (useColors) {
-					this.buf.push(
-						useColors === true || useColors[name] === undefined
-							? defaultColors[name]
-							: useColors[name]
-					);
-				}
-				this.buf.push(str);
-				if (useColors) this.buf.push("\u001b[39m\u001b[22m");
-			};
-			return obj;
-		}, { normal: s => this.buf.push(s) });
-	}
-
-	_newline() {
-		this.buf.push("\n");
-	}
-
-	_renderHeader() {
-		if (this.obj.hash) {
-			this.colors.normal("Hash: ");
-			this.colors.bold(this.obj.hash);
-			this._newline();
-		}
-		if (this.obj.version) {
-			this.colors.normal("Version: webpack ");
-			this.colors.bold(this.obj.version);
-			this._newline();
-		}
-		if (typeof this.obj.time === "number") {
-			this.colors.normal("Time: ");
-			this.colors.bold(this.obj.time);
-			this.colors.normal("ms");
-			this._newline();
-		}
-		if (this.obj.publicPath) {
-			this.colors.normal("PublicPath: ");
-			this.colors.bold(this.obj.publicPath);
-			this._newline();
-		}
-	}
-
-	_renderAssetsTable() {
-		const rows = [
-			[
-				{ value: "Asset", color: this.colors.bold },
-				{ value: "Size", color: this.colors.bold },
-				{ value: "Chunks", color: this.colors.bold },
-				{ value: "", color: this.colors.bold },
-				{ value: "", color: this.colors.bold },
-				{ value: "Chunk Names", color: this.colors.bold }
-			]
-		];
-		this.obj.assets.forEach(asset => {
-			const assetColor = asset.isOverSizeLimit
-				? this.colors.yellow
-				: this.colors.green;
-			rows.push([
-				{ value: asset.name, color: assetColor },
-				{
-					value: SizeFormatHelpers.formatSize(asset.size),
-					color: asset.isOverSizeLimit ? this.colors.yellow : this.colors.normal
-				},
-				{ value: asset.chunks.join(", "), color: this.colors.bold },
-				{ value: asset.emitted ? "[emitted]" : "", color: this.colors.green },
-				{
-					value: asset.isOverSizeLimit ? "[big]" : "",
-					color: asset.isOverSizeLimit ? this.colors.yellow : this.colors.normal
-				},
-				{ value: asset.chunkNames.join(", "), color: this.colors.normal }
-			]);
-		});
-		this._table(rows, "rrrlll");
-	}
-
-	_renderEntrypoints() {
-		Object.keys(this.obj.entrypoints).forEach(name => {
-			const ep = this.obj.entrypoints[name];
-			this.colors.normal("Entrypoint ");
-			this.colors.bold(name);
-			if (ep.isOverSizeLimit) {
-				this.colors.normal(" ");
-				this.colors.yellow("[big]");
-			}
-			this.colors.normal(" =");
-			ep.assets.forEach(a => {
-				this.colors.normal(" ");
-				this.colors.green(a);
-			});
-			this._newline();
-		});
-	}
-
-	_collectModulesByIdentifier() {
-		this.modulesById = {};
-		if (this.obj.modules) {
-			this.obj.modules.forEach(m => {
-				this.modulesById[`$${m.identifier}`] = m;
-			});
-		} else if (this.obj.chunks) {
-			this.obj.chunks.forEach(chunk => {
-				if (chunk.modules) {
-					chunk.modules.forEach(m => {
-						this.modulesById[`$${m.identifier}`] = m;
-					});
-				}
-			});
-		}
-	}
-
-	_renderChunks() {
-		this.obj.chunks.forEach(chunk => {
-			this.colors.normal("chunk ");
-			if (chunk.id < 1000) this.colors.normal(" ");
-			if (chunk.id < 100) this.colors.normal(" ");
-			if (chunk.id < 10) this.colors.normal(" ");
-			this.colors.normal("{");
-			this.colors.yellow(chunk.id);
-			this.colors.normal("} ");
-			this.colors.green(chunk.files.join(", "));
-			if (chunk.names && chunk.names.length) {
-				this.colors.normal(" (");
-				this.colors.normal(chunk.names.join(", "));
-				this.colors.normal(")");
-			}
-			this.colors.normal(" ");
-			this.colors.normal(SizeFormatHelpers.formatSize(chunk.size));
-			chunk.parents.forEach(id => {
-				this.colors.normal(" {");
-				this.colors.yellow(id);
-				this.colors.normal("}");
-			});
-			if (chunk.entry) this.colors.yellow(" [entry]");
-			else if (chunk.initial) this.colors.yellow(" [initial]");
-			if (chunk.rendered) this.colors.green(" [rendered]");
-			if (chunk.recorded) this.colors.green(" [recorded]");
-			this._newline();
-
-			if (chunk.origins) this._renderChunkOrigins(chunk);
-			if (chunk.modules) this._renderChunkModules(chunk);
-		});
-	}
-
-	_renderChunkOrigins(chunk) {
-		chunk.origins.forEach(origin => {
-			this.colors.normal("    > ");
-			if (origin.reasons && origin.reasons.length) {
-				this.colors.yellow(origin.reasons.join(" "));
-				this.colors.normal(" ");
-			}
-			if (origin.name) {
-				this.colors.normal(origin.name);
-				this.colors.normal(" ");
-			}
-			if (origin.module) {
-				this.colors.normal("[");
-				this.colors.normal(origin.moduleId);
-				this.colors.normal("] ");
-				const mod = this.modulesById[`$${origin.module}`];
-				if (mod) {
-					this.colors.bold(mod.name);
-					this.colors.normal(" ");
-				}
-				if (origin.loc) this.colors.normal(origin.loc);
-			}
-			this._newline();
-		});
-	}
-
-	_renderChunkModules(chunk) {
-		chunk.modules.forEach(module => {
-			this.colors.normal(" ");
-			if (module.id < 1000) this.colors.normal(" ");
-			if (module.id < 100) this.colors.normal(" ");
-			if (module.id < 10) this.colors.normal(" ");
-			this.colors.normal("[");
-			this.colors.normal(module.id);
-			this.colors.normal("] ");
-			this.colors.bold(module.name);
-			this._processModuleAttributes(module);
-			this._newline();
-			this._processModuleContent(module, "        ");
-		});
-		if (chunk.filteredModules > 0) {
-			this.colors.normal(`     + ${chunk.filteredModules} hidden modules`);
-			this._newline();
-		}
-	}
-
-	_renderModules(modules, filteredCount) {
-		modules.forEach(module => {
-			if (module.id < 1000) this.colors.normal(" ");
-			if (module.id < 100) this.colors.normal(" ");
-			if (module.id < 10) this.colors.normal(" ");
-			this.colors.normal("[");
-			this.colors.normal(module.id);
-			this.colors.normal("] ");
-			this.colors.bold(module.name || module.identifier);
-			this._processModuleAttributes(module);
-			this._newline();
-			this._processModuleContent(module, "       ");
-		});
-		if (filteredCount > 0) {
-			this.colors.normal(`    + ${filteredCount} hidden modules`);
-			this._newline();
-		}
-	}
-
-	_processModuleAttributes(module) {
-		this.colors.normal(" ");
-		this.colors.normal(SizeFormatHelpers.formatSize(module.size));
-		if (module.chunks) {
-			module.chunks.forEach(c => {
-				this.colors.normal(" {");
-				this.colors.yellow(c);
-				this.colors.normal("}");
-			});
-		}
-		if (typeof module.depth === "number")
-			this.colors.normal(` [depth ${module.depth}]`);
-		if (!module.cacheable) this.colors.red(" [not cacheable]");
-		if (module.optional) this.colors.yellow(" [optional]");
-		if (module.built) this.colors.green(" [built]");
-		if (module.prefetched) this.colors.magenta(" [prefetched]");
-		if (module.failed) this.colors.red(" [failed]");
-		if (module.warnings)
-			this.colors.yellow(
-				` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`
-			);
-		if (module.errors)
-			this.colors.red(
-				` [${module.errors} error${module.errors === 1 ? "" : "s"}]`
-			);
-	}
-
-	_processModuleContent(module, prefix) {
-		if (Array.isArray(module.providedExports)) {
-			this.colors.normal(prefix);
-			this.colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
-			this._newline();
-		}
-		if (module.usedExports !== undefined) {
-			if (module.usedExports !== true) {
-				this.colors.normal(prefix);
-				if (module.usedExports === false)
-					this.colors.cyan("[no exports used]");
-				else
-					this.colors.cyan(
-						`[only some exports used: ${module.usedExports.join(", ")}]`
-					);
-				this._newline();
-			}
-		}
-		if (module.reasons) {
-			module.reasons.forEach(reason => {
-				this.colors.normal(prefix);
-				this.colors.normal(reason.type);
-				this.colors.normal(" ");
-				this.colors.cyan(reason.userRequest);
-				this.colors.normal(" [");
-				this.colors.normal(reason.moduleId);
-				this.colors.normal("] ");
-				this.colors.magenta(reason.module);
-				if (reason.loc) {
-					this.colors.normal(" ");
-					this.colors.normal(reason.loc);
-				}
-				this._newline();
-			});
-		}
-		if (module.profile) {
-			this.colors.normal(prefix);
-			let sum = 0;
-			const path = [];
-			let cur = module;
-			while (cur.issuer) {
-				cur = cur.issuer;
-				path.unshift(cur);
-			}
-			path.forEach(m => {
-				this.colors.normal("[");
-				this.colors.normal(m.id);
-				this.colors.normal("] ");
-				if (m.profile) {
-					const t = (m.profile.factory || 0) + (m.profile.building || 0);
-					this._coloredTime(t);
-					sum += t;
-					this.colors.normal(" ");
-				}
-				this.colors.normal("->");
-			});
-			Object.keys(module.profile).forEach(key => {
-				this.colors.normal(` ${key}:`);
-				const t = module.profile[key];
-				this._coloredTime(t);
-				sum += t;
-			});
-			this.colors.normal(" = ");
-			this._coloredTime(sum);
-			this._newline();
-		}
-	}
-
-	_coloredTime(time) {
-		const thresholds = this.obj.time
-			? [this.obj.time / 2, this.obj.time / 4, this.obj.time / 8, this.obj.time / 16]
-			: [800, 400, 200, 100];
-		if (time < thresholds[3]) this.colors.normal(`${time}ms`);
-		else if (time < thresholds[2]) this.colors.bold(`${time}ms`);
-		else if (time < thresholds[1]) this.colors.green(`${time}ms`);
-		else if (time < thresholds[0]) this.colors.yellow(`${time}ms`);
-		else this.colors.red(`${time}ms`);
-	}
-
-	_renderWarnings() {
-		this.obj.warnings.forEach(w => {
-			this._newline();
-			this.colors.yellow(`WARNING in ${w}`);
-			this._newline();
-		});
-	}
-
-	_renderErrors() {
-		this.obj.errors.forEach(e => {
-			this._newline();
-			this.colors.red(`ERROR in ${e}`);
-			this._newline();
-		});
-	}
-
-	_renderChildren() {
-		this.obj.children.forEach(child => {
-			const childStr = Stats.jsonToString(child, this.useColors);
-			if (!childStr) return;
-			if (child.name) {
-				this.colors.normal("Child ");
-				this.colors.bold(child.name);
-				this.colors.normal(":");
-			} else {
-				this.colors.normal("Child");
-			}
-			this._newline();
-			this.buf.push("    ");
-			this.buf.push(childStr.replace(/\n/g, "\n    "));
-			this._newline();
-		});
-	}
-
-	_renderAdditionalPassNotice() {
-		this.colors.yellow(
-			"Compilation needs an additional pass and will compile again."
-		);
-	}
-
-	_table(array, align, splitter) {
-		const rows = array.length;
-		const cols = array[0].length;
-		const colSizes = new Array(cols).fill(0);
-		for (let r = 0; r < rows; r++) {
-			for (let c = 0; c < cols; c++) {
-				const val = `${array[r][c].value}`;
-				if (val.length > colSizes[c]) colSizes[c] = val.length;
-			}
-		}
-		for (let r = 0; r < rows; r++) {
-			for (let c = 0; c < cols; c++) {
-				const fmt = array[r][c].color;
-				const val = `${array[r][c].value}`;
-				let len = val.length;
-				if (align[c] === "l") fmt(val);
-				while (len < colSizes[c] && c !== cols - 1) {
-					this.colors.normal(" ");
-					len++;
-				}
-				if (align[c] === "r") fmt(val);
-				if (c + 1 < cols && colSizes[c] !== 0) this.colors.normal(splitter || "  ");
-			}
-			this._newline();
-		}
+		if (typeof innerOptions === "boolean" || typeof innerOptions === "string")
+			innerOptions = Stats.presetToOptions(innerOptions);
+		if (!innerOptions)
+			return options;
+		const childOptions = Object.assign({}, options);
+		delete childOptions.children;
+		return Object.assign(childOptions, innerOptions);
 	}
 }
 

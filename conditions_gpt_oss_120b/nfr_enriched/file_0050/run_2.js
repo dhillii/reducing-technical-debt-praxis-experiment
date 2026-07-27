@@ -13,14 +13,14 @@ try {
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
     const FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    FILE_EXTENSIONS.forEach(ext => {
-      require.extensions[ext] = () => {
+    for (let i = 0; i < FILE_EXTENSIONS.length; i++) {
+      require.extensions[FILE_EXTENSIONS[i]] = function () {
         throw new Error(
           'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
           'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
         );
       };
-    });
+    }
   }
 }
 
@@ -74,12 +74,15 @@ gExpose(fail, 'fatal');
  * Returns true if processing should stop after handling version.
  */
 function handleVersionOption() {
-  if (!option('version')) return false;
+  if (!option('version')) {
+    return false;
+  }
 
   log.writeln('grunt v' + grunt.version);
 
   if (option('verbose')) {
     verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+    // Suppress verbose task initialization logs.
     grunt.log.muted = true;
     grunt.task.init([], { help: true });
     grunt.log.muted = false;
@@ -88,13 +91,16 @@ function handleVersionOption() {
     verbose.writeln('Available tasks: ' + availableTasks.join(' '));
 
     const availableOptions = [];
-    Object.keys(grunt.cli.optlist).forEach(long => {
+    Object.keys(grunt.cli.optlist).forEach(function (long) {
       const o = grunt.cli.optlist[long];
       availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-      if (o.short) availableOptions.push('-' + o.short);
+      if (o.short) {
+        availableOptions.push('-' + o.short);
+      }
     });
     verbose.writeln('Available options: ' + availableOptions.join(' '));
   }
+
   return true;
 }
 
@@ -113,89 +119,102 @@ function initColorsAndHelp() {
 }
 
 /**
- * Displays header and command‑line flags.
+ * Writes header information, parses task arguments, and initializes tasks.
+ * Returns the parsed task list.
  */
-function displayHeaderAndFlags() {
+function prepareTasks(tasks) {
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-}
 
-/**
- * Sets up a temporary uncaught‑exception handler.
- * Returns a function to remove the handler.
- */
-function setupUncaughtHandler() {
-  const handler = e => fail.fatal(e, fail.code.TASK_FAILURE);
-  process.on('uncaughtException', handler);
-  return () => process.removeListener('uncaughtException', handler);
-}
+  const tasksSpecified = tasks && tasks.length > 0;
+  const parsed = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
-/**
- * Configures task callbacks for error handling and completion.
- * @param {Function} cleanupFn Function to remove uncaught‑exception handler.
- * @param {Function} done Optional user callback.
- */
-function configureTaskOptions(cleanupFn, done) {
-  task.options({
-    error: e => fail.warn(e, fail.code.TASK_FAILURE),
-    done: () => {
-      cleanupFn();
-      fail.report();
-      if (done) {
-        done();
-      } else {
-        util.exit(0);
-      }
-    }
-  });
-}
-
-/**
- * Executes the provided task list.
- * @param {Array<string>} tasks List of task names.
- */
-function runTasks(tasks) {
-  tasks.forEach(name => task.run(name));
-  task.start({ asyncDone: true });
-}
-
-/**
- * Primary entry point for running Grunt tasks.
- * @param {Array<string>|string} tasks Tasks to run.
- * @param {Object} options CLI options.
- * @param {Function} [done] Callback invoked when all tasks complete.
- */
-grunt.tasks = function (tasks, options, done) {
-  // Update options with passed‑in options.
-  option.init(options);
-
-  // Handle version flag early.
-  if (handleVersionOption()) return;
-
-  // Initialize colors and possibly display help.
-  if (initColorsAndHelp()) return;
-
-  // Header and flags.
-  displayHeaderAndFlags();
-
-  // Determine tasks to run.
-  const tasksSpecified = Array.isArray(tasks) && tasks.length > 0;
-  const taskList = task.parseArgs([tasksSpecified ? tasks : 'default']);
-
-  // Initialize tasks.
-  task.init(taskList, options);
+  task.init(parsed, option());
 
   verbose.writeln();
   if (!tasksSpecified) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
-  verbose.writeflags(taskList, 'Running tasks');
+  verbose.writeflags(parsed, 'Running tasks');
 
-  // Setup uncaught‑exception handling.
-  const removeHandler = setupUncaughtHandler();
+  return parsed;
+}
 
-  // Configure task callbacks.
-  configureTaskOptions(removeHandler, done);
+/**
+ * Sets up a temporary uncaughtException handler for task execution.
+ * Returns a function to remove the handler.
+ */
+function setupUncaughtHandler() {
+  const handler = function (e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
+  process.on('uncaughtException', handler);
+  return function removeHandler() {
+    process.removeListener('uncaughtException', handler);
+  };
+}
+
+/**
+ * Configures task options for error handling and completion.
+ */
+function configureTaskCallbacks(removeUncaughtHandler, done) {
+  task.options({
+    error: function (e) {
+      fail.warn(e, fail.code.TASK_FAILURE);
+    },
+    done: function () {
+      // Clean up the uncaught exception listener.
+      removeUncaughtHandler();
+
+      // Output final report.
+      fail.report();
+
+      if (done) {
+        done();
+      } else {
+        util.exit(0);
+      }
+    },
+  });
+}
+
+/**
+ * Executes the provided task list.
+ */
+function executeTaskList(taskList) {
+  taskList.forEach(function (name) {
+    task.run(name);
+  });
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({ asyncDone: true });
+}
+
+/**
+ * Primary entry point for running Grunt tasks.
+ */
+grunt.tasks = function (tasks, options, done) {
+  // Update options with passed-in options.
+  option.init(options);
+
+  // Handle version flag early.
+  if (handleVersionOption()) {
+    return;
+  }
+
+  // Initialize colors and possibly display help.
+  if (initColorsAndHelp()) {
+    return;
+  }
+
+  // Prepare tasks and environment.
+  const taskList = prepareTasks(tasks);
+
+  // Set up uncaught exception handling.
+  const removeUncaughtHandler = setupUncaughtHandler();
+
+  // Configure task callbacks for error handling and completion.
+  configureTaskCallbacks(removeUncaughtHandler, done);
 
   // Execute tasks.
-  runTasks(taskList);
+  executeTaskList(taskList);
 };

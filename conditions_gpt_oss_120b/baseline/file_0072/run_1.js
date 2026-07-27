@@ -1510,7 +1510,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run .",
 					"foo = bar;",
 				);
@@ -1527,7 +1527,7 @@ describe("cli", () => {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix --fix-dry-run .",
 					"foo = bar;",
 				);

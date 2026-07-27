@@ -3,30 +3,7 @@ import NiceModal from '@ebay/nice-modal-react';
 import React, {useCallback, useEffect, useState} from 'react';
 import useSettingGroup from '../../../../hooks/use-setting-group';
 import validator from 'validator';
-import {
-    Button,
-    ButtonGroup,
-    ColorPickerField,
-    ConfirmationModal,
-    Form,
-    Heading,
-    Hint,
-    HtmlField,
-    Icon,
-    ImageUpload,
-    LimitModal,
-    PreviewModalContent,
-    Select,
-    type SelectOption,
-    Separator,
-    type Tab,
-    TabView,
-    TextArea,
-    TextField,
-    Toggle,
-    ToggleGroup,
-    showToast
-} from '@tryghost/admin-x-design-system';
+import {Button, ButtonGroup, ColorPickerField, ConfirmationModal, Form, Heading, Hint, HtmlField, Icon, ImageUpload, LimitModal, PreviewModalContent, Select, type SelectOption, Separator, type Tab, TabView, TextArea, TextField, Toggle, ToggleGroup, showToast} from '@tryghost/admin-x-design-system';
 import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {HostLimitError, useLimiter} from '../../../../hooks/use-limiter';
 import {type Newsletter, useBrowseNewsletters, useEditNewsletter} from '@tryghost/admin-x-framework/api/newsletters';
@@ -39,18 +16,26 @@ import {textColorForBackgroundColor} from '@tryghost/color-utils';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
 /**
- * Renders the reply‑to email field with proper handling of defaults.
+ * Returns a toast message element if a verification email was sent.
  */
+function getVerificationToastMessage(emailToVerify?: string) {
+    if (emailToVerify) {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return undefined;
+}
+
 const ReplyToEmailField: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
     errors: ErrorMessages;
+    validate: () => void;
     clearError: (field: string) => void;
 }> = ({newsletter, updateNewsletter, errors, clearError}) => {
     const {settings, config} = useGlobalData();
     const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
     const [senderReplyTo, setSenderReplyTo] = useState(renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '');
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
 
     const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         setSenderReplyTo(e.target.value);
@@ -78,17 +63,7 @@ const ReplyToEmailField: React.FC<{
 };
 
 /**
- * Determines if the newsletter background color is dark.
- */
-function isBackgroundDark(newsletter: Newsletter, siteData: any): boolean {
-    if (newsletter.background_color === 'light') {
-        return false;
-    }
-    return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
-}
-
-/**
- * Returns the appropriate sender email field based on configuration.
+ * Renders the sender email field based on configuration.
  */
 function renderSenderEmailField(
     newsletter: Newsletter,
@@ -98,15 +73,12 @@ function renderSenderEmailField(
     clearError: (field: string) => void,
     updateNewsletter: (fields: Partial<Newsletter>) => void
 ) {
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
-
-    // Self‑hosted
     if (!isManagedEmail(config)) {
         return (
             <TextField
                 error={Boolean(errors.sender_email)}
                 hint={errors.sender_email}
-                placeholder={newsletterAddress || ''}
+                placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
                 title="Sender email address"
                 value={newsletter.sender_email || ''}
                 onChange={e => updateNewsletter({sender_email: e.target.value})}
@@ -115,7 +87,6 @@ function renderSenderEmailField(
         );
     }
 
-    // Pro with custom sending domain
     if (hasSendingDomain(config)) {
         return (
             <TextField
@@ -131,115 +102,33 @@ function renderSenderEmailField(
         );
     }
 
-    // Pro without custom domain – field not editable
     return null;
 }
 
 /**
- * Shows a confirmation modal for archiving a newsletter.
+ * Determines if the current background color is considered dark.
  */
-async function archiveNewsletter(
-    newsletter: Newsletter,
-    editNewsletter: (data: Newsletter) => Promise<any>,
-    handleError: (e: any) => void
-) {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Archive newsletter',
-        prompt: (
-            <>
-                <div className="mb-6">
-                    Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.
-                </div>
-                <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-            </>
-        ),
-        okLabel: 'Archive',
-        okColor: 'red',
-        onOk: async (modal) => {
-            try {
-                await editNewsletter({...newsletter, status: 'archived'});
-                modal?.remove();
-                showToast({type: 'success', message: 'Newsletter archived'});
-            } catch (e) {
-                handleError(e);
-            }
-        }
-    });
+function isBackgroundDark(backgroundColor: string, siteData: any) {
+    if (backgroundColor === 'light') {
+        return false;
+    }
+    return textColorForBackgroundColor(backgroundColor).hex().toLowerCase() === '#ffffff';
 }
 
 /**
- * Shows a confirmation modal for reactivating a newsletter.
+ * Retrieves the selected font weight option based on the newsletter settings.
  */
-async function reactivateNewsletter(
-    newsletter: Newsletter,
-    editNewsletter: (data: Newsletter) => Promise<any>,
-    handleError: (e: any) => void
-) {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Reactivate newsletter',
-        prompt: (
-            <>
-                Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re‑enable it as an option when publishing new posts.
-            </>
-        ),
-        okLabel: 'Reactivate',
-        onOk: async (modal) => {
-            await editNewsletter({...newsletter, status: 'active'});
-            modal?.remove();
-            showToast({type: 'success', message: 'Newsletter reactivated'});
-        }
-    });
-}
-
-/**
- * Handles status change with limit checks and appropriate confirmation.
- */
-function useStatusChangeHandler(
-    newsletter: Newsletter,
-    editNewsletter: (data: Newsletter) => Promise<any>,
-    limiter: any,
-    handleError: (e: any) => void,
-    updateRoute: (opts: any) => void
-) {
-    return async () => {
-        if (newsletter.status === 'active') {
-            await archiveNewsletter(newsletter, editNewsletter, handleError);
-        } else {
-            try {
-                await limiter?.errorIfWouldGoOverLimit('newsletters');
-            } catch (error) {
-                if (error instanceof HostLimitError) {
-                    NiceModal.show(LimitModal, {
-                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                        onOk: () => updateRoute({route: '/pro', isExternal: true})
-                    });
-                    return;
-                }
-                throw error;
-            }
-            await reactivateNewsletter(newsletter, editNewsletter, handleError);
-        }
-    };
-}
-
-/**
- * Returns the selected font weight option based on current newsletter settings.
- */
-function getSelectedFontWeightOption(
-    newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>
-) {
+function getSelectedFontWeightOption(newsletter: Newsletter, fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>, headingFontWeightOptions: SelectOption[]) {
     const category = newsletter.title_font_category || 'sans_serif';
     const weightMap = fontWeightOptions[category].map;
     const mappedWeight = weightMap ? (weightMap[newsletter.title_font_weight] || newsletter.title_font_weight) : newsletter.title_font_weight;
-    const options = fontWeightOptions[category].options;
-    return options.find(o => o.value === mappedWeight) || options[0];
+    return headingFontWeightOptions.find(o => o.value === mappedWeight) || headingFontWeightOptions[0];
 }
 
 /**
- * Handles changes to the title font category, ensuring a valid weight is selected.
+ * Handles changing the title font category while preserving a valid weight.
  */
-function handleTitleFontChange(
+function changeSelectedTitleFont(
     option: SelectOption | null,
     newsletter: Newsletter,
     fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
@@ -248,11 +137,9 @@ function handleTitleFontChange(
     const categoryValue = option?.value || 'sans_serif';
     const currentWeight = newsletter.title_font_weight;
     let newWeight = currentWeight;
-
     if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
         newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
     }
-
     updateNewsletter({
         title_font_category: categoryValue,
         title_font_weight: newWeight
@@ -260,515 +147,7 @@ function handleTitleFontChange(
 }
 
 /**
- * Generates the tab configuration for the sidebar.
- */
-function generateTabs(
-    newsletter: Newsletter,
-    siteTitle: string,
-    errors: ErrorMessages,
-    clearError: (field: string) => void,
-    updateNewsletter: (fields: Partial<Newsletter>) => void,
-    validate: () => void,
-    onlyOne: boolean,
-    activeNewsletters: Newsletter[],
-    confirmStatusChange: () => void,
-    renderSenderEmailFieldFn: ReturnType<typeof renderSenderEmailField>,
-    backgroundIsDark: boolean,
-    siteData: any,
-    fontOptions: SelectOption[],
-    headingFontWeightOptions: SelectOption[],
-    getSelectedFontWeightOptionFn: SelectOption,
-    handleTitleFontChangeFn: (option: SelectOption | null) => void
-) {
-    return [
-        {
-            id: 'generalSettings',
-            title: 'General',
-            contents: (
-                <>
-                    <Form className='mt-6' gap='sm' margins='lg' title='Name and description'>
-                        <TextField
-                            error={Boolean(errors.name)}
-                            hint={errors.name}
-                            maxLength={191}
-                            placeholder="Weekly Roundup"
-                            title="Name"
-                            value={newsletter.name || ''}
-                            onChange={e => updateNewsletter({name: e.target.value})}
-                            onKeyDown={() => clearError('name')}
-                        />
-                        <TextArea maxLength={2000} rows={2} title="Description" value={newsletter.description || ''} onChange={e => updateNewsletter({description: e.target.value})} />
-                    </Form>
-                    <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
-                        <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
-                        {renderSenderEmailFieldFn}
-                        <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} />
-                    </Form>
-                    <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
-                        <Toggle
-                            checked={newsletter.subscribe_on_signup}
-                            direction='rtl'
-                            label='Subscribe new members on signup'
-                            labelStyle='value'
-                            onChange={e => updateNewsletter({subscribe_on_signup: e.target.checked})}
-                        />
-                    </Form>
-                    <div className='mb-5 mt-10'>
-                        {newsletter.status === 'active' ? (
-                            !onlyOne && (
-                                <Button
-                                    color='red'
-                                    disabled={activeNewsletters.length === 1}
-                                    label='Archive newsletter'
-                                    link
-                                    onClick={confirmStatusChange}
-                                />
-                            )
-                        ) : (
-                            <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChange} />
-                        )}
-                    </div>
-                </>
-            )
-        },
-        {
-            id: 'content',
-            title: 'Content',
-            contents: (
-                <>
-                    <Form className='mt-6' gap='sm' margins='lg' title='Header'>
-                        <div>
-                            <Heading className="mb-2" level={6}>Header image</Heading>
-                            <div className='flex-column flex gap-1'>
-                                <ImageUpload
-                                    deleteButtonClassName='!top-1 !right-1'
-                                    height={newsletter.header_image ? '66px' : '64px'}
-                                    id='logo'
-                                    imageURL={newsletter.header_image || undefined}
-                                    onDelete={() => {
-                                        updateNewsletter({header_image: null});
-                                    }}
-                                    onUpload={async (file) => {
-                                        try {
-                                            const imageUrl = getImageUrl(await uploadImage({file}));
-                                            updateNewsletter({header_image: imageUrl});
-                                        } catch (e) {
-                                            handleError(e);
-                                        }
-                                    }}
-                                >
-                                    <Icon colorClass='text-grey-700 dark:text-grey-300' name='picture' />
-                                </ImageUpload>
-                                <Hint>1200×600 recommended. Use a transparent PNG for best results on any background.</Hint>
-                            </div>
-                        </div>
-                        <ToggleGroup>
-                            {siteData.icon && (
-                                <Toggle
-                                    checked={newsletter.show_header_icon}
-                                    direction="rtl"
-                                    label='Publication icon'
-                                    onChange={e => updateNewsletter({show_header_icon: e.target.checked})}
-                                />
-                            )}
-                            <Toggle
-                                checked={newsletter.show_header_title}
-                                direction="rtl"
-                                label='Publication title'
-                                onChange={e => updateNewsletter({show_header_title: e.target.checked})}
-                            />
-                            <Toggle
-                                checked={newsletter.show_header_name}
-                                direction="rtl"
-                                label='Newsletter name'
-                                onChange={e => updateNewsletter({show_header_name: e.target.checked})}
-                            />
-                        </ToggleGroup>
-                    </Form>
-
-                    <Form className='mt-6' gap='xs' margins='lg' title='Title section'>
-                        <Toggle
-                            checked={newsletter.show_post_title_section}
-                            direction="rtl"
-                            label='Post title'
-                            onChange={e => updateNewsletter({show_post_title_section: e.target.checked})}
-                        />
-                        {newsletter.show_post_title_section && (
-                            <Toggle
-                                checked={newsletter.show_excerpt}
-                                direction="rtl"
-                                label="Post excerpt"
-                                onChange={e => updateNewsletter({show_excerpt: e.target.checked})}
-                            />
-                        )}
-                        <Toggle
-                            checked={newsletter.show_feature_image}
-                            direction="rtl"
-                            label='Feature image'
-                            onChange={e => updateNewsletter({show_feature_image: e.target.checked})}
-                        />
-                    </Form>
-
-                    <Form className='mt-6' gap='sm' margins='lg' title='Footer'>
-                        <ToggleGroup gap='lg'>
-                            <Toggle
-                                checked={newsletter.feedback_enabled}
-                                direction="rtl"
-                                label='Ask your readers for feedback'
-                                onChange={e => updateNewsletter({feedback_enabled: e.target.checked})}
-                            />
-                            {['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '') && (
-                                <Toggle
-                                    checked={newsletter.show_comment_cta}
-                                    direction="rtl"
-                                    label='Add a link to your comments'
-                                    onChange={e => updateNewsletter({show_comment_cta: e.target.checked})}
-                                />
-                            )}
-                            <Toggle
-                                checked={newsletter.show_latest_posts}
-                                direction="rtl"
-                                label='Share your latest posts'
-                                onChange={e => updateNewsletter({show_latest_posts: e.target.checked})}
-                            />
-                            <Toggle
-                                checked={newsletter.show_subscription_details}
-                                direction="rtl"
-                                label='Show subscription details'
-                                onChange={e => updateNewsletter({show_subscription_details: e.target.checked})}
-                            />
-                        </ToggleGroup>
-                        <HtmlField
-                            hint='Any extra information or legal text'
-                            nodes='MINIMAL_NODES'
-                            placeholder=' '
-                            title='Email footer'
-                            value={newsletter.footer_content || ''}
-                            onChange={html => updateNewsletter({footer_content: html})}
-                        />
-                    </Form>
-                    <Separator />
-                    <div className='my-5 flex w-full items-start'>
-                        <Icon className='mr-2 mt-[-1px]' colorClass='text-red' name='heart' />
-                        <Form marginBottom={false}>
-                            <Toggle
-                                checked={newsletter.show_badge}
-                                direction='rtl'
-                                label={
-                                    <div className='flex flex-col gap-0.5'>
-                                        <span className='text-sm md:text-base'>Promote independent publishing</span>
-                                        <span className='text-[11px] leading-tight text-grey-700 md:text-xs md:leading-tight'>
-                                            Show you&apos;re a part of the indie publishing movement with a small badge in the footer
-                                        </span>
-                                    </div>
-                                }
-                                labelStyle='value'
-                                onChange={e => updateNewsletter({show_badge: e.target.checked})}
-                            />
-                        </Form>
-                    </div>
-                </>
-            )
-        },
-        {
-            id: 'design',
-            title: 'Design',
-            contents: (
-                <>
-                    <Form className='mt-6' gap='xs' margins='lg' title='Global'>
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[{hex: '#ffffff', value: 'light', title: 'White'}]}
-                            title='Background color'
-                            value={newsletter.background_color || 'light'}
-                            onChange={color => updateNewsletter({background_color: color!})}
-                        />
-                        <div className='flex w-full items-center justify-between gap-2'>
-                            <div className='shrink-0'>Heading font</div>
-                            <Select
-                                containerClassName='max-w-[200px]'
-                                options={fontOptions}
-                                selectedOption={fontOptions.find(o => o.value === newsletter.title_font_category)}
-                                onSelect={option => handleTitleFontChange(option, newsletter, fontWeightOptions, updateNewsletter)}
-                            />
-                        </div>
-                        <div className='flex w-full items-center justify-between gap-2'>
-                            <div className='shrink-0'>Heading weight</div>
-                            <Select
-                                containerClassName='max-w-[200px]'
-                                options={headingFontWeightOptions}
-                                selectedOption={getSelectedFontWeightOptionFn}
-                                onSelect={option => updateNewsletter({title_font_weight: option?.value})}
-                            />
-                        </div>
-                        <div className='flex w-full items-center justify-between gap-2'>
-                            <div className='shrink-0'>Body font</div>
-                            <Select
-                                containerClassName='max-w-[200px]'
-                                options={fontOptions}
-                                selectedOption={fontOptions.find(o => o.value === newsletter.body_font_category)}
-                                testId='body-font-select'
-                                onSelect={option => updateNewsletter({body_font_category: option?.value})}
-                            />
-                        </div>
-                    </Form>
-
-                    <Form className='mt-6' gap='xs' margins='lg' title='Header'>
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[{value: 'transparent', title: 'Transparent', hex: '#00000000'}]}
-                            title='Header background color'
-                            value={newsletter.header_background_color || 'transparent'}
-                            onChange={color => updateNewsletter({header_background_color: color!})}
-                        />
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[
-                                {value: null, title: 'Auto', hex: backgroundIsDark ? '#ffffff' : '#000000'},
-                                {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                            ]}
-                            title='Post title color'
-                            value={newsletter.post_title_color}
-                            onChange={color => updateNewsletter({post_title_color: color})}
-                        />
-                        <div className='flex w-full justify-between'>
-                            <div>Title alignment</div>
-                            <ButtonGroup
-                                activeKey={newsletter.title_alignment}
-                                buttons={[
-                                    {
-                                        key: 'left',
-                                        icon: 'align-left',
-                                        iconSize: 14,
-                                        label: 'Align left',
-                                        tooltip: 'Left',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({title_alignment: 'left'}),
-                                        disabled: !newsletter.show_post_title_section
-                                    },
-                                    {
-                                        key: 'center',
-                                        icon: 'align-center',
-                                        iconSize: 14,
-                                        label: 'Align center',
-                                        tooltip: 'Center',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({title_alignment: 'center'}),
-                                        disabled: !newsletter.show_post_title_section
-                                    }
-                                ]}
-                                clearBg={false}
-                            />
-                        </div>
-                    </Form>
-
-                    <Form className='mt-6' gap='xs' margins='lg' title='Body'>
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[
-                                {value: null, title: 'Auto', hex: backgroundIsDark ? '#ffffff' : '#000000'},
-                                {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                            ]}
-                            title='Section title color'
-                            value={newsletter.section_title_color}
-                            onChange={color => updateNewsletter({section_title_color: color})}
-                        />
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[
-                                {value: 'accent', title: 'Accent', hex: siteData.accent_color},
-                                {value: null, title: 'Auto', hex: backgroundIsDark ? '#ffffff' : '#000000'}
-                            ]}
-                            title='Button color'
-                            value={newsletter.button_color}
-                            onChange={color => updateNewsletter({button_color: color})}
-                        />
-                        <div className='flex w-full justify-between'>
-                            <div>Button style</div>
-                            <ButtonGroup
-                                activeKey={newsletter.button_style || 'fill'}
-                                buttons={[
-                                    {
-                                        key: 'fill',
-                                        icon: 'squircle-fill',
-                                        iconSize: 14,
-                                        label: 'Fill',
-                                        tooltip: 'Fill',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({button_style: 'fill'})
-                                    },
-                                    {
-                                        key: 'outline',
-                                        icon: 'squircle',
-                                        iconSize: 14,
-                                        label: 'Outline',
-                                        tooltip: 'Outline',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({button_style: 'outline'})
-                                    }
-                                ]}
-                                clearBg={false}
-                            />
-                        </div>
-                        <div className='flex w-full justify-between'>
-                            <div>Button corners</div>
-                            <ButtonGroup
-                                activeKey={newsletter.button_corners || 'rounded'}
-                                buttons={[
-                                    {
-                                        key: 'square',
-                                        icon: 'square',
-                                        iconSize: 14,
-                                        label: 'Square',
-                                        tooltip: 'Squared',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({button_corners: 'square'})
-                                    },
-                                    {
-                                        key: 'rounded',
-                                        icon: 'squircle',
-                                        iconSize: 14,
-                                        label: 'Rounded',
-                                        tooltip: 'Rounded',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({button_corners: 'rounded'})
-                                    },
-                                    {
-                                        key: 'pill',
-                                        icon: 'circle',
-                                        iconSize: 14,
-                                        label: 'Pill',
-                                        tooltip: 'Pill',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({button_corners: 'pill'})
-                                    }
-                                ]}
-                                clearBg={false}
-                            />
-                        </div>
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[
-                                {value: 'accent', title: 'Accent', hex: siteData.accent_color},
-                                {value: null, title: 'Auto', hex: backgroundIsDark ? '#ffffff' : '#000000'}
-                            ]}
-                            title='Link color'
-                            value={newsletter.link_color}
-                            onChange={color => updateNewsletter({link_color: color})}
-                        />
-                        <div className='flex w-full justify-between'>
-                            <div>Link style</div>
-                            <ButtonGroup
-                                activeKey={newsletter.link_style || 'underline'}
-                                buttons={[
-                                    {
-                                        key: 'underline',
-                                        icon: 'text-underline',
-                                        iconSize: 14,
-                                        label: 'Underline',
-                                        tooltip: 'Underline',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({link_style: 'underline'})
-                                    },
-                                    {
-                                        key: 'regular',
-                                        icon: 'text-regular',
-                                        iconSize: 14,
-                                        label: 'Regular',
-                                        tooltip: 'Regular',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({link_style: 'regular'})
-                                    },
-                                    {
-                                        key: 'bold',
-                                        icon: 'text-bold',
-                                        iconSize: 14,
-                                        label: 'Bold',
-                                        tooltip: 'Bold',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({link_style: 'bold'})
-                                    }
-                                ]}
-                                clearBg={false}
-                            />
-                        </div>
-                        <div className='flex w-full justify-between'>
-                            <div>Image corners</div>
-                            <ButtonGroup
-                                activeKey={newsletter.image_corners || 'square'}
-                                buttons={[
-                                    {
-                                        key: 'square',
-                                        icon: 'square',
-                                        iconSize: 14,
-                                        label: 'Square',
-                                        tooltip: 'Squared',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({image_corners: 'square'})
-                                    },
-                                    {
-                                        key: 'rounded',
-                                        icon: 'squircle',
-                                        iconSize: 14,
-                                        label: 'Rounded',
-                                        tooltip: 'Rounded',
-                                        hideLabel: true,
-                                        link: false,
-                                        size: 'sm',
-                                        onClick: () => updateNewsletter({image_corners: 'rounded'})
-                                    }
-                                ]}
-                                clearBg={false}
-                            />
-                        </div>
-                        <ColorPickerField
-                            direction='rtl'
-                            eyedropper={true}
-                            swatches={[
-                                {value: 'light', title: 'Light', hex: '#e0e7eb'},
-                                {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                            ]}
-                            title='Divider color'
-                            value={newsletter.divider_color || 'light'}
-                            onChange={color => updateNewsletter({divider_color: color})}
-                        />
-                    </Form>
-                </>
-            )
-        }
-    ];
-}
-
-/**
- * Sidebar component split into smaller logical parts.
+ * Renders the sidebar with all tabs.
  */
 const Sidebar: React.FC<{
     newsletter: Newsletter;
@@ -824,29 +203,371 @@ const Sidebar: React.FC<{
         }
     };
 
-    const backgroundIsDark = isBackgroundDark(newsletter, siteData);
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
-    const selectedFontWeightOption = getSelectedFontWeightOption(newsletter, fontWeightOptions);
-    const senderEmailField = renderSenderEmailField(newsletter, config, defaultEmailAddress, errors, clearError, updateNewsletter);
-    const confirmStatusChange = useStatusChangeHandler(newsletter, editNewsletter, limiter, handleError, updateRoute);
-    const tabs = generateTabs(
-        newsletter,
-        siteTitle,
-        errors,
-        clearError,
-        updateNewsletter,
-        validate,
-        onlyOne,
-        activeNewsletters,
-        confirmStatusChange,
-        senderEmailField,
-        backgroundIsDark,
-        siteData,
-        fontOptions,
-        headingFontWeightOptions,
-        selectedFontWeightOption,
-        (option) => handleTitleFontChange(option, newsletter, fontWeightOptions, updateNewsletter)
-    );
+
+    const confirmStatusChange = async () => {
+        if (newsletter.status === 'active') {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Archive newsletter',
+                prompt: <>
+                    <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
+                    <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
+                </>,
+                okLabel: 'Archive',
+                okColor: 'red',
+                onOk: async (modal) => {
+                    try {
+                        await editNewsletter({...newsletter, status: 'archived'});
+                        modal?.remove();
+                        showToast({type: 'success', message: 'Newsletter archived'});
+                    } catch (e) {
+                        handleError(e);
+                    }
+                }
+            });
+        } else {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('newsletters');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                }
+                throw error;
+            }
+
+            NiceModal.show(ConfirmationModal, {
+                title: 'Reactivate newsletter',
+                prompt: <>
+                    Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
+                </>,
+                okLabel: 'Reactivate',
+                onOk: async (modal) => {
+                    await editNewsletter({...newsletter, status: 'active'});
+                    modal?.remove();
+                    showToast({type: 'success', message: 'Newsletter reactivated'});
+                }
+            });
+        }
+    };
+
+    const tabs: Tab[] = [
+        {
+            id: 'generalSettings',
+            title: 'General',
+            contents: (
+                <>
+                    <Form className='mt-6' gap='sm' margins='lg' title='Name and description'>
+                        <TextField
+                            error={Boolean(errors.name)}
+                            hint={errors.name}
+                            maxLength={191}
+                            placeholder="Weekly Roundup"
+                            title="Name"
+                            value={newsletter.name || ''}
+                            onChange={e => updateNewsletter({name: e.target.value})}
+                            onKeyDown={() => clearError('name')}
+                        />
+                        <TextArea maxLength={2000} rows={2} title="Description" value={newsletter.description || ''} onChange={e => updateNewsletter({description: e.target.value})} />
+                    </Form>
+                    <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
+                        <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
+                        {renderSenderEmailField(newsletter, config, defaultEmailAddress, errors, clearError, updateNewsletter)}
+                        <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={validate} />
+                    </Form>
+                    <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
+                        <Toggle
+                            checked={newsletter.subscribe_on_signup}
+                            direction='rtl'
+                            label='Subscribe new members on signup'
+                            labelStyle='value'
+                            onChange={e => updateNewsletter({subscribe_on_signup: e.target.checked})}
+                        />
+                    </Form>
+                    <div className='mb-5 mt-10'>
+                        {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChange} />) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChange} />}
+                    </div>
+                </>
+            )
+        },
+        {
+            id: 'content',
+            title: 'Content',
+            contents: (
+                <>
+                    <Form className='mt-6' gap='sm' margins='lg' title='Header'>
+                        <div>
+                            <div>
+                                <Heading className="mb-2" level={6}>Header image</Heading>
+                            </div>
+                            <div className='flex-column flex gap-1'>
+                                <ImageUpload
+                                    deleteButtonClassName='!top-1 !right-1'
+                                    height={newsletter.header_image ? '66px' : '64px'}
+                                    id='logo'
+                                    imageURL={newsletter.header_image || undefined}
+                                    onDelete={() => {
+                                        updateNewsletter({header_image: null});
+                                    }}
+                                    onUpload={async (file) => {
+                                        try {
+                                            const imageUrl = getImageUrl(await uploadImage({file}));
+                                            updateNewsletter({header_image: imageUrl});
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
+                                    }}
+                                >
+                                    <Icon colorClass='text-grey-700 dark:text-grey-300' name='picture' />
+                                </ImageUpload>
+                                <Hint>1200×600 recommended. Use a transparent PNG for best results on any background.</Hint>
+                            </div>
+                        </div>
+                        <ToggleGroup>
+                            {icon && <Toggle checked={newsletter.show_header_icon} direction="rtl" label='Publication icon' onChange={e => updateNewsletter({show_header_icon: e.target.checked})} />}
+                            <Toggle checked={newsletter.show_header_title} direction="rtl" label='Publication title' onChange={e => updateNewsletter({show_header_title: e.target.checked})} />
+                            <Toggle checked={newsletter.show_header_name} direction="rtl" label='Newsletter name' onChange={e => updateNewsletter({show_header_name: e.target.checked})} />
+                        </ToggleGroup>
+                    </Form>
+
+                    <Form className='mt-6' gap='xs' margins='lg' title='Title section'>
+                        <Toggle checked={newsletter.show_post_title_section} direction="rtl" label='Post title' onChange={e => updateNewsletter({show_post_title_section: e.target.checked})} />
+                        {newsletter.show_post_title_section && (
+                            <Toggle checked={newsletter.show_excerpt} direction="rtl" label="Post excerpt" onChange={e => updateNewsletter({show_excerpt: e.target.checked})} />
+                        )}
+                        <Toggle checked={newsletter.show_feature_image} direction="rtl" label='Feature image' onChange={e => updateNewsletter({show_feature_image: e.target.checked})} />
+                    </Form>
+
+                    <Form className='mt-6' gap='sm' margins='lg' title='Footer'>
+                        <ToggleGroup gap='lg'>
+                            <Toggle checked={newsletter.feedback_enabled} direction="rtl" label='Ask your readers for feedback' onChange={e => updateNewsletter({feedback_enabled: e.target.checked})} />
+                            {commentsEnabled && <Toggle checked={newsletter.show_comment_cta} direction="rtl" label='Add a link to your comments' onChange={e => updateNewsletter({show_comment_cta: e.target.checked})} />}
+                            <Toggle checked={newsletter.show_latest_posts} direction="rtl" label='Share your latest posts' onChange={e => updateNewsletter({show_latest_posts: e.target.checked})} />
+                            <Toggle checked={newsletter.show_subscription_details} direction="rtl" label='Show subscription details' onChange={e => updateNewsletter({show_subscription_details: e.target.checked})} />
+                        </ToggleGroup>
+                        <HtmlField
+                            hint='Any extra information or legal text'
+                            nodes='MINIMAL_NODES'
+                            placeholder=' '
+                            title='Email footer'
+                            value={newsletter.footer_content || ''}
+                            onChange={html => updateNewsletter({footer_content: html})}
+                        />
+                    </Form>
+                    <Separator />
+                    <div className='my-5 flex w-full items-start'>
+                        <span>
+                            <Icon className='mr-2 mt-[-1px]' colorClass='text-red' name='heart' />
+                        </span>
+                        <Form marginBottom={false}>
+                            <Toggle
+                                checked={newsletter.show_badge}
+                                direction='rtl'
+                                label={
+                                    <div className='flex flex-col gap-0.5'>
+                                        <span className='text-sm md:text-base'>Promote independent publishing</span>
+                                        <span className='text-[11px] leading-tight text-grey-700 md:text-xs md:leading-tight'>Show you&apos;re a part of the indie publishing movement with a small badge in the footer</span>
+                                    </div>
+                                }
+                                labelStyle='value'
+                                onChange={e => updateNewsletter({show_badge: e.target.checked})}
+                            />
+                        </Form>
+                    </div>
+                </>
+            )
+        },
+        {
+            id: 'design',
+            title: 'Design',
+            contents: (
+                <>
+                    <Form className='mt-6' gap='xs' margins='lg' title='Global'>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[{hex: '#ffffff', value: 'light', title: 'White'}]}
+                                title='Background color'
+                                value={newsletter.background_color || 'light'}
+                                onChange={color => updateNewsletter({background_color: color!})}
+                            />
+                        </div>
+                        <div className='flex w-full items-center justify-between gap-2'>
+                            <div className='shrink-0'>Heading font</div>
+                            <Select
+                                containerClassName='max-w-[200px]'
+                                options={fontOptions}
+                                selectedOption={fontOptions.find(option => option.value === newsletter.title_font_category)}
+                                onSelect={option => changeSelectedTitleFont(option, newsletter, fontWeightOptions, updateNewsletter)}
+                            />
+                        </div>
+                        <div className='flex w-full items-center justify-between gap-2'>
+                            <div className='shrink-0'>Heading weight</div>
+                            <Select
+                                containerClassName='max-w-[200px]'
+                                options={headingFontWeightOptions}
+                                selectedOption={getSelectedFontWeightOption(newsletter, fontWeightOptions, headingFontWeightOptions)}
+                                onSelect={option => updateNewsletter({title_font_weight: option?.value})}
+                            />
+                        </div>
+                        <div className='flex w-full items-center justify-between gap-2'>
+                            <div className='shrink-0'>Body font</div>
+                            <Select
+                                containerClassName='max-w-[200px]'
+                                options={fontOptions}
+                                selectedOption={fontOptions.find(option => option.value === newsletter.body_font_category)}
+                                testId='body-font-select'
+                                onSelect={option => updateNewsletter({body_font_category: option?.value})}
+                            />
+                        </div>
+                    </Form>
+                    <Form className='mt-6' gap='xs' margins='lg' title='Header'>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[{value: 'transparent', title: 'Transparent', hex: '#00000000'}]}
+                                title='Header background color'
+                                value={newsletter.header_background_color || 'transparent'}
+                                onChange={color => updateNewsletter({header_background_color: color!})}
+                            />
+                        </div>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[
+                                    {value: null, title: 'Auto', hex: isBackgroundDark(newsletter.background_color || 'light', siteData) ? '#ffffff' : '#000000'},
+                                    {value: 'accent', title: 'Accent', hex: siteData.accent_color}
+                                ]}
+                                title='Post title color'
+                                value={newsletter.post_title_color}
+                                onChange={color => updateNewsletter({post_title_color: color})}
+                            />
+                        </div>
+                        <div className='flex w-full justify-between'>
+                            <div>Title alignment</div>
+                            <ButtonGroup activeKey={newsletter.title_alignment} buttons={[
+                                {
+                                    key: 'left',
+                                    icon: 'align-left',
+                                    iconSize: 14,
+                                    label: 'Align left',
+                                    tooltip: 'Left',
+                                    hideLabel: true,
+                                    link: false,
+                                    size: 'sm',
+                                    onClick: () => updateNewsletter({title_alignment: 'left'}),
+                                    disabled: !newsletter.show_post_title_section
+                                },
+                                {
+                                    key: 'center',
+                                    icon: 'align-center',
+                                    iconSize: 14,
+                                    label: 'Align center',
+                                    tooltip: 'Center',
+                                    hideLabel: true,
+                                    link: false,
+                                    size: 'sm',
+                                    onClick: () => updateNewsletter({title_alignment: 'center'}),
+                                    disabled: !newsletter.show_post_title_section
+                                }
+                            ]} clearBg={false} />
+                        </div>
+                    </Form>
+
+                    <Form className='mt-6' gap='xs' margins='lg' title='Body'>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[
+                                    {value: null, title: 'Auto', hex: isBackgroundDark(newsletter.background_color || 'light', siteData) ? '#ffffff' : '#000000'},
+                                    {value: 'accent', title: 'Accent', hex: siteData.accent_color}
+                                ]}
+                                title='Section title color'
+                                value={newsletter.section_title_color}
+                                onChange={color => updateNewsletter({section_title_color: color})}
+                            />
+                        </div>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[
+                                    {value: 'accent', title: 'Accent', hex: siteData.accent_color},
+                                    {value: null, title: 'Auto', hex: isBackgroundDark(newsletter.background_color || 'light', siteData) ? '#ffffff' : '#000000'}
+                                ]}
+                                title='Button color'
+                                value={newsletter.button_color}
+                                onChange={color => updateNewsletter({button_color: color})}
+                            />
+                        </div>
+                        <div className='flex w-full justify-between'>
+                            <div>Button style</div>
+                            <ButtonGroup activeKey={newsletter.button_style || 'fill'} buttons={[
+                                {key: 'fill', icon: 'squircle-fill', iconSize: 14, label: 'Fill', tooltip: 'Fill', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({button_style: 'fill'})},
+                                {key: 'outline', icon: 'squircle', iconSize: 14, label: 'Outline', tooltip: 'Outline', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({button_style: 'outline'})}
+                            ]} clearBg={false} />
+                        </div>
+                        <div className='flex w-full justify-between'>
+                            <div>Button corners</div>
+                            <ButtonGroup activeKey={newsletter.button_corners || 'rounded'} buttons={[
+                                {key: 'square', icon: 'square', iconSize: 14, label: 'Square', tooltip: 'Squared', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({button_corners: 'square'})},
+                                {key: 'rounded', icon: 'squircle', iconSize: 14, label: 'Rounded', tooltip: 'Rounded', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({button_corners: 'rounded'})},
+                                {key: 'pill', icon: 'circle', iconSize: 14, label: 'Pill', tooltip: 'Pill', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({button_corners: 'pill'})}
+                            ]} clearBg={false} />
+                        </div>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[
+                                    {value: 'accent', title: 'Accent', hex: siteData.accent_color},
+                                    {value: null, title: 'Auto', hex: isBackgroundDark(newsletter.background_color || 'light', siteData) ? '#ffffff' : '#000000'}
+                                ]}
+                                title='Link color'
+                                value={newsletter.link_color}
+                                onChange={color => updateNewsletter({link_color: color})}
+                            />
+                        </div>
+                        <div className='flex w-full justify-between'>
+                            <div>Link style</div>
+                            <ButtonGroup activeKey={newsletter.link_style || 'underline'} buttons={[
+                                {key: 'underline', icon: 'text-underline', iconSize: 14, label: 'Underline', tooltip: 'Underline', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({link_style: 'underline'})},
+                                {key: 'regular', icon: 'text-regular', iconSize: 14, label: 'Regular', tooltip: 'Regular', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({link_style: 'regular'})},
+                                {key: 'bold', icon: 'text-bold', iconSize: 14, label: 'Bold', tooltip: 'Bold', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({link_style: 'bold'})}
+                            ]} clearBg={false} />
+                        </div>
+                        <div className='flex w-full justify-between'>
+                            <div>Image corners</div>
+                            <ButtonGroup activeKey={newsletter.image_corners || 'square'} buttons={[
+                                {key: 'square', icon: 'square', iconSize: 14, label: 'Square', tooltip: 'Squared', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({image_corners: 'square'})},
+                                {key: 'rounded', icon: 'squircle', iconSize: 14, label: 'Rounded', tooltip: 'Rounded', hideLabel: true, link: false, size: 'sm', onClick: () => updateNewsletter({image_corners: 'rounded'})}
+                            ]} clearBg={false} />
+                        </div>
+                        <div className='mb-1'>
+                            <ColorPickerField
+                                direction='rtl'
+                                eyedropper={true}
+                                swatches={[
+                                    {value: 'light', title: 'Light', hex: '#e0e7eb'},
+                                    {value: 'accent', title: 'Accent', hex: siteData.accent_color}
+                                ]}
+                                title='Divider color'
+                                value={newsletter.divider_color || 'light'}
+                                onChange={color => updateNewsletter({divider_color: color})}
+                            />
+                        </div>
+                    </Form>
+                </>
+            )
+        }
+    ];
 
     const handleTabChange = (id: string) => {
         setSelectedTab(id);
@@ -867,27 +588,12 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
     const {updateRoute} = useRouting();
     const handleError = useHandleError();
 
-    const {
-        formState,
-        saveState,
-        updateForm,
-        setFormState,
-        handleSave,
-        validate,
-        errors,
-        clearError,
-        okProps
-    } = useForm({
+    const {formState, saveState, updateForm, setFormState, handleSave, validate, errors, clearError, okProps} = useForm({
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage: React.ReactNode | undefined;
-
-            if (emailToVerify && ['sender_email', 'sender_reply_to'].includes(emailToVerify)) {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
-
+            const toastMessage = getVerificationToastMessage(emailToVerify);
             if (toastMessage) {
                 showToast({
                     icon: 'email',
@@ -927,38 +633,27 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
     }, [setFormState, newsletter]);
 
     const preview = <NewsletterPreview newsletter={formState} />;
-    const sidebar = (
-        <Sidebar
-            clearError={clearError}
-            errors={errors}
-            newsletter={formState}
-            onlyOne={onlyOne}
-            updateNewsletter={updateNewsletter}
-            validate={validate}
-        />
-    );
+    const sidebar = <Sidebar clearError={clearError} errors={errors} newsletter={formState} onlyOne={onlyOne} updateNewsletter={updateNewsletter} validate={validate} />;
 
-    return (
-        <PreviewModalContent
-            afterClose={() => updateRoute('newsletters')}
-            buttonsDisabled={okProps.disabled}
-            cancelLabel='Close'
-            deviceSelector={false}
-            dirty={saveState === 'unsaved'}
-            okColor={okProps.color}
-            okLabel={okProps.label || 'Save'}
-            preview={preview}
-            previewBgColor='grey'
-            previewToolbar={false}
-            sidebar={sidebar}
-            sidebarPadding={false}
-            testId='newsletter-modal'
-            title='Newsletter'
-            onOk={async () => {
-                await handleSave({fakeWhenUnchanged: true});
-            }}
-        />
-    );
+    return <PreviewModalContent
+        afterClose={() => updateRoute('newsletters')}
+        buttonsDisabled={okProps.disabled}
+        cancelLabel='Close'
+        deviceSelector={false}
+        dirty={saveState === 'unsaved'}
+        okColor={okProps.color}
+        okLabel={okProps.label || 'Save'}
+        preview={preview}
+        previewBgColor={'grey'}
+        previewToolbar={false}
+        sidebar={sidebar}
+        sidebarPadding={false}
+        testId='newsletter-modal'
+        title='Newsletter'
+        onOk={async () => {
+            await handleSave({fakeWhenUnchanged: true});
+        }}
+    />;
 };
 
 const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {

@@ -25,83 +25,8 @@ const removeTimestamps = (definition, loadedModel) => {
   delete definition.attributes[updated];
 };
 
-const shouldMigrate = connection => connection?.options?.autoMigration !== false;
-
-const processMorphRelations = async ({
-  morphRelations,
-  loadedModel,
-  definition,
-  ORM,
-  model,
-  context,
-}) => {
-  for (const morphRelation of morphRelations) {
-    const attributes = {
-      [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
-      [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
-      [`${morphRelation.alias}_type`]: { type: 'text' },
-      [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
-      order: { type: 'integer' },
-    };
-
-    if (shouldMigrate(context.connection)) {
-      await createOrUpdateTable(
-        {
-          table: `${loadedModel.tableName}_morph`,
-          attributes,
-          definition,
-          ORM,
-          model,
-        },
-        context
-      );
-    }
-  }
-};
-
-const processManyRelations = async ({
-  manyRelations,
-  definition,
-  ORM,
-  model,
-  connection,
-  context,
-}) => {
-  for (const manyRelation of manyRelations) {
-    const { plugin, collection, via, dominant, alias } = manyRelation;
-    if (!dominant) continue;
-
-    const targetCollection = strapi.db.getModel(collection, plugin);
-    const targetAttr = via
-      ? targetCollection.attributes[via]
-      : { attribute: singular(definition.collectionName), column: definition.primaryKey };
-
-    const defAttr = definition.attributes[alias];
-    const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
-    let rootCol = `${defAttr.attribute}_${defAttr.column}`;
-
-    if (rootCol === targetCol) {
-      rootCol = `related_${rootCol}`;
-    }
-
-    const attributes = {
-      [targetCol]: { type: targetCollection.primaryKeyType },
-      [rootCol]: { type: definition.primaryKeyType },
-    };
-
-    if (shouldMigrate(connection)) {
-      await createOrUpdateTable(
-        { table: manyRelation.tableCollectionName, attributes, definition, ORM, model },
-        context
-      );
-    }
-  }
-};
-
-const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
-  addTimestamps(definition, loadedModel);
-
-  if (shouldMigrate(connection)) {
+const syncTable = async ({ ORM, loadedModel, definition, connection, model }, context) => {
+  if (connection.options && connection.options.autoMigration !== false) {
     await createOrUpdateTable(
       {
         table: loadedModel.tableName,
@@ -113,29 +38,84 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
       context
     );
   }
+};
 
+const syncMorphRelations = async (definition, loadedModel, connection, ORM, model, context) => {
   const morphRelations = definition.associations.filter(a =>
     a.nature.toLowerCase().includes('morphto')
   );
-  await processMorphRelations({
-    morphRelations,
-    loadedModel,
-    definition,
-    ORM,
-    model,
-    context: { ...context, connection },
-  });
 
+  for (const rel of morphRelations) {
+    const attrs = {
+      [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
+      [`${rel.alias}_id`]: { type: definition.primaryKeyType },
+      [`${rel.alias}_type`]: { type: 'text' },
+      [definition.attributes[rel.alias].filter]: { type: 'text' },
+      order: { type: 'integer' },
+    };
+
+    if (connection.options && connection.options.autoMigration !== false) {
+      await createOrUpdateTable(
+        {
+          table: `${loadedModel.tableName}_morph`,
+          attributes: attrs,
+          definition,
+          ORM,
+          model,
+        },
+        context
+      );
+    }
+  }
+};
+
+const syncManyRelations = async (definition, loadedModel, connection, ORM, model, context) => {
   const manyRelations = getManyRelations(definition);
-  await processManyRelations({
-    manyRelations,
-    definition,
-    ORM,
-    model,
-    connection,
-    context,
-  });
 
+  for (const rel of manyRelations) {
+    if (!rel.dominant) continue;
+
+    const targetCollection = strapi.db.getModel(rel.collection, rel.plugin);
+    const targetAttr = rel.via
+      ? targetCollection.attributes[rel.via]
+      : {
+          attribute: singular(definition.collectionName),
+          column: definition.primaryKey,
+        };
+
+    const defAttr = definition.attributes[rel.alias];
+    const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
+    let rootCol = `${defAttr.attribute}_${defAttr.column}`;
+
+    if (rootCol === targetCol) {
+      rootCol = `related_${rootCol}`;
+    }
+
+    const attrs = {
+      [targetCol]: { type: targetCollection.primaryKeyType },
+      [rootCol]: { type: definition.primaryKeyType },
+    };
+
+    if (connection.options && connection.options.autoMigration !== false) {
+      await createOrUpdateTable(
+        {
+          table: rel.tableCollectionName,
+          attributes: attrs,
+          definition,
+          ORM,
+          model,
+        },
+        context
+      );
+    }
+  }
+};
+
+const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
+  addTimestamps(definition, loadedModel);
+  await syncTable({ ORM, loadedModel, definition, connection, model }, context);
+  await syncMorphRelations(definition, loadedModel, connection, ORM, model, context);
+  await syncManyRelations(definition, loadedModel, connection, ORM, model, context);
   removeTimestamps(definition, loadedModel);
 };
 
@@ -235,7 +215,8 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
 
   const createColumns = (tbl, cols, opts = {}) => {
     const { tableExists, alter = false } = opts;
-    Object.entries(cols).forEach(([key, attribute]) => {
+    Object.keys(cols).forEach(key => {
+      const attribute = cols[key];
       const col = buildColType({
         name: key,
         attribute,
@@ -266,23 +247,26 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     });
   };
 
-  const createTable = (tblName, { trx = ORM.knex, ...opts } = {}) =>
-    trx.schema.createTable(tblName, tbl => {
+  const alterColumns = (tbl, cols, opts = {}) => createColumns(tbl, cols, { ...opts, alter: true });
+
+  const createTable = (tblName, { trx = ORM.knex, ...opts } = {}) => {
+    return trx.schema.createTable(tblName, tbl => {
       createIdType(tbl);
       createColumns(tbl, attributes, { ...opts, tableExists: false });
     });
+  };
 
   if (!tableExists) {
     await createTable(table);
     return;
   }
 
-  const attributeNames = Object.keys(attributes);
+  const attrNames = Object.keys(attributes);
   const columnsInfo = await Promise.all(
-    attributeNames.map(name => getColumnInfo(name, table, ORM))
+    attrNames.map(name => getColumnInfo(name, table, ORM))
   );
-  const missing = columnsInfo.filter(i => !i.exists).map(i => i.columnName);
-  const columnsToAdd = _.pick(attributes, missing);
+  const toAdd = columnsInfo.filter(i => !i.exists).map(i => i.columnName);
+  const columnsToAdd = _.pick(attributes, toAdd);
 
   if (Object.keys(columnsToAdd).length) {
     await ORM.knex.schema.table(table, tbl => {
@@ -290,12 +274,12 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     });
   }
 
-  const nonTimestampAttrs = attributeNames.filter(
+  const attrsWithoutTimestamps = attrNames.filter(
     n => !(definition.options.timestamps || []).includes(n)
   );
 
   const columnsToAlter = await getColumnsWhereDefinitionChanged(
-    nonTimestampAttrs,
+    attrsWithoutTimestamps,
     definition,
     ORM
   );
@@ -312,10 +296,10 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
       const rebuild = async trx => {
         await trx.schema.renameTable(table, tmpTable);
         await Promise.all(
-          attributeNames.map(key => trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key)))
+          attrNames.map(k => trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, k)))
         );
         await createTable(table, { trx });
-        const cols = attributeNames.filter(name =>
+        const cols = attrNames.filter(name =>
           isColumn({ definition, attribute: attributes[name], name })
         );
         const allCols = ['id', ...cols];
@@ -330,7 +314,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
             `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.stack}`
           );
         } else {
-          strapi.log.error(`Migration failed`);
+          strapi.log.error('Migration failed');
           strapi.log.error(err);
         }
         return false;
@@ -342,12 +326,14 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
         await Promise.all(
           columnsToAlter.map(col =>
             ORM.knex.schema
-              .alterTable(table, tbl => tbl.dropUnique(col, uniqueColName(table, col)))
+              .alterTable(table, tbl => {
+                tbl.dropUnique(col, uniqueColName(table, col));
+              })
               .catch(() => {})
           )
         );
         await trx.schema.alterTable(table, tbl => {
-          createColumns(tbl, _.pick(attributes, columnsToAlter), { tableExists });
+          alterColumns(tbl, _.pick(attributes, columnsToAlter), { tableExists });
         });
       };
       try {
@@ -362,7 +348,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
             `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.sqlMessage}`
           );
         } else {
-          strapi.log.error(`Migration failed`);
+          strapi.log.error('Migration failed');
           strapi.log.error(err);
         }
         return false;

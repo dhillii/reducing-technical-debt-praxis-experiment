@@ -29,22 +29,14 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
-// Transform device value to human readable label
-const getDeviceLabel = (value: string): string => {
-    switch (value) {
-        case 'mobile-ios':
-            return 'iOS';
-        case 'mobile-android':
-            return 'Android';
-        case 'desktop':
-            return 'Desktop';
-        case 'bot':
-            return 'Bot';
-        case 'unknown':
-            return 'Unknown';
-        default:
-            return value;
-    }
+// Map device identifier to human‑readable label
+const getDeviceLabel = (device: string): string => {
+    if (device === 'mobile-ios') return 'iOS';
+    if (device === 'mobile-android') return 'Android';
+    if (device === 'desktop') return 'Desktop';
+    if (device === 'bot') return 'Bot';
+    if (device === 'unknown') return 'Unknown';
+    return device;
 };
 
 interface FilterFieldDefinition {
@@ -107,7 +99,6 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     }
 };
 
-// Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -164,10 +155,11 @@ const useTinybirdFilterOptions = (
             site_uuid: statsConfig?.id || '',
             date_from: formatQueryDate(startDate),
             date_to: formatQueryDate(endDate),
-            timezone,
+            timezone: timezone,
             member_status: getAudienceQueryParam(audience),
             limit: '50'
         };
+
         return buildFilterParams(currentFilters, fieldKey, baseParams);
     }, [statsConfig?.id, startDate, endDate, timezone, audience, currentFilters, fieldKey]);
 
@@ -187,7 +179,7 @@ const useTinybirdFilterOptions = (
 
         return items
             .filter(item => (definition.filterItem ? definition.filterItem(item) : true))
-            .map(item => {
+            .map((item) => {
                 const rawValue = String(item[definition.valueKey] ?? '');
                 const visits = Number(item.visits) || 0;
                 const {value, label} = definition.transformValue
@@ -209,7 +201,7 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-// Hook to fetch posts/pages options from Ghost API
+// Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
     const {enabled = true} = config;
     const {range} = useGlobalData();
@@ -241,19 +233,20 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
 
     const options = useMemo(() => {
         const stats = topContentData?.stats;
-        const seen = new Set<string>();
 
+        const seen = new Set<string>();
         return (stats || [])
-            .filter(item => {
+            .filter((item) => {
                 const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
                 const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+
                 if (seen.has(uniqueKey)) {
                     return false;
                 }
                 seen.add(uniqueKey);
                 return true;
             })
-            .map(item => {
+            .map((item) => {
                 const visits = item.visits || 0;
                 const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
                 const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
@@ -269,224 +262,9 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-// Generate audience options based on site settings
-const getAudienceOptions = (paidEnabled?: boolean) => {
-    const base = [
-        {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
-        {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
-        {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
-    ];
-    return paidEnabled ? base : base.filter(opt => opt.value !== 'paid');
-};
-
-// Build grouped field configurations for the Filters component
-const buildGroupedFields = ({
-    supportedOperators,
-    audienceOptions,
-    postOptions,
-    postLoading,
-    sourceOptions,
-    sourceLoading,
-    deviceOptions,
-    deviceLoading,
-    locationOptions,
-    locationLoading,
-    utmSourceOptions,
-    utmSourceLoading,
-    utmMediumOptions,
-    utmMediumLoading,
-    utmCampaignOptions,
-    utmCampaignLoading,
-    utmContentOptions,
-    utmContentLoading,
-    utmTermOptions,
-    utmTermLoading
-}: {
-    supportedOperators: {value: string; label: string}[];
-    audienceOptions: {value: string; label: string; icon: JSX.Element}[];
-    postOptions: any[];
-    postLoading: boolean;
-    sourceOptions: any[];
-    sourceLoading: boolean;
-    deviceOptions: any[];
-    deviceLoading: boolean;
-    locationOptions: any[];
-    locationLoading: boolean;
-    utmSourceOptions: any[];
-    utmSourceLoading: boolean;
-    utmMediumOptions: any[];
-    utmMediumLoading: boolean;
-    utmCampaignOptions: any[];
-    utmCampaignLoading: boolean;
-    utmContentOptions: any[];
-    utmContentLoading: boolean;
-    utmTermOptions: any[];
-    utmTermLoading: boolean;
-}) => {
-    const utmFields: FilterFieldConfig[] = [
-        {
-            key: 'utm_source',
-            label: 'UTM Source',
-            type: 'select',
-            icon: <LucideIcon.MousePointerClick className="size-4" />,
-            placeholder: 'Select source',
-            operators: supportedOperators,
-            defaultOperator: 'is',
-            hideOperatorSelect: true,
-            options: utmSourceOptions,
-            isLoading: utmSourceLoading,
-            searchable: true,
-            selectedOptionsClassName: 'hidden'
-        },
-        {
-            key: 'utm_medium',
-            label: 'UTM Medium',
-            type: 'select',
-            icon: <LucideIcon.SatelliteDish className="size-4" />,
-            placeholder: 'Select medium',
-            operators: supportedOperators,
-            defaultOperator: 'is',
-            hideOperatorSelect: true,
-            options: utmMediumOptions,
-            isLoading: utmMediumLoading,
-            className: 'w-60',
-            popoverContentClassName: 'w-60',
-            searchable: true,
-            selectedOptionsClassName: 'hidden'
-        },
-        {
-            key: 'utm_campaign',
-            label: 'UTM Campaign',
-            type: 'select',
-            icon: <LucideIcon.Flag className="size-4" />,
-            placeholder: 'Select campaign',
-            operators: supportedOperators,
-            defaultOperator: 'is',
-            hideOperatorSelect: true,
-            options: utmCampaignOptions,
-            isLoading: utmCampaignLoading,
-            className: 'w-60',
-            popoverContentClassName: 'w-60',
-            searchable: true,
-            selectedOptionsClassName: 'hidden'
-        },
-        {
-            key: 'utm_content',
-            label: 'UTM Content',
-            type: 'select',
-            icon: <LucideIcon.TextCursorInput className="size-4" />,
-            placeholder: 'Select content',
-            operators: supportedOperators,
-            defaultOperator: 'is',
-            hideOperatorSelect: true,
-            options: utmContentOptions,
-            isLoading: utmContentLoading,
-            className: 'w-60',
-            popoverContentClassName: 'w-60',
-            searchable: true,
-            selectedOptionsClassName: 'hidden'
-        },
-        {
-            key: 'utm_term',
-            label: 'UTM Term',
-            type: 'select',
-            icon: <LucideIcon.Tag className="size-4" />,
-            placeholder: 'Select term',
-            operators: supportedOperators,
-            defaultOperator: 'is',
-            hideOperatorSelect: true,
-            options: utmTermOptions,
-            isLoading: utmTermLoading,
-            className: 'w-60',
-            popoverContentClassName: 'w-60',
-            searchable: true,
-            selectedOptionsClassName: 'hidden'
-        }
-    ];
-
-    return [
-        {
-            group: 'Basic',
-            fields: [
-                {
-                    key: 'audience',
-                    label: 'Audience',
-                    type: 'multiselect',
-                    icon: <LucideIcon.Users />,
-                    options: audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
-                    defaultOperator: 'is any of',
-                    hideOperatorSelect: true,
-                    autoCloseOnSelect: true
-                },
-                {
-                    key: 'post',
-                    label: 'Post or page',
-                    type: 'select',
-                    icon: <LucideIcon.PenLine />,
-                    options: postOptions,
-                    searchable: true,
-                    isLoading: postLoading,
-                    operators: supportedOperators,
-                    defaultOperator: 'is',
-                    className: 'w-80',
-                    popoverContentClassName: 'w-80',
-                    hideOperatorSelect: true,
-                    selectedOptionsClassName: 'hidden'
-                },
-                {
-                    key: 'source',
-                    label: 'Source',
-                    type: 'select',
-                    icon: <LucideIcon.Globe className="size-4" />,
-                    placeholder: 'Select source',
-                    operators: supportedOperators,
-                    defaultOperator: 'is',
-                    hideOperatorSelect: true,
-                    options: sourceOptions,
-                    isLoading: sourceLoading,
-                    className: 'w-60',
-                    popoverContentClassName: 'w-60',
-                    searchable: true,
-                    selectedOptionsClassName: 'hidden'
-                },
-                {
-                    key: 'device',
-                    label: 'Device',
-                    type: 'select',
-                    icon: <LucideIcon.Monitor className="size-4" />,
-                    placeholder: 'Select device',
-                    operators: supportedOperators,
-                    defaultOperator: 'is',
-                    hideOperatorSelect: true,
-                    options: deviceOptions,
-                    isLoading: deviceLoading,
-                    selectedOptionsClassName: 'hidden'
-                },
-                {
-                    key: 'location',
-                    label: 'Location',
-                    type: 'select',
-                    icon: <LucideIcon.MapPin className="size-4" />,
-                    placeholder: 'Select location',
-                    operators: supportedOperators,
-                    defaultOperator: 'is',
-                    hideOperatorSelect: true,
-                    options: locationOptions,
-                    isLoading: locationLoading,
-                    searchable: true,
-                    selectedOptionsClassName: 'hidden'
-                }
-            ]
-        },
-        {
-            group: 'UTM parameters',
-            fields: utmFields
-        }
-    ];
-};
-
 function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {appSettings} = useAppContext();
+
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
     const [isMobile, setIsMobile] = useState(false);
 
@@ -499,10 +277,18 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
         handleChange(mediaQuery);
         mediaQuery.addEventListener('change', handleChange);
+
         return () => mediaQuery.removeEventListener('change', handleChange);
     }, []);
 
-    const audienceOptions = useMemo(() => getAudienceOptions(appSettings?.paidMembersEnabled), [appSettings?.paidMembersEnabled]);
+    const audienceOptions = useMemo(() => {
+        const options = [
+            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
+            {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
+            {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
+        ];
+        return appSettings?.paidMembersEnabled ? options : options.filter(opt => opt.value !== 'paid');
+    }, [appSettings?.paidMembersEnabled]);
 
     const shouldFetchOptions = useCallback((fieldKey: string) => {
         const isActive = activeFilterField === fieldKey;
@@ -518,53 +304,175 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetchOptions('source')});
     const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchOptions('device')});
     const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchOptions('location')});
+
     const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
 
-    const supportedOperators = useMemo(() => [{value: 'is', label: 'is'}], []);
+    const supportedOperators = useMemo(() => [
+        {value: 'is', label: 'is'}
+    ], []);
 
-    const groupedFields = useMemo(() => buildGroupedFields({
-        supportedOperators,
-        audienceOptions,
-        postOptions,
-        postLoading,
-        sourceOptions,
-        sourceLoading,
-        deviceOptions,
-        deviceLoading,
-        locationOptions,
-        locationLoading,
-        utmSourceOptions,
-        utmSourceLoading,
-        utmMediumOptions,
-        utmMediumLoading,
-        utmCampaignOptions,
-        utmCampaignLoading,
-        utmContentOptions,
-        utmContentLoading,
-        utmTermOptions,
-        utmTermLoading
-    }), [
-        supportedOperators,
-        audienceOptions,
-        postOptions,
-        postLoading,
-        sourceOptions,
-        sourceLoading,
-        deviceOptions,
-        deviceLoading,
-        locationOptions,
-        locationLoading,
-        utmSourceOptions,
-        utmSourceLoading,
-        utmMediumOptions,
-        utmMediumLoading,
-        utmCampaignOptions,
-        utmCampaignLoading,
-        utmContentOptions,
-        utmContentLoading,
-        utmTermOptions,
-        utmTermLoading
-    ]);
+    const groupedFields: FilterFieldConfig[] = useMemo(() => {
+        const utmFields: FilterFieldConfig[] = [
+            {
+                key: 'utm_source',
+                label: 'UTM Source',
+                type: 'select',
+                icon: <LucideIcon.MousePointerClick className="size-4" />,
+                placeholder: 'Select source',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmSourceOptions,
+                isLoading: utmSourceLoading,
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_medium',
+                label: 'UTM Medium',
+                type: 'select',
+                icon: <LucideIcon.SatelliteDish className="size-4" />,
+                placeholder: 'Select medium',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmMediumOptions,
+                isLoading: utmMediumLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_campaign',
+                label: 'UTM Campaign',
+                type: 'select',
+                icon: <LucideIcon.Flag className="size-4" />,
+                placeholder: 'Select campaign',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmCampaignOptions,
+                isLoading: utmCampaignLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_content',
+                label: 'UTM Content',
+                type: 'select',
+                icon: <LucideIcon.TextCursorInput className="size-4" />,
+                placeholder: 'Select content',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmContentOptions,
+                isLoading: utmContentLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_term',
+                label: 'UTM Term',
+                type: 'select',
+                icon: <LucideIcon.Tag className="size-4" />,
+                placeholder: 'Select term',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmTermOptions,
+                isLoading: utmTermLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            }
+        ];
+
+        return [
+            {
+                group: 'Basic',
+                fields: [
+                    {
+                        key: 'audience',
+                        label: 'Audience',
+                        type: 'multiselect',
+                        icon: <LucideIcon.Users />,
+                        options: audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
+                        defaultOperator: 'is any of',
+                        hideOperatorSelect: true,
+                        autoCloseOnSelect: true
+                    },
+                    {
+                        key: 'post',
+                        label: 'Post or page',
+                        type: 'select',
+                        icon: <LucideIcon.PenLine />,
+                        options: postOptions,
+                        searchable: true,
+                        isLoading: postLoading,
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        className: 'w-80',
+                        popoverContentClassName: 'w-80',
+                        hideOperatorSelect: true,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'source',
+                        label: 'Source',
+                        type: 'select',
+                        icon: <LucideIcon.Globe className="size-4" />,
+                        placeholder: 'Select source',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: sourceOptions,
+                        isLoading: sourceLoading,
+                        className: 'w-60',
+                        popoverContentClassName: 'w-60',
+                        searchable: true,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'device',
+                        label: 'Device',
+                        type: 'select',
+                        icon: <LucideIcon.Monitor className="size-4" />,
+                        placeholder: 'Select device',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: deviceOptions,
+                        isLoading: deviceLoading,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'location',
+                        label: 'Location',
+                        type: 'select',
+                        icon: <LucideIcon.MapPin className="size-4" />,
+                        placeholder: 'Select location',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: locationOptions,
+                        isLoading: locationLoading,
+                        searchable: true,
+                        selectedOptionsClassName: 'hidden'
+                    }
+                ]
+            },
+            {
+                group: 'UTM parameters',
+                fields: utmFields
+            }
+        ];
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
 
     const hasFilters = filters.length > 0;
 

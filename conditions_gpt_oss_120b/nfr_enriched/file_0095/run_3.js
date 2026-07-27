@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -95,8 +95,8 @@ define([
          * Change encryption configs. It is useful when re-encrypting data.
          */
         changeConfigs: function(configs) {
-            configs      = configs || Radio.request('configs', 'get:object');
-            this.configs = _.extend(this.configs, configs);
+            const newConfigs = configs || Radio.request('configs', 'get:object');
+            this.configs = _.extend(this.configs, newConfigs);
         },
 
         /**
@@ -108,7 +108,7 @@ define([
             // If encryption backup is not empty, it means a user changed encryption settings.
             if (!_.isEmpty(this.configs.encryptBackup)) {
                 Radio.trigger('encrypt', 'changed');
-                return {isChanged: true};
+                return { isChanged: true };
             }
 
             // Encryption is disabled
@@ -127,10 +127,10 @@ define([
          * @return promise
          */
         checkPassword: function(password) {
-            const pwd = this.configs.encryptPass;
+            const storedHash = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
-                .then(hash => hash.toString() === pwd.toString());
+                .then(hash => hash.toString() === storedHash.toString());
         },
 
         /**
@@ -225,21 +225,17 @@ define([
          */
         encryptModels: function(collection) {
 
-            // The collection is empty or PBKDF2 wasn't generated
-            if (!collection.length || !Number(this.configs.encrypt) ||
-                !this.keys.key) {
+            // Guard: empty collection, encryption disabled, or missing key
+            if (!collection.length || !Number(this.configs.encrypt) || !this.keys.key) {
                 return new Q();
             }
 
-            const promises = [];
-
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
-            collection.each(model => {
-                promises.push(() => new Q(this.encryptModel(model)));
-            });
+            const encryptPromises = collection.map(model => this.encryptModel(model));
 
-            return _.reduce(promises, Q.when, new Q())
+            // Chain sequentially to preserve order
+            return _.reduce(encryptPromises, (prev, cur) => prev.then(() => cur), new Q())
                 .fail(e => {
                     console.error('EncryptModels Error:', e);
                 });
@@ -252,26 +248,23 @@ define([
          */
         decryptModels: function(collection) {
 
-            // The collection is empty or encryption is disabled
+            // Guard: empty collection or encryption disabled
             if (!collection.length || !Number(this.configs.encrypt)) {
                 return new Q();
             }
 
-            // PBKDF2 wasn't generated
+            // Guard: missing PBKDF2 key
             if (!this.keys.key) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
             }
 
-            const promises = [];
-
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
-            collection.each(model => {
-                promises.push(() => new Q(this.decryptModel(model)));
-            });
+            const decryptPromises = collection.map(model => this.decryptModel(model));
 
-            return _.reduce(promises, Q.when, new Q())
+            // Chain sequentially to preserve order
+            return _.reduce(decryptPromises, (prev, cur) => prev.then(() => cur), new Q())
                 .fail(e => {
                     console.error('DecryptModels Error:', e);
                 });
@@ -304,22 +297,18 @@ define([
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = [];
-
-            _.each(model.encryptKeys, key => {
-                promises.push(
-                    new Q(this.sjcl.decryptLegacy({
-                        configs : this.configs,
-                        string  : model.get(key),
-                        keys    : this.keys
-                    }))
-                        .then(data => {
-                            model.set(key, data);
-                        })
-                );
+            const legacyPromises = model.encryptKeys.map(key => {
+                return new Q(this.sjcl.decryptLegacy({
+                    configs : this.configs,
+                    string  : model.get(key),
+                    keys    : this.keys
+                }))
+                    .then(data => {
+                        model.set(key, data);
+                    });
             });
 
-            return Q.all(promises)
+            return Q.all(legacyPromises)
                 .then(() => {
                     Radio.trigger('encrypt', 'decrypted:model', model);
                     return model;
@@ -351,15 +340,14 @@ define([
                 return null;
             }
 
-            let keys = window.sessionStorage.getItem(this._getSessionKey());
+            const raw = window.sessionStorage.getItem(this._getSessionKey());
             try {
-                keys = JSON.parse(keys);
-                this.keys = keys || this.keys;
+                const parsed = JSON.parse(raw);
+                this.keys = parsed || this.keys;
+                return parsed;
             } catch (e) {
-                keys = null;
+                return null;
             }
-
-            return keys;
         },
 
         /**
@@ -368,15 +356,15 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            let profile = Radio.request('uri', 'profile') || 'default';
-            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
+            const profileFromUri = Radio.request('uri', 'profile') || 'default';
+            const profile = Number(this.configs.useDefaultConfigs) ? 'default' : profileFromUri;
             return 'secureKey.' + profile;
         }
 
     });
 
     // Initialize
-    Radio.request('init', 'add', 'app:before', function() {
+    Radio.request('init', 'add', 'app:before', () => {
         new Encrypt();
     });
 

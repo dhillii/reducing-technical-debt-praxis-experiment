@@ -1,6 +1,23 @@
+/**
+ * @fileoverview This rule sets a specific indentation style and width for your code
+ *
+ * @author Teddy Katz
+ * @author Vitaly Puzrin
+ * @author Gyandeep Singh
+ * @deprecated in ESLint v8.53.0
+ */
+
 "use strict";
 
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const astUtils = require("./utils/ast-utils");
+
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
 
 const KNOWN_NODES = new Set([
 	"AssignmentExpression",
@@ -92,6 +109,24 @@ const KNOWN_NODES = new Set([
 	"ImportExpression",
 ]);
 
+/*
+ * General rule strategy:
+ * 1. An OffsetStorage instance stores a map of desired offsets, where each token has a specified offset from another
+ *    specified token or to the first column.
+ * 2. As the AST is traversed, modify the desired offsets of tokens accordingly. For example, when entering a
+ *    BlockStatement, offset all of the tokens in the BlockStatement by 1 indent level from the opening curly
+ *    brace of the BlockStatement.
+ * 3. After traversing the AST, calculate the expected indentation levels of every token according to the
+ *    OffsetStorage container.
+ * 4. For each line, compare the expected indentation of the first token to the actual indentation in the file,
+ *    and report the token if the two values are not equal.
+ */
+
+/**
+ * A mutable map that stores (key, value) pairs. The keys are numeric indices, and must be unique.
+ * This is intended to be a generic wrapper around a map with non-negative integer keys, so that the underlying implementation
+ * can easily be swapped out.
+ */
 class IndexMap {
 	constructor(maxKey) {
 		this._values = Array(maxKey + 1);
@@ -100,9 +135,11 @@ class IndexMap {
 		this._values[key] = value;
 	}
 	findLastNotAfter(key) {
-		for (let i = key; i >= 0; i--) {
-			if (this._values[i]) {
-				return this._values[i];
+		const values = this._values;
+		for (let index = key; index >= 0; index--) {
+			const value = values[index];
+			if (value) {
+				return value;
 			}
 		}
 		return void 0;
@@ -112,6 +149,9 @@ class IndexMap {
 	}
 }
 
+/**
+ * A helper class to get token-based info related to indentation
+ */
 class TokenInfo {
 	constructor(sourceCode) {
 		this.sourceCode = sourceCode;
@@ -146,13 +186,18 @@ class TokenInfo {
 	}
 }
 
+/**
+ * A class to store information on desired offsets of tokens from each other
+ */
 class OffsetStorage {
 	constructor(tokenInfo, indentSize, indentType, maxIndex) {
 		this._tokenInfo = tokenInfo;
 		this._indentSize = indentSize;
 		this._indentType = indentType;
+
 		this._indexMap = new IndexMap(maxIndex);
 		this._indexMap.insert(0, { offset: 0, from: null, force: false });
+
 		this._lockedFirstTokens = new WeakMap();
 		this._desiredIndentCache = new WeakMap();
 		this._ignoredTokens = new WeakSet();
@@ -168,19 +213,20 @@ class OffsetStorage {
 	}
 	setDesiredOffsets(range, fromToken, offset, force) {
 		const descriptorToInsert = { offset, from: fromToken, force };
-		const afterDescriptor = this._indexMap.findLastNotAfter(range[1]);
-		const fromInRange =
+		const descriptorAfterRange = this._indexMap.findLastNotAfter(range[1]);
+		const fromTokenIsInRange =
 			fromToken &&
 			fromToken.range[0] >= range[0] &&
 			fromToken.range[1] <= range[1];
-		const fromDescriptor = fromInRange && this._getOffsetDescriptor(fromToken);
+		const fromTokenDescriptor =
+			fromTokenIsInRange && this._getOffsetDescriptor(fromToken);
 		this._indexMap.deleteRange(range[0] + 1, range[1]);
 		this._indexMap.insert(range[0], descriptorToInsert);
-		if (fromInRange) {
-			this._indexMap.insert(fromToken.range[0], fromDescriptor);
+		if (fromTokenIsInRange) {
+			this._indexMap.insert(fromToken.range[0], fromTokenDescriptor);
 			this._indexMap.insert(fromToken.range[1], descriptorToInsert);
 		}
-		this._indexMap.insert(range[1], afterDescriptor);
+		this._indexMap.insert(range[1], descriptorAfterRange);
 	}
 	getDesiredIndent(token) {
 		if (!this._desiredIndentCache.has(token)) {
@@ -190,30 +236,32 @@ class OffsetStorage {
 					this._tokenInfo.getTokenIndent(token),
 				);
 			} else if (this._lockedFirstTokens.has(token)) {
-				const first = this._lockedFirstTokens.get(token);
-				const baseIndent = this.getDesiredIndent(
-					this._tokenInfo.getFirstTokenOfLine(first),
-				);
-				const extra = this._indentType.repeat(
-					first.loc.start.column -
-						this._tokenInfo.getFirstTokenOfLine(first).loc.start.column,
-				);
-				this._desiredIndentCache.set(token, baseIndent + extra);
-			} else {
-				const info = this._getOffsetDescriptor(token);
-				const offset =
-					info.from &&
-					info.from.loc.start.line === token.loc.start.line &&
-					!/^\s*?\n/u.test(token.value) &&
-					!info.force
-						? 0
-						: info.offset * this._indentSize;
-				const base = info.from
-					? this.getDesiredIndent(info.from)
-					: "";
+				const firstToken = this._lockedFirstTokens.get(token);
 				this._desiredIndentCache.set(
 					token,
-					base + this._indentType.repeat(offset),
+					this.getDesiredIndent(
+						this._tokenInfo.getFirstTokenOfLine(firstToken),
+					) +
+						this._indentType.repeat(
+							firstToken.loc.start.column -
+								this._tokenInfo.getFirstTokenOfLine(firstToken)
+									.loc.start.column,
+						),
+				);
+			} else {
+				const offsetInfo = this._getOffsetDescriptor(token);
+				const offset =
+					offsetInfo.from &&
+					offsetInfo.from.loc.start.line === token.loc.start.line &&
+					!/^\s*?\n/u.test(token.value) &&
+					!offsetInfo.force
+						? 0
+						: offsetInfo.offset * this._indentSize;
+				this._desiredIndentCache.set(
+					token,
+					(offsetInfo.from
+						? this.getDesiredIndent(offsetInfo.from)
+						: "") + this._indentType.repeat(offset),
 				);
 			}
 		}
@@ -229,352 +277,22 @@ class OffsetStorage {
 	}
 }
 
-/* ---------- Helper Functions ---------- */
-
 /**
- * Creates error message data.
+ * Schema for element list options.
  */
-function createErrorMessageData(expectedAmount, actualSpaces, actualTabs, indentType) {
-	const expected = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`;
-	const spaceWord = `space${actualSpaces === 1 ? "" : "s"}`;
-	const tabWord = `tab${actualTabs === 1 ? "" : "s"}`;
-	let actual;
-	if (actualSpaces > 0) {
-		actual = indentType === "space" ? actualSpaces : `${actualSpaces} ${spaceWord}`;
-	} else if (actualTabs > 0) {
-		actual = indentType === "tab" ? actualTabs : `${actualTabs} ${tabWord}`;
-	} else {
-		actual = "0";
-	}
-	return { expected, actual };
-}
-
-/**
- * Reports an indentation violation.
- */
-function report(token, neededIndent, tokenInfo, context, indentType) {
-	const actualIndent = Array.from(tokenInfo.getTokenIndent(token));
-	const spaces = actualIndent.filter(c => c === " ").length;
-	const tabs = actualIndent.filter(c => c === "\t").length;
-	context.report({
-		node: token,
-		messageId: "wrongIndentation",
-		data: createErrorMessageData(neededIndent.length, spaces, tabs, indentType),
-		loc: {
-			start: { line: token.loc.start.line, column: 0 },
-			end: { line: token.loc.start.line, column: token.loc.start.column },
+const ELEMENT_LIST_SCHEMA = {
+	oneOf: [
+		{
+			type: "integer",
+			minimum: 0,
 		},
-		fix(fixer) {
-			const range = [token.range[0] - token.loc.start.column, token.range[0]];
-			return fixer.replaceTextRange(range, neededIndent);
+		{
+			enum: ["first", "off"],
 		},
-	});
-}
+	],
+};
 
-/**
- * Validates a token's indentation.
- */
-function validateTokenIndent(token, desiredIndent, tokenInfo) {
-	const actual = tokenInfo.getTokenIndent(token);
-	return (
-		actual === desiredIndent ||
-		(actual.includes(" ") && actual.includes("\t"))
-	);
-}
-
-/**
- * Determines if a function node is an outer IIFE.
- */
-function isOuterIIFE(node) {
-	if (!node.parent || node.parent.type !== "CallExpression" || node.parent.callee !== node) {
-		return false;
-	}
-	let stmt = node.parent && node.parent.parent;
-	while (
-		(stmt.type === "UnaryExpression" && ["!", "~", "+", "-"].includes(stmt.operator)) ||
-		stmt.type === "AssignmentExpression" ||
-		stmt.type === "LogicalExpression" ||
-		stmt.type === "SequenceExpression" ||
-		stmt.type === "VariableDeclarator"
-	) {
-		stmt = stmt.parent;
-	}
-	return (
-		(stmt.type === "ExpressionStatement" || stmt.type === "VariableDeclaration") &&
-		stmt.parent.type === "Program"
-	);
-}
-
-/**
- * Counts trailing linebreaks in a string.
- */
-function countTrailingLinebreaks(str) {
-	const ws = str.match(/\s*$/u)[0];
-	const matches = ws.match(astUtils.createGlobalLinebreakMatcher());
-	return matches ? matches.length : 0;
-}
-
-/**
- * Retrieves the first token of an element, handling surrounding parentheses.
- */
-function getFirstTokenOfElement(element, sourceCode, startToken) {
-	let token = sourceCode.getTokenBefore(element);
-	while (astUtils.isOpeningParenToken(token) && token !== startToken) {
-		token = sourceCode.getTokenBefore(token);
-	}
-	return sourceCode.getTokenAfter(token);
-}
-
-/**
- * Handles indentation for a list of elements.
- */
-function addElementListIndent(elements, startToken, endToken, offset, sourceCode, offsets, tokenInfo) {
-	const numericOffset = typeof offset === "number" ? offset : 1;
-	offsets.setDesiredOffsets(
-		[startToken.range[1], endToken.range[0]],
-		startToken,
-		numericOffset,
-	);
-	offsets.setDesiredOffset(endToken, startToken, 0);
-
-	if (offset === "first" && elements.length && !elements[0]) {
-		return;
-	}
-	elements.forEach((el, idx) => {
-		if (!el) return;
-		if (offset === "off") {
-			offsets.ignoreToken(getFirstTokenOfElement(el, sourceCode, startToken));
-		}
-		if (idx === 0) return;
-		if (
-			offset === "first" &&
-			tokenInfo.isFirstTokenOfLine(getFirstTokenOfElement(el, sourceCode, startToken))
-		) {
-			offsets.matchOffsetOf(
-				getFirstTokenOfElement(elements[0], sourceCode, startToken),
-				getFirstTokenOfElement(el, sourceCode, startToken),
-			);
-		} else {
-			const prev = elements[idx - 1];
-			if (!prev) return;
-			const prevLast = sourceCode.getLastToken(prev);
-			const prevFirst = getFirstTokenOfElement(prev, sourceCode, startToken);
-			if (
-				prevLast.loc.end.line -
-					countTrailingLinebreaks(prevLast.value) >
-				startToken.loc.end.line
-			) {
-				offsets.setDesiredOffsets(
-					[prev.range[1], el.range[1]],
-					prevFirst,
-					0,
-				);
-			}
-		}
-	});
-}
-
-/**
- * Adds indentation for blockless nodes (e.g., if/while without braces).
- */
-function addBlocklessNodeIndent(node, sourceCode, offsets, astUtils) {
-	if (node.type === "BlockStatement") return;
-	const parentToken = sourceCode.getTokenBefore(node, astUtils.isNotOpeningParenToken);
-	let first = sourceCode.getFirstToken(node);
-	let last = sourceCode.getLastToken(node);
-	while (
-		astUtils.isOpeningParenToken(sourceCode.getTokenBefore(first)) &&
-		astUtils.isClosingParenToken(sourceCode.getTokenAfter(last))
-	) {
-		first = sourceCode.getTokenBefore(first);
-		last = sourceCode.getTokenAfter(last);
-	}
-	offsets.setDesiredOffsets([first.range[0], last.range[1]], parentToken, 1);
-}
-
-/**
- * Handles indentation for function calls and new expressions.
- */
-function addFunctionCallIndent(node, sourceCode, offsets, parameterParens) {
-	let openingParen;
-	if (node.arguments.length) {
-		openingParen = sourceCode.getFirstTokenBetween(
-			node.callee,
-			node.arguments[0],
-			astUtils.isOpeningParenToken,
-		);
-	} else {
-		openingParen = sourceCode.getLastToken(node, 1);
-	}
-	const closingParen = sourceCode.getLastToken(node);
-	parameterParens.add(openingParen);
-	parameterParens.add(closingParen);
-	if (node.optional) {
-		const dot = sourceCode.getTokenAfter(node.callee, astUtils.isQuestionDotToken);
-		const calleeParenCount = sourceCode.getTokensBetween(
-			node.callee,
-			dot,
-			{ filter: astUtils.isClosingParenToken },
-		).length;
-		const firstCallee = calleeParenCount
-			? sourceCode.getTokenBefore(node.callee, { skip: calleeParenCount - 1 })
-			: sourceCode.getFirstToken(node.callee);
-		const lastCallee = sourceCode.getTokenBefore(dot);
-		const base = lastCallee.loc.end.line === openingParen.loc.start.line ? lastCallee : firstCallee;
-		offsets.setDesiredOffset(dot, base, 1);
-	}
-	const after = node.callee.type === "TaggedTemplateExpression"
-		? sourceCode.getFirstToken(node.callee.quasi)
-		: openingParen;
-	const before = sourceCode.getTokenBefore(after);
-	offsets.setDesiredOffset(openingParen, before, 0);
-	addElementListIndent(
-		node.arguments,
-		openingParen,
-		closingParen,
-		(node.type === "CallExpression" ? "CallExpression" : "NewExpression") in options
-			? options.CallExpression.arguments
-			: 1,
-		sourceCode,
-		offsets,
-		tokenInfo,
-	);
-}
-
-/**
- * Adds indentation for parentheses groups.
- */
-function addParensIndent(tokens, sourceCode, offsets, parameterParens) {
-	const stack = [];
-	const pairs = [];
-	for (let i = 0; i < tokens.length; i++) {
-		const t = tokens[i];
-		if (astUtils.isOpeningParenToken(t)) {
-			stack.push(t);
-		} else if (astUtils.isClosingParenToken(t)) {
-			pairs.push({ left: stack.pop(), right: t });
-		}
-	}
-	for (let i = pairs.length - 1; i >= 0; i--) {
-		const { left, right } = pairs[i];
-		if (!parameterParens.has(left) && !parameterParens.has(right)) {
-			const inner = new Set(sourceCode.getTokensBetween(left, right));
-			inner.forEach(tok => {
-				if (!inner.has(offsets.getFirstDependency(tok))) {
-					offsets.setDesiredOffset(tok, left, 1);
-				}
-			});
-		}
-		offsets.setDesiredOffset(right, left, 0);
-	}
-}
-
-/**
- * Ignores tokens inside an unknown node.
- */
-function ignoreNode(node, sourceCode, offsets) {
-	const tokens = new Set(sourceCode.getTokens(node, { includeComments: true }));
-	tokens.forEach(tok => {
-		if (!tokens.has(offsets.getFirstDependency(tok))) {
-			const first = tokenInfo.getFirstTokenOfLine(tok);
-			if (tok === first) {
-				offsets.ignoreToken(tok);
-			} else {
-				offsets.setDesiredOffset(tok, first, 0);
-			}
-		}
-	});
-}
-
-/**
- * Checks if a token is on the first line of its statement.
- */
-function isOnFirstLineOfStatement(token, leafNode) {
-	let node = leafNode;
-	while (
-		node.parent &&
-		!node.parent.type.endsWith("Statement") &&
-		!node.parent.type.endsWith("Declaration")
-	) {
-		node = node.parent;
-	}
-	node = node.parent;
-	return !node || node.loc.start.line === token.loc.start.line;
-}
-
-/**
- * Determines if blank lines exist between two tokens.
- */
-function hasBlankLinesBetween(firstToken, secondToken, tokenInfo) {
-	const start = firstToken.loc.end.line;
-	const end = secondToken.loc.start.line;
-	if (start === end || start === end - 1) return false;
-	for (let line = start + 1; line < end; line++) {
-		if (!tokenInfo.firstTokensByLineNumber.has(line)) return true;
-	}
-	return false;
-}
-
-/**
- * Processes the final program exit validation.
- */
-function processProgramExit({
-	context,
-	sourceCode,
-	tokenInfo,
-	offsets,
-	options,
-	ignoredNodes,
-	ignoredNodeFirstTokens,
-	parameterParens,
-	listenerCallQueue,
-}) {
-	if (options.ignoreComments) {
-		sourceCode.getAllComments().forEach(c => offsets.ignoreToken(c));
-	}
-	for (let i = 0; i < listenerCallQueue.length; i++) {
-		const { listener, node } = listenerCallQueue[i];
-		if (!ignoredNodes.has(node)) listener(node);
-	}
-	ignoredNodes.forEach(node => ignoreNode(node, sourceCode, offsets));
-	addParensIndent(sourceCode.ast.tokens, sourceCode, offsets, parameterParens);
-	const preceding = new WeakMap();
-	for (let i = 0; i < sourceCode.ast.comments.length; i++) {
-		const comment = sourceCode.ast.comments[i];
-		const before = sourceCode.getTokenBefore(comment, { includeComments: true });
-		const key = preceding.has(before) ? preceding.get(before) : before;
-		preceding.set(comment, key);
-	}
-	for (let line = 1; line <= sourceCode.lines.length; line++) {
-		if (!tokenInfo.firstTokensByLineNumber.has(line)) continue;
-		const firstToken = tokenInfo.firstTokensByLineNumber.get(line);
-		if (firstToken.loc.start.line !== line) continue;
-		if (astUtils.isCommentToken(firstToken)) {
-			const before = preceding.get(firstToken);
-			const after = before ? sourceCode.getTokenAfter(before) : sourceCode.ast.tokens[0];
-			const canAlignBefore = before && !hasBlankLinesBetween(before, firstToken, tokenInfo);
-			const canAlignAfter = after && !hasBlankLinesBetween(firstToken, after, tokenInfo);
-			if (
-				after &&
-				astUtils.isSemicolonToken(after) &&
-				!astUtils.isTokenOnSameLine(firstToken, after)
-			) {
-				offsets.setDesiredOffset(firstToken, after, 0);
-			}
-			if (
-				(canAlignBefore && validateTokenIndent(firstToken, offsets.getDesiredIndent(before), tokenInfo)) ||
-				(canAlignAfter && validateTokenIndent(firstToken, offsets.getDesiredIndent(after), tokenInfo))
-			) {
-				continue;
-			}
-		}
-		if (validateTokenIndent(firstToken, offsets.getDesiredIndent(firstToken), tokenInfo)) continue;
-		report(firstToken, offsets.getDesiredIndent(firstToken), tokenInfo, context, options.indentType);
-	}
-}
-
-/* ---------- Rule Definition ---------- */
-
+/** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
 		deprecated: {
@@ -584,10 +302,17 @@ module.exports = {
 			availableUntil: "11.0.0",
 			replacedBy: [
 				{
-					message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
+					message:
+						"ESLint Stylistic now maintains deprecated stylistic core rules.",
 					url: "https://eslint.style/guide/migration",
-					plugin: { name: "@stylistic/eslint-plugin", url: "https://eslint.style" },
-					rule: { name: "indent", url: "https://eslint.style/rules/indent" },
+					plugin: {
+						name: "@stylistic/eslint-plugin",
+						url: "https://eslint.style",
+					},
+					rule: {
+						name: "indent",
+						url: "https://eslint.style/rules/indent",
+					},
 				},
 			],
 		},
@@ -600,7 +325,15 @@ module.exports = {
 		fixable: "whitespace",
 		schema: [
 			{
-				oneOf: [{ enum: ["tab"] }, { type: "integer", minimum: 0 }],
+				oneOf: [
+					{
+						enum: ["tab"],
+					},
+					{
+						type: "integer",
+						minimum: 0,
+					},
+				],
 			},
 			{
 				type: "object",
@@ -608,25 +341,34 @@ module.exports = {
 					SwitchCase: { type: "integer", minimum: 0, default: 0 },
 					VariableDeclarator: {
 						oneOf: [
+							ELEMENT_LIST_SCHEMA,
 							{
-								type: "integer",
-								minimum: 0,
-							},
-							{
-								enum: ["first", "off"],
+								type: "object",
+								properties: {
+									var: ELEMENT_LIST_SCHEMA,
+									let: ELEMENT_LIST_SCHEMA,
+									const: ELEMENT_LIST_SCHEMA,
+								},
+								additionalProperties: false,
 							},
 						],
 					},
 					outerIIFEBody: {
-						oneOf: [{ type: "integer", minimum: 0 }, { enum: ["off"] }],
+						oneOf: [
+							{ type: "integer", minimum: 0 },
+							{ enum: ["off"] },
+						],
 					},
 					MemberExpression: {
-						oneOf: [{ type: "integer", minimum: 0 }, { enum: ["off"] }],
+						oneOf: [
+							{ type: "integer", minimum: 0 },
+							{ enum: ["off"] },
+						],
 					},
 					FunctionDeclaration: {
 						type: "object",
 						properties: {
-							parameters: { type: "integer", minimum: 0 },
+							parameters: ELEMENT_LIST_SCHEMA,
 							body: { type: "integer", minimum: 0 },
 						},
 						additionalProperties: false,
@@ -634,7 +376,7 @@ module.exports = {
 					FunctionExpression: {
 						type: "object",
 						properties: {
-							parameters: { type: "integer", minimum: 0 },
+							parameters: ELEMENT_LIST_SCHEMA,
 							body: { type: "integer", minimum: 0 },
 						},
 						additionalProperties: false,
@@ -649,18 +391,21 @@ module.exports = {
 					CallExpression: {
 						type: "object",
 						properties: {
-							arguments: { type: "integer", minimum: 0 },
+							arguments: ELEMENT_LIST_SCHEMA,
 						},
 						additionalProperties: false,
 					},
-					ArrayExpression: { type: "integer", minimum: 0 },
-					ObjectExpression: { type: "integer", minimum: 0 },
-					ImportDeclaration: { type: "integer", minimum: 0 },
+					ArrayExpression: ELEMENT_LIST_SCHEMA,
+					ObjectExpression: ELEMENT_LIST_SCHEMA,
+					ImportDeclaration: ELEMENT_LIST_SCHEMA,
 					flatTernaryExpressions: { type: "boolean", default: false },
 					offsetTernaryExpressions: { type: "boolean", default: false },
 					ignoredNodes: {
 						type: "array",
-						items: { type: "string", not: { pattern: ":exit$" } },
+						items: {
+							type: "string",
+							not: { pattern: ":exit$" },
+						},
 					},
 					ignoreComments: { type: "boolean", default: false },
 				},
@@ -668,7 +413,8 @@ module.exports = {
 			},
 		],
 		messages: {
-			wrongIndentation: "Expected indentation of {{expected}} but found {{actual}}.",
+			wrongIndentation:
+				"Expected indentation of {{expected}} but found {{actual}}.",
 		},
 	},
 	create(context) {
@@ -727,7 +473,6 @@ module.exports = {
 				}
 			}
 		}
-		options.indentType = indentType;
 
 		const sourceCode = context.sourceCode;
 		const tokenInfo = new TokenInfo(sourceCode);
@@ -739,108 +484,529 @@ module.exports = {
 		);
 		const parameterParens = new WeakSet();
 
-		const listenerCallQueue = [];
-		const ignoredNodes = new Set();
+		/** Create error message data for a line */
+		function createErrorMessageData(expectedAmount, actualSpaces, actualTabs) {
+			const expectedStatement = `${expectedAmount} ${indentType}${
+				expectedAmount === 1 ? "" : "s"
+			}`;
+			const foundSpacesWord = `space${actualSpaces === 1 ? "" : "s"}`;
+			const foundTabsWord = `tab${actualTabs === 1 ? "" : "s"}`;
+			let foundStatement;
+			if (actualSpaces > 0) {
+				foundStatement =
+					indentType === "space"
+						? actualSpaces
+						: `${actualSpaces} ${foundSpacesWord}`;
+			} else if (actualTabs > 0) {
+				foundStatement =
+					indentType === "tab"
+						? actualTabs
+						: `${actualTabs} ${foundTabsWord}`;
+			} else {
+				foundStatement = "0";
+			}
+			return { expected: expectedStatement, actual: foundStatement };
+		}
+
+		/** Report a token with incorrect indentation */
+		function report(token, neededIndent) {
+			const actualIndent = Array.from(tokenInfo.getTokenIndent(token));
+			const numSpaces = actualIndent.filter(c => c === " ").length;
+			const numTabs = actualIndent.filter(c => c === "\t").length;
+			context.report({
+				node: token,
+				messageId: "wrongIndentation",
+				data: createErrorMessageData(
+					neededIndent.length,
+					numSpaces,
+					numTabs,
+				),
+				loc: {
+					start: { line: token.loc.start.line, column: 0 },
+					end: {
+						line: token.loc.start.line,
+						column: token.loc.start.column,
+					},
+				},
+				fix(fixer) {
+					const range = [
+						token.range[0] - token.loc.start.column,
+						token.range[0],
+					];
+					return fixer.replaceTextRange(range, neededIndent);
+				},
+			});
+		}
+
+		/** Validate token indentation against desired indent */
+		function validateTokenIndent(token, desiredIndent) {
+			const indentation = tokenInfo.getTokenIndent(token);
+			return (
+				indentation === desiredIndent ||
+				(indentation.includes(" ") && indentation.includes("\t"))
+			);
+		}
+
+		/** Determine if a node is the outermost IIFE */
+		function isOuterIIFE(node) {
+			if (!node.parent || node.parent.type !== "CallExpression" || node.parent.callee !== node) {
+				return false;
+			}
+			let statement = node.parent && node.parent.parent;
+			while (
+				(statement.type === "UnaryExpression" &&
+					["!", "~", "+", "-"].includes(statement.operator)) ||
+				statement.type === "AssignmentExpression" ||
+				statement.type === "LogicalExpression" ||
+				statement.type === "SequenceExpression" ||
+				statement.type === "VariableDeclarator"
+			) {
+				statement = statement.parent;
+			}
+			return (
+				(statement.type === "ExpressionStatement" ||
+					statement.type === "VariableDeclaration") &&
+				statement.parent.type === "Program"
+			);
+		}
+
+		/** Count trailing linebreaks in a string */
+		function countTrailingLinebreaks(string) {
+			const trailingWhitespace = string.match(/\s*$/u)[0];
+			const linebreakMatches = trailingWhitespace.match(
+				astUtils.createGlobalLinebreakMatcher(),
+			);
+			return linebreakMatches === null ? 0 : linebreakMatches.length;
+		}
+
+		/** Add indentation for element lists (arrays, objects, etc.) */
+		function addElementListIndent(elements, startToken, endToken, offset) {
+			function getFirstToken(element) {
+				let token = sourceCode.getTokenBefore(element);
+				while (astUtils.isOpeningParenToken(token) && token !== startToken) {
+					token = sourceCode.getTokenBefore(token);
+				}
+				return sourceCode.getTokenAfter(token);
+			}
+			offsets.setDesiredOffsets(
+				[startToken.range[1], endToken.range[0]],
+				startToken,
+				typeof offset === "number" ? offset : 1,
+			);
+			offsets.setDesiredOffset(endToken, startToken, 0);
+			if (offset === "first" && elements.length && !elements[0]) {
+				return;
+			}
+			elements.forEach((element, index) => {
+				if (!element) {
+					return;
+				}
+				if (offset === "off") {
+					offsets.ignoreToken(getFirstToken(element));
+				}
+				if (index === 0) {
+					return;
+				}
+				if (
+					offset === "first" &&
+					tokenInfo.isFirstTokenOfLine(getFirstToken(element))
+				) {
+					offsets.matchOffsetOf(
+						getFirstToken(elements[0]),
+						getFirstToken(element),
+					);
+				} else {
+					const previousElement = elements[index - 1];
+					const firstTokenOfPreviousElement =
+						previousElement && getFirstToken(previousElement);
+					const previousElementLastToken =
+						previousElement && sourceCode.getLastToken(previousElement);
+					if (
+						previousElement &&
+						previousElementLastToken.loc.end.line -
+							countTrailingLinebreaks(previousElementLastToken.value) >
+							startToken.loc.end.line
+					) {
+						offsets.setDesiredOffsets(
+							[previousElement.range[1], element.range[1]],
+							firstTokenOfPreviousElement,
+							0,
+						);
+					}
+				}
+			});
+		}
+
+		/** Add indentation for blockless nodes (e.g., for/while without braces) */
+		function addBlocklessNodeIndent(node) {
+			if (node.type !== "BlockStatement") {
+				const lastParentToken = sourceCode.getTokenBefore(
+					node,
+					astUtils.isNotOpeningParenToken,
+				);
+				let firstBodyToken = sourceCode.getFirstToken(node);
+				let lastBodyToken = sourceCode.getLastToken(node);
+				while (
+					astUtils.isOpeningParenToken(
+						sourceCode.getTokenBefore(firstBodyToken),
+					) &&
+					astUtils.isClosingParenToken(
+						sourceCode.getTokenAfter(lastBodyToken),
+					)
+				) {
+					firstBodyToken = sourceCode.getTokenBefore(firstBodyToken);
+					lastBodyToken = sourceCode.getTokenAfter(lastBodyToken);
+				}
+				offsets.setDesiredOffsets(
+					[firstBodyToken.range[0], lastBodyToken.range[1]],
+					lastParentToken,
+					1,
+				);
+			}
+		}
+
+		/** Add indentation for function calls and new expressions */
+		function addFunctionCallIndent(node) {
+			let openingParen;
+			if (node.arguments.length) {
+				openingParen = sourceCode.getFirstTokenBetween(
+					node.callee,
+					node.arguments[0],
+					astUtils.isOpeningParenToken,
+				);
+			} else {
+				openingParen = sourceCode.getLastToken(node, 1);
+			}
+			const closingParen = sourceCode.getLastToken(node);
+			parameterParens.add(openingParen);
+			parameterParens.add(closingParen);
+			if (node.optional) {
+				const dotToken = sourceCode.getTokenAfter(
+					node.callee,
+					astUtils.isQuestionDotToken,
+				);
+				const calleeParenCount = sourceCode.getTokensBetween(
+					node.callee,
+					dotToken,
+					{ filter: astUtils.isClosingParenToken },
+				).length;
+				const firstTokenOfCallee = calleeParenCount
+					? sourceCode.getTokenBefore(node.callee, {
+							skip: calleeParenCount - 1,
+						})
+					: sourceCode.getFirstToken(node.callee);
+				const lastTokenOfCallee = sourceCode.getTokenBefore(dotToken);
+				const offsetBase =
+					lastTokenOfCallee.loc.end.line === openingParen.loc.start.line
+						? lastTokenOfCallee
+						: firstTokenOfCallee;
+				offsets.setDesiredOffset(dotToken, offsetBase, 1);
+			}
+			const offsetAfterToken =
+				node.callee.type === "TaggedTemplateExpression"
+					? sourceCode.getFirstToken(node.callee.quasi)
+					: openingParen;
+			const offsetToken = sourceCode.getTokenBefore(offsetAfterToken);
+			offsets.setDesiredOffset(openingParen, offsetToken, 0);
+			addElementListIndent(
+				node.arguments,
+				openingParen,
+				closingParen,
+				options.CallExpression.arguments,
+			);
+		}
+
+		/** Add indentation for parentheses groups */
+		function addParensIndent(tokens) {
+			const parenStack = [];
+			const parenPairs = [];
+			for (let i = 0; i < tokens.length; i++) {
+				const token = tokens[i];
+				if (astUtils.isOpeningParenToken(token)) {
+					parenStack.push(token);
+				} else if (astUtils.isClosingParenToken(token)) {
+					parenPairs.push({ left: parenStack.pop(), right: token });
+				}
+			}
+			for (let i = parenPairs.length - 1; i >= 0; i--) {
+				const leftParen = parenPairs[i].left;
+				const rightParen = parenPairs[i].right;
+				if (!parameterParens.has(leftParen) && !parameterParens.has(rightParen)) {
+					const parenthesizedTokens = new Set(
+						sourceCode.getTokensBetween(leftParen, rightParen),
+					);
+					parenthesizedTokens.forEach(tok => {
+						if (!parenthesizedTokens.has(offsets.getFirstDependency(tok))) {
+							offsets.setDesiredOffset(tok, leftParen, 1);
+						}
+					});
+				}
+				offsets.setDesiredOffset(rightParen, leftParen, 0);
+			}
+		}
+
+		/** Ignore all tokens within an unknown node */
+		function ignoreNode(node) {
+			const unknownNodeTokens = new Set(
+				sourceCode.getTokens(node, { includeComments: true }),
+			);
+			unknownNodeTokens.forEach(token => {
+				if (!unknownNodeTokens.has(offsets.getFirstDependency(token))) {
+					const firstTokenOfLine = tokenInfo.getFirstTokenOfLine(token);
+					if (token === firstTokenOfLine) {
+						offsets.ignoreToken(token);
+					} else {
+						offsets.setDesiredOffset(token, firstTokenOfLine, 0);
+					}
+				}
+			});
+		}
+
+		/** Determine if token starts a statement */
+		function isOnFirstLineOfStatement(token, leafNode) {
+			let node = leafNode;
+			while (
+				node.parent &&
+				!node.parent.type.endsWith("Statement") &&
+				!node.parent.type.endsWith("Declaration")
+			) {
+				node = node.parent;
+			}
+			node = node.parent;
+			return !node || node.loc.start.line === token.loc.start.line;
+		}
+
+		/** Check for blank lines between two tokens */
+		function hasBlankLinesBetween(firstToken, secondToken) {
+			const firstLine = firstToken.loc.end.line;
+			const secondLine = secondToken.loc.start.line;
+			if (firstLine === secondLine || firstLine === secondLine - 1) {
+				return false;
+			}
+			for (let line = firstLine + 1; line < secondLine; line++) {
+				if (!tokenInfo.firstTokensByLineNumber.has(line)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		const ignoredNodeFirstTokens = new Set();
 
+		/** Add a node to the ignored set */
 		function addToIgnoredNodes(node) {
 			ignoredNodes.add(node);
 			ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
 		}
+
+		/** Handle ignoreComments option */
+		function handleIgnoreComments() {
+			if (options.ignoreComments) {
+				sourceCode
+					.getAllComments()
+					.forEach(comment => offsets.ignoreToken(comment));
+			}
+		}
+
+		/** Invoke queued offset listeners for non-ignored nodes */
+		function invokeQueuedListeners() {
+			for (let i = 0; i < listenerCallQueue.length; i++) {
+				const { listener, node } = listenerCallQueue[i];
+				if (!ignoredNodes.has(node)) {
+					listener(node);
+				}
+			}
+		}
+
+		/** Process ignored nodes after traversal */
+		function processIgnoredNodes() {
+			ignoredNodes.forEach(ignoreNode);
+		}
+
+		/** Build a map of preceding tokens for comments */
+		function buildPrecedingTokens() {
+			const map = new WeakMap();
+			for (let i = 0; i < sourceCode.ast.comments.length; i++) {
+				const comment = sourceCode.ast.comments[i];
+				const tokenBefore = sourceCode.getTokenBefore(comment, {
+					includeComments: true,
+				});
+				const hasToken = map.has(tokenBefore) ? map.get(tokenBefore) : tokenBefore;
+				map.set(comment, hasToken);
+			}
+			return map;
+		}
+
+		/** Validate each line's first token and report mismatches */
+		function validateLines(precedingTokens) {
+			for (let i = 1; i < sourceCode.lines.length + 1; i++) {
+				if (!tokenInfo.firstTokensByLineNumber.has(i)) {
+					continue;
+				}
+				const firstToken = tokenInfo.firstTokensByLineNumber.get(i);
+				if (firstToken.loc.start.line !== i) {
+					continue;
+				}
+				if (astUtils.isCommentToken(firstToken)) {
+					const tokenBefore = precedingTokens.get(firstToken);
+					const tokenAfter = tokenBefore
+						? sourceCode.getTokenAfter(tokenBefore)
+						: sourceCode.ast.tokens[0];
+					const mayAlignBefore =
+						tokenBefore && !hasBlankLinesBetween(tokenBefore, firstToken);
+					const mayAlignAfter =
+						tokenAfter && !hasBlankLinesBetween(firstToken, tokenAfter);
+					if (
+						tokenAfter &&
+						astUtils.isSemicolonToken(tokenAfter) &&
+						!astUtils.isTokenOnSameLine(firstToken, tokenAfter)
+					) {
+						offsets.setDesiredOffset(firstToken, tokenAfter, 0);
+					}
+					if (
+						(mayAlignBefore &&
+							validateTokenIndent(firstToken, offsets.getDesiredIndent(tokenBefore))) ||
+						(mayAlignAfter &&
+							validateTokenIndent(firstToken, offsets.getDesiredIndent(tokenAfter)))
+					) {
+						continue;
+					}
+				}
+				if (
+					validateTokenIndent(
+						firstToken,
+						offsets.getDesiredIndent(firstToken),
+					)
+				) {
+					continue;
+				}
+				report(firstToken, offsets.getDesiredIndent(firstToken));
+			}
+		}
+
+		const listenerCallQueue = [];
+
+		const offsetListeners = {};
+
+		for (const [selector, listener] of Object.entries(baseOffsetListeners)) {
+			offsetListeners[selector] = node =>
+				listenerCallQueue.push({ listener, node });
+		}
+
+		const ignoredNodes = new Set();
+
 		const ignoredNodeListeners = options.ignoredNodes.reduce(
-			(acc, sel) => Object.assign(acc, { [sel]: addToIgnoredNodes }),
+			(listeners, ignoredSelector) =>
+				Object.assign(listeners, {
+					[ignoredSelector]: addToIgnoredNodes,
+				}),
 			{},
 		);
 
+		return Object.assign(offsetListeners, ignoredNodeListeners, {
+			"*:exit"(node) {
+				if (!KNOWN_NODES.has(node.type)) {
+					addToIgnoredNodes(node);
+				}
+			},
+			"Program:exit"() {
+				handleIgnoreComments();
+				invokeQueuedListeners();
+				processIgnoredNodes();
+				addParensIndent(sourceCode.ast.tokens);
+				const precedingTokens = buildPrecedingTokens();
+				validateLines(precedingTokens);
+			},
+		});
+
+		/** Base offset listeners (kept unchanged) */
 		const baseOffsetListeners = {
 			"ArrayExpression, ArrayPattern"(node) {
-				const open = sourceCode.getFirstToken(node);
-				const close = sourceCode.getTokenAfter(
-					[...node.elements].reverse().find(e => e) || open,
+				const openingBracket = sourceCode.getFirstToken(node);
+				const closingBracket = sourceCode.getTokenAfter(
+					[...node.elements].reverse().find(e => e) || openingBracket,
 					astUtils.isClosingBracketToken,
 				);
 				addElementListIndent(
 					node.elements,
-					open,
-					close,
+					openingBracket,
+					closingBracket,
 					options.ArrayExpression,
-					sourceCode,
-					offsets,
-					tokenInfo,
 				);
 			},
 			"ObjectExpression, ObjectPattern"(node) {
-				const open = sourceCode.getFirstToken(node);
-				const close = sourceCode.getTokenAfter(
-					node.properties.length ? node.properties.at(-1) : open,
+				const openingCurly = sourceCode.getFirstToken(node);
+				const closingCurly = sourceCode.getTokenAfter(
+					node.properties.length ? node.properties.at(-1) : openingCurly,
 					astUtils.isClosingBraceToken,
 				);
 				addElementListIndent(
 					node.properties,
-					open,
-					close,
+					openingCurly,
+					closingCurly,
 					options.ObjectExpression,
-					sourceCode,
-					offsets,
-					tokenInfo,
 				);
 			},
 			ArrowFunctionExpression(node) {
-				const maybeOpen = sourceCode.getFirstToken(node, {
+				const maybeOpeningParen = sourceCode.getFirstToken(node, {
 					skip: node.async ? 1 : 0,
 				});
-				if (astUtils.isOpeningParenToken(maybeOpen)) {
-					const open = maybeOpen;
-					const close = sourceCode.getTokenBefore(node.body, astUtils.isClosingParenToken);
-					parameterParens.add(open);
-					parameterParens.add(close);
+				if (astUtils.isOpeningParenToken(maybeOpeningParen)) {
+					const openingParen = maybeOpeningParen;
+					const closingParen = sourceCode.getTokenBefore(
+						node.body,
+						astUtils.isClosingParenToken,
+					);
+					parameterParens.add(openingParen);
+					parameterParens.add(closingParen);
 					addElementListIndent(
 						node.params,
-						open,
-						close,
+						openingParen,
+						closingParen,
 						options.FunctionExpression.parameters,
-						sourceCode,
-						offsets,
-						tokenInfo,
 					);
 				}
-				addBlocklessNodeIndent(node.body, sourceCode, offsets, astUtils);
+				addBlocklessNodeIndent(node.body);
 			},
 			AssignmentExpression(node) {
-				const op = sourceCode.getFirstTokenBetween(
+				const operator = sourceCode.getFirstTokenBetween(
 					node.left,
 					node.right,
 					t => t.value === node.operator,
 				);
 				offsets.setDesiredOffsets(
-					[op.range[0], node.range[1]],
+					[operator.range[0], node.range[1]],
 					sourceCode.getLastToken(node.left),
 					1,
 				);
-				offsets.ignoreToken(op);
-				offsets.ignoreToken(sourceCode.getTokenAfter(op));
+				offsets.ignoreToken(operator);
+				offsets.ignoreToken(sourceCode.getTokenAfter(operator));
 			},
 			"BinaryExpression, LogicalExpression"(node) {
-				const op = sourceCode.getFirstTokenBetween(
+				const operator = sourceCode.getFirstTokenBetween(
 					node.left,
 					node.right,
 					t => t.value === node.operator,
 				);
-				const after = sourceCode.getTokenAfter(op);
-				offsets.ignoreToken(op);
-				offsets.ignoreToken(after);
-				offsets.setDesiredOffset(after, op, 0);
+				const tokenAfterOperator = sourceCode.getTokenAfter(operator);
+				offsets.ignoreToken(operator);
+				offsets.ignoreToken(tokenAfterOperator);
+				offsets.setDesiredOffset(tokenAfterOperator, operator, 0);
 			},
 			"BlockStatement, ClassBody"(node) {
-				let level;
+				let blockIndentLevel;
 				if (node.parent && isOuterIIFE(node.parent)) {
-					level = options.outerIIFEBody;
-				} else if (node.parent && (node.parent.type === "FunctionExpression" || node.parent.type === "ArrowFunctionExpression")) {
-					level = options.FunctionExpression.body;
+					blockIndentLevel = options.outerIIFEBody;
+				} else if (
+					node.parent &&
+					(node.parent.type === "FunctionExpression" ||
+						node.parent.type === "ArrowFunctionExpression")
+				) {
+					blockIndentLevel = options.FunctionExpression.body;
 				} else if (node.parent && node.parent.type === "FunctionDeclaration") {
-					level = options.FunctionDeclaration.body;
+					blockIndentLevel = options.FunctionDeclaration.body;
 				} else {
-					level = 1;
+					blockIndentLevel = 1;
 				}
 				if (!astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type)) {
 					offsets.setDesiredOffset(
@@ -853,84 +1019,86 @@ module.exports = {
 					node.body,
 					sourceCode.getFirstToken(node),
 					sourceCode.getLastToken(node),
-					level,
-					sourceCode,
-					offsets,
-					tokenInfo,
+					blockIndentLevel,
 				);
 			},
 			CallExpression: addFunctionCallIndent,
 			"ClassDeclaration[superClass], ClassExpression[superClass]"(node) {
-				const classTok = sourceCode.getFirstToken(node);
-				const extendsTok = sourceCode.getTokenBefore(
+				const classToken = sourceCode.getFirstToken(node);
+				const extendsToken = sourceCode.getTokenBefore(
 					node.superClass,
 					astUtils.isNotOpeningParenToken,
 				);
 				offsets.setDesiredOffsets(
-					[extendsTok.range[0], node.body.range[0]],
-					classTok,
+					[extendsToken.range[0], node.body.range[0]],
+					classToken,
 					1,
 				);
 			},
 			ConditionalExpression(node) {
-				const firstTok = sourceCode.getFirstToken(node);
+				const firstToken = sourceCode.getFirstToken(node);
 				if (
 					!options.flatTernaryExpressions ||
 					!astUtils.isTokenOnSameLine(node.test, node.consequent) ||
-					isOnFirstLineOfStatement(firstTok, node)
+					isOnFirstLineOfStatement(firstToken, node)
 				) {
-					const q = sourceCode.getFirstTokenBetween(
+					const questionMarkToken = sourceCode.getFirstTokenBetween(
 						node.test,
 						node.consequent,
 						t => t.type === "Punctuator" && t.value === "?",
 					);
-					const c = sourceCode.getFirstTokenBetween(
+					const colonToken = sourceCode.getFirstTokenBetween(
 						node.consequent,
 						node.alternate,
 						t => t.type === "Punctuator" && t.value === ":",
 					);
-					const consFirst = sourceCode.getTokenAfter(q);
-					const consLast = sourceCode.getTokenBefore(c);
-					const altFirst = sourceCode.getTokenAfter(c);
-					offsets.setDesiredOffset(q, firstTok, 1);
-					offsets.setDesiredOffset(c, firstTok, 1);
+					const firstConsequentToken = sourceCode.getTokenAfter(questionMarkToken);
+					const lastConsequentToken = sourceCode.getTokenBefore(colonToken);
+					const firstAlternateToken = sourceCode.getTokenAfter(colonToken);
+					offsets.setDesiredOffset(questionMarkToken, firstToken, 1);
+					offsets.setDesiredOffset(colonToken, firstToken, 1);
 					offsets.setDesiredOffset(
-						consFirst,
-						firstTok,
-						consFirst.type === "Punctuator" && options.offsetTernaryExpressions ? 2 : 1,
+						firstConsequentToken,
+						firstToken,
+						firstConsequentToken.type === "Punctuator" &&
+							options.offsetTernaryExpressions
+							? 2
+							: 1,
 					);
-					if (consLast.loc.end.line === altFirst.loc.start.line) {
-						offsets.setDesiredOffset(altFirst, consFirst, 0);
+					if (
+						lastConsequentToken.loc.end.line ===
+						firstAlternateToken.loc.start.line
+					) {
+						offsets.setDesiredOffset(firstAlternateToken, firstConsequentToken, 0);
 					} else {
 						offsets.setDesiredOffset(
-							altFirst,
-							firstTok,
-							altFirst.type === "Punctuator" && options.offsetTernaryExpressions ? 2 : 1,
+							firstAlternateToken,
+							firstToken,
+							firstAlternateToken.type === "Punctuator" &&
+								options.offsetTernaryExpressions
+								? 2
+								: 1,
 						);
 					}
 				}
 			},
-			"DoWhileStatement, WhileStatement, ForInStatement, ForOfStatement, WithStatement"(node) {
-				addBlocklessNodeIndent(node.body, sourceCode, offsets, astUtils);
-			},
+			"DoWhileStatement, WhileStatement, ForInStatement, ForOfStatement, WithStatement":
+				node => addBlocklessNodeIndent(node.body),
 			ExportNamedDeclaration(node) {
-				if (!node.declaration) {
-					const closeCurly = sourceCode.getLastToken(node, astUtils.isClosingBraceToken);
+				if (node.declaration === null) {
+					const closingCurly = sourceCode.getLastToken(
+						node,
+						astUtils.isClosingBraceToken,
+					);
 					addElementListIndent(
 						node.specifiers,
 						sourceCode.getFirstToken(node, { skip: 1 }),
-						closeCurly,
+						closingCurly,
 						1,
-						sourceCode,
-						offsets,
-						tokenInfo,
 					);
 					if (node.source) {
-						const end = sourceCode.getLastToken(node, t => t.type === "Punctuator" && t.value === ";")?.range[1] === sourceCode.getLastToken(node, t => t.type === "String")?.range[1]
-							? node.range[1]
-							: sourceCode.getLastToken(node, t => t.type === "String")?.range[1];
 						offsets.setDesiredOffsets(
-							[sourceCode.getTokenAfter(node, t => t.type === "Identifier" && t.value === "from").range[0], end],
+							[closingCurly.range[1], node.range[1]],
 							sourceCode.getFirstToken(node),
 							1,
 						);
@@ -938,125 +1106,177 @@ module.exports = {
 				}
 			},
 			ForStatement(node) {
-				const openParen = sourceCode.getFirstToken(node, 1);
-				if (node.init) offsets.setDesiredOffsets(node.init.range, openParen, 1);
-				if (node.test) offsets.setDesiredOffsets(node.test.range, openParen, 1);
-				if (node.update) offsets.setDesiredOffsets(node.update.range, openParen, 1);
-				addBlocklessNodeIndent(node.body, sourceCode, offsets, astUtils);
+				const forOpeningParen = sourceCode.getFirstToken(node, 1);
+				if (node.init) {
+					offsets.setDesiredOffsets(node.init.range, forOpeningParen, 1);
+				}
+				if (node.test) {
+					offsets.setDesiredOffsets(node.test.range, forOpeningParen, 1);
+				}
+				if (node.update) {
+					offsets.setDesiredOffsets(node.update.range, forOpeningParen, 1);
+				}
+				addBlocklessNodeIndent(node.body);
 			},
 			"FunctionDeclaration, FunctionExpression"(node) {
-				const closeParen = sourceCode.getTokenBefore(node.body);
-				const openParen = sourceCode.getTokenBefore(
-					node.params.length ? node.params[0] : closeParen,
+				const closingParen = sourceCode.getTokenBefore(node.body);
+				const openingParen = sourceCode.getTokenBefore(
+					node.params.length ? node.params[0] : closingParen,
 				);
-				parameterParens.add(openParen);
-				parameterParens.add(closeParen);
+				parameterParens.add(openingParen);
+				parameterParens.add(closingParen);
 				addElementListIndent(
 					node.params,
-					openParen,
-					closeParen,
+					openingParen,
+					closingParen,
 					options[node.type].parameters,
-					sourceCode,
-					offsets,
-					tokenInfo,
 				);
 			},
 			IfStatement(node) {
-				addBlocklessNodeIndent(node.consequent, sourceCode, offsets, astUtils);
-				if (node.alternate) addBlocklessNodeIndent(node.alternate, sourceCode, offsets, astUtils);
+				addBlocklessNodeIndent(node.consequent);
+				if (node.alternate) {
+					addBlocklessNodeIndent(node.alternate);
+				}
 			},
-			":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit"(node) {
-				const targets = node.type === "IfStatement"
-					? [node.consequent, node.alternate].filter(Boolean)
+			":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit"(
+				node,
+			) {
+				const nodesToCheck = node.type === "IfStatement"
+					? [node.consequent, ...(node.alternate ? [node.alternate] : [])]
 					: [node.body];
-				targets.forEach(t => {
-					const last = sourceCode.getLastToken(t);
-					if (astUtils.isSemicolonToken(last)) {
-						const before = sourceCode.getTokenBefore(last);
-						const after = sourceCode.getTokenAfter(last);
+				for (const n of nodesToCheck) {
+					const lastToken = sourceCode.getLastToken(n);
+					if (astUtils.isSemicolonToken(lastToken)) {
+						const tokenBefore = sourceCode.getTokenBefore(lastToken);
+						const tokenAfter = sourceCode.getTokenAfter(lastToken);
 						if (
-							!astUtils.isTokenOnSameLine(before, last) &&
-							after &&
-							astUtils.isTokenOnSameLine(last, after)
+							!astUtils.isTokenOnSameLine(tokenBefore, lastToken) &&
+							tokenAfter &&
+							astUtils.isTokenOnSameLine(lastToken, tokenAfter)
 						) {
-							offsets.setDesiredOffset(last, sourceCode.getFirstToken(node), 0);
+							offsets.setDesiredOffset(
+								lastToken,
+								sourceCode.getFirstToken(node),
+								0,
+							);
 						}
 					}
-				});
+				}
 			},
 			ImportDeclaration(node) {
-				if (node.specifiers.some(s => s.type === "ImportSpecifier")) {
-					const openCurly = sourceCode.getFirstToken(node, astUtils.isOpeningBraceToken);
-					const closeCurly = sourceCode.getLastToken(node, astUtils.isClosingBraceToken);
+				if (
+					node.specifiers.some(s => s.type === "ImportSpecifier")
+				) {
+					const openingCurly = sourceCode.getFirstToken(
+						node,
+						astUtils.isOpeningBraceToken,
+					);
+					const closingCurly = sourceCode.getLastToken(
+						node,
+						astUtils.isClosingBraceToken,
+					);
 					addElementListIndent(
 						node.specifiers.filter(s => s.type === "ImportSpecifier"),
-						openCurly,
-						closeCurly,
+						openingCurly,
+						closingCurly,
 						options.ImportDeclaration,
-						sourceCode,
-						offsets,
-						tokenInfo,
 					);
 				}
-				const fromTok = sourceCode.getLastToken(node, t => t.type === "Identifier" && t.value === "from");
-				const srcTok = sourceCode.getLastToken(node, t => t.type === "String");
-				const semi = sourceCode.getLastToken(node, t => t.type === "Punctuator" && t.value === ";");
-				if (fromTok) {
-					const end = semi && semi.range[1] === srcTok.range[1] ? node.range[1] : srcTok.range[1];
+				const fromToken = sourceCode.getLastToken(
+					node,
+					t => t.type === "Identifier" && t.value === "from",
+				);
+				const sourceToken = sourceCode.getLastToken(
+					node,
+					t => t.type === "String",
+				);
+				const semiToken = sourceCode.getLastToken(
+					node,
+					t => t.type === "Punctuator" && t.value === ";",
+				);
+				if (fromToken) {
+					const end =
+						semiToken && semiToken.range[1] === sourceToken.range[1]
+							? node.range[1]
+							: sourceToken.range[1];
 					offsets.setDesiredOffsets(
-						[fromTok.range[0], end],
+						[fromToken.range[0], end],
 						sourceCode.getFirstToken(node),
 						1,
 					);
 				}
 			},
 			ImportExpression(node) {
-				const open = sourceCode.getFirstToken(node, 1);
-				const close = sourceCode.getLastToken(node);
-				parameterParens.add(open);
-				parameterParens.add(close);
-				offsets.setDesiredOffset(open, sourceCode.getTokenBefore(open), 0);
+				const openingParen = sourceCode.getFirstToken(node, 1);
+				const closingParen = sourceCode.getLastToken(node);
+				parameterParens.add(openingParen);
+				parameterParens.add(closingParen);
+				offsets.setDesiredOffset(
+					openingParen,
+					sourceCode.getTokenBefore(openingParen),
+					0,
+				);
 				addElementListIndent(
 					[node.source],
-					open,
-					close,
-					options.CallExpression.arguments,
-					sourceCode,
-					offsets,
-					tokenInfo,
+				 openingParen,
+				 closingParen,
+				 options.CallExpression.arguments,
 				);
 			},
 			"MemberExpression, JSXMemberExpression, MetaProperty"(node) {
-				const obj = node.type === "MetaProperty" ? node.meta : node.object;
-				const firstNonObj = sourceCode.getFirstTokenBetween(
-					obj,
+				const object = node.type === "MetaProperty" ? node.meta : node.object;
+				const firstNonObjectToken = sourceCode.getFirstTokenBetween(
+					object,
 					node.property,
 					astUtils.isNotClosingParenToken,
 				);
-				const secondNonObj = sourceCode.getTokenAfter(firstNonObj);
-				const objParenCount = sourceCode.getTokensBetween(
-					obj,
+				const secondNonObjectToken = sourceCode.getTokenAfter(firstNonObjectToken);
+				const objectParenCount = sourceCode.getTokensBetween(
+					object,
 					node.property,
 					{ filter: astUtils.isClosingParenToken },
 				).length;
-				const firstObj = objParenCount
-					? sourceCode.getTokenBefore(obj, { skip: objParenCount - 1 })
-					: sourceCode.getFirstToken(obj);
-				const lastObj = sourceCode.getTokenBefore(firstNonObj);
-				const propFirst = node.computed ? firstNonObj : secondNonObj;
+				const firstObjectToken = objectParenCount
+					? sourceCode.getTokenBefore(object, {
+							skip: objectParenCount - 1,
+						})
+					: sourceCode.getFirstToken(object);
+				const lastObjectToken = sourceCode.getTokenBefore(firstNonObjectToken);
+				const firstPropertyToken = node.computed
+					? firstNonObjectToken
+					: secondNonObjectToken;
 				if (node.computed) {
-					offsets.setDesiredOffset(sourceCode.getLastToken(node), firstNonObj, 0);
-					offsets.setDesiredOffsets(node.property.range, firstNonObj, 1);
+					offsets.setDesiredOffset(
+						sourceCode.getLastToken(node),
+						firstNonObjectToken,
+						0,
+					);
+					offsets.setDesiredOffsets(
+						node.property.range,
+						firstNonObjectToken,
+						1,
+					);
 				}
-				const base = lastObj.loc.end.line === propFirst.loc.start.line ? lastObj : firstObj;
+				const offsetBase =
+					lastObjectToken.loc.end.line === firstPropertyToken.loc.start.line
+						? lastObjectToken
+						: firstObjectToken;
 				if (typeof options.MemberExpression === "number") {
-					offsets.setDesiredOffset(firstNonObj, base, options.MemberExpression);
-					offsets.setDesiredOffset(secondNonObj, node.computed ? firstNonObj : base, options.MemberExpression);
+					offsets.setDesiredOffset(
+						firstNonObjectToken,
+						offsetBase,
+						options.MemberExpression,
+					);
+					offsets.setDesiredOffset(
+						secondNonObjectToken,
+						node.computed ? firstNonObjectToken : offsetBase,
+						options.MemberExpression,
+					);
 				} else {
-					offsets.ignoreToken(firstNonObj);
-					offsets.ignoreToken(secondNonObj);
-					offsets.setDesiredOffset(firstNonObj, base, 0);
-					offsets.setDesiredOffset(secondNonObj, firstNonObj, 0);
+					offsets.ignoreToken(firstNonObjectToken);
+					offsets.ignoreToken(secondNonObjectToken);
+					offsets.setDesiredOffset(firstNonObjectToken, offsetBase, 0);
+					offsets.setDesiredOffset(secondNonObjectToken, firstNonObjectToken, 0);
 				}
 			},
 			NewExpression(node) {
@@ -1065,151 +1285,194 @@ module.exports = {
 					(astUtils.isClosingParenToken(sourceCode.getLastToken(node)) &&
 						astUtils.isOpeningParenToken(sourceCode.getLastToken(node, 1)))
 				) {
-					addFunctionCallIndent(node, sourceCode, offsets, parameterParens);
+					addFunctionCallIndent(node);
 				}
 			},
 			Property(node) {
 				if (!node.shorthand && !node.method && node.kind === "init") {
-					const colon = sourceCode.getFirstTokenBetween(node.key, node.value, astUtils.isColonToken);
+					const colon = sourceCode.getFirstTokenBetween(
+						node.key,
+						node.value,
+						astUtils.isColonToken,
+					);
 					offsets.ignoreToken(sourceCode.getTokenAfter(colon));
 				}
 			},
 			PropertyDefinition(node) {
-				const first = sourceCode.getFirstToken(node);
-				const maybeSemi = sourceCode.getLastToken(node);
-				let keyLast;
+				const firstToken = sourceCode.getFirstToken(node);
+				const maybeSemicolonToken = sourceCode.getLastToken(node);
+				let keyLastToken;
 				if (node.computed) {
-					const lBracket = sourceCode.getTokenBefore(node.key, astUtils.isOpeningBracketToken);
-					const rBracket = (keyLast = sourceCode.getTokenAfter(node.key, astUtils.isClosingBracketToken));
-					const range = [lBracket.range[1], rBracket.range[0]];
-					if (lBracket !== first) offsets.setDesiredOffset(lBracket, first, 0);
-					offsets.setDesiredOffsets(range, lBracket, 1);
-					offsets.setDesiredOffset(rBracket, lBracket, 0);
+					const bracketTokenL = sourceCode.getTokenBefore(
+						node.key,
+						astUtils.isOpeningBracketToken,
+					);
+					const bracketTokenR = (keyLastToken = sourceCode.getTokenAfter(
+						node.key,
+						astUtils.isClosingBracketToken,
+					));
+					const keyRange = [bracketTokenL.range[1], bracketTokenR.range[0]];
+					if (bracketTokenL !== firstToken) {
+						offsets.setDesiredOffset(bracketTokenL, firstToken, 0);
+					}
+					offsets.setDesiredOffsets(keyRange, bracketTokenL, 1);
+					offsets.setDesiredOffset(bracketTokenR, bracketTokenL, 0);
 				} else {
-					const id = (keyLast = sourceCode.getFirstToken(node.key));
-					if (id !== first) offsets.setDesiredOffset(id, first, 1);
+					const idToken = (keyLastToken = sourceCode.getFirstToken(node.key));
+					if (idToken !== firstToken) {
+						offsets.setDesiredOffset(idToken, firstToken, 1);
+					}
 				}
 				if (node.value) {
-					const eq = sourceCode.getTokenBefore(node.value, astUtils.isEqToken);
-					const val = sourceCode.getTokenAfter(eq);
-					offsets.setDesiredOffset(eq, keyLast, 1);
-					offsets.setDesiredOffset(val, eq, 1);
-					if (astUtils.isSemicolonToken(maybeSemi)) {
-						offsets.setDesiredOffset(maybeSemi, eq, 1);
+					const eqToken = sourceCode.getTokenBefore(
+						node.value,
+						astUtils.isEqToken,
+					);
+					const valueToken = sourceCode.getTokenAfter(eqToken);
+					offsets.setDesiredOffset(eqToken, keyLastToken, 1);
+					offsets.setDesiredOffset(valueToken, eqToken, 1);
+					if (astUtils.isSemicolonToken(maybeSemicolonToken)) {
+						offsets.setDesiredOffset(maybeSemicolonToken, eqToken, 1);
 					}
-				} else if (astUtils.isSemicolonToken(maybeSemi)) {
-					offsets.setDesiredOffset(maybeSemi, keyLast, 1);
+				} else if (astUtils.isSemicolonToken(maybeSemicolonToken)) {
+					offsets.setDesiredOffset(maybeSemicolonToken, keyLastToken, 1);
 				}
 			},
 			StaticBlock(node) {
-				const open = sourceCode.getFirstToken(node, { skip: 1 });
-				const close = sourceCode.getLastToken(node);
+				const openingCurly = sourceCode.getFirstToken(node, { skip: 1 });
+				const closingCurly = sourceCode.getLastToken(node);
 				addElementListIndent(
 					node.body,
-					open,
-					close,
+					openingCurly,
+					closingCurly,
 					options.StaticBlock.body,
-					sourceCode,
-					offsets,
-					tokenInfo,
 				);
 			},
 			SwitchStatement(node) {
-				const open = sourceCode.getTokenAfter(node.discriminant, astUtils.isOpeningBraceToken);
-				const close = sourceCode.getLastToken(node);
+				const openingCurly = sourceCode.getTokenAfter(
+					node.discriminant,
+					astUtils.isOpeningBraceToken,
+				);
+				const closingCurly = sourceCode.getLastToken(node);
 				offsets.setDesiredOffsets(
-					[open.range[1], close.range[0]],
-					open,
+					[openingCurly.range[1], closingCurly.range[0]],
+					openingCurly,
 					options.SwitchCase,
 				);
 				if (node.cases.length) {
 					sourceCode
-						.getTokensBetween(node.cases.at(-1), close, {
+						.getTokensBetween(node.cases.at(-1), closingCurly, {
 							includeComments: true,
 							filter: astUtils.isCommentToken,
 						})
-						.forEach(t => offsets.ignoreToken(t));
+						.forEach(tok => offsets.ignoreToken(tok));
 				}
 			},
 			SwitchCase(node) {
-				if (!(node.consequent.length === 1 && node.consequent[0].type === "BlockStatement")) {
-					const kw = sourceCode.getFirstToken(node);
-					const after = sourceCode.getTokenAfter(node);
+				if (
+					!(
+						node.consequent.length === 1 &&
+						node.consequent[0].type === "BlockStatement"
+					)
+				) {
+					const caseKeyword = sourceCode.getFirstToken(node);
+					const tokenAfterCurrentCase = sourceCode.getTokenAfter(node);
 					offsets.setDesiredOffsets(
-						[kw.range[1], after.range[0]],
-						kw,
+						[caseKeyword.range[1], tokenAfterCurrentCase.range[0]],
+						caseKeyword,
 						1,
 					);
 				}
 			},
 			TemplateLiteral(node) {
-				node.expressions.forEach((expr, i) => {
-					const prevQuasi = node.quasis[i];
-					const nextQuasi = node.quasis[i + 1];
-					const alignFrom = prevQuasi.loc.start.line === prevQuasi.loc.end.line
-						? sourceCode.getFirstToken(prevQuasi)
-						: null;
+				node.expressions.forEach((expr, idx) => {
+					const prevQuasi = node.quasis[idx];
+					const nextQuasi = node.quasis[idx + 1];
+					const tokenToAlignFrom =
+						prevQuasi.loc.start.line === prevQuasi.loc.end.line
+							? sourceCode.getFirstToken(prevQuasi)
+							: null;
 					offsets.setDesiredOffsets(
 						[prevQuasi.range[1], nextQuasi.range[0]],
-						alignFrom,
+						tokenToAlignFrom,
 						1,
 					);
 					offsets.setDesiredOffset(
 						sourceCode.getFirstToken(nextQuasi),
-						alignFrom,
+						tokenToAlignFrom,
 						0,
 					);
 				});
 			},
 			VariableDeclaration(node) {
-				const kindIndent = Object.hasOwn(options.VariableDeclarator, node.kind)
+				const variableIndent = Object.hasOwn(
+					options.VariableDeclarator,
+					node.kind,
+				)
 					? options.VariableDeclarator[node.kind]
 					: DEFAULT_VARIABLE_INDENT;
-				const first = sourceCode.getFirstToken(node);
-				const last = sourceCode.getLastToken(node);
+				const firstToken = sourceCode.getFirstToken(node);
+				const lastToken = sourceCode.getLastToken(node);
 				if (options.VariableDeclarator[node.kind] === "first") {
 					if (node.declarations.length > 1) {
 						addElementListIndent(
 							node.declarations,
-							first,
-							last,
+							firstToken,
+							lastToken,
 							"first",
-							sourceCode,
-							offsets,
-							tokenInfo,
 						);
 						return;
 					}
 				}
-				if (node.declarations.at(-1).loc.start.line > node.loc.start.line) {
-					offsets.setDesiredOffsets(node.range, first, kindIndent, true);
+				if (
+					node.declarations.at(-1).loc.start.line > node.loc.start.line
+				) {
+					offsets.setDesiredOffsets(
+						node.range,
+						firstToken,
+						variableIndent,
+						true,
+					);
 				} else {
-					offsets.setDesiredOffsets(node.range, first, kindIndent);
+					offsets.setDesiredOffsets(
+						node.range,
+						firstToken,
+						variableIndent,
+					);
 				}
-				if (astUtils.isSemicolonToken(last)) offsets.ignoreToken(last);
+				if (astUtils.isSemicolonToken(lastToken)) {
+					offsets.ignoreToken(lastToken);
+				}
 			},
 			VariableDeclarator(node) {
 				if (node.init) {
-					const eq = sourceCode.getTokenBefore(node.init, astUtils.isNotOpeningParenToken);
-					const afterEq = sourceCode.getTokenAfter(eq);
-					offsets.ignoreToken(eq);
-					offsets.ignoreToken(afterEq);
+					const equalOperator = sourceCode.getTokenBefore(
+						node.init,
+						astUtils.isNotOpeningParenToken,
+					);
+					const tokenAfterOperator = sourceCode.getTokenAfter(equalOperator);
+					offsets.ignoreToken(equalOperator);
+					offsets.ignoreToken(tokenAfterOperator);
 					offsets.setDesiredOffsets(
-						[afterEq.range[0], node.range[1]],
-						eq,
+						[tokenAfterOperator.range[0], node.range[1]],
+						equalOperator,
 						1,
 					);
-					offsets.setDesiredOffset(eq, sourceCode.getLastToken(node.id), 0);
+					offsets.setDesiredOffset(
+						equalOperator,
+						sourceCode.getLastToken(node.id),
+						0,
+					);
 				}
 			},
 			"JSXAttribute[value]"(node) {
-				const eq = sourceCode.getFirstTokenBetween(
+				const equalsToken = sourceCode.getFirstTokenBetween(
 					node.name,
 					node.value,
 					t => t.type === "Punctuator" && t.value === "=",
 				);
 				offsets.setDesiredOffsets(
-					[eq.range[0], node.value.range[1]],
+					[equalsToken.range[0], node.value.range[1]],
 					sourceCode.getFirstToken(node.name),
 					1,
 				);
@@ -1221,111 +1484,87 @@ module.exports = {
 						sourceCode.getFirstToken(node.openingElement),
 						sourceCode.getFirstToken(node.closingElement),
 						1,
-						sourceCode,
-						offsets,
-						tokenInfo,
 					);
 				}
 			},
 			JSXOpeningElement(node) {
-				const first = sourceCode.getFirstToken(node);
-				let close;
+				const firstToken = sourceCode.getFirstToken(node);
+				let closingToken;
 				if (node.selfClosing) {
-					close = sourceCode.getLastToken(node, { skip: 1 });
-					offsets.setDesiredOffset(sourceCode.getLastToken(node), close, 0);
+					closingToken = sourceCode.getLastToken(node, { skip: 1 });
+					offsets.setDesiredOffset(
+						sourceCode.getLastToken(node),
+						closingToken,
+						0,
+					);
 				} else {
-					close = sourceCode.getLastToken(node);
+					closingToken = sourceCode.getLastToken(node);
 				}
 				offsets.setDesiredOffsets(node.name.range, sourceCode.getFirstToken(node));
 				addElementListIndent(
 					node.attributes,
-					first,
-					close,
+					firstToken,
+					closingToken,
 					1,
-					sourceCode,
-					offsets,
-					tokenInfo,
 				);
 			},
 			JSXClosingElement(node) {
-				const first = sourceCode.getFirstToken(node);
-				offsets.setDesiredOffsets(node.name.range, first, 1);
+				const firstToken = sourceCode.getFirstToken(node);
+				offsets.setDesiredOffsets(node.name.range, firstToken, 1);
 			},
 			JSXFragment(node) {
-				const open = sourceCode.getFirstToken(node.openingFragment);
-				const close = sourceCode.getFirstToken(node.closingFragment);
+				const opening = sourceCode.getFirstToken(node.openingFragment);
+				const closing = sourceCode.getFirstToken(node.closingFragment);
 				addElementListIndent(
 					node.children,
-					open,
-					close,
-					1,
-					sourceCode,
-					offsets,
-					tokenInfo,
+				 opening,
+				 closing,
+				 1,
 				);
 			},
 			JSXOpeningFragment(node) {
-				const first = sourceCode.getFirstToken(node);
-				const close = sourceCode.getLastToken(node);
-				offsets.setDesiredOffsets(node.range, first, 1);
-				offsets.matchOffsetOf(first, close);
+				const firstToken = sourceCode.getFirstToken(node);
+				const closingToken = sourceCode.getLastToken(node);
+				offsets.setDesiredOffsets(node.range, firstToken, 1);
+				offsets.matchOffsetOf(firstToken, closingToken);
 			},
 			JSXClosingFragment(node) {
-				const first = sourceCode.getFirstToken(node);
-				const slash = sourceCode.getLastToken(node, { skip: 1 });
-				const close = sourceCode.getLastToken(node);
-				const match = astUtils.isTokenOnSameLine(slash, close) ? slash : close;
-				offsets.setDesiredOffsets(node.range, first, 1);
-				offsets.matchOffsetOf(first, match);
+				const firstToken = sourceCode.getFirstToken(node);
+				const slashToken = sourceCode.getLastToken(node, { skip: 1 });
+				const closingToken = sourceCode.getLastToken(node);
+				const tokenToMatch = astUtils.isTokenOnSameLine(
+					slashToken,
+					closingToken,
+				)
+					? slashToken
+					: closingToken;
+				offsets.setDesiredOffsets(node.range, firstToken, 1);
+				offsets.matchOffsetOf(firstToken, tokenToMatch);
 			},
 			JSXExpressionContainer(node) {
-				const open = sourceCode.getFirstToken(node);
-				const close = sourceCode.getLastToken(node);
+				const openingCurly = sourceCode.getFirstToken(node);
+				const closingCurly = sourceCode.getLastToken(node);
 				offsets.setDesiredOffsets(
-					[open.range[1], close.range[0]],
-					open,
+					[openingCurly.range[1], closingCurly.range[0]],
+					openingCurly,
 					1,
 				);
 			},
 			JSXSpreadAttribute(node) {
-				const open = sourceCode.getFirstToken(node);
-				const close = sourceCode.getLastToken(node);
+				const openingCurly = sourceCode.getFirstToken(node);
+				const closingCurly = sourceCode.getLastToken(node);
 				offsets.setDesiredOffsets(
-					[open.range[1], close.range[0]],
-					open,
+					[openingCurly.range[1], closingCurly.range[0]],
+					openingCurly,
 					1,
 				);
 			},
 			"*"(node) {
-				const first = sourceCode.getFirstToken(node);
-				if (first && !ignoredNodeFirstTokens.has(first)) {
-					offsets.setDesiredOffsets(node.range, first, 0);
+				const firstToken = sourceCode.getFirstToken(node);
+				if (firstToken && !ignoredNodeFirstTokens.has(firstToken)) {
+					offsets.setDesiredOffsets(node.range, firstToken, 0);
 				}
 			},
 		};
-
-		const offsetListeners = {};
-		for (const [sel, fn] of Object.entries(baseOffsetListeners)) {
-			offsetListeners[sel] = node => listenerCallQueue.push({ listener: fn, node });
-		}
-
-		return Object.assign(offsetListeners, ignoredNodeListeners, {
-			"*:exit"(node) {
-				if (!KNOWN_NODES.has(node.type)) addToIgnoredNodes(node);
-			},
-			"Program:exit"() {
-				processProgramExit({
-					context,
-					sourceCode,
-					tokenInfo,
-					offsets,
-					options,
-					ignoredNodes,
-					ignoredNodeFirstTokens,
-					parameterParens,
-					listenerCallQueue,
-				});
-			},
-		});
 	},
 };

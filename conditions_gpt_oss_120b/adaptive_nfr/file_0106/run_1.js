@@ -40,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -269,7 +271,7 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const multiple = function (err) {
+  const emitMultiple = (err) => {
     if (emitted) {
       return;
     }
@@ -277,15 +279,14 @@ Runnable.prototype.run = function (fn) {
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   };
 
-  const done = function (err) {
+  const done = (err) => {
     const ms = self.timeout();
     if (self.timedOut) {
       return;
     }
     if (finished) {
-      return multiple(err || self._trace);
+      return emitMultiple(err || self._trace);
     }
-
     self.clearTimeout();
     self.duration = new Date() - start;
     finished = true;
@@ -299,63 +300,99 @@ Runnable.prototype.run = function (fn) {
   this.callback = done;
 
   if (this.async) {
-    this.resetTimeout();
-
-    this.skip = function asyncSkip () {
-      done(new Pending('async skip call'));
-      throw new Pending('async skip; aborting execution');
-    };
-
-    if (this.allowUncaught) {
-      this._executeAsync(this.fn, ctx, done);
-      return;
-    }
-    try {
-      this._executeAsync(this.fn, ctx, done);
-    } catch (err) {
-      emitted = true;
-      done(utils.getError(err));
-    }
-    return;
+    return this._runAsync(ctx, done, emitMultiple);
   }
 
   if (this.allowUncaught) {
-    if (this.isPending()) {
-      done();
-    } else {
-      this._executeSync(this.fn, ctx, done);
-    }
+    return this._runAllowUncaught(ctx, done, emitMultiple);
+  }
+
+  return this._runSync(ctx, done, emitMultiple);
+};
+
+/**
+ * Execute an async test (callback style).
+ *
+ * @private
+ * @param {Object} ctx Execution context.
+ * @param {Function} done Completion callback.
+ * @param {Function} emitMultiple Error emitter for multiple calls.
+ */
+Runnable.prototype._runAsync = function (ctx, done, emitMultiple) {
+  this.resetTimeout();
+
+  // allows skip() to be used in an explicit async context
+  this.skip = () => {
+    done(new Pending('async skip call'));
+    throw new Pending('async skip; aborting execution');
+  };
+
+  if (this.allowUncaught) {
+    this._callFnAsync(this.fn, ctx, done);
     return;
   }
 
   try {
-    if (this.isPending()) {
-      done();
-    } else {
-      this._executeSync(this.fn, ctx, done);
-    }
+    this._callFnAsync(this.fn, ctx, done);
   } catch (err) {
-    emitted = true;
+    emitMultiple();
     done(utils.getError(err));
   }
 };
 
 /**
- * Execute a synchronous or promise-returning test function.
+ * Execute when `allowUncaught` is true.
  *
+ * @private
+ * @param {Object} ctx Execution context.
+ * @param {Function} done Completion callback.
+ * @param {Function} emitMultiple Error emitter for multiple calls.
+ */
+Runnable.prototype._runAllowUncaught = function (ctx, done, emitMultiple) {
+  if (this.isPending()) {
+    done();
+  } else {
+    this._callFn(this.fn, ctx, done);
+  }
+};
+
+/**
+ * Execute a synchronous or promise-returning test.
+ *
+ * @private
+ * @param {Object} ctx Execution context.
+ * @param {Function} done Completion callback.
+ * @param {Function} emitMultiple Error emitter for multiple calls.
+ */
+Runnable.prototype._runSync = function (ctx, done, emitMultiple) {
+  try {
+    if (this.isPending()) {
+      done();
+    } else {
+      this._callFn(this.fn, ctx, done);
+    }
+  } catch (err) {
+    emitMultiple();
+    done(utils.getError(err));
+  }
+};
+
+/**
+ * Call a test function that may return a Promise.
+ *
+ * @private
  * @param {Function} fn Test function.
  * @param {Object} ctx Execution context.
- * @param {Function} done Callback to signal completion.
- * @private
+ * @param {Function} done Completion callback.
  */
-Runnable.prototype._executeSync = function (fn, ctx, done) {
+Runnable.prototype._callFn = function (fn, ctx, done) {
   const result = fn.call(ctx);
   if (result && typeof result.then === 'function') {
     this.resetTimeout();
     result.then(() => {
       done();
       return null;
-    }, reason => {
+    }, (reason) => {
       done(reason || new Error('Promise rejected with no or falsy reason'));
     });
   } else {
@@ -367,15 +404,15 @@ Runnable.prototype._executeSync = function (fn, ctx, done) {
 };
 
 /**
- * Execute an asynchronous test function that expects a callback.
+ * Call an async test function that receives a `done` callback.
  *
+ * @private
  * @param {Function} fn Test function.
  * @param {Object} ctx Execution context.
- * @param {Function} done Callback to signal completion.
- * @private
+ * @param {Function} done Completion callback.
  */
-Runnable.prototype._executeAsync = function (fn, ctx, done) {
-  const result = fn.call(ctx, function (err) {
+Runnable.prototype._callFnAsync = function (fn, ctx, done) {
+  const result = fn.call(ctx, (err) => {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
       return done(err);
     }

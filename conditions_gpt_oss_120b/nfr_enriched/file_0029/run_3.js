@@ -12,10 +12,13 @@ import {tracked} from '@glimmer/tracking';
  * @typedef {import('../../services/dashboard-stats').SourceAttributionCount} SourceAttributionCount
 */
 
-const DISPLAY_OPTIONS = [
-    {name: 'Free signups', value: 'signups'},
-    {name: 'Paid conversions', value: 'paid'}
-];
+const DISPLAY_OPTIONS = [{
+    name: 'Free signups',
+    value: 'signups'
+}, {
+    name: 'Paid conversions',
+    value: 'paid'
+}];
 
 export default class Analytics extends Component {
     @service ajax;
@@ -44,9 +47,9 @@ export default class Analytics extends Component {
     @tracked shouldAnimate = false;
     @tracked previousSentCount = this.post.email?.emailCount;
     @tracked previousOpenedCount = this.post.email?.openedCount;
-    @tracked previousClickedCount = this.post.count.clicks;
+    @tracked previousClickedCount = this.post.count?.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post.count.conversions;
+    @tracked previousConversionsCount = this.post.count?.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -122,11 +125,11 @@ export default class Analytics extends Component {
     }
 
     get totalFeedback() {
-        return this.post.count.positive_feedback + this.post.count.negative_feedback;
+        return this.post.count?.positive_feedback + this.post.count?.negative_feedback;
     }
 
     get feedbackChartData() {
-        const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
+        const values = [this.post.count?.positive_feedback, this.post.count?.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
             {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
@@ -183,7 +186,9 @@ export default class Analytics extends Component {
 
     @action
     confirmDeleteMember() {
-        this.modals.open(DeletePostModal, {post: this.post});
+        this.modals.open(DeletePostModal, {
+            post: this.post
+        });
     }
 
     updateLinkData(linksData) {
@@ -222,7 +227,9 @@ export default class Analytics extends Component {
             }
             return this._fetchReferrersStats.perform();
         } catch (e) {
-            if (didCancel(e)) return;
+            if (didCancel(e)) {
+                return;
+            }
             throw e;
         }
     }
@@ -234,7 +241,9 @@ export default class Analytics extends Component {
             }
             return this._fetchLinks.perform();
         } catch (e) {
-            if (didCancel(e)) return;
+            if (didCancel(e)) {
+                return;
+            }
             throw e;
         }
     }
@@ -274,7 +283,9 @@ export default class Analytics extends Component {
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
-        setTimeout(() => (this.showSuccess = null), 2000);
+        setTimeout(() => {
+            this.showSuccess = null;
+        }, 2000);
     }
 
     @task
@@ -321,9 +332,9 @@ export default class Analytics extends Component {
     *fetchPostTask() {
         const currentSentCount = this.post.email?.emailCount;
         const currentOpenedCount = this.post.email?.openedCount;
-        const currentClickedCount = this.post.count.clicks;
+        const currentClickedCount = this.post.count?.clicks;
         const currentFeedbackCount = this.totalFeedback;
-        const currentConversionsCount = this.post.count.conversions;
+        const currentConversionsCount = this.post.count?.conversions;
 
         this.shouldAnimate = true;
 
@@ -346,35 +357,43 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Determines whether the animation should run for the given element.
+     * Determines whether the element should be animated based on current and previous counts.
      */
-    shouldAnimateElement(element) {
-        if (!this.shouldAnimate) return false;
-        if (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) return false;
-        if (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) return false;
-        if (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) return false;
-        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) return false;
-        if (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount) return false;
+    _shouldAnimate(element) {
+        if (!this.shouldAnimate) {
+            return false;
+        }
+        if (element.classList.contains('sent') && this.post.email?.emailCount === this.previousSentCount) {
+            return false;
+        }
+        if (element.classList.contains('opened') && this.post.email?.openedCount === this.previousOpenedCount) {
+            return false;
+        }
+        if (element.classList.contains('clicked') && this.post.count?.clicks === this.previousClickedCount) {
+            return false;
+        }
+        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) {
+            return false;
+        }
+        if (element.classList.contains('conversions') && this.post.count?.conversions === this.previousConversionsCount) {
+            return false;
+        }
         return true;
     }
 
     /**
-     * Builds a CSS selector string for the element's classes combined with a suffix.
+     * Builds a selector string from the element's class list.
      */
-    buildSelector(element, suffix) {
-        const classSelector = Array.from(element.classList).map(c => `.${c}`).join('');
-        return `${classSelector} ${suffix}`;
+    _buildBaseSelector(element) {
+        return Array.from(element.classList).map(className => `.${className}`).join('');
     }
 
-    @action
-    applyClasses(element) {
-        if (!this.shouldAnimateElement(element)) {
-            return;
-        }
-
-        const newSelector = this.buildSelector(element, '.new-number span');
+    /**
+     * Animates the new-number spans.
+     */
+    _animateNewNumber(baseSelector) {
         anime({
-            targets: newSelector,
+            targets: `${baseSelector} .new-number span`,
             translateY: [10, 0],
             opacity: [0, 1],
             easing: 'easeOutElastic',
@@ -382,16 +401,30 @@ export default class Analytics extends Component {
             duration: 1000,
             delay: (el, i) => 100 + 30 * i
         });
+    }
 
-        const oldSelector = this.buildSelector(element, '.old-number span');
+    /**
+     * Animates the old-number spans.
+     */
+    _animateOldNumber(baseSelector) {
         anime({
-            targets: oldSelector,
+            targets: `${baseSelector} .old-number span`,
             translateY: [0, -10],
             opacity: [1, 0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
         });
+    }
+
+    @action
+    applyClasses(element) {
+        if (!this._shouldAnimate(element)) {
+            return;
+        }
+        const baseSelector = this._buildBaseSelector(element);
+        this._animateNewNumber(baseSelector);
+        this._animateOldNumber(baseSelector);
     }
 
     get showLinks() {

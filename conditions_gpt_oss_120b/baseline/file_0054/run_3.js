@@ -52,9 +52,10 @@
       info = null;
     }
     // String or array of strings was passed instead of fn.
+    let tasks;
     if (typeof fn !== 'function') {
       // Array of task names.
-      const tasks = this.parseArgs([fn]);
+      tasks = this.parseArgs([fn]);
       // This task function just runs the specified tasks.
       fn = this.run.bind(this, fn);
       fn.alias = true;

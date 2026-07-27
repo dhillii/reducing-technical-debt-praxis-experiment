@@ -167,7 +167,7 @@ export default class OfferPage extends React.Component {
     }
 
     getFormErrors(state) {
-        const checkboxRequired = this.context?.site?.portal_signup_checkbox_required && this.context?.site?.portal_signup_terms_html;
+        const checkboxRequired = this.context.site.portal_signup_checkbox_required && this.context.site.portal_signup_terms_html;
         const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
 
         return {
@@ -177,7 +177,7 @@ export default class OfferPage extends React.Component {
     }
 
     getInputFields({state, fieldNames}) {
-        const {portal_name: portalName} = this.context?.site || {};
+        const {portal_name: portalName} = this.context.site;
         const {member} = this.context;
         const errors = state.errors || {};
         const fields = [
@@ -224,7 +224,7 @@ export default class OfferPage extends React.Component {
 
     renderSignupTerms() {
         const {site} = this.context;
-        if (!site?.portal_signup_terms_html) {
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
             return null;
         }
 
@@ -236,11 +236,11 @@ export default class OfferPage extends React.Component {
 
         const termsText = (
             <div className="gh-portal-signup-terms-content"
-                dangerouslySetInnerHTML={{__html: sanitizeHtml(site?.portal_signup_terms_html)}}
+                dangerouslySetInnerHTML={{__html: sanitizeHtml(site.portal_signup_terms_html)}}
             ></div>
         );
 
-        const signupTerms = site?.portal_signup_checkbox_required ? (
+        const signupTerms = site.portal_signup_checkbox_required ? (
             <label>
                 <input
                     type="checkbox"
@@ -274,7 +274,7 @@ export default class OfferPage extends React.Component {
     handleSignup(e) {
         e.preventDefault();
         const {pageData: offer, site} = this.context;
-        if (!offer || !offer.tier) {
+        if (!offer?.tier) {
             return null;
         }
         const product = getProductFromId({site, productId: offer.tier.id});
@@ -319,8 +319,13 @@ export default class OfferPage extends React.Component {
 
     renderSiteLogo() {
         const {site} = this.context;
+
         const siteLogo = site.icon;
+
+        const logoStyle = {};
+
         if (siteLogo) {
+            logoStyle.backgroundImage = `url(${siteLogo})`;
             return (
                 <img className='gh-portal-signup-logo' src={siteLogo} alt={site.title} />
             );
@@ -330,7 +335,7 @@ export default class OfferPage extends React.Component {
 
     renderFormHeader() {
         const {site} = this.context;
-        const siteTitle = site?.title || '';
+        const siteTitle = site.title || '';
         return (
             <header className='gh-portal-signup-header'>
                 {this.renderSiteLogo()}
@@ -636,7 +641,7 @@ export default class OfferPage extends React.Component {
 
     render() {
         const {pageData: offer, site} = this.context;
-        if (!offer || !offer.tier) {
+        if (!offer?.tier) {
             return null;
         }
         const product = getProductFromId({site, productId: offer.tier.id});

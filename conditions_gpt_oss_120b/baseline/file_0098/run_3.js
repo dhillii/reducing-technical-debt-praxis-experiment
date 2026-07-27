@@ -33,7 +33,7 @@ define([
      * 1. `start` on `sync` channel
      *     starts synchronizing.
      */
-    const Sync = Marionette.Object.extend({
+    var Sync = Marionette.Object.extend({
 
         configs  : {
             // Dropbox app key
@@ -272,15 +272,15 @@ define([
         },
 
         /**
-         * Save only models which don't exist locally or which were updated
-         * remotely.
+         * Save only models which don't exist locally or which were updated remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            const promises = [];
-            const newData  = _.filter(remoteData, function(rModel) {
+            const newData = _.filter(remoteData, function(rModel) {
                 const model = _.findWhere(localData, {id: rModel.id});
                 return !model || model.updated < rModel.updated;
             });
+
+            const promises = [];
 
             if (newData.length) {
                 console.log('Dropbox changes:', newData);

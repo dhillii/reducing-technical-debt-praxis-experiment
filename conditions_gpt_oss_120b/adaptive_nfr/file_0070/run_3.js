@@ -448,12 +448,10 @@ module.exports = {
 			variable.defs.forEach(def => {
 				const { type, node } = def;
 
-				// FunctionDeclarations
 				if (type === "FunctionName") {
 					functionDefinitions.push(node);
 				}
 
-				// FunctionExpressions
 				if (
 					type === "Variable" &&
 					node.init &&
@@ -723,6 +721,130 @@ module.exports = {
 		}
 
 		/**
+		 * @param {Variable} variable
+		 * @param {VariableDef} def
+		 * @returns {boolean} true if the variable should be ignored because of array destructuring ignore pattern
+		 */
+		function shouldIgnoreArrayDestructure(variable, def) {
+			const refUsedInArrayPatterns = variable.references.some(
+				ref => ref.identifier.parent.type === "ArrayPattern",
+			);
+
+			return (
+				(def.name.parent.type === "ArrayPattern" ||
+					refUsedInArrayPatterns) &&
+				config.destructuredArrayIgnorePattern &&
+				config.destructuredArrayIgnorePattern.test(def.name.name)
+			);
+		}
+
+		/**
+		 * @param {Variable} variable
+		 * @param {VariableDef} def
+		 * @returns {boolean} true if the variable should be ignored because of vars ignore pattern
+		 */
+		function shouldIgnoreVariable(variable, def) {
+			return (
+				config.varsIgnorePattern &&
+				config.varsIgnorePattern.test(def.name.name)
+			);
+		}
+
+		/**
+		 * Reports a used ignored variable if the configuration requires it.
+		 * @param {Variable} variable
+		 * @param {VariableDef} def
+		 * @param {VariableType} type
+		 */
+		function reportIfUsedIgnored(variable, def, type) {
+			if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
+				context.report({
+					node: def.name,
+					messageId: "usedIgnoredVar",
+					data: getUsedIgnoredMessageData(variable, type),
+				});
+			}
+		}
+
+		/**
+		 * Determines whether a variable should be skipped based on its definition.
+		 * @param {Variable} variable
+		 * @param {VariableDef} def
+		 * @returns {boolean}
+		 */
+		function shouldSkipBasedOnDef(variable, def) {
+			if (!def) {
+				return false;
+			}
+
+			const type = def.type;
+
+			if (shouldIgnoreArrayDestructure(variable, def)) {
+				reportIfUsedIgnored(variable, def, "array-destructure");
+				return true;
+			}
+
+			if (type === "ClassName") {
+				const hasStaticBlock = def.node.body.body.some(
+					node => node.type === "StaticBlock",
+				);
+				if (config.ignoreClassWithStaticInitBlock && hasStaticBlock) {
+					return true;
+				}
+			}
+
+			if (type === "CatchClause") {
+				if (config.caughtErrors === "none") {
+					return true;
+				}
+				if (
+					config.caughtErrorsIgnorePattern &&
+					config.caughtErrorsIgnorePattern.test(def.name.name)
+				) {
+					reportIfUsedIgnored(variable, def, "catch-clause");
+					return true;
+				}
+				return false;
+			}
+
+			if (type === "Parameter") {
+				if (
+					(def.node.parent.type === "Property" ||
+						def.node.parent.type === "MethodDefinition") &&
+					def.node.parent.kind === "set"
+				) {
+					return true;
+				}
+				if (config.args === "none") {
+					return true;
+				}
+				if (
+					config.argsIgnorePattern &&
+					config.argsIgnorePattern.test(def.name.name)
+				) {
+					reportIfUsedIgnored(variable, def, "parameter");
+					return true;
+				}
+				if (
+					config.args === "after-used" &&
+					astUtils.isFunction(def.name.parent) &&
+					!isAfterLastUsedArg(variable)
+				) {
+					return true;
+				}
+				return false;
+			}
+
+			// other variable types
+			if (shouldIgnoreVariable(variable, def)) {
+				reportIfUsedIgnored(variable, def, "variable");
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
 		 * Gets an array of variables without read references.
 		 * @param {Scope} scope an eslint-scope Scope object.
 		 * @param {Variable[]} unusedVars an array that saving result.
@@ -732,193 +854,55 @@ module.exports = {
 		function collectUnusedVariables(scope, unusedVars) {
 			const variables = scope.variables;
 			const childScopes = scope.childScopes;
-			let i, l;
 
-			if (scope.type !== "global" || config.vars === "all") {
-				for (i = 0, l = variables.length; i < l; ++i) {
-					const variable = variables[i];
+			if (scope.type !== "global" && config.vars !== "all") {
+				// nothing to collect in this scope
+			}
 
-					if (
-						scope.type === "class" &&
-						scope.block.id === variable.identifiers[0]
-					) {
-						continue;
-					}
+			for (let i = 0, l = variables.length; i < l; ++i) {
+				const variable = variables[i];
 
-					if (scope.functionExpressionScope) {
-						continue;
-					}
+				// Guard clauses to flatten nesting
+				if (
+					scope.type === "class" &&
+					scope.block.id === variable.identifiers[0]
+				) {
+					continue;
+				}
+				if (scope.functionExpressionScope) {
+					continue;
+				}
+				if (!config.reportUsedIgnorePattern && variable.eslintUsed) {
+					continue;
+				}
+				if (
+					scope.type === "function" &&
+					variable.name === "arguments" &&
+					variable.identifiers.length === 0
+				) {
+					continue;
+				}
 
-					if (
-						!config.reportUsedIgnorePattern &&
-						variable.eslintUsed
-					) {
-						continue;
-					}
+				const def = variable.defs[0];
 
-					if (
-						scope.type === "function" &&
-						variable.name === "arguments" &&
-						variable.identifiers.length === 0
-					) {
-						continue;
-					}
+				if (def && shouldSkipBasedOnDef(variable, def)) {
+					continue;
+				}
 
-					const def = variable.defs[0];
-
-					if (def) {
-						const type = def.type;
-						const refUsedInArrayPatterns = variable.references.some(
-							ref =>
-								ref.identifier.parent.type === "ArrayPattern",
-						);
-
-						if (
-							(def.name.parent.type === "ArrayPattern" ||
-								refUsedInArrayPatterns) &&
-							config.destructuredArrayIgnorePattern &&
-							config.destructuredArrayIgnorePattern.test(
-								def.name.name,
-							)
-						) {
-							if (
-								config.reportUsedIgnorePattern &&
-								isUsedVariable(variable)
-							) {
-								context.report({
-									node: def.name,
-									messageId: "usedIgnoredVar",
-									data: getUsedIgnoredMessageData(
-										variable,
-										"array-destructure",
-									),
-								});
-							}
-
-							continue;
-						}
-
-						if (type === "ClassName") {
-							const hasStaticBlock = def.node.body.body.some(
-								node => node.type === "StaticBlock",
-							);
-
-							if (
-								config.ignoreClassWithStaticInitBlock &&
-								hasStaticBlock
-							) {
-								continue;
-							}
-						}
-
-						if (type === "CatchClause") {
-							if (config.caughtErrors === "none") {
-								continue;
-							}
-
-							if (
-								config.caughtErrorsIgnorePattern &&
-								config.caughtErrorsIgnorePattern.test(
-									def.name.name,
-								)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"catch-clause",
-										),
-									});
-								}
-
-								continue;
-							}
-						} else if (type === "Parameter") {
-							if (
-								(def.node.parent.type === "Property" ||
-									def.node.parent.type ===
-										"MethodDefinition") &&
-								def.node.parent.kind === "set"
-							) {
-								continue;
-							}
-
-							if (config.args === "none") {
-								continue;
-							}
-
-							if (
-								config.argsIgnorePattern &&
-								config.argsIgnorePattern.test(def.name.name)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"parameter",
-										),
-									});
-								}
-
-								continue;
-							}
-
-							if (
-								config.args === "after-used" &&
-								astUtils.isFunction(def.name.parent) &&
-								!isAfterLastUsedArg(variable)
-							) {
-								continue;
-							}
-						} else {
-							if (
-								config.varsIgnorePattern &&
-								config.varsIgnorePattern.test(def.name.name)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"variable",
-										),
-									});
-								}
-
-								continue;
-							}
-						}
-					}
-
-					if (
-						!isUsedVariable(variable) &&
-						!isExported(variable) &&
-						!(
-							config.ignoreUsingDeclarations &&
-							usesExplicitResourceManagement(variable)
-						) &&
-						!hasRestSpreadSibling(variable)
-					) {
-						unusedVars.push(variable);
-					}
+				if (
+					!isUsedVariable(variable) &&
+					!isExported(variable) &&
+					!(
+						config.ignoreUsingDeclarations &&
+						usesExplicitResourceManagement(variable)
+					) &&
+					!hasRestSpreadSibling(variable)
+				) {
+					unusedVars.push(variable);
 				}
 			}
 
-			for (i = 0, l = childScopes.length; i < l; ++i) {
+			for (let i = 0, l = childScopes.length; i < l; ++i) {
 				collectUnusedVariables(childScopes[i], unusedVars);
 			}
 
@@ -1027,7 +1011,6 @@ module.exports = {
 					if (parentNode.params.length === 1) {
 						return fixer.removeRange(node.range);
 					}
-
 					if (
 						getTokenBeforeValue(node) === "(" &&
 						getTokenAfterValue(node) === ","
@@ -1037,13 +1020,11 @@ module.exports = {
 							getNextTokenEnd(node),
 						]);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(node),
 						node.range[1],
 					]);
 				}
-
 				return null;
 			}
 
@@ -1059,7 +1040,6 @@ module.exports = {
 					if (isLoop(parentNode.parent.parent)) {
 						return null;
 					}
-
 					if (parentNode.parent.declarations.length === 1) {
 						const nextToken = sourceCode.getTokenAfter(
 							parentNode.parent,
@@ -1067,36 +1047,30 @@ module.exports = {
 						const prevToken = sourceCode.getTokenBefore(
 							parentNode.parent,
 						);
-
 						if (
 							nextToken &&
 							isDeclarationNotSafeToRemove(nextToken, prevToken)
 						) {
 							return null;
 						}
-
 						return fixer.removeRange(parentNode.parent.range);
 					}
-
 					if (getTokenBeforeValue(parentNode) === ",") {
 						return fixer.removeRange([
 							getPreviousTokenStart(parentNode),
 							parentNode.range[1],
 						]);
 					}
-
 					return fixer.removeRange([
 						parentNode.range[0],
 						getNextTokenEnd(parentNode),
 					]);
 				}
-
 				if (getTokenBeforeValue(node) === ":") {
 					if (parentNode.parent.type === "ObjectPattern") {
 						return fixObjectWithValueSeparator(node);
 					}
 				}
-
 				return fixFunctionParameters(node);
 			}
 
@@ -1114,25 +1088,21 @@ module.exports = {
 				) {
 					return fixNestedObjectVariable(parentNode.parent);
 				}
-
 				if (parentNode.parent.type === "ObjectPattern") {
 					if (parentNode.parent.properties.length === 1) {
 						return fixVariables(parentNode.parent);
 					}
-
 					if (getTokenBeforeValue(parentNode) === "{") {
 						return fixer.removeRange([
 							parentNode.range[0],
 							getNextTokenEnd(parentNode),
 						]);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(parentNode),
 						parentNode.range[1],
 					]);
 				}
-
 				return null;
 			}
 
@@ -1150,19 +1120,15 @@ module.exports = {
 				) {
 					return fixNestedArrayVariable(parentNode);
 				}
-
 				if (hasSingleElement(parentNode)) {
 					if (getTokenBeforeValue(parentNode) === ":") {
 						return fixVariables(parentNode);
 					}
-
 					if (parentNode.parent.type === "RestElement") {
 						return fixRestInPattern(parentNode.parent);
 					}
-
 					return fixVariables(parentNode);
 				}
-
 				if (
 					getTokenBeforeValue(node) === "," &&
 					getTokenAfterValue(node) === "]"
@@ -1172,7 +1138,6 @@ module.exports = {
 						node.range[1],
 					]);
 				}
-
 				return fixer.removeRange(node.range);
 			}
 
@@ -1190,7 +1155,6 @@ module.exports = {
 				) {
 					return fixNestedArrayVariable(parentNode);
 				}
-
 				return fixNestedObjectVariable(node);
 			}
 
@@ -1206,28 +1170,23 @@ module.exports = {
 					if (parentNode.params.length === 1) {
 						return fixer.removeRange(node.range);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(node),
 						node.range[1],
 					]);
 				}
-
 				if (parentNode.type === "ArrayPattern") {
 					if (hasSingleElement(parentNode)) {
 						if (parentNode.parent.type === "ArrayPattern") {
 							return fixNestedArrayVariable(parentNode);
 						}
-
 						return fixVariables(parentNode);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(node),
 						node.range[1],
 					]);
 				}
-
 				return null;
 			}
 
@@ -1247,7 +1206,6 @@ module.exports = {
 					) {
 						return null;
 					}
-
 					if (
 						parent.parent.parent.type === "IfStatement" ||
 						isLoop(parent.parent.parent) ||
@@ -1256,27 +1214,22 @@ module.exports = {
 					) {
 						return fixer.replaceText(parent.parent, ";");
 					}
-
 					const nextToken = sourceCode.getTokenAfter(parent.parent);
 					const prevToken = sourceCode.getTokenBefore(parent.parent);
-
 					if (
 						nextToken &&
 						isDeclarationNotSafeToRemove(nextToken, prevToken)
 					) {
 						return null;
 					}
-
 					return fixer.removeRange(parent.parent.range);
 				}
-
 				if (tokenBefore.value === ",") {
 					return fixer.removeRange([
 						tokenBefore.range[0],
 						parent.range[1],
 					]);
 				}
-
 				return fixer.removeRange([
 					parent.range[0],
 					getNextTokenEnd(parent),
@@ -1288,14 +1241,11 @@ module.exports = {
 					if (parent.parent.parent.type === "RestElement") {
 						return fixRestInPattern(parent.parent.parent);
 					}
-
 					if (parent.parent.parent.type === "ArrayPattern") {
 						return fixNestedArrayVariable(parent.parent);
 					}
-
 					return fixVariables(parent.parent);
 				}
-
 				if (tokenBefore.value === ":") {
 					if (
 						getTokenBeforeValue(parent) === "{" &&
@@ -1306,7 +1256,6 @@ module.exports = {
 							getNextTokenEnd(parent),
 						]);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(parent),
 						id.range[1],
@@ -1319,14 +1268,11 @@ module.exports = {
 					if (parent.parent.type === "RestElement") {
 						return fixRestInPattern(parent.parent);
 					}
-
 					if (parent.parent.type === "ArrayPattern") {
 						return fixNestedArrayVariable(parent);
 					}
-
 					return fixVariables(parent);
 				}
-
 				if (tokenBefore.value === "," && tokenAfter.value === ",") {
 					return fixer.removeRange(id.range);
 				}
@@ -1338,32 +1284,26 @@ module.exports = {
 						if (parent.parent.parent.type === "ArrayPattern") {
 							return fixNestedArrayVariable(parent.parent);
 						}
-
 						return fixVariables(parent.parent);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(id, 1),
 						id.range[1],
 					]);
 				}
-
 				if (parent.parent.type === "ObjectPattern") {
 					if (parent.parent.properties.length === 1) {
 						return fixVariables(parent.parent);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(id, 1),
 						id.range[1],
 					]);
 				}
-
 				if (isFunction(parent.parent)) {
 					if (parent.parent.params.length === 1) {
 						return fixer.removeRange(parent.range);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(parent),
 						parent.range[1],
@@ -1375,7 +1315,6 @@ module.exports = {
 				if (parent.parent.type === "ArrayPattern") {
 					return fixNestedArrayVariable(parent);
 				}
-
 				if (parent.parent.parent.type === "ObjectPattern") {
 					if (parent.parent.parent.properties.length === 1) {
 						if (
@@ -1383,10 +1322,8 @@ module.exports = {
 						) {
 							return fixNestedArrayVariable(parent.parent.parent);
 						}
-
 						return fixVariables(parent.parent.parent);
 					}
-
 					if (
 						getTokenBeforeValue(parent.parent) === "{" &&
 						getTokenAfterValue(parent.parent) === ","
@@ -1396,13 +1333,11 @@ module.exports = {
 							getNextTokenEnd(parent.parent),
 						]);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(parent.parent),
 						parent.parent.range[1],
 					]);
 				}
-
 				if (isFunction(parent.parent)) {
 					return fixFunctionParameters(parent);
 				}
@@ -1425,7 +1360,6 @@ module.exports = {
 						parent.parent.source.range[0],
 					]);
 				}
-
 				return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
 			}
 
@@ -1443,20 +1377,17 @@ module.exports = {
 					) {
 						return fixer.removeRange(parent.parent.range);
 					}
-
 					return fixer.removeRange([
 						getPreviousTokenStart(parent, 1),
 						tokenAfter.range[1],
 					]);
 				}
-
 				if (getTokenBeforeValue(parent) === "{") {
 					return fixer.removeRange([
 						parent.range[0],
 						getNextTokenEnd(parent),
 					]);
 				}
-
 				return fixer.removeRange([
 					getPreviousTokenStart(parent),
 					parent.range[1],
@@ -1475,7 +1406,6 @@ module.exports = {
 						parent.range[1],
 					]);
 				}
-
 				return fixer.removeRange([
 					parent.range[0],
 					parent.parent.source.range[0],
@@ -1501,7 +1431,6 @@ module.exports = {
 						tokenAfter.range[1],
 					]);
 				}
-
 				if (tokenBefore.value === "{") {
 					return fixer.removeRange([
 						id.range[0],

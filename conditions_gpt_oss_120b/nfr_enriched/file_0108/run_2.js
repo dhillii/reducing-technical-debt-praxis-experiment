@@ -5,6 +5,7 @@
 /**
  * Module dependencies.
  */
+
 const basename = require('path').basename;
 const debug = require('debug')('mocha:watch');
 const exists = require('fs').existsSync;
@@ -20,6 +21,7 @@ const he = require('he');
 /**
  * Ignored directories.
  */
+
 const ignore = ['node_modules', '.git'];
 
 exports.inherits = require('util').inherits;
@@ -70,11 +72,11 @@ exports.watch = function (files, fn) {
  * Ignored files.
  *
  * @api private
- * @param {string} path
+ * @param {string} p
  * @return {boolean}
  */
-function ignored (path) {
-  return !~ignore.indexOf(path);
+function isNotIgnored(p) {
+  return !~ignore.indexOf(p);
 }
 
 /**
@@ -82,7 +84,7 @@ function ignored (path) {
  *
  * @api private
  * @param {string} dir
- * @param {string[]} [ext=['.js']]
+ * @param {string[]} [ext=['js']]
  * @param {Array} [ret=[]]
  * @return {Array}
  */
@@ -92,9 +94,9 @@ exports.files = function (dir, ext, ret) {
   const re = new RegExp('\\.(' + extensions.join('|') + ')$');
 
   readdirSync(dir)
-    .filter(ignored)
-    .forEach(entry => {
-      const fullPath = join(dir, entry);
+    .filter(isNotIgnored)
+    .forEach(p => {
+      const fullPath = join(dir, p);
       if (lstatSync(fullPath).isDirectory()) {
         exports.files(fullPath, extensions, result);
       } else if (re.test(fullPath)) {
@@ -129,7 +131,10 @@ exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n')
     .replace(/^\uFEFF/, '')
-    .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
+    .replace(
+      /^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/,
+      '$1$2$3'
+    );
 
   const spaces = str.match(/^\n?( *)/)[1].length;
   const tabs = str.match(/^\n?(\t*)/)[1].length;
@@ -148,13 +153,16 @@ exports.clean = function (str) {
  * @return {Object}
  */
 exports.parseQuery = function (qs) {
-  return qs.replace('?', '').split('&').reduce((obj, pair) => {
-    const i = pair.indexOf('=');
-    const key = pair.slice(0, i);
-    const val = pair.slice(i + 1);
-    obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
-    return obj;
-  }, {});
+  return qs
+    .replace('?', '')
+    .split('&')
+    .reduce((obj, pair) => {
+      const i = pair.indexOf('=');
+      const key = pair.slice(0, i);
+      const val = pair.slice(i + 1);
+      obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
+      return obj;
+    }, {});
 };
 
 /**
@@ -164,7 +172,7 @@ exports.parseQuery = function (qs) {
  * @param {string} js
  * @return {string}
  */
-function highlight (js) {
+function highlight(js) {
   return js
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -197,7 +205,7 @@ exports.highlightTags = function (name) {
  * @param {string} typeHint
  * @returns {string}
  */
-function emptyRepresentation (value, typeHint) {
+function emptyRepresentation(value, typeHint) {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -211,7 +219,7 @@ function emptyRepresentation (value, typeHint) {
 }
 
 /**
- * Determine the internal [[Class]] of a value.
+ * Determine the internal type of a value.
  *
  * @api private
  * @param {*} value
@@ -227,7 +235,22 @@ const type = exports.type = function (value) {
 };
 
 /**
- * Serialize a value to a readable string.
+ * Check if a value has own enumerable properties.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function hasOwnProperties(value) {
+  for (const key in value) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Stringify `value` with custom handling.
  *
  * @api private
  * @param {*} value
@@ -236,53 +259,44 @@ const type = exports.type = function (value) {
 exports.stringify = function (value) {
   const typeHint = type(value);
 
-  // Primitive or buffer handling
   if (!['object', 'array', 'function'].includes(typeHint)) {
-    if (typeHint === 'buffer') {
-      const json = Buffer.prototype.toJSON.call(value);
-      return jsonStringify(json.data && json.type ? json.data : json, 2)
-        .replace(/,(\n|$)/g, '$1');
-    }
-
-    // String objects (IE edge case)
-    if (typeHint === 'string' && typeof value === 'object') {
-      const obj = {};
-      value.split('').forEach((char, idx) => {
-        obj[idx] = char;
-      });
-      return jsonStringify(obj);
-    }
-
-    return jsonStringify(value);
+    return handlePrimitiveStringify(value, typeHint);
   }
 
-  // Objects, arrays, functions with properties
   if (hasOwnProperties(value)) {
-    return jsonStringify(exports.canonicalize(value, null, typeHint), 2)
-      .replace(/,(\n|$)/g, '$1');
+    return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
   }
 
-  // Empty structures
   return emptyRepresentation(value, typeHint);
 };
 
 /**
- * Check if an object has own enumerable properties.
+ * Handle primitive and buffer stringification.
  *
- * @param {*} obj
- * @returns {boolean}
+ * @param {*} value
+ * @param {string} typeHint
+ * @returns {string}
  */
-function hasOwnProperties (obj) {
-  for (const prop in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, prop)) {
-      return true;
-    }
+function handlePrimitiveStringify(value, typeHint) {
+  if (typeHint === 'buffer') {
+    const json = Buffer.prototype.toJSON.call(value);
+    return jsonStringify(json.data && json.type ? json.data : json, 2)
+      .replace(/,(\n|$)/g, '$1');
   }
-  return false;
+
+  if (typeHint === 'string' && typeof value === 'object') {
+    const obj = {};
+    value.split('').forEach((char, idx) => {
+      obj[idx] = char;
+    });
+    return jsonStringify(exports.canonicalize(obj, null, 'object'), 2).replace(/,(\n|$)/g, '$1');
+  }
+
+  return jsonStringify(value);
 }
 
 /**
- * JSON.stringify replacement with indentation control.
+ * Custom JSON stringify with indentation.
  *
  * @api private
  * @param {Object} object
@@ -290,80 +304,68 @@ function hasOwnProperties (obj) {
  * @param {number=} depth
  * @returns {*}
  */
-function jsonStringify (object, spaces, depth) {
+function jsonStringify(object, spaces, depth) {
   if (spaces === undefined) {
     return _primitiveStringify(object);
   }
 
   const currentDepth = depth || 1;
   const indentSize = spaces * currentDepth;
-  const opening = Array.isArray(object) ? '[' : '{';
-  const closing = Array.isArray(object) ? ']' : '}';
-  const entries = Array.isArray(object) ? object : Object.keys(object);
-  const total = entries.length;
-
+  const isArray = Array.isArray(object);
+  const opening = isArray ? '[' : '{';
+  const closing = isArray ? ']' : '}';
+  const entries = isArray ? object : Object.keys(object).sort();
   const repeat = (s, n) => new Array(n + 1).join(s);
 
-  const _primitiveStringify = (val) => {
-    switch (type(val)) {
-      case 'null':
-      case 'undefined':
-        return '[' + val + ']';
-      case 'array':
-      case 'object':
-        return jsonStringify(val, spaces, currentDepth + 1);
-      case 'boolean':
-      case 'regexp':
-      case 'symbol':
-      case 'number':
-        return (val === 0 && (1 / val) === -Infinity) ? '-0' : val.toString();
-      case 'date':
-        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-        return '[Date: ' + sDate + ']';
-      case 'buffer':
-        const json = val.toJSON();
-        const data = json.data && json.type ? json.data : json;
-        return '[Buffer: ' + jsonStringify(data, 2, currentDepth + 1) + ']';
-      default:
-        return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
-    }
-  };
+  const lines = entries.map((key, idx) => {
+    const value = isArray ? object[key] : object[key];
+    const serialized = _primitiveStringify(value, spaces, currentDepth + 1);
+    const prefix = repeat(' ', indentSize);
+    const formattedKey = isArray ? '' : `"${key}": `;
+    const comma = idx < entries.length - 1 ? ',' : '';
+    return `\n ${prefix}${formattedKey}${serialized}${comma}`;
+  });
 
-  let result = opening;
-  let remaining = total;
-
-  for (const key in object) {
-    if (!Object.prototype.hasOwnProperty.call(object, key)) continue;
-    remaining--;
-    const line = '\n ' + repeat(' ', indentSize) +
-      (Array.isArray(object) ? '' : '"' + key + '": ') +
-      _primitiveStringify(object[key]) +
-      (remaining ? ',' : '');
-    result += line;
-  }
-
-  return result + (result.length !== 1 ? '\n' + repeat(' ', indentSize - spaces) + closing : closing);
+  const inner = lines.join('');
+  const outerIndent = repeat(' ', indentSize - spaces);
+  return `${opening}${inner}${inner ? `\n${outerIndent}${closing}` : closing}`;
 }
 
 /**
- * Primitive fallback for jsonStringify.
+ * Primitive value stringification used by jsonStringify.
  *
- * @param {*} value
+ * @param {*} val
+ * @param {number} [spaces]
+ * @param {number} [depth]
  * @returns {string}
  */
-function _primitiveStringify (value) {
-  switch (type(value)) {
-    case 'string':
-      return JSON.stringify(value);
-    case 'function':
-      return '[Function]';
+function _primitiveStringify(val, spaces, depth) {
+  switch (type(val)) {
+    case 'null':
+    case 'undefined':
+      return `[${val}]`;
+    case 'array':
+    case 'object':
+      return jsonStringify(val, spaces, depth);
+    case 'boolean':
+    case 'regexp':
+    case 'symbol':
+    case 'number':
+      return (val === 0 && (1 / val) === -Infinity) ? '-0' : val.toString();
+    case 'date':
+      const iso = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+      return `[Date: ${iso}]`;
+    case 'buffer':
+      const json = val.toJSON();
+      const data = json.data && json.type ? json.data : json;
+      return `[Buffer: ${jsonStringify(data, 2, depth)}]`;
     default:
-      return String(value);
+      return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
   }
 }
 
 /**
- * Return a new object with sorted keys, handling circular references.
+ * Return a new Thing that has the keys in sorted order. Recursive.
  *
  * @api private
  * @param {*} value
@@ -419,82 +421,64 @@ exports.canonicalize = function (value, stack, typeHint) {
     case 'symbol':
       return value;
     default:
-      return String(value);
+      return `${value}`;
   }
 };
-
-/**
- * Resolve a path to an array of matching files.
- *
- * @api private
- * @param {string} targetPath
- * @return {string[]}
- */
-function resolvePath (targetPath) {
-  if (exists(targetPath)) {
-    try {
-      const stat = statSync(targetPath);
-      if (stat.isFile()) return [targetPath];
-    } catch (_) {
-      return [];
-    }
-    return [];
-  }
-
-  if (exists(targetPath + '.js')) {
-    return [targetPath + '.js'];
-  }
-
-  const matched = glob.sync(targetPath);
-  if (!matched.length) {
-    throw new Error("cannot resolve path (or pattern) '" + targetPath + "'");
-  }
-  return matched;
-}
 
 /**
  * Lookup file names at the given `path`.
  *
  * @api public
- * @param {string} path Base path to start searching from.
- * @param {string[]} extensions File extensions to look for.
- * @param {boolean} recursive Whether or not to recurse into subdirectories.
- * @return {string[]} An array of paths.
+ * @param {string} basePath
+ * @param {string[]} extensions
+ * @param {boolean} recursive
+ * @return {string[]}
  */
 exports.lookupFiles = function (basePath, extensions, recursive) {
-  const files = [];
+  const collected = [];
 
-  const resolved = resolvePath(basePath);
-  if (resolved.length) {
-    return resolved[0];
+  if (!exists(basePath)) {
+    if (exists(basePath + '.js')) {
+      basePath += '.js';
+    } else {
+      const patternFiles = glob.sync(basePath);
+      if (!patternFiles.length) {
+        throw new Error(`cannot resolve path (or pattern) '${basePath}'`);
+      }
+      return patternFiles;
+    }
   }
 
   try {
-    const entries = readdirSync(basePath);
-    entries.forEach(entry => {
-      const fullPath = join(basePath, entry);
-      try {
-        const stat = statSync(fullPath);
-        if (stat.isDirectory()) {
-          if (recursive) {
-            files.push(...exports.lookupFiles(fullPath, extensions, recursive));
-          }
-          return;
-        }
-        const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-        if (!stat.isFile() || !re.test(fullPath) || basename(fullPath)[0] === '.') {
-          return;
-        }
-        files.push(fullPath);
-      } catch (_) {
-        // ignore errors per original behavior
-      }
-    });
+    const stat = statSync(basePath);
+    if (stat.isFile()) {
+      return basePath;
+    }
   } catch (_) {
-    // ignore errors per original behavior
+    return;
   }
 
-  return files;
+  readdirSync(basePath).forEach(entry => {
+    const fullPath = join(basePath, entry);
+    try {
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        if (recursive) {
+          collected.push(...exports.lookupFiles(fullPath, extensions, recursive));
+        }
+        return;
+      }
+      if (!stat.isFile()) return;
+    } catch (_) {
+      return;
+    }
+
+    const extRe = new RegExp(`\\.(?:${extensions.join('|')})$`);
+    if (!extRe.test(fullPath) || basename(fullPath)[0] === '.') return;
+    collected.push(fullPath);
+  });
+
+  return collected;
 };
 
 /**
@@ -517,7 +501,7 @@ exports.getError = function (err) {
 };
 
 /**
- * Returns a stack trace filter that removes Mocha and Node internal frames.
+ * Stack trace filter based on `mocha-clean`.
  *
  * @returns {Function}
  */
@@ -527,10 +511,10 @@ exports.stackTraceFilter = function () {
   const cwd = isNode ? process.cwd() + slash : (typeof location === 'undefined' ? window.location : location).href.replace(/\/[^/]*$/, '/') + '/';
 
   const isMochaInternal = line => (
-    line.includes('node_modules' + slash + 'mocha' + slash) ||
-    line.includes('node_modules' + slash + 'mocha.js') ||
-    line.includes('bower_components' + slash + 'mocha.js') ||
-    line.includes(slash + 'mocha.js')
+    line.includes(`node_modules${slash}mocha${slash}`) ||
+    line.includes(`node_modules${slash}mocha.js`) ||
+    line.includes(`bower_components${slash}mocha.js`) ||
+    line.includes(`${slash}mocha.js`)
   );
 
   const isNodeInternal = line => (
@@ -542,17 +526,17 @@ exports.stackTraceFilter = function () {
   );
 
   return function (stack) {
-    const lines = stack.split('\n');
-    const filtered = lines.reduce((list, line) => {
-      if (isMochaInternal(line)) return list;
-      if (isNode && isNodeInternal(line)) return list;
-      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
-        line = line.replace(cwd, '');
-      }
-      list.push(line);
-      return list;
-    }, []);
-    return filtered.join('\n');
+    return stack
+      .split('\n')
+      .filter(line => {
+        if (isMochaInternal(line)) return false;
+        if (isNode && isNodeInternal(line)) return false;
+        if (/\(?.+:\d+:\d+\)?$/.test(line)) {
+          line = line.replace(cwd, '');
+        }
+        return true;
+      })
+      .join('\n');
   };
 };
 
@@ -560,7 +544,7 @@ exports.stackTraceFilter = function () {
  * Crude, but effective.
  * @api
  * @param {*} value
- * @returns {boolean} Whether or not `value` is a Promise
+ * @returns {boolean}
  */
 exports.isPromise = function (value) {
   return typeof value === 'object' && typeof value.then === 'function';

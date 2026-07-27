@@ -21,11 +21,6 @@ const ValidatorError = MongooseError.ValidatorError;
  * SchemaType constructor. Do **not** instantiate `SchemaType` directly.
  * Mongoose converts your schema paths into SchemaTypes automatically.
  *
- * ####Example:
- *
- *     const schema = new Schema({ name: String });
- *     schema.path('name') instanceof SchemaType; // true
- *
  * @param {String} path
  * @param {SchemaTypeOptions} [options] See [SchemaTypeOptions docs](/docs/api/schematypeoptions.html)
  * @param {String} [instance]
@@ -356,64 +351,54 @@ SchemaType.prototype.get = function (fn) {
   return this;
 };
 /**
- * Helper to determine if the first argument is a validator function or RegExp.
- */
-function isValidatorFunctionOrRegExp(val) {
-  return typeof val === 'function' || (val && utils.getFunctionName(val.constructor) === 'RegExp');
-}
-/**
- * Build validator property object from arguments.
- */
-function buildValidatorProperties(validator, message, type) {
-  let properties;
-  if (typeof message === 'function') {
-    properties = { validator, message };
-    properties.type = type || 'user defined';
-  } else if (message instanceof Object && !type) {
-    properties = utils.clone(message);
-    if (!properties.message) {
-      properties.message = properties.msg;
-    }
-    properties.validator = validator;
-    properties.type = properties.type || 'user defined';
-  } else {
-    if (message == null) {
-      message = MongooseError.messages.general.default;
-    }
-    if (!type) {
-      type = 'user defined';
-    }
-    properties = { message, type, validator };
-  }
-  if (properties.isAsync) {
-    handleIsAsync();
-  }
-  return properties;
-}
-/**
  * Adds validator(s) for this document path.
  *
  * @param {RegExp|Function|Object} obj validator function, or hash describing options
  * @param {Function} [obj.validator] validator function.
  * @param {String|Function} [obj.message] optional error message.
- * @param {Boolean} [obj.propsParameter=false]
+ * @param {Boolean} [obj.propsParameter=false] If true, Mongoose will pass the validator properties object.
  * @param {String|Function} [errorMsg] optional error message.
  * @param {String} [type] optional validator type
  * @return {SchemaType} this
  * @api public
  */
 SchemaType.prototype.validate = function (obj, message, type) {
-  if (isValidatorFunctionOrRegExp(obj)) {
-    const properties = buildValidatorProperties(obj, message, type);
+  if (typeof obj === 'function' || obj && utils.getFunctionName(obj.constructor) === 'RegExp') {
+    let properties;
+    if (typeof message === 'function') {
+      properties = { validator: obj, message: message };
+      properties.type = type || 'user defined';
+    } else if (message instanceof Object && !type) {
+      properties = utils.clone(message);
+      if (!properties.message) {
+        properties.message = properties.msg;
+      }
+      properties.validator = obj;
+      properties.type = properties.type || 'user defined';
+    } else {
+      if (message == null) {
+        message = MongooseError.messages.general.default;
+      }
+      if (!type) {
+        type = 'user defined';
+      }
+      properties = { message: message, type: type, validator: obj };
+    }
+    if (properties.isAsync) {
+      handleIsAsync();
+    }
     this.validators.push(properties);
     return this;
   }
-  const args = Array.from(arguments);
-  for (const arg of args) {
+  let i;
+  let length;
+  let arg;
+  for (i = 0, length = arguments.length; i < length; i++) {
+    arg = arguments[i];
     if (!utils.isPOJO(arg)) {
       const msg = 'Invalid validator. Received (' + typeof arg + ') '
-        + arg
-        + '. See http://mongoosejs.com/docs/api.html#schematype_SchemaType-validate';
+          + arg
+          + '. See http://mongoosejs.com/docs/api.html#schematype_SchemaType-validate';
       throw new Error(msg);
     }
     this.validate(arg.validator, arg);
@@ -438,51 +423,52 @@ const handleIsAsync = util.deprecate(function handleIsAsync() { },
  * @api public
  */
 SchemaType.prototype.required = function (required, message) {
-  let customOptions = {};
-  if (arguments.length > 0 && required == null) {
-    this.validators = this.validators.filter(function (v) {
-      return v.validator !== this.requiredValidator;
-    }, this);
+  // Helper to remove existing required validator
+  const removeRequired = () => {
+    this.validators = this.validators.filter(v => v.validator !== this.requiredValidator);
     this.isRequired = false;
     delete this.originalRequiredValue;
     return this;
+  };
+  // If called with null/undefined, remove validator
+  if (arguments.length > 0 && required == null) {
+    return removeRequired();
   }
-  if (typeof required === 'object') {
+  // If options object provided
+  let customOptions = {};
+  if (typeof required === 'object' && !Array.isArray(required)) {
     customOptions = required;
     message = customOptions.message || message;
     required = required.isRequired;
   }
+  // If explicitly false, remove validator
   if (required === false) {
-    this.validators = this.validators.filter(function (v) {
-      return v.validator !== this.requiredValidator;
-    }, this);
-    this.isRequired = false;
-    delete this.originalRequiredValue;
-    return this;
+    return removeRequired();
   }
-  const _this = this;
-  this.isRequired = true;
-  this.requiredValidator = function (v) {
-    const cachedRequired = get(this, '$__.cachedRequired');
-    if (cachedRequired != null && !this.$__isSelected(_this.path) && !this[documentIsModified](_this.path)) {
-      return true;
-    }
-    if (cachedRequired != null && _this.path in cachedRequired) {
-      const res = cachedRequired[_this.path] ?
-        _this.checkRequired(v, this) :
-        true;
-      delete cachedRequired[_this.path];
-      return res;
-    } else if (typeof required === 'function') {
-      return required.apply(this) ? _this.checkRequired(v, this) : true;
-    }
-    return _this.checkRequired(v, this);
-  };
-  this.originalRequiredValue = required;
+  // Normalize string shortcut
   if (typeof required === 'string') {
     message = required;
     required = undefined;
   }
+  // Build required validator
+  const self = this;
+  this.isRequired = true;
+  this.requiredValidator = function (value) {
+    const cached = get(this, '$__.cachedRequired');
+    if (cached != null && !this.$__isSelected(self.path) && !this[documentIsModified](self.path)) {
+      return true;
+    }
+    if (cached != null && self.path in cached) {
+      const res = cached[self.path] ? self.checkRequired(value, this) : true;
+      delete cached[self.path];
+      return res;
+    }
+    if (typeof required === 'function') {
+      return required.apply(this) ? self.checkRequired(value, this) : true;
+    }
+    return self.checkRequired(value, this);
+  };
+  this.originalRequiredValue = required;
   const msg = message || MongooseError.messages.general.required;
   this.validators.unshift(Object.assign({}, customOptions, {
     validator: this.requiredValidator,
@@ -813,8 +799,8 @@ SchemaType._isRef = function (self, value, doc, init) {
       return true;
     }
     if (!Buffer.isBuffer(value) &&
-      value._bsontype !== 'Binary' &&
-      utils.isObject(value)) {
+        value._bsontype !== 'Binary' &&
+        utils.isObject(value)) {
       return true;
     }
     return init;
@@ -843,10 +829,10 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
   const pop = owner.populated(path, true);
   let ret = value;
   if (!doc.$__.populated ||
-    !doc.$__.populated[path] ||
-    !doc.$__.populated[path].options ||
-    !doc.$__.populated[path].options.options ||
-    !doc.$__.populated[path].options.options.lean) {
+      !doc.$__.populated[path] ||
+      !doc.$__.populated[path].options ||
+      !doc.$__.populated[path].options.options ||
+      !doc.$__.populated[path].options.options.lean) {
     ret = new pop.options[populateModelSymbol](value);
     ret.$__.wasPopulated = true;
   }

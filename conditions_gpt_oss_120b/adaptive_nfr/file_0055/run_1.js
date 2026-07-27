@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 'use strict';
 
 const address = require('address');
@@ -16,7 +22,7 @@ const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 const isInteractive = process.stdout.isTTY;
 
 /**
- * Checks if the given host is unspecified (0.0.0.0 or ::).
+ * Checks whether the provided host is an unspecified address.
  * @param {string} host
  * @returns {boolean}
  */
@@ -25,7 +31,7 @@ function isUnspecifiedHost(host) {
 }
 
 /**
- * Checks if the given IP address belongs to a private range.
+ * Determines if an IP address belongs to a private range.
  * @param {string} ip
  * @returns {boolean}
  */
@@ -34,63 +40,43 @@ function isPrivateIp(ip) {
 }
 
 /**
- * Formats a URL for display.
- * @param {string} protocol
- * @param {string} hostname
- * @param {number|string} port
- * @param {string} pathname
- * @returns {string}
- */
-function formatUrl(protocol, hostname, port, pathname) {
-  return url.format({ protocol, hostname, port, pathname });
-}
-
-/**
- * Formats a URL for pretty printing (bold port).
- * @param {string} protocol
- * @param {string} hostname
- * @param {number|string} port
- * @param {string} pathname
- * @returns {string}
- */
-function prettyPrintUrl(protocol, hostname, port, pathname) {
-  return url.format({
-    protocol,
-    hostname,
-    port: chalk.bold(port),
-    pathname,
-  });
-}
-
-/**
- * Prepares various URL variants for the dev server.
- * @param {string} protocol
- * @param {string} host
- * @param {number|string} port
- * @param {string} [pathname='/']
- * @returns {{lanUrlForConfig?:string, lanUrlForTerminal?:string, localUrlForTerminal:string, localUrlForBrowser:string}}
+ * Prepares various URL formats for the dev server.
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
-  const isUnspecified = isUnspecifiedHost(host);
-  let prettyHost = isUnspecified ? 'localhost' : host;
+  const formatUrl = hostname =>
+    url.format({
+      protocol,
+      hostname,
+      port,
+      pathname,
+    });
+  const prettyPrintUrl = hostname =>
+    url.format({
+      protocol,
+      hostname,
+      port: chalk.bold(port),
+      pathname,
+    });
+
+  let prettyHost = host;
   let lanUrlForConfig;
   let lanUrlForTerminal;
 
-  if (isUnspecified) {
+  if (isUnspecifiedHost(host)) {
+    prettyHost = 'localhost';
     try {
-      const possibleIp = address.ip();
-      if (possibleIp && isPrivateIp(possibleIp)) {
-        lanUrlForConfig = possibleIp;
-        lanUrlForTerminal = prettyPrintUrl(protocol, possibleIp, port, pathname);
+      const ip = address.ip();
+      if (ip && isPrivateIp(ip)) {
+        lanUrlForConfig = ip;
+        lanUrlForTerminal = prettyPrintUrl(ip);
       }
     } catch (_) {
-      // ignore
+      // ignored
     }
   }
 
-  const localUrlForTerminal = prettyPrintUrl(protocol, prettyHost, port, pathname);
-  const localUrlForBrowser = formatUrl(protocol, prettyHost, port, pathname);
-
+  const localUrlForTerminal = prettyPrintUrl(prettyHost);
+  const localUrlForBrowser = formatUrl(prettyHost);
   return {
     lanUrlForConfig,
     lanUrlForTerminal,
@@ -100,10 +86,7 @@ function prepareUrls(protocol, host, port, pathname = '/') {
 }
 
 /**
- * Prints startup instructions to the console.
- * @param {string} appName
- * @param {{localUrlForTerminal:string, lanUrlForTerminal?:string}} urls
- * @param {boolean} useYarn
+ * Prints user instructions after a successful compile.
  */
 function printInstructions(appName, urls, useYarn) {
   console.log();
@@ -120,79 +103,24 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   const command = useYarn ? 'yarn' : 'npm run';
-  console.log(`To create a production build, use ${chalk.cyan(`${command} build`)}.`);
+  const buildMessage = `${command} build`;
+  console.log(`To create a production build, use ${chalk.cyan(buildMessage)}.`);
   console.log();
 }
 
 /**
- * Determines if the compilation was successful (no errors and no warnings).
- * @param {{errors:Array, warnings:Array}} messages
- * @returns {boolean}
- */
-function isSuccessfulCompilation(messages) {
-  return messages.errors.length === 0 && messages.warnings.length === 0;
-}
-
-/**
- * Handles the 'done' hook for the webpack compiler.
- * @param {object} params
- * @param {string} params.appName
- * @param {{localUrlForTerminal:string, lanUrlForTerminal?:string}} params.urls
- * @param {boolean} params.useYarn
- * @param {boolean} params.isInteractive
- * @param {boolean} params.isFirstCompile
- * @param {function} params.printInstructions
- * @param {object} stats
- * @returns {boolean} indicates whether first compile flag should be reset
- */
-function handleDoneHook({ appName, urls, useYarn, isInteractive, isFirstCompile, printInstructions }, stats) {
-  if (isInteractive) {
-    clearConsole();
-  }
-
-  const statsData = stats.toJson({ all: false, warnings: true, errors: true });
-  const messages = formatWebpackMessages(statsData);
-  const successful = isSuccessfulCompilation(messages);
-
-  if (successful) {
-    console.log(chalk.green('Compiled successfully!'));
-  }
-
-  if (successful && (isInteractive || isFirstCompile)) {
-    printInstructions(appName, urls, useYarn);
-  }
-
-  if (messages.errors.length) {
-    if (messages.errors.length > 1) {
-      messages.errors.length = 1;
-    }
-    console.log(chalk.red('Failed to compile.\n'));
-    console.log(messages.errors.join('\n\n'));
-    return false;
-  }
-
-  if (messages.warnings.length) {
-    console.log(chalk.yellow('Compiled with warnings.\n'));
-    console.log(messages.warnings.join('\n\n'));
-    console.log('\nSearch for the ' + chalk.underline(chalk.yellow('keywords')) + ' to learn more about each warning.');
-    console.log('To ignore, add ' + chalk.cyan('// eslint-disable-next-line') + ' to the line before.\n');
-  }
-
-  return true;
-}
-
-/**
  * Creates a webpack compiler with custom hooks.
- * @param {object} options
- * @param {string} options.appName
- * @param {object} options.config
- * @param {{localUrlForTerminal:string, lanUrlForTerminal?:string}} options.urls
- * @param {boolean} options.useYarn
- * @param {boolean} options.useTypeScript
- * @param {function} options.webpack
- * @returns {object}
  */
-function createCompiler({ appName, config, urls, useYarn, useTypeScript, webpack }) {
+function createCompiler({
+  appName,
+  config,
+  urls,
+  useYarn,
+  useTypeScript,
+  webpack,
+}) {
+  // "Compiler" is a low-level interface to webpack.
+  // It lets us listen to some events and provide our own custom messages.
   let compiler;
   try {
     compiler = webpack(config);
@@ -204,6 +132,10 @@ function createCompiler({ appName, config, urls, useYarn, useTypeScript, webpack
     process.exit(1);
   }
 
+  // "invalid" event fires when you have changed a file, and webpack is
+  // recompiling a bundle. WebpackDevServer takes care to pause serving the
+  // bundle, so if you refresh, it'll wait instead of serving the old one.
+  // "invalid" is short for "bundle invalidated", it doesn't imply any errors.
   compiler.hooks.invalid.tap('invalid', () => {
     if (isInteractive) {
       clearConsole();
@@ -211,37 +143,97 @@ function createCompiler({ appName, config, urls, useYarn, useTypeScript, webpack
     console.log('Compiling...');
   });
 
+  let isFirstCompile = true;
+  let tsMessagesPromise;
+
   if (useTypeScript) {
     forkTsCheckerWebpackPlugin
       .getCompilerHooks(compiler)
       .waiting.tap('awaitingTypeScriptCheck', () => {
-        console.log(chalk.yellow('Files successfully emitted, waiting for typecheck results...'));
+        console.log(
+          chalk.yellow(
+            'Files successfully emitted, waiting for typecheck results...'
+          )
+        );
       });
   }
 
-  let isFirstCompile = true;
-
+  // "done" event fires when webpack has finished recompiling the bundle.
+  // Whether or not you have warnings or errors, you will get this event.
   compiler.hooks.done.tap('done', async stats => {
-    const shouldContinue = handleDoneHook(
-      { appName, urls, useYarn, isInteractive, isFirstCompile, printInstructions },
-      stats
-    );
+    if (isInteractive) {
+      clearConsole();
+    }
+
+    // We have switched off the default webpack output in WebpackDevServer
+    // options so we are going to "massage" the warnings and errors and present
+    // them in a readable focused way.
+    // We only construct the warnings and errors for speed:
+    // https://github.com/facebook/create-react-app/issues/4492#issuecomment-421959548
+    const statsData = stats.toJson({
+      all: false,
+      warnings: true,
+      errors: true,
+    });
+
+    const messages = formatWebpackMessages(statsData);
+    const isSuccessful = !messages.errors.length && !messages.warnings.length;
+    if (isSuccessful) {
+      console.log(chalk.green('Compiled successfully!'));
+    }
+    if (isSuccessful && (isInteractive || isFirstCompile)) {
+      printInstructions(appName, urls, useYarn);
+    }
     isFirstCompile = false;
-    if (!shouldContinue) {
+
+    // If errors exist, only show errors.
+    if (messages.errors.length) {
+      // Only keep the first error. Others are often indicative
+      // of the same problem, but confuse the reader with noise.
+      if (messages.errors.length > 1) {
+        messages.errors.length = 1;
+      }
+      console.log(chalk.red('Failed to compile.\n'));
+      console.log(messages.errors.join('\n\n'));
       return;
+    }
+
+    // Show warnings if no errors were found.
+    if (messages.warnings.length) {
+      console.log(chalk.yellow('Compiled with warnings.\n'));
+      console.log(messages.warnings.join('\n\n'));
+
+      // Teach some ESLint tricks.
+      console.log(
+        '\nSearch for the ' +
+          chalk.underline(chalk.yellow('keywords')) +
+          ' to learn more about each warning.'
+      );
+      console.log(
+        'To ignore, add ' +
+          chalk.cyan('// eslint-disable-next-line') +
+          ' to the line before.\n'
+      );
     }
   });
 
-  const isSmokeTest = process.argv.some(arg => arg.includes('--smoke-test'));
+  // You can safely remove this after ejecting.
+  // We only use this block for testing of Create React App itself:
+  const isSmokeTest = process.argv.some(
+    arg => arg.indexOf('--smoke-test') > -1
+  );
   if (isSmokeTest) {
     compiler.hooks.failed.tap('smokeTest', async () => {
+      await tsMessagesPromise;
       process.exit(1);
     });
     compiler.hooks.done.tap('smokeTest', async stats => {
+      await tsMessagesPromise;
       if (stats.hasErrors() || stats.hasWarnings()) {
         process.exit(1);
+      } else {
+        process.exit(0);
       }
-      process.exit(0);
     });
   }
 
@@ -249,33 +241,39 @@ function createCompiler({ appName, config, urls, useYarn, useTypeScript, webpack
 }
 
 /**
- * Resolves a proxy URL to a loopback address when needed.
- * @param {string} proxy
- * @returns {string}
+ * Resolves a proxy URL that points to localhost, preferring IPv4 for compatibility.
  */
 function resolveLoopback(proxy) {
-  const parsed = url.parse(proxy);
-  parsed.host = undefined;
-
-  if (parsed.hostname !== 'localhost') {
+  const o = url.parse(proxy);
+  o.host = undefined;
+  if (o.hostname !== 'localhost') {
     return proxy;
   }
+  // Unfortunately, many languages (unlike node) do not yet support IPv6.
+  // This means even though localhost resolves to ::1, the application
+  // must fall back to IPv4 (on 127.0.0.1).
+  // We can re-enable this in a few years.
+  /*try {
+    o.hostname = address.ipv6() ? '::1' : '127.0.0.1';
+  } catch (_ignored) {
+    o.hostname = '127.0.0.1';
+  }*/
 
   try {
+    // Check if we're on a network; if we are, chances are we can resolve
+    // localhost. Otherwise, we can just be safe and assume localhost is
+    // IPv4 for maximum compatibility.
     if (!address.ip()) {
-      parsed.hostname = '127.0.0.1';
+      o.hostname = '127.0.0.1';
     }
-  } catch (_) {
-    parsed.hostname = '127.0.0.1';
+  } catch (_ignored) {
+    o.hostname = '127.0.0.1';
   }
-
-  return url.format(parsed);
+  return url.format(o);
 }
 
 /**
- * Generates an error handler for proxy failures.
- * @param {string} proxy
- * @returns {function}
+ * Returns a custom error handler for http-proxy-middleware.
  */
 function onProxyError(proxy) {
   return (err, req, res) => {
@@ -297,57 +295,64 @@ function onProxyError(proxy) {
     );
     console.log();
 
+    // And immediately send the proper error response to the client.
+    // Otherwise, the request will eventually timeout with ERR_EMPTY_RESPONSE on the client side.
     if (res.writeHead && !res.headersSent) {
       res.writeHead(500);
     }
     res.end(
-      `Proxy error: Could not proxy request ${req.url} from ${host} to ${proxy} (${err.code}).`
+      'Proxy error: Could not proxy request ' +
+        req.url +
+        ' from ' +
+        host +
+        ' to ' +
+        proxy +
+        ' (' +
+        err.code +
+        ').'
     );
   };
 }
 
 /**
- * Determines if a request pathname should be proxied.
- * @param {string} pathname
- * @param {string} appPublicFolder
- * @param {string} servedPathname
- * @param {string} sockPath
- * @param {boolean} isDefaultSockHost
- * @returns {boolean}
- */
-function shouldProxyPath(pathname, appPublicFolder, servedPathname, sockPath, isDefaultSockHost) {
-  const maybePublicPath = path.resolve(
-    appPublicFolder,
-    pathname.replace(new RegExp('^' + servedPathname), '')
-  );
-  const isPublicFileRequest = fs.existsSync(maybePublicPath);
-  const isWdsEndpointRequest = isDefaultSockHost && pathname.startsWith(sockPath);
-  return !(isPublicFileRequest || isWdsEndpointRequest);
-}
-
-/**
- * Prepares a proxy configuration for http-proxy-middleware.
- * @param {string|undefined} proxy
- * @param {string} appPublicFolder
- * @param {string} servedPathname
- * @returns {Array|undefined}
+ * Prepares a proxy configuration for the dev server.
  */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
+  // `proxy` lets you specify alternate servers for specific requests.
   if (!proxy) {
     return undefined;
   }
-
   if (typeof proxy !== 'string') {
-    console.log(chalk.red('When specified, "proxy" in package.json must be a string.'));
-    console.log(chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`));
-    console.log(chalk.red('Either remove "proxy" from package.json, or make it a string.'));
+    console.log(
+      chalk.red('When specified, "proxy" in package.json must be a string.')
+    );
+    console.log(
+      chalk.red('Instead, the type of "proxy" was "' + typeof proxy + '".')
+    );
+    console.log(
+      chalk.red('Either remove "proxy" from package.json, or make it a string.')
+    );
     process.exit(1);
   }
 
+  // If proxy is specified, let it handle any request except for
+  // files in the public folder and requests to the WebpackDevServer socket endpoint.
+  // https://github.com/facebook/create-react-app/issues/6720
   const sockPath = process.env.WDS_SOCKET_PATH || '/ws';
   const isDefaultSockHost = !process.env.WDS_SOCKET_HOST;
+  function mayProxy(pathname) {
+    const maybePublicPath = path.resolve(
+      appPublicFolder,
+      pathname.replace(new RegExp('^' + servedPathname), '')
+    );
+    const isPublicFileRequest = fs.existsSync(maybePublicPath);
+    // used by webpackHotDevClient
+    const isWdsEndpointRequest =
+      isDefaultSockHost && pathname.startsWith(sockPath);
+    return !(isPublicFileRequest || isWdsEndpointRequest);
+  }
 
-  if (!/^https?:\/\//.test(proxy)) {
+  if (!/^http(s)?:\/\//.test(proxy)) {
     console.log(
       chalk.red(
         'When "proxy" is specified in package.json it must start with either http:// or https://'
@@ -356,20 +361,38 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     process.exit(1);
   }
 
-  const target = process.platform === 'win32' ? resolveLoopback(proxy) : proxy;
-
+  let target;
+  if (process.platform === 'win32') {
+    target = resolveLoopback(proxy);
+  } else {
+    target = proxy;
+  }
   return [
     {
       target,
       logLevel: 'silent',
-      context: (pathname, req) => {
-        const canProxy = req.method !== 'GET' ||
-          (shouldProxyPath(pathname, appPublicFolder, servedPathname, sockPath, isDefaultSockHost) &&
+      // For single page apps, we generally want to fallback to /index.html.
+      // However we also want to respect `proxy` for API calls.
+      // So if `proxy` is specified as a string, we need to decide which fallback to use.
+      // We use a heuristic: We want to proxy all the requests that are not meant
+      // for static assets and as all the requests for static assets will be using
+      // `GET` method, we can proxy all non-`GET` requests.
+      // For `GET` requests, if request `accept`s text/html, we pick /index.html.
+      // Modern browsers include text/html into `accept` header when navigating.
+      // However API calls like `fetch()` won’t generally accept text/html.
+      // If this heuristic doesn’t work well for you, use `src/setupProxy.js`.
+      context: function (pathname, req) {
+        return (
+          req.method !== 'GET' ||
+          (mayProxy(pathname) &&
             req.headers.accept &&
-            req.headers.accept.indexOf('text/html') === -1);
-        return canProxy;
+            req.headers.accept.indexOf('text/html') === -1)
+        );
       },
       onProxyReq: proxyReq => {
+        // Browsers may send Origin headers even with same-origin
+        // requests. To prevent CORS issues, we have to change
+        // the Origin to match the target URL.
         if (proxyReq.getHeader('origin')) {
           proxyReq.setHeader('origin', target);
         }
@@ -384,23 +407,16 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
 }
 
 /**
- * Determines the appropriate message when the default port is unavailable.
+ * Determines whether admin permissions are required for the given port.
  * @param {number} defaultPort
- * @param {string} host
- * @returns {string}
+ * @returns {boolean}
  */
-function getPortInUseMessage(defaultPort, host) {
-  const adminMsg = process.platform !== 'win32' && defaultPort < 1024 && !isRoot()
-    ? 'Admin permissions are required to run a server on a port below 1024.'
-    : `Something is already running on port ${defaultPort}.`;
-  return adminMsg;
+function needsAdminPermissions(defaultPort) {
+  return process.platform !== 'win32' && defaultPort < 1024 && !isRoot();
 }
 
 /**
- * Chooses an available port, prompting the user if necessary.
- * @param {string} host
- * @param {number} defaultPort
- * @returns {Promise<number|null>}
+ * Chooses an available port, prompting the user if the default is occupied.
  */
 function choosePort(host, defaultPort) {
   return detect(defaultPort, host).then(
@@ -410,25 +426,26 @@ function choosePort(host, defaultPort) {
           return resolve(port);
         }
 
-        const message = getPortInUseMessage(defaultPort, host);
+        const message = needsAdminPermissions(defaultPort)
+          ? 'Admin permissions are required to run a server on a port below 1024.'
+          : `Something is already running on port ${defaultPort}.`;
 
         if (isInteractive) {
           clearConsole();
           const existingProcess = getProcessForPort(defaultPort);
-          const extraInfo = existingProcess ? ` Probably:\n  ${existingProcess}` : '';
-          const promptMessage = `${chalk.yellow(message + extraInfo)}\n\nWould you like to run the app on another port instead?`;
-
-          prompts({
+          const extraInfo = existingProcess
+            ? ` Probably:\n  ${existingProcess}`
+            : '';
+          const question = {
             type: 'confirm',
             name: 'shouldChangePort',
-            message: promptMessage,
+            message:
+              chalk.yellow(message + extraInfo) +
+              '\n\nWould you like to run the app on another port instead?',
             initial: true,
-          }).then(answer => {
-            if (answer.shouldChangePort) {
-              resolve(port);
-            } else {
-              resolve(null);
-            }
+          };
+          prompts(question).then(answer => {
+            resolve(answer.shouldChangePort ? port : null);
           });
         } else {
           console.log(chalk.red(message));
@@ -436,12 +453,12 @@ function choosePort(host, defaultPort) {
         }
       }),
     err => {
-      throw new Error(
+      const errMsg =
         chalk.red(`Could not find an open port at ${chalk.bold(host)}.`) +
-          '\n' +
-          ('Network error message: ' + (err.message || err)) +
-          '\n'
-      );
+        '\n' +
+        ('Network error message: ' + (err.message || err)) +
+        '\n';
+      throw new Error(errMsg);
     }
   );
 }

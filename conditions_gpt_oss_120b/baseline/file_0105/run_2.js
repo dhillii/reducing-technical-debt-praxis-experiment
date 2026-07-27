@@ -177,21 +177,18 @@ exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
     // format
-    const fmt = color('error title', '  %s) %s:\n') +
+    let fmt = color('error title', '  %s) %s:\n') +
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
     // msg
     let msg;
     const err = test.err;
-    let message;
-    if (err.message && typeof err.message.toString === 'function') {
-      message = err.message + '';
-    } else if (typeof err.inspect === 'function') {
-      message = err.inspect() + '';
-    } else {
-      message = '';
-    }
+    const message = err.message && typeof err.message.toString === 'function'
+      ? err.message + ''
+      : typeof err.inspect === 'function'
+        ? err.inspect() + ''
+        : '';
     let stack = err.stack || message;
     const index = message ? stack.indexOf(message) : -1;
 
@@ -199,7 +196,7 @@ exports.list = function (failures) {
       msg = message;
     } else {
       const end = index + message.length;
-      msg = stack.slice(0, index);
+      msg = stack.slice(0, end);
       // remove msg from stack
       stack = stack.slice(end + 1);
     }
@@ -211,7 +208,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      const diffFmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -363,8 +360,8 @@ Base.prototype.epilogue = function () {
  * @return {string}
  */
 function pad (str, len) {
-  str = String(str);
-  return Array(len - str.length + 1).join(' ') + str;
+  let s = String(str);
+  return Array(len - s.length + 1).join(' ') + s;
 }
 
 /**

@@ -65,6 +65,7 @@ function DollarIcon({...props}) {
 
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
+
     item.metaText = date;
 
     if (settings.membersEnabled && item.visibility) {
@@ -91,17 +92,22 @@ export async function offerUrls() {
     try {
         offers = await this.fetchOffersTask.perform();
     } catch (e) {
+        // No-op: if offers are not available (e.g. missing permissions), return an empty array
         return [];
     }
 
-    return offers.map((offer) => ({
-        label: `Offer — ${offer.name}`,
-        value: this.config.getSiteUrl(offer.code)
-    }));
+    return offers.map((offer) => {
+        return {
+            label: `Offer — ${offer.name}`,
+            value: this.config.getSiteUrl(offer.code)
+        };
+    });
 }
 
 class ErrorHandler extends React.Component {
-    state = {hasError: false};
+    state = {
+        hasError: false
+    };
 
     static getDerivedStateFromError() {
         return {hasError: true};
@@ -109,15 +115,23 @@ class ErrorHandler extends React.Component {
 
     componentDidCatch(error) {
         if (this.props.config.sentry_dsn) {
-            Sentry.captureException(error, {tags: {lexical: true}});
+            Sentry.captureException(error, {
+                tags: {
+                    lexical: true
+                }
+            });
         }
+
         console.error(error); // eslint-disable-line
     }
 
     render() {
         if (this.state.hasError) {
-            return <p className="koenig-react-editor-error">Loading has failed. Try refreshing the browser!</p>;
+            return (
+                <p className="koenig-react-editor-error">Loading has failed. Try refreshing the browser!</p>
+            );
         }
+
         return this.props.children;
     }
 }
@@ -162,25 +176,39 @@ export default class KoenigLexicalEditor extends Component {
     editorResource = this.koenig.resource;
 
     get pinturaJsUrl() {
-        if (!this.settings.pintura) return null;
+        if (!this.settings.pintura) {
+            return null;
+        }
         return this.config.pintura?.js || this.settings.pinturaJsUrl;
     }
 
     get pinturaCSSUrl() {
-        if (!this.settings.pintura) return null;
+        if (!this.settings.pintura) {
+            return null;
+        }
         return this.config.pintura?.css || this.settings.pinturaCssUrl;
     }
 
     get pinturaConfig() {
         const jsUrl = this.getImageEditorJSUrl();
         const cssUrl = this.getImageEditorCSSUrl();
-        if (!jsUrl || !cssUrl) return null;
-        return {jsUrl, cssUrl};
+        if (!jsUrl || !cssUrl) {
+            return null;
+        }
+        return {
+            jsUrl,
+            cssUrl
+        };
     }
 
     getImageEditorJSUrl() {
         let importUrl = this.pinturaJsUrl;
-        if (!importUrl) return null;
+
+        if (!importUrl) {
+            return null;
+        }
+
+        // load the script from admin root if relative
         if (importUrl.startsWith('/')) {
             importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
         }
@@ -189,7 +217,12 @@ export default class KoenigLexicalEditor extends Component {
 
     getImageEditorCSSUrl() {
         let cssImportUrl = this.pinturaCSSUrl;
-        if (!cssImportUrl) return null;
+
+        if (!cssImportUrl) {
+            return null;
+        }
+
+        // load the css from admin root if relative
         if (cssImportUrl.startsWith('/')) {
             cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
         }
@@ -198,7 +231,9 @@ export default class KoenigLexicalEditor extends Component {
 
     @action
     onError(error) {
+        // ensure we're still showing errors in development
         console.error(error); // eslint-disable-line
+
         if (this.config.sentry_dsn) {
             Sentry.captureException(error, {
                 tags: {lexical: true},
@@ -209,250 +244,173 @@ export default class KoenigLexicalEditor extends Component {
                 }
             });
         }
+        // don't rethrow, Lexical will attempt to gracefully recover
     }
 
     @task({restartable: false})
     *fetchOffersTask() {
-        if (this.offers) return this.offers;
+        if (this.offers) {
+            return this.offers;
+        }
+
+        // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
+
         return this.offers;
     }
 
     @task({restartable: false})
     *fetchLabelsTask() {
-        if (this.labels) return this.labels;
+        if (this.labels) {
+            return this.labels;
+        }
+
         this.labels = yield this.store.query('label', {limit: 'all', fields: 'id, name'});
         return this.labels;
     }
 
-    // ---------- Helper methods extracted to reduce nesting ----------
-    async fetchEmbed(url, {type}) {
-        const oembedEndpoint = this.ghostPaths.url.api('oembed');
-        const response = await this.ajax.request(oembedEndpoint, {data: {url, type}});
-        return response;
-    }
-
-    async fetchMemberLinks() {
-        if (!this.membersUtils.paidMembersEnabled) return [];
-        return [
-            {label: 'Paid signup', value: '#/portal/signup'},
-            {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-        ];
-    }
-
-    async fetchDonationLink() {
-        if (!this.settings.donationsEnabled) return [];
-        return [{label: 'Tips and donations', value: '#/portal/support'}];
-    }
-
-    async fetchRecommendationLink() {
-        if (!this.settings.recommendationsEnabled) return [];
-        return [{label: 'Recommendations', value: '#/portal/recommendations'}];
-    }
-
-    async fetchAutocompleteLinks() {
-        const defaults = [
-            {label: 'Homepage', value: window.location.origin + '/'},
-            {label: 'Free signup', value: '#/portal/signup/free'}
-        ];
-        const memberLinks = await this.fetchMemberLinks();
-        const donationLink = await this.fetchDonationLink();
-        const recommendationLink = await this.fetchRecommendationLink();
-        const offersLinks = await offerUrls.call(this);
-        return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
-    }
-
-    async fetchLabels() {
-        try {
-            const labels = await this.fetchLabelsTask.perform();
-            return labels.map(label => label.name);
-        } catch (e) {
-            if (didCancel(e)) return;
-            throw e;
-        }
-    }
-
-    async searchLinks(term) {
-        if (!term) {
-            if (this.defaultLinks) return this.defaultLinks;
-            const posts = await this.store.query('post', {
-                filter: 'status:published',
-                fields: 'id,url,title,visibility,published_at',
-                order: 'published_at desc',
-                limit: 5
+    ReactComponent = (props) => {
+        const fetchEmbed = async (url, {type}) => {
+            let oembedEndpoint = this.ghostPaths.url.api('oembed');
+            let response = await this.ajax.request(oembedEndpoint, {
+                data: {url, type}
             });
-            const results = posts.toArray().map(post => ({
-                groupName: 'Latest posts',
-                id: post.id,
-                title: post.title,
-                url: post.url,
-                visibility: post.visibility,
-                publishedAt: post.publishedAtUTC.toISOString()
-            }));
-            results.forEach(item => decoratePostSearchResult(item, this.settings));
-            this.defaultLinks = [{label: 'Latest posts', items: results}];
-            return this.defaultLinks;
-        }
+            return response;
+        };
 
-        try {
-            const results = await this.search.searchTask.perform(term);
+        const fetchAutocompleteLinks = async () => {
+            const defaults = [
+                {label: 'Homepage', value: window.location.origin + '/'},
+                {label: 'Free signup', value: '#/portal/signup/free'}
+            ];
+
+            const memberLinks = () => {
+                let links = [];
+                if (this.membersUtils.paidMembersEnabled) {
+                    links = [
+                        {
+                            label: 'Paid signup',
+                            value: '#/portal/signup'
+                        },
+                        {
+                            label: 'Upgrade or change plan',
+                            value: '#/portal/account/plans'
+                        }];
+                }
+
+                return links;
+            };
+
+            const donationLink = () => {
+                if (this.settings.donationsEnabled) {
+                    return [{
+                        label: 'Tips and donations',
+                        value: '#/portal/support'
+                    }];
+                }
+
+                return [];
+            };
+
+            const recommendationLink = () => {
+                if (this.settings.recommendationsEnabled) {
+                    return [{
+                        label: 'Recommendations',
+                        value: '#/portal/recommendations'
+                    }];
+                }
+
+                return [];
+            };
+
+            const offersLinks = await offerUrls.call(this);
+
+            return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
+        };
+
+        const fetchLabels = async () => {
+            let labels = [];
+            try {
+                labels = await this.fetchLabelsTask.perform();
+            } catch (e) {
+                // Do not throw cancellation errors
+                if (didCancel(e)) {
+                    return;
+                }
+
+                throw e;
+            }
+
+            return labels.map(label => label.name);
+        };
+
+        const searchLinks = async (term) => {
+            if (!term) {
+                if (this.defaultLinks) {
+                    return this.defaultLinks;
+                }
+
+                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+                const results = posts.toArray().map(post => ({
+                    groupName: 'Latest posts',
+                    id: post.id,
+                    title: post.title,
+                    url: post.url,
+                    visibility: post.visibility,
+                    publishedAt: post.publishedAtUTC.toISOString()
+                }));
+
+                results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+                this.defaultLinks = [{
+                    label: 'Latest posts',
+                    items: results
+                }];
+                return this.defaultLinks;
+            }
+
+            let results = [];
+
+            try {
+                results = await this.search.searchTask.perform(term);
+            } catch (error) {
+                if (!didCancel(error)) {
+                    throw error;
+                }
+                return;
+            }
+
             const filteredResults = [];
-
-            results.forEach(group => {
+            results.forEach((group) => {
                 let items = group.options;
+
                 if (group.groupName === 'Posts' || group.groupName === 'Pages') {
                     items = items.filter(i => i.status === 'published');
                 }
+
                 if (group.groupName === 'Staff') {
                     items = items.filter(i => !/\/404\//.test(i.url));
                 }
-                if (!items.length) return;
+
+                if (items.length === 0) {
+                    return;
+                }
+
                 if (group.groupName === 'Posts' || group.groupName === 'Pages') {
                     items.forEach(item => decoratePostSearchResult(item, this.settings));
                 }
-                filteredResults.push({label: group.groupName, items});
+
+                filteredResults.push({
+                    label: group.groupName,
+                    items
+                });
             });
 
             return filteredResults;
-        } catch (error) {
-            if (!didCancel(error)) throw error;
-            return;
-        }
-    }
-
-    checkStripeEnabled() {
-        const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
-        const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
-        return this.config.stripeDirect ? hasDirectKeys : hasDirectKeys || hasConnectKeys;
-    }
-
-    createXhr(progressTracker, file, updateProgress) {
-        const xhr = new window.XMLHttpRequest();
-        xhr.upload.addEventListener('progress', event => {
-            if (event.lengthComputable) {
-                progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                updateProgress();
-            }
-        }, false);
-        return xhr;
-    }
-
-    useFileUpload(type = 'image') {
-        const [progress, setProgress] = React.useState(0);
-        const [isLoading, setLoading] = React.useState(false);
-        const [errors, setErrors] = React.useState([]);
-        const [filesNumber, setFilesNumber] = React.useState(0);
-        const progressTracker = React.useRef(new Map());
-
-        const updateProgress = () => {
-            if (progressTracker.current.size === 0) {
-                setProgress(0);
-                return;
-            }
-            let total = 0;
-            progressTracker.current.forEach(v => (total += v));
-            setProgress(Math.round(total / progressTracker.current.size));
         };
 
-        const defaultValidator = (file) => {
-            if (type === 'file') return true;
-            const extensions = fileTypes[type].extensions;
-            const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
-            if (!extensions) return true;
-            const extArray = Array.isArray(extensions) ? extensions : extensions.split(',');
-            if (!extension || !extArray.includes(extension.toLowerCase())) {
-                return `The file type you uploaded is not supported. Please use .${extArray.join(', .').toUpperCase()}`;
-            }
-            return true;
-        };
-
-        const validate = (files = []) => {
-            const results = [];
-            for (let i = 0; i < files.length; i++) {
-                const result = defaultValidator(files[i]);
-                if (result !== true) {
-                    results.push({fileName: files[i].name, message: result});
-                }
-            }
-            return results;
-        };
-
-        const _uploadFile = async (file, {formData = {}} = {}) => {
-            progressTracker.current.set(file, 0);
-            const fileFormData = new FormData();
-            fileFormData.append('file', file, file.name);
-            Object.keys(formData).forEach(key => fileFormData.append(key, formData[key]));
-            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-            try {
-                const requestMethod = fileTypes[type].requestMethod || 'post';
-                const response = await this.ajax[requestMethod](url, {
-                    data: fileFormData,
-                    processData: false,
-                    contentType: false,
-                    dataType: 'text',
-                    xhr: () => this.createXhr(progressTracker, file, updateProgress)
-                });
-                progressTracker.current.set(file, 100);
-                updateProgress();
-
-                let uploadResponse;
-                try {
-                    uploadResponse = JSON.parse(response);
-                } catch (e) {
-                    if (!(e instanceof SyntaxError)) throw e;
-                }
-
-                let responseUrl;
-                if (uploadResponse) {
-                    const resource = uploadResponse[fileTypes[type].resourceName];
-                    if (resource && Array.isArray(resource) && resource[0]) {
-                        responseUrl = resource[0].url;
-                    }
-                }
-
-                return {url: responseUrl, fileName: file.name};
-            } catch (error) {
-                console.error(error); // eslint-disable-line
-                const message = error.payload?.errors?.[0]?.message || error.message || '';
-                const context = error.payload?.errors?.[0]?.context || '';
-                throw {message, context, fileName: file.name};
-            }
-        };
-
-        const upload = async (files = [], options = {}) => {
-            setFilesNumber(files.length);
-            setLoading(true);
-            const validationResult = validate(files);
-            if (validationResult.length) {
-                setErrors(validationResult);
-                setLoading(false);
-                setProgress(100);
-                return null;
-            }
-
-            const promises = files.map(file => _uploadFile(file, options));
-            try {
-                const result = await Promise.all(promises);
-                setProgress(100);
-                progressTracker.current.clear();
-                setLoading(false);
-                setErrors([]);
-                return result;
-            } catch (error) {
-                console.error(error); // eslint-disable-line
-                setErrors([...errors, error]);
-                setLoading(false);
-                setProgress(100);
-                progressTracker.current.clear();
-                return null;
-            }
-        };
-
-        return {progress, isLoading, upload, errors, filesNumber};
-    }
-
-    // ---------- React component ----------
-    ReactComponent = (props) => {
         const unsplashConfig = {
             defaultHeaders: {
                 Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
@@ -463,35 +421,247 @@ export default class KoenigLexicalEditor extends Component {
             }
         };
 
+        const checkStripeEnabled = () => {
+            const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+            const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
+            if (this.config.stripeDirect) {
+                return hasDirectKeys;
+            }
+            return hasDirectKeys || hasConnectKeys;
+        };
+
         const defaultCardConfig = {
             unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
             tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
-            fetchAutocompleteLinks: () => this.fetchAutocompleteLinks(),
-            fetchEmbed: (url, opts) => this.fetchEmbed(url, opts),
-            fetchLabels: () => this.fetchLabels(),
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
             renderLabels: !this.session.user.isContributor,
-            feature: {transistor: this.feature.transistor},
-            deprecated: {headerV1: true},
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: {
+                headerV1: true
+            },
             membersEnabled: this.settings.membersSignupAccess === 'all',
-            searchLinks: (term) => this.searchLinks(term),
+            searchLinks,
             siteTitle: this.settings.title,
             siteDescription: this.settings.description,
             siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: this.checkStripeEnabled()
+            stripeEnabled: checkStripeEnabled()
+        };
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
+
+        const createXHR = (progressTracker, file, updateProgress) => {
+            const xhr = new window.XMLHttpRequest();
+            xhr.upload.addEventListener('progress', (event) => {
+                if (event.lengthComputable) {
+                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                    updateProgress();
+                }
+            }, false);
+            return xhr;
         };
 
-        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
-        const {useFileUpload} = this;
+        const useFileUpload = (type = 'image') => {
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
 
-        const KGEditorComponent = ({isInitInstance}) => (
-            <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
-                <KoenigComposer editorResource={this.editorResource} cardConfig={cardConfig} fileUploader={{useFileUpload, fileTypes}} initialEditorState={this.args.lexical} onError={this.onError} darkMode={this.feature.nightShift} isTKEnabled={true}>
-                    <KoenigEditor editorResource={this.editorResource} cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop} placeholderText={isInitInstance ? null : this.args.placeholderText} darkMode={isInitInstance ? null : this.feature.nightShift} onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange} registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI} />
-                    <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
-                    <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
-                </KoenigComposer>
-            </div>
-        );
+            const progressTracker = React.useRef(new Map());
+
+            function updateProgress() {
+                if (progressTracker.current.size === 0) {
+                    setProgress(0);
+                    return;
+                }
+
+                let totalProgress = 0;
+
+                progressTracker.current.forEach(value => totalProgress += value);
+
+                setProgress(Math.round(totalProgress / progressTracker.current.size));
+            }
+
+            function defaultValidator(file) {
+                if (type === 'file') {
+                    return true;
+                }
+                let extensions = fileTypes[type].extensions;
+                let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+                if (!extensions) {
+                    return true;
+                }
+
+                if (!Array.isArray(extensions)) {
+                    extensions = extensions.split(',');
+                }
+
+                if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+                    let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+                    return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+                }
+
+                return true;
+            }
+
+            const validate = (files = []) => {
+                const validationResult = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    let file = files[i];
+                    let result = defaultValidator(file);
+                    if (result === true) {
+                        continue;
+                    }
+
+                    validationResult.push({fileName: file.name, message: result});
+                }
+
+                return validationResult;
+            };
+
+            const _uploadFile = async (file, {formData = {}} = {}) => {
+                progressTracker.current.set(file, 0);
+
+                const fileFormData = new FormData();
+                fileFormData.append('file', file, file.name);
+
+                Object.keys(formData || {}).forEach((key) => {
+                    fileFormData.append(key, formData[key]);
+                });
+
+                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+                try {
+                    const requestMethod = fileTypes[type].requestMethod || 'post';
+                    const response = await this.ajax[requestMethod](url, {
+                        data: fileFormData,
+                        processData: false,
+                        contentType: false,
+                        dataType: 'text',
+                        xhr: () => createXHR(progressTracker, file, updateProgress)
+                    });
+
+                    progressTracker.current.set(file, 100);
+                    updateProgress();
+
+                    let uploadResponse;
+                    let responseUrl;
+
+                    try {
+                        uploadResponse = JSON.parse(response);
+                    } catch (error) {
+                        if (!(error instanceof SyntaxError)) {
+                            throw error;
+                        }
+                    }
+
+                    if (uploadResponse) {
+                        const resource = uploadResponse[fileTypes[type].resourceName];
+                        if (resource && Array.isArray(resource) && resource[0]) {
+                            responseUrl = resource[0].url;
+                        }
+                    }
+
+                    return {
+                        url: responseUrl,
+                        fileName: file.name
+                    };
+                } catch (error) {
+                    console.error(error); // eslint-disable-line
+
+                    let message = error.payload?.errors?.[0]?.message || '';
+                    let context = error.payload?.errors?.[0]?.context || '';
+
+                    if (!message) {
+                        message = error.message;
+                    }
+
+                    const errorResult = {
+                        message,
+                        context,
+                        fileName: file.name
+                    };
+
+                    throw errorResult;
+                }
+            };
+
+            const upload = async (files = [], options = {}) => {
+                setFilesNumber(files.length);
+                setLoading(true);
+
+                const validationResult = validate(files);
+
+                if (validationResult.length) {
+                    setErrors(validationResult);
+                    setLoading(false);
+                    setProgress(100);
+
+                    return null;
+                }
+
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(_uploadFile(file, options));
+                }
+
+                try {
+                    const uploadResult = await Promise.all(uploadPromises);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
+                    setLoading(false);
+                    setErrors([]);
+
+                    return uploadResult;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
+                    return null;
+                }
+            };
+
+            return {progress, isLoading, upload, errors, filesNumber};
+        };
+
+        const KGEditorComponent = ({isInitInstance}) => {
+            return (
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                    <KoenigComposer
+                        editorResource={this.editorResource}
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload, fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
+                        isTKEnabled={true}
+                    >
+                        <KoenigEditor
+                            editorResource={this.editorResource}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
+                            darkMode={isInitInstance ? null : this.feature.nightShift}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                        />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                    </KoenigComposer>
+                </div>
+            );
+        };
 
         return (
             <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>

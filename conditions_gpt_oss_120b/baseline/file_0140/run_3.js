@@ -66,7 +66,7 @@ module.exports = {
     }, []);
 
     // Use Content Manager business logic to handle relation.
-    if (params.users && params.users.length > 0) {
+    if (params.users && params.users.length > 0)
       arrayOfPromises.push(
         strapi.query('role', 'users-permissions').update(
           {
@@ -75,7 +75,6 @@ module.exports = {
           { users: params.users }
         )
       );
-    }
 
     return await Promise.all(arrayOfPromises);
   },
@@ -200,7 +199,7 @@ module.exports = {
     // Group by `type`.
     const permissions = role.permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: !!Number(permission.enabled),
+        enabled: !!_.toNumber(permission.enabled),
         policy: permission.policy,
       });
 

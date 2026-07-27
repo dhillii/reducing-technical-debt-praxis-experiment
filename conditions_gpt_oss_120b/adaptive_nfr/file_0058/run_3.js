@@ -56,7 +56,6 @@ const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
-
 const hasJsxRuntime = (() => {
   if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
     return false;
@@ -64,28 +63,77 @@ const hasJsxRuntime = (() => {
   try {
     require.resolve('react/jsx-runtime');
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 })();
 
 /**
- * Returns environment flags based on the provided webpackEnv.
+ * Determine environment flags.
  * @param {string} webpackEnv
- * @returns {{isEnvDevelopment: boolean, isEnvProduction: boolean, isEnvProductionProfile: boolean}}
+ * @returns {{isEnvDevelopment:boolean,isEnvProduction:boolean,isEnvProductionProfile:boolean,shouldUseReactRefresh:boolean,env:Object}}
  */
 function getEnvFlags(webpackEnv) {
   const isEnvDevelopment = webpackEnv === 'development';
   const isEnvProduction = webpackEnv === 'production';
   const isEnvProductionProfile =
     isEnvProduction && process.argv.includes('--profile');
-  return { isEnvDevelopment, isEnvProduction, isEnvProductionProfile };
+  const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
+  const shouldUseReactRefresh = env.raw.FAST_REFRESH;
+  return {
+    isEnvDevelopment,
+    isEnvProduction,
+    isEnvProductionProfile,
+    shouldUseReactRefresh,
+    env,
+  };
 }
 
 /**
- * Generates style loaders based on css options and optional preProcessor.
- * @param {object} cssOptions
- * @param {string} [preProcessor]
+ * Resolve devtool based on environment.
+ * @param {boolean} isEnvProduction
+ * @param {boolean} isEnvDevelopment
+ * @returns {string|false}
+ */
+function getDevtool(isEnvProduction, isEnvDevelopment) {
+  if (isEnvProduction) {
+    return shouldUseSourceMap ? 'source-map' : false;
+  }
+  return isEnvDevelopment && 'cheap-module-source-map';
+}
+
+/**
+ * Generate output configuration.
+ * @param {boolean} isEnvProduction
+ * @param {boolean} isEnvDevelopment
+ * @returns {Object}
+ */
+function getOutput(isEnvProduction, isEnvDevelopment) {
+  return {
+    path: paths.appBuild,
+    pathinfo: isEnvDevelopment,
+    filename: isEnvProduction
+      ? 'static/js/[name].[contenthash:8].js'
+      : isEnvDevelopment && 'static/js/bundle.js',
+    chunkFilename: isEnvProduction
+      ? 'static/js/[name].[contenthash:8].chunk.js'
+      : isEnvDevelopment && 'static/js/[name].chunk.js',
+    assetModuleFilename: 'static/media/[name].[hash][ext]',
+    publicPath: paths.publicUrlOrPath,
+    devtoolModuleFilenameTemplate: isEnvProduction
+      ? info =>
+          path
+            .relative(paths.appSrc, info.absoluteResourcePath)
+            .replace(/\\/g, '/')
+      : isEnvDevelopment &&
+        (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+  };
+}
+
+/**
+ * Create style loaders array.
+ * @param {Object} cssOptions
+ * @param {string|undefined} preProcessor
  * @param {boolean} isEnvDevelopment
  * @param {boolean} isEnvProduction
  * @returns {Array}
@@ -157,53 +205,12 @@ function getStyleLoaders(cssOptions, preProcessor, isEnvDevelopment, isEnvProduc
 }
 
 /**
- * Creates the output configuration.
- * @param {boolean} isEnvDevelopment
- * @param {boolean} isEnvProduction
- * @returns {object}
- */
-function createOutputConfig(isEnvDevelopment, isEnvProduction) {
-  return {
-    path: paths.appBuild,
-    pathinfo: isEnvDevelopment,
-    filename: isEnvProduction
-      ? 'static/js/[name].[contenthash:8].js'
-      : isEnvDevelopment && 'static/js/bundle.js',
-    chunkFilename: isEnvProduction
-      ? 'static/js/[name].[contenthash:8].chunk.js'
-      : isEnvDevelopment && 'static/js/[name].chunk.js',
-    assetModuleFilename: 'static/media/[name].[hash][ext]',
-    publicPath: paths.publicUrlOrPath,
-    devtoolModuleFilenameTemplate: isEnvProduction
-      ? info =>
-          path
-            .relative(paths.appSrc, info.absoluteResourcePath)
-            .replace(/\\/g, '/')
-      : isEnvDevelopment &&
-        (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
-  };
-}
-
-/**
- * Creates the devtool configuration.
- * @param {boolean} isEnvDevelopment
- * @param {boolean} isEnvProduction
- * @returns {string|false}
- */
-function createDevtool(isEnvDevelopment, isEnvProduction) {
-  if (isEnvProduction) {
-    return shouldUseSourceMap ? 'source-map' : false;
-  }
-  return isEnvDevelopment && 'cheap-module-source-map';
-}
-
-/**
- * Creates the optimization configuration.
+ * Generate optimization configuration.
  * @param {boolean} isEnvProduction
  * @param {boolean} isEnvProductionProfile
- * @returns {object}
+ * @returns {Object}
  */
-function createOptimizationConfig(isEnvProduction, isEnvProductionProfile) {
+function getOptimization(isEnvProduction, isEnvProductionProfile) {
   return {
     minimize: isEnvProduction,
     minimizer: [
@@ -232,11 +239,11 @@ function createOptimizationConfig(isEnvProduction, isEnvProductionProfile) {
 }
 
 /**
- * Creates the resolve configuration.
+ * Generate resolve configuration.
  * @param {boolean} isEnvProductionProfile
- * @returns {object}
+ * @returns {Object}
  */
-function createResolveConfig(isEnvProductionProfile) {
+function getResolve(isEnvProductionProfile) {
   return {
     modules: ['node_modules', paths.appNodeModules].concat(
       modules.additionalModulePaths || []
@@ -266,207 +273,213 @@ function createResolveConfig(isEnvProductionProfile) {
 }
 
 /**
- * Creates module.rules configuration.
- * @param {boolean} isEnvDevelopment
+ * Generate module.rules configuration.
  * @param {boolean} isEnvProduction
+ * @param {boolean} isEnvDevelopment
  * @returns {Array}
  */
-function createModuleRules(isEnvDevelopment, isEnvProduction) {
-  const sourceMapRule = shouldUseSourceMap && {
-    enforce: 'pre',
-    exclude: /@babel(?:\/|\\{1,2})runtime/,
-    test: /\.(js|mjs|jsx|ts|tsx|css)$/,
-    loader: require.resolve('source-map-loader'),
-  };
-
-  const jsRule = {
-    test: /\.(js|mjs|jsx|ts|tsx)$/,
-    include: paths.appSrc,
-    loader: require.resolve('babel-loader'),
-    options: {
-      customize: require.resolve('babel-preset-react-app/webpack-overrides'),
-      presets: [
-        [
-          require.resolve('babel-preset-react-app'),
-          { runtime: hasJsxRuntime ? 'automatic' : 'classic' },
-        ],
-      ],
-      babelrc: false,
-      configFile: false,
-      cacheIdentifier: getCacheIdentifier(
-        isEnvProduction ? 'production' : isEnvDevelopment && 'development',
-        [
-          'babel-plugin-named-asset-import',
-          'babel-preset-react-app',
-          'react-dev-utils',
-          'react-scripts',
-        ]
-      ),
-      plugins: [
-        isEnvDevelopment && shouldUseReactRefresh && require.resolve('react-refresh/babel'),
-      ].filter(Boolean),
-      cacheDirectory: true,
-      cacheCompression: false,
-      compact: isEnvProduction,
-    },
-  };
-
-  const externalJsRule = {
-    test: /\.(js|mjs)$/,
-    exclude: /@babel(?:\/|\\{1,2})runtime/,
-    loader: require.resolve('babel-loader'),
-    options: {
-      babelrc: false,
-      configFile: false,
-      compact: false,
-      presets: [
-        [
-          require.resolve('babel-preset-react-app/dependencies'),
-          { helpers: true },
-        ],
-      ],
-      cacheDirectory: true,
-      cacheCompression: false,
-      cacheIdentifier: getCacheIdentifier(
-        isEnvProduction ? 'production' : isEnvDevelopment && 'development',
-        [
-          'babel-plugin-named-asset-import',
-          'babel-preset-react-app',
-          'react-dev-utils',
-          'react-scripts',
-        ]
-      ),
-      sourceMaps: shouldUseSourceMap,
-      inputSourceMap: shouldUseSourceMap,
-    },
-  };
-
-  const assetRules = [
-    {
-      test: [/\.avif$/],
-      type: 'asset',
-      mimetype: 'image/avif',
-      parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } },
+function getModuleRules(isEnvProduction, isEnvDevelopment) {
+  return [
+    shouldUseSourceMap && {
+      enforce: 'pre',
+      exclude: /@babel(?:\/|\\{1,2})runtime/,
+      test: /\.(js|mjs|jsx|ts|tsx|css)$/,
+      loader: require.resolve('source-map-loader'),
     },
     {
-      test: [/\.bmp$/, /\.gif$/, /\.jpe?g$/, /\.png$/],
-      type: 'asset',
-      parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } },
-    },
-    {
-      test: /\.svg$/,
-      use: [
+      oneOf: [
         {
-          loader: require.resolve('@svgr/webpack'),
+          test: [/\.avif$/],
+          type: 'asset',
+          mimetype: 'image/avif',
+          parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } },
+        },
+        {
+          test: [/\.bmp$/, /\.gif$/, /\.jpe?g$/, /\.png$/],
+          type: 'asset',
+          parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } },
+        },
+        {
+          test: /\.svg$/,
+          use: [
+            {
+              loader: require.resolve('@svgr/webpack'),
+              options: {
+                prettier: false,
+                svgo: false,
+                svgoConfig: { plugins: [{ removeViewBox: false }] },
+                titleProp: true,
+                ref: true,
+              },
+            },
+            {
+              loader: require.resolve('file-loader'),
+              options: { name: 'static/media/[name].[hash].[ext]' },
+            },
+          ],
+          issuer: { and: [/\.(ts|tsx|js|jsx|md|mdx)$/] },
+        },
+        {
+          test: /\.(js|mjs|jsx|ts|tsx)$/,
+          include: paths.appSrc,
+          loader: require.resolve('babel-loader'),
           options: {
-            prettier: false,
-            svgo: false,
-            svgoConfig: { plugins: [{ removeViewBox: false }] },
-            titleProp: true,
-            ref: true,
+            customize: require.resolve(
+              'babel-preset-react-app/webpack-overrides'
+            ),
+            presets: [
+              [
+                require.resolve('babel-preset-react-app'),
+                { runtime: hasJsxRuntime ? 'automatic' : 'classic' },
+              ],
+            ],
+            babelrc: false,
+            configFile: false,
+            cacheIdentifier: getCacheIdentifier(
+              isEnvProduction ? 'production' : isEnvDevelopment && 'development',
+              [
+                'babel-plugin-named-asset-import',
+                'babel-preset-react-app',
+                'react-dev-utils',
+                'react-scripts',
+              ]
+            ),
+            plugins: [
+              isEnvDevelopment &&
+                shouldUseReactRefresh &&
+                require.resolve('react-refresh/babel'),
+            ].filter(Boolean),
+            cacheDirectory: true,
+            cacheCompression: false,
+            compact: isEnvProduction,
           },
         },
         {
-          loader: require.resolve('file-loader'),
-          options: { name: 'static/media/[name].[hash].[ext]' },
+          test: /\.(js|mjs)$/,
+          exclude: /@babel(?:\/|\\{1,2})runtime/,
+          loader: require.resolve('babel-loader'),
+          options: {
+            babelrc: false,
+            configFile: false,
+            compact: false,
+            presets: [
+              [
+                require.resolve('babel-preset-react-app/dependencies'),
+                { helpers: true },
+              ],
+            ],
+            cacheDirectory: true,
+            cacheCompression: false,
+            cacheIdentifier: getCacheIdentifier(
+              isEnvProduction ? 'production' : isEnvDevelopment && 'development',
+              [
+                'babel-plugin-named-asset-import',
+                'babel-preset-react-app',
+                'react-dev-utils',
+                'react-scripts',
+              ]
+            ),
+            sourceMaps: shouldUseSourceMap,
+            inputSourceMap: shouldUseSourceMap,
+          },
         },
-      ],
-      issuer: { and: [/\.(ts|tsx|js|jsx|md|mdx)$/] },
-    },
-  ];
-
-  const cssRule = {
-    test: cssRegex,
-    exclude: cssModuleRegex,
-    use: getStyleLoaders(
-      {
-        importLoaders: 1,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'icss' },
-      },
-      null,
-      isEnvDevelopment,
-      isEnvProduction
-    ),
-    sideEffects: true,
-  };
-
-  const cssModuleRule = {
-    test: cssModuleRegex,
-    use: getStyleLoaders(
-      {
-        importLoaders: 1,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
-      },
-      null,
-      isEnvDevelopment,
-      isEnvProduction
-    ),
-  };
-
-  const sassRule = {
-    test: sassRegex,
-    exclude: sassModuleRegex,
-    use: getStyleLoaders(
-      {
-        importLoaders: 3,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'icss' },
-      },
-      'sass-loader',
-      isEnvDevelopment,
-      isEnvProduction
-    ),
-    sideEffects: true,
-  };
-
-  const sassModuleRule = {
-    test: sassModuleRegex,
-    use: getStyleLoaders(
-      {
-        importLoaders: 3,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
-      },
-      'sass-loader',
-      isEnvDevelopment,
-      isEnvProduction
-    ),
-  };
-
-  const fallbackRule = {
-    exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
-    type: 'asset/resource',
-  };
-
-  return [
-    sourceMapRule,
-    {
-      oneOf: [
-        ...assetRules,
-        jsRule,
-        externalJsRule,
-        cssRule,
-        cssModuleRule,
-        sassRule,
-        sassModuleRule,
-        fallbackRule,
+        {
+          test: cssRegex,
+          exclude: cssModuleRegex,
+          use: getStyleLoaders(
+            {
+              importLoaders: 1,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
+              modules: { mode: 'icss' },
+            },
+            undefined,
+            isEnvDevelopment,
+            isEnvProduction
+          ),
+          sideEffects: true,
+        },
+        {
+          test: cssModuleRegex,
+          use: getStyleLoaders(
+            {
+              importLoaders: 1,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
+              modules: {
+                mode: 'local',
+                getLocalIdent: getCSSModuleLocalIdent,
+              },
+            },
+            undefined,
+            isEnvDevelopment,
+            isEnvProduction
+          ),
+        },
+        {
+          test: sassRegex,
+          exclude: sassModuleRegex,
+          use: getStyleLoaders(
+            {
+              importLoaders: 3,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
+              modules: { mode: 'icss' },
+            },
+            'sass-loader',
+            isEnvDevelopment,
+            isEnvProduction
+          ),
+          sideEffects: true,
+        },
+        {
+          test: sassModuleRegex,
+          use: getStyleLoaders(
+            {
+              importLoaders: 3,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
+              modules: {
+                mode: 'local',
+                getLocalIdent: getCSSModuleLocalIdent,
+              },
+            },
+            'sass-loader',
+            isEnvDevelopment,
+            isEnvProduction
+          ),
+        },
+        {
+          exclude: [
+            /^$/,
+            /\.(js|mjs|jsx|ts|tsx)$/,
+            /\.html$/,
+            /\.json$/,
+          ],
+          type: 'asset/resource',
+        },
       ],
     },
   ].filter(Boolean);
 }
 
 /**
- * Creates the plugins array.
- * @param {object} env
- * @param {boolean} isEnvDevelopment
- * @param {boolean} isEnvProduction
- * @param {boolean} shouldUseReactRefresh
+ * Generate plugins array.
+ * @param {Object} flags
  * @returns {Array}
  */
-function createPlugins(env, isEnvDevelopment, isEnvProduction, shouldUseReactRefresh) {
-  const plugins = [
+function getPlugins(flags) {
+  const {
+    isEnvProduction,
+    isEnvDevelopment,
+    shouldUseReactRefresh,
+    env,
+  } = flags;
+  return [
     new HtmlWebpackPlugin(
       Object.assign(
         {},
@@ -542,7 +555,9 @@ function createPlugins(env, isEnvDevelopment, isEnvProduction, shouldUseReactRef
           }),
           configOverwrite: {
             compilerOptions: {
-              sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+              sourceMap: isEnvProduction
+                ? shouldUseSourceMap
+                : isEnvDevelopment,
               skipLibCheck: true,
               inlineSourceMap: false,
               declarationMap: false,
@@ -577,7 +592,10 @@ function createPlugins(env, isEnvDevelopment, isEnvProduction, shouldUseReactRef
         failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
         context: paths.appSrc,
         cache: true,
-        cacheLocation: path.resolve(paths.appNodeModules, '.cache/.eslintcache'),
+        cacheLocation: path.resolve(
+          paths.appNodeModules,
+          '.cache/.eslintcache'
+        ),
         cwd: paths.appPath,
         resolvePluginsRelativeTo: __dirname,
         baseConfig: {
@@ -588,29 +606,31 @@ function createPlugins(env, isEnvDevelopment, isEnvProduction, shouldUseReactRef
         },
       }),
   ].filter(Boolean);
-  return plugins;
 }
 
 /**
  * Main webpack configuration factory.
  * @param {string} webpackEnv
- * @returns {object}
+ * @returns {Object}
  */
 module.exports = function (webpackEnv) {
-  const { isEnvDevelopment, isEnvProduction, isEnvProductionProfile } = getEnvFlags(
-    webpackEnv
-  );
-  const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
-  const shouldUseReactRefresh = env.raw.FAST_REFRESH;
+  const flags = getEnvFlags(webpackEnv);
+  const {
+    isEnvDevelopment,
+    isEnvProduction,
+    isEnvProductionProfile,
+    shouldUseReactRefresh,
+    env,
+  } = flags;
 
   return {
     target: ['browserslist'],
     stats: 'errors-warnings',
     mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
     bail: isEnvProduction,
-    devtool: createDevtool(isEnvDevelopment, isEnvProduction),
+    devtool: getDevtool(isEnvProduction, isEnvDevelopment),
     entry: paths.appIndexJs,
-    output: createOutputConfig(isEnvDevelopment, isEnvProduction),
+    output: getOutput(isEnvProduction, isEnvDevelopment),
     cache: {
       type: 'filesystem',
       version: createEnvironmentHash(env.raw),
@@ -619,17 +639,19 @@ module.exports = function (webpackEnv) {
       buildDependencies: {
         defaultWebpack: ['webpack/lib/'],
         config: [__filename],
-        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f => fs.existsSync(f)),
+        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+          fs.existsSync(f)
+        ),
       },
     },
     infrastructureLogging: { level: 'none' },
-    optimization: createOptimizationConfig(isEnvProduction, isEnvProductionProfile),
-    resolve: createResolveConfig(isEnvProductionProfile),
+    optimization: getOptimization(isEnvProduction, isEnvProductionProfile),
+    resolve: getResolve(isEnvProductionProfile),
     module: {
       strictExportPresence: true,
-      rules: createModuleRules(isEnvDevelopment, isEnvProduction),
+      rules: getModuleRules(isEnvProduction, isEnvDevelopment),
     },
-    plugins: createPlugins(env, isEnvDevelopment, isEnvProduction, shouldUseReactRefresh),
+    plugins: getPlugins(flags),
     performance: false,
   };
 };

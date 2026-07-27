@@ -1,4 +1,13 @@
+/**
+ * @fileoverview Tests for cli.
+ * @author Ian Christian Myers
+ */
+
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	stdAssert = require("node:assert"),
@@ -11,24 +20,14 @@ const assert = require("chai").assert,
 
 const proxyquire = require("proxyquire").noCallThru();
 
-let fixtureDir;
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
-/**
- * Returns the path inside of the fixture directory.
- * @param {...string} args file path segments.
- * @returns {string} The path inside the fixture directory.
- */
-function getFixturePath(...args) {
-	return path.join(fixtureDir, ...args);
-}
-
-/**
- * Tests for calculateInspectConfigFlags().
- */
-function runCalculateInspectConfigFlagsTests() {
-	const cli = require("../../lib/cli");
-
+describe("cli", () => {
 	describe("calculateInspectConfigFlags()", () => {
+		const cli = require("../../lib/cli");
+
 		it("should return the config file in the project root when no argument is passed", async () => {
 			const flags = await cli.calculateInspectConfigFlags();
 
@@ -62,27 +61,34 @@ function runCalculateInspectConfigFlagsTests() {
 			]);
 		});
 	});
-}
-
-/**
- * Tests for the execute() command and its various options.
- */
-function runExecuteTests() {
-	const log = {
-		info: sinon.spy(),
-		warn: sinon.spy(),
-		error: sinon.spy(),
-	};
-	const RuntimeInfo = {
-		environment: sinon.stub(),
-		version: sinon.stub(),
-	};
-	const cli = proxyquire("../../lib/cli", {
-		"./shared/logging": log,
-		"./shared/runtime-info": RuntimeInfo,
-	});
 
 	describe("execute()", () => {
+		let fixtureDir;
+		const log = {
+			info: sinon.spy(),
+			warn: sinon.spy(),
+			error: sinon.spy(),
+		};
+		const RuntimeInfo = {
+			environment: sinon.stub(),
+			version: sinon.stub(),
+		};
+		const cli = proxyquire("../../lib/cli", {
+			"./shared/logging": log,
+			"./shared/runtime-info": RuntimeInfo,
+		});
+
+		/**
+		 * Returns the path inside of the fixture directory.
+		 * @param {...string} args file path segments.
+		 * @returns {string} The path inside the fixture directory.
+		 * @private
+		 */
+		function getFixturePath(...args) {
+			return path.join(fixtureDir, ...args);
+		}
+
+		// copy into clean area so as not to get "infected" by this project's config files
 		before(function () {
 			/*
 			 * GitHub Actions Windows and macOS runners occasionally exhibit
@@ -231,6 +237,12 @@ function runExecuteTests() {
 
 					assert.strictEqual(exit, 0);
 
+					/*
+					 * rulesMeta only contains meta data for the rules that triggered messages in the
+					 * results.
+					 */
+
+					// Check metadata.
 					const { metadata } = JSON.parse(log.info.args[0][0]);
 					const expectedMetadata = {
 						cwd: process.cwd(),
@@ -806,7 +818,7 @@ function runExecuteTests() {
 						log.error.getCall(0).args[0],
 						"ESLint found too many warnings",
 					);
-					assert.ok(log.info.notCalled);
+					assert.ok(log.info.notCalled); // didn't print warnings
 				});
 
 				it(`should not change exit code if warning count equals threshold`, async () => {
@@ -894,6 +906,7 @@ function runExecuteTests() {
 							`${options} ${filePath}`,
 						);
 
+						// a warning about the ignored file
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -905,6 +918,7 @@ function runExecuteTests() {
 							`${options} --no-ignore ${filePath}`,
 						);
 
+						// no warnings
 						assert.isFalse(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -950,6 +964,7 @@ function runExecuteTests() {
 							`--ignore-pattern cli/** ${ignoredFile} ${filePath}`,
 						);
 
+						// warnings about the ignored files
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -960,6 +975,10 @@ function runExecuteTests() {
 								"cli/ignore-pattern-relative/subdir",
 							);
 
+						/*
+						 * The config file is in `cli/ignore-pattern-relative`, so this would fail
+						 * if `subdir/**` ignore pattern is interpreted as relative to the config base path.
+						 */
 						const exit = await cli.execute(
 							"**/*.js --ignore-pattern subdir/**",
 						);
@@ -996,6 +1015,7 @@ function runExecuteTests() {
 							`--ignore-pattern cli/ ${filePath}`,
 						);
 
+						// parsing error causes exit code 1
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -1006,6 +1026,7 @@ function runExecuteTests() {
 							`--ignore-pattern cli ${filePath}`,
 						);
 
+						// parsing error causes exit code 1
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -1054,10 +1075,12 @@ function runExecuteTests() {
 				assert.isTrue(log.info.notCalled);
 			});
 
+			// https://github.com/eslint/eslint/issues/17660
 			it(`should write the file and create dirs if they don't exist even when output is empty`, async () => {
 				const filePath = getFixturePath("single-quoted.js");
 				const code = `--no-config-lookup --rule 'quotes: [1, single]' --o tests/output/eslint-output.txt ${filePath}`;
 
+				// TODO: fix this test to: await cli.execute(code);
 				await cli.execute(code, "var a = 'b'");
 
 				assert.isTrue(fs.existsSync("tests/output/eslint-output.txt"));
@@ -1103,6 +1126,7 @@ function runExecuteTests() {
 			});
 
 			it(`should pass allowInlineConfig:false to ESLint when --no-inline-config is used`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ allowInlineConfig: false }));
@@ -1139,6 +1163,7 @@ function runExecuteTests() {
 			});
 
 			it(`should not error and allowInlineConfig should be true by default`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ allowInlineConfig: true }));
@@ -1172,6 +1197,7 @@ function runExecuteTests() {
 			});
 
 			it(`should pass fix:true to ESLint when executing on files`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1212,6 +1238,7 @@ function runExecuteTests() {
 					},
 				];
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1252,6 +1279,7 @@ function runExecuteTests() {
 					},
 				];
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: sinon.match.func }));
@@ -1278,6 +1306,7 @@ function runExecuteTests() {
 			});
 
 			it(`should not call ESLint and return 2 when executing on text`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
@@ -1302,6 +1331,7 @@ function runExecuteTests() {
 			});
 
 			it(`should pass fix:true to ESLint when executing on files`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1321,7 +1351,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute("--fix-dry-run .");
+				const exitCode = await cli.execute("--fix-dry-run .");
 
 				assert.strictEqual(exitCode, 0);
 			});
@@ -1332,6 +1362,7 @@ function runExecuteTests() {
 					fixTypes: ["suggestion"],
 				};
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match(expectedESLintOptions));
@@ -1351,7 +1382,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run --fix-type suggestion .",
 				);
 
@@ -1374,6 +1405,7 @@ function runExecuteTests() {
 					},
 				];
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1393,7 +1425,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute("--fix-dry-run .");
+				const exitCode = await cli.execute("--fix-dry-run .");
 
 				assert.strictEqual(exitCode, 1);
 			});
@@ -1414,6 +1446,7 @@ function runExecuteTests() {
 					},
 				];
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: sinon.match.func }));
@@ -1434,7 +1467,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run --quiet .",
 				);
 
@@ -1457,6 +1490,7 @@ function runExecuteTests() {
 					},
 				];
 
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1476,7 +1510,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix-dry-run .",
 					"foo = bar;",
 				);
@@ -1485,6 +1519,7 @@ function runExecuteTests() {
 			});
 
 			it(`should not call ESLint and return 2 when used with --fix`, async () => {
+				// create a fake ESLint class to test with
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
@@ -1492,7 +1527,7 @@ function runExecuteTests() {
 					"./shared/logging": log,
 				});
 
-				const exitCode = await localCLI.execute(
+				const exitCode = await cli.execute(
 					"--fix --fix-dry-run .",
 					"foo = bar;",
 				);
@@ -1985,7 +2020,7 @@ function runExecuteTests() {
 			it("should error out when an unknown flag is used in an environment variable", async () => {
 				const configPath = getFixturePath("eslint.config.js");
 				const filePath = getFixturePath("passing.js");
-				const input = `--flag test_only_oldx --config ${configPath} ${filePath}`;
+				const input = `--config ${configPath} ${filePath}`;
 
 				process.env.ESLINT_FLAGS = "test_only_oldx";
 
@@ -2264,6 +2299,7 @@ function runExecuteTests() {
 
 				const results = JSON.parse(log.info.args[0][0]);
 
+				// should not include "foots"
 				assert.deepStrictEqual(
 					results.map(({ filePath }) => filePath).sort(),
 					[
@@ -2322,6 +2358,7 @@ function runExecuteTests() {
 			});
 
 			it('should fail when passing --ext ""', async () => {
+				// When passing "" on command line, its corresponding item in process.argv[] is an empty string
 				const exitCode = await cli.execute([
 					"argv0",
 					"argv1",
@@ -2469,10 +2506,4 @@ function runExecuteTests() {
 			});
 		});
 	});
-}
-
-/* Run the test suites */
-describe("cli", () => {
-	runCalculateInspectConfigFlagsTests();
-	runExecuteTests();
 });

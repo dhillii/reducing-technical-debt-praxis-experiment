@@ -1,11 +1,3 @@
-// @remove-on-eject-begin
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-// @remove-on-eject-end
 'use strict';
 
 const fs = require('fs');
@@ -33,25 +25,37 @@ const ForkTsCheckerWebpackPlugin =
     ? require('react-dev-utils/ForkTsCheckerWarningWebpackPlugin')
     : require('react-dev-utils/ForkTsCheckerWebpackPlugin');
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
-// @remove-on-eject-begin
 const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
-// @remove-on-eject-end
 const createEnvironmentHash = require('./webpack/persistentCache/createEnvironmentHash');
 
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
+const reactRefreshRuntimeEntry = require.resolve('react-refresh/runtime');
+const reactRefreshWebpackPluginRuntimeEntry = require.resolve(
+  '@pmmmwh/react-refresh-webpack-plugin'
+);
+const babelRuntimeEntry = require.resolve('babel-preset-react-app');
+const babelRuntimeEntryHelpers = require.resolve(
+  '@babel/runtime/helpers/esm/assertThisInitialized',
+  { paths: [babelRuntimeEntry] }
+);
+const babelRuntimeRegenerator = require.resolve('@babel/runtime/regenerator', {
+  paths: [babelRuntimeEntry],
+});
 const shouldInlineRuntimeChunk = process.env.INLINE_RUNTIME_CHUNK !== 'false';
 const emitErrorsAsWarnings = process.env.ESLINT_NO_DEV_ERRORS === 'true';
 const disableESLintPlugin = process.env.DISABLE_ESLINT_PLUGIN === 'true';
-const imageInlineSizeLimit = parseInt(process.env.IMAGE_INLINE_SIZE_LIMIT || '10000', 10);
+const imageInlineSizeLimit = parseInt(
+  process.env.IMAGE_INLINE_SIZE_LIMIT || '10000'
+);
 const useTypeScript = fs.existsSync(paths.appTsConfig);
-const useTailwind = fs.existsSync(path.join(paths.appPath, 'tailwind.config.js'));
+const useTailwind = fs.existsSync(
+  path.join(paths.appPath, 'tailwind.config.js')
+);
 const swSrc = paths.swSrc;
-
 const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
-
 const hasJsxRuntime = (() => {
   if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
     return false;
@@ -64,7 +68,7 @@ const hasJsxRuntime = (() => {
   }
 })();
 
-function getStyleLoaders(isEnvDevelopment, isEnvProduction, cssOptions, preProcessor) {
+function getStyleLoaders(cssOptions, preProcessor, isEnvDevelopment, isEnvProduction) {
   const loaders = [
     isEnvDevelopment && require.resolve('style-loader'),
     isEnvProduction && {
@@ -127,11 +131,10 @@ function getStyleLoaders(isEnvDevelopment, isEnvProduction, cssOptions, preProce
       }
     );
   }
-
   return loaders;
 }
 
-function createOutputConfig(isEnvDevelopment, isEnvProduction) {
+function createOutput(isEnvDevelopment, isEnvProduction) {
   return {
     path: paths.appBuild,
     pathinfo: isEnvDevelopment,
@@ -148,14 +151,15 @@ function createOutputConfig(isEnvDevelopment, isEnvProduction) {
           path
             .relative(paths.appSrc, info.absoluteResourcePath)
             .replace(/\\/g, '/')
-      : isEnvDevelopment && (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+      : isEnvDevelopment &&
+        (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
   };
 }
 
-function createCacheConfig(env) {
+function createCache(isEnvProduction, isEnvDevelopment) {
   return {
     type: 'filesystem',
-    version: createEnvironmentHash(env.raw),
+    version: createEnvironmentHash(isEnvProduction ? 'production' : 'development'),
     cacheDirectory: paths.appWebpackCache,
     store: 'pack',
     buildDependencies: {
@@ -166,7 +170,14 @@ function createCacheConfig(env) {
   };
 }
 
-function createOptimizationConfig(isEnvProduction, isEnvDevelopment, isEnvProductionProfile) {
+function createDevtool(isEnvDevelopment, isEnvProduction) {
+  if (isEnvProduction) {
+    return shouldUseSourceMap ? 'source-map' : false;
+  }
+  return isEnvDevelopment && 'cheap-module-source-map';
+}
+
+function createOptimization(isEnvProduction, isEnvDevelopment, isEnvProductionProfile) {
   return {
     minimize: isEnvProduction,
     minimizer: [
@@ -194,9 +205,11 @@ function createOptimizationConfig(isEnvProduction, isEnvDevelopment, isEnvProduc
   };
 }
 
-function createResolveConfig(isEnvProductionProfile) {
+function createResolve(isEnvProductionProfile) {
   return {
-    modules: ['node_modules', paths.appNodeModules].concat(modules.additionalModulePaths || []),
+    modules: ['node_modules', paths.appNodeModules].concat(
+      modules.additionalModulePaths || []
+    ),
     extensions: paths.moduleFileExtensions
       .map(ext => `.${ext}`)
       .filter(ext => useTypeScript || !ext.includes('ts')),
@@ -211,22 +224,18 @@ function createResolveConfig(isEnvProductionProfile) {
     plugins: [
       new ModuleScopePlugin(paths.appSrc, [
         paths.appPackageJson,
-        require.resolve('react-refresh/runtime'),
-        require.resolve('@pmmmwh/react-refresh-webpack-plugin'),
-        require.resolve('babel-preset-react-app'),
-        require.resolve('@babel/runtime/helpers/esm/assertThisInitialized', {
-          paths: [require.resolve('babel-preset-react-app')],
-        }),
-        require.resolve('@babel/runtime/regenerator', {
-          paths: [require.resolve('babel-preset-react-app')],
-        }),
+        reactRefreshRuntimeEntry,
+        reactRefreshWebpackPluginRuntimeEntry,
+        babelRuntimeEntry,
+        babelRuntimeEntryHelpers,
+        babelRuntimeRegenerator,
       ]),
     ],
   };
 }
 
 function createModuleRules(isEnvDevelopment, isEnvProduction) {
-  const sourceMapLoader = shouldUseSourceMap && {
+  const sourceMapRule = shouldUseSourceMap && {
     enforce: 'pre',
     exclude: /@babel(?:\/|\\{1,2})runtime/,
     test: /\.(js|mjs|jsx|ts|tsx|css)$/,
@@ -245,7 +254,6 @@ function createModuleRules(isEnvDevelopment, isEnvProduction) {
           { runtime: hasJsxRuntime ? 'automatic' : 'classic' },
         ],
       ],
-      // @remove-on-eject-begin
       babelrc: false,
       configFile: false,
       cacheIdentifier: getCacheIdentifier(
@@ -257,7 +265,6 @@ function createModuleRules(isEnvDevelopment, isEnvProduction) {
           'react-scripts',
         ]
       ),
-      // @remove-on-eject-end
       plugins: [
         isEnvDevelopment && shouldUseReactRefresh && require.resolve('react-refresh/babel'),
       ].filter(Boolean),
@@ -283,7 +290,6 @@ function createModuleRules(isEnvDevelopment, isEnvProduction) {
       ],
       cacheDirectory: true,
       cacheCompression: false,
-      // @remove-on-eject-begin
       cacheIdentifier: getCacheIdentifier(
         isEnvProduction ? 'production' : isEnvDevelopment && 'development',
         [
@@ -293,13 +299,12 @@ function createModuleRules(isEnvDevelopment, isEnvProduction) {
           'react-scripts',
         ]
       ),
-      // @remove-on-eject-end
       sourceMaps: shouldUseSourceMap,
       inputSourceMap: shouldUseSourceMap,
     },
   };
 
-  const assetLoaders = [
+  const assetRules = [
     {
       test: [/\.avif$/],
       type: 'asset',
@@ -333,72 +338,92 @@ function createModuleRules(isEnvDevelopment, isEnvProduction) {
     },
   ];
 
-  const cssLoaders = [
+  const styleRules = [
     {
       test: cssRegex,
       exclude: cssModuleRegex,
-      use: getStyleLoaders(isEnvDevelopment, isEnvProduction, {
-        importLoaders: 1,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'icss' },
-      }),
+      use: getStyleLoaders(
+        {
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: { mode: 'icss' },
+        },
+        null,
+        isEnvDevelopment,
+        isEnvProduction
+      ),
       sideEffects: true,
     },
     {
       test: cssModuleRegex,
-      use: getStyleLoaders(isEnvDevelopment, isEnvProduction, {
-        importLoaders: 1,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
-      }),
+      use: getStyleLoaders(
+        {
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
+        },
+        null,
+        isEnvDevelopment,
+        isEnvProduction
+      ),
     },
     {
       test: sassRegex,
       exclude: sassModuleRegex,
-      use: getStyleLoaders(isEnvDevelopment, isEnvProduction, {
-        importLoaders: 3,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'icss' },
-      }, 'sass-loader'),
+      use: getStyleLoaders(
+        {
+          importLoaders: 3,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: { mode: 'icss' },
+        },
+        'sass-loader',
+        isEnvDevelopment,
+        isEnvProduction
+      ),
       sideEffects: true,
     },
     {
       test: sassModuleRegex,
-      use: getStyleLoaders(isEnvDevelopment, isEnvProduction, {
-        importLoaders: 3,
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-        modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
-      }, 'sass-loader'),
+      use: getStyleLoaders(
+        {
+          importLoaders: 3,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent },
+        },
+        'sass-loader',
+        isEnvDevelopment,
+        isEnvProduction
+      ),
     },
   ];
 
-  const fallbackLoader = {
+  const fallbackRule = {
     exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
     type: 'asset/resource',
   };
 
   return {
     strictExportPresence: true,
-    rules: [
-      sourceMapLoader,
-      {
-        oneOf: [
-          ...assetLoaders,
-          jsRule,
-          externalJsRule,
-          ...cssLoaders,
-          fallbackLoader,
-        ],
-      },
-    ].filter(Boolean),
+    rules: [sourceMapRule, { oneOf: [...assetRules, ...styleRules, jsRule, externalJsRule, fallbackRule] }].filter(Boolean),
   };
 }
 
-function createPlugins(isEnvDevelopment, isEnvProduction, isEnvProductionProfile, env) {
+function createPlugins({
+  isEnvDevelopment,
+  isEnvProduction,
+  shouldInlineRuntimeChunk,
+  env,
+  shouldUseReactRefresh,
+  isEnvProductionProfile,
+}) {
   const plugins = [
     new HtmlWebpackPlugin(
       Object.assign(
-        { inject: true, template: paths.appHtml },
+        {},
+        {
+          inject: true,
+          template: paths.appHtml,
+        },
         isEnvProduction && {
           minify: {
             removeComments: true,
@@ -415,15 +440,11 @@ function createPlugins(isEnvDevelopment, isEnvProduction, isEnvProductionProfile
         }
       )
     ),
-    isEnvProduction &&
-      shouldInlineRuntimeChunk &&
-      new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
+    isEnvProduction && shouldInlineRuntimeChunk && new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
     new InterpolateHtmlPlugin(HtmlWebpackPlugin, env.raw),
     new ModuleNotFoundPlugin(paths.appPath),
     new webpack.DefinePlugin(env.stringified),
-    isEnvDevelopment &&
-      shouldUseReactRefresh &&
-      new ReactRefreshWebpackPlugin({ overlay: false }),
+    isEnvDevelopment && shouldUseReactRefresh && new ReactRefreshWebpackPlugin({ overlay: false }),
     isEnvDevelopment && new CaseSensitivePathsPlugin(),
     isEnvProduction &&
       new MiniCssExtractPlugin({
@@ -508,7 +529,6 @@ function createPlugins(isEnvDevelopment, isEnvProduction, isEnvProductionProfile
         },
       }),
   ];
-
   return plugins.filter(Boolean);
 }
 
@@ -516,7 +536,6 @@ module.exports = function (webpackEnv) {
   const isEnvDevelopment = webpackEnv === 'development';
   const isEnvProduction = webpackEnv === 'production';
   const isEnvProductionProfile = isEnvProduction && process.argv.includes('--profile');
-
   const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
@@ -525,19 +544,22 @@ module.exports = function (webpackEnv) {
     stats: 'errors-warnings',
     mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
     bail: isEnvProduction,
-    devtool: isEnvProduction
-      ? shouldUseSourceMap
-        ? 'source-map'
-        : false
-      : isEnvDevelopment && 'cheap-module-source-map',
+    devtool: createDevtool(isEnvDevelopment, isEnvProduction),
     entry: paths.appIndexJs,
-    output: createOutputConfig(isEnvDevelopment, isEnvProduction),
-    cache: createCacheConfig(env),
+    output: createOutput(isEnvDevelopment, isEnvProduction),
+    cache: createCache(isEnvProduction, isEnvDevelopment),
     infrastructureLogging: { level: 'none' },
-    optimization: createOptimizationConfig(isEnvProduction, isEnvDevelopment, isEnvProductionProfile),
-    resolve: createResolveConfig(isEnvProductionProfile),
+    optimization: createOptimization(isEnvProduction, isEnvDevelopment, isEnvProductionProfile),
+    resolve: createResolve(isEnvProductionProfile),
     module: createModuleRules(isEnvDevelopment, isEnvProduction),
-    plugins: createPlugins(isEnvDevelopment, isEnvProduction, isEnvProductionProfile, env),
+    plugins: createPlugins({
+      isEnvDevelopment,
+      isEnvProduction,
+      shouldInlineRuntimeChunk,
+      env,
+      shouldUseReactRefresh,
+      isEnvProductionProfile,
+    }),
     performance: false,
   };
 };

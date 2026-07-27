@@ -101,9 +101,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send', // internal
-            label: 'Publish and email', // shown in expanded options
-            display: 'Publish and email', // shown in option title
+            value: 'publish+send',
+            label: 'Publish and email',
+            display: 'Publish and email',
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -134,7 +134,6 @@ export default class PublishOptions {
     // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
-
         return !this.mailgunIsConfigured || hasNoMembers || this.emailDisabledError;
     }
 
@@ -181,36 +180,34 @@ export default class PublishOptions {
     }
 
     get defaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        const usuallyNobody = recipients === 'filter' && filter === null;
+        const {editorDefaultEmailRecipients: recipients, editorDefaultEmailRecipientsFilter: filter} = this.settings;
 
         if (recipients === 'disabled') {
             return null;
         }
 
-        if (recipients === 'visibility' || usuallyNobody) {
-            if (this.post.visibility === 'public') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'paid') {
-                return 'status:-free';
-            }
-
-            if (this.post.visibility === 'tiers') {
-                return this.post.visibilitySegment;
-            }
-
-            return this.post.visibility;
+        if (recipients === 'visibility' || (recipients === 'filter' && filter === null)) {
+            return this._visibilityRecipientFilter();
         }
 
         return filter;
+    }
+
+    /**
+     * Returns the recipient filter based on post visibility.
+     *
+     * @private
+     * @returns {string}
+     */
+    _visibilityRecipientFilter() {
+        const visibility = this.post.visibility;
+        const visibilityMap = {
+            public: 'status:free,status:-free',
+            members: 'status:free,status:-free',
+            paid: 'status:-free',
+            tiers: this.post.visibilitySegment
+        };
+        return visibilityMap[visibility] ?? visibility;
     }
 
     get fullRecipientFilter() {
@@ -281,13 +278,19 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
+        if (this.user.isAdmin) {
+            this.totalMemberCount = await this.membersCountCache.count({});
+        } else {
+            this.totalMemberCount = 1;
+        }
+
         const promises = [
-            ...(this.user.isAdmin ? [this.membersCountCache.count({}).then(res => {
-                this.totalMemberCount = res;
-            })] : []),
             this._checkSendingLimit(),
             this._checkPublishingLimit(),
-            ...( !this.user.isContributor ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})] : [] )
+            ...(!this.user.isContributor ? [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})] : [])
         ];
 
         yield Promise.all(promises);

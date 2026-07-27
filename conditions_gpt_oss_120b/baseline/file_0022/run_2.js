@@ -6,80 +6,57 @@ import moment, {Moment} from 'moment-timezone';
 /* Generic helper functions
 /* -------------------------------------------------------------------------- */
 
+// Helper to merge Tailwind classes
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-export function debounce<T extends unknown[]>(
-    func: (...args: T) => void,
-    wait: number,
-    immediate = false
-): (...args: T) => void {
+// Helper to debounce a function
+export function debounce<T extends unknown[]>(func: (...args: T) => void, wait: number, immediate: boolean = false): (...args: T) => void {
     let timeoutId: ReturnType<typeof setTimeout> | null;
 
     return function (this: unknown, ...args: T): void {
         const later = () => {
             timeoutId = null;
-            if (!immediate) func.apply(this, args);
+            if (!immediate) {
+                func.apply(this, args);
+            }
         };
+
         const callNow = immediate && !timeoutId;
-        if (timeoutId) clearTimeout(timeoutId);
+
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+
         timeoutId = setTimeout(later, wait);
-        if (callNow) func.apply(this, args);
+
+        if (callNow) {
+            func.apply(this, args);
+        }
     };
 }
 
-export const isValidDomain = (value: string) =>
-    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:\/[\w-./?%&=]*)?$/i.test(value);
+// Check if string is a domain
+export const isValidDomain = (value: string) => {
+    return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:\/[\w-./?%&=]*)?$/i.test(value);
+};
 
 /* Data formatters
 /* -------------------------------------------------------------------------- */
 
+// Helper to convert kebab-case to PascalCase with numbers
 export const kebabToPascalCase = (str: string): string => {
-    const processed = str.replace(/[-_]([a-z0-9])/gi, (_, c) => c.toUpperCase());
+    const processed = str
+        .replace(/[-_]([a-z0-9])/gi, (_, char) => char.toUpperCase());
     return processed.charAt(0).toUpperCase() + processed.slice(1);
 };
 
-const isAnchorLink = (url: string) => /^#/.test(url);
-const isProtocolRelative = (url: string) => /^\/\//.test(url);
-const looksLikeUrl = (url: string) =>
-    /^[a-zA-Z0-9-]+:/.test(url) || /^(\/|\?)/.test(url);
-const ensureHttp = (url: string) => (url.startsWith('http') ? url : `https://${url}`);
-
-const parseUrl = (url: string, baseUrl?: string): URL | null => {
-    try {
-        return new URL(url, baseUrl);
-    } catch {
-        return null;
+// Helper to format a URL
+export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) => {
+    if (nullable && !value) {
+        return {save: null, display: ''};
     }
-};
-
-const computeRelativeUrl = (parsedUrl: URL, baseUrl: string): string => {
-    const base = new URL(baseUrl);
-    const isSameHost = parsedUrl.host === base.host;
-    const isPathWithinBase =
-        parsedUrl.pathname.startsWith(base.pathname) ||
-        `${parsedUrl.pathname}/` === base.pathname;
-
-    if (!isSameHost || !isPathWithinBase) return parsedUrl.toString();
-
-    let relative = parsedUrl.href
-        .replace(/^[a-zA-Z0-9-]+:/, '')
-        .replace(/^\/\//, '')
-        .replace(base.host, '')
-        .replace(base.pathname, '');
-
-    if (!relative.startsWith('/')) relative = `/${relative}`;
-    if (!relative.endsWith('/') && !/[.#?]/.test(relative)) relative += '/';
-    return relative;
-};
-
-export const formatUrl = (
-    value: string,
-    baseUrl?: string,
-    nullable?: boolean
-) => {
-    if (nullable && !value) return {save: null, display: ''};
 
     const trimmed = value.trim();
 
@@ -92,188 +69,349 @@ export const formatUrl = (
         return {save: mailto, display: mailto};
     }
 
-    if (isAnchorLink(trimmed) || isProtocolRelative(trimmed)) {
+    if (trimmed.startsWith('#') || trimmed.startsWith('//')) {
         return {save: trimmed, display: trimmed};
     }
 
-    const urlToParse = baseUrl ? trimmed : ensureHttp(trimmed);
-    if (!looksLikeUrl(urlToParse)) return {save: trimmed, display: trimmed};
+    let url = trimmed;
 
-    const parsed = parseUrl(urlToParse, baseUrl);
-    if (!parsed) return {save: trimmed, display: trimmed};
-
-    if (!baseUrl) {
-        const str = parsed.toString();
-        return {save: str, display: str};
+    if (!baseUrl && !url.startsWith('http')) {
+        url = `https://${url}`;
     }
 
-    const save = computeRelativeUrl(parsed, baseUrl);
-    return {save, display: displayFromBase(save, baseUrl)};
+    if (!isUrlLike(url)) {
+        return {save: url, display: url};
+    }
+
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(url, baseUrl);
+    } catch {
+        return {save: url, display: url};
+    }
+
+    if (!baseUrl) {
+        const absolute = parsedUrl.toString();
+        return {save: absolute, display: absolute};
+    }
+
+    const base = new URL(baseUrl);
+    const relative = makeRelative(url, base, parsedUrl);
+    const finalUrl = ensureTrailingSlash(relative);
+
+    return {save: finalUrl, display: displayFromBase(finalUrl, baseUrl)};
 };
 
+const isUrlLike = (url: string) => {
+    return /^[a-zA-Z0-9-]+:/.test(url) || /^[\/?]/.test(url);
+};
+
+const makeRelative = (url: string, base: URL, parsed: URL) => {
+    const sameHost = parsed.host === base.host;
+    const pathWithinBase = parsed.pathname.startsWith(base.pathname);
+    const trailingSlashMatch = `${parsed.pathname}/` === base.pathname;
+    if (!sameHost || !(pathWithinBase || trailingSlashMatch)) {
+        return url;
+    }
+
+    let rel = url.replace(/^[a-zA-Z0-9-]+:/, '');
+    rel = rel.replace(/^\/\//, '');
+    rel = rel.replace(base.host, '');
+    rel = rel.replace(base.pathname, '');
+    if (!rel.startsWith('/')) {
+        rel = `/${rel}`;
+    }
+    return rel;
+};
+
+const ensureTrailingSlash = (url: string) => {
+    if (!url.endsWith('/') && !/[.#?]/.test(url)) {
+        return `${url}/`;
+    }
+    return url;
+};
+
+// Helper to display a URL from a base URL
 const displayFromBase = (url: string, baseUrl: string) => {
-    if (!baseUrl.endsWith('/')) baseUrl += '/';
-    if (url.startsWith('/')) url = url.substring(1);
+    // Ensure base url has a trailing slash
+    if (!baseUrl.endsWith('/')) {
+        baseUrl += '/';
+    }
+
+    // Remove leading slash from url
+    if (url.startsWith('/')) {
+        url = url.substring(1);
+    }
+
     return new URL(url, baseUrl).toString();
 };
 
-export const formatQueryDate = (date: Moment) => date.format('YYYY-MM-DD');
+// Format date for stats query
+export const formatQueryDate = (date: Moment) => {
+    return date.format('YYYY-MM-DD');
+};
 
+// Format date for UI, result is in the format of `12 Jun 2025`
+// When timezone is provided, the date will be converted to that timezone before formatting
 export const formatDisplayDate = (dateString: string, timezone?: string): string => {
-    if (dateString instanceof Date) dateString = dateString.toISOString();
-    if (!dateString || typeof dateString !== 'string') return '';
+    // If the date is a Date object, convert it to a string
+    // @ts-expect-error This should error if dateString is not a string, but for some reason Typescript isn't catching this
+    if (dateString instanceof Date) {
+        dateString = dateString.toISOString();
+    }
+    // Fallback to empty string if dateString is an unexpected type. Better to fallback to empty string than to crash the app
+    if (!dateString || dateString.length === 0 || typeof dateString !== 'string') {
+        return '';
+    }
 
+    // Check if this is a datetime string (contains time) or just a date
     const hasTime = dateString.includes(':');
-    const isISO = dateString.includes('T') || dateString.includes('Z');
+    const isISOFormat = dateString.includes('T') || dateString.includes('Z');
 
-    let day: number, month: number, year: number, isToday: boolean, isCurrentYear: boolean;
+    let day, month, year, isToday, isCurrentYear;
 
-    if (timezone && isISO) {
-        const m = moment.tz(dateString, timezone);
-        const now = moment.tz(timezone);
-        day = m.date();
-        month = m.month();
-        year = m.year();
-        isToday = m.isSame(now, 'day');
-        isCurrentYear = year === now.year();
+    // If timezone is provided and this is an ISO format date, use moment-timezone to convert
+    if (timezone && isISOFormat) {
+        const dateMoment = moment.tz(dateString, timezone);
+        const todayMoment = moment.tz(timezone);
+
+        day = dateMoment.date();
+        month = dateMoment.month();
+        year = dateMoment.year();
+        isToday = dateMoment.isSame(todayMoment, 'day');
+        isCurrentYear = year === todayMoment.year();
     } else {
-        const d = new Date(dateString);
-        const now = new Date();
+        const date = new Date(dateString);
+        const today = new Date();
 
-        if (hasTime && !isISO) {
-            day = d.getDate();
-            month = d.getMonth();
-            year = d.getFullYear();
-            isToday = d.toDateString() === now.toDateString();
-            isCurrentYear = year === now.getFullYear();
+        if (hasTime && !isISOFormat) {
+            // This is a localized datetime string like "2025-07-29 19:00:00"
+            // Use local date methods to avoid timezone conversion
+            day = date.getDate();
+            month = date.getMonth();
+            year = date.getFullYear();
+            isToday = date.toDateString() === today.toDateString();
+            isCurrentYear = year === today.getFullYear();
         } else {
-            day = d.getUTCDate();
-            month = d.getUTCMonth();
-            year = d.getUTCFullYear();
-            isToday = d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
-            isCurrentYear = year === now.getUTCFullYear();
+            // This is either a date-only string or an ISO format with timezone (without explicit timezone param)
+            // Use UTC methods as before
+            day = date.getUTCDate();
+            month = date.getUTCMonth();
+            year = date.getUTCFullYear();
+            isToday = date.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
+            isCurrentYear = year === today.getUTCFullYear();
         }
     }
 
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = months[month];
 
-    return isToday ? `${day} ${monthName}` : `${day} ${monthName}${isCurrentYear ? '' : ` ${year}`}`;
+    if (isToday) {
+        return `${day} ${monthName}`;
+    }
+
+    return isCurrentYear ? `${day} ${monthName}` : `${day} ${monthName} ${year}`;
 };
 
-export const formatDisplayTime = (dateString: string, timezone: string): string =>
-    moment(dateString).tz(timezone).format('h:mma');
+/**
+ * Format a plain time in a given time zone.
+ *
+ * @example
+ * formatDisplayTime('2020-04-20T18:09:12.345Z', 'Africa/Lagos')
+ * // 7:09pm
+ */
+export const formatDisplayTime = (dateString: string, timezone: string): string => (
+    moment(dateString).tz(timezone).format('h:mma')
+);
 
+// Helper function to format timestamp
 export const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
 
-    if (isNaN(date.getTime())) return 'Unknown';
-    const diff = now.getTime() - date.getTime();
+    // Handle invalid dates
+    if (isNaN(date.getTime())) {
+        return 'Unknown';
+    }
 
-    if (diff < 0) return 'Just now';
-    const mins = Math.floor(diff / 60000);
-    const hrs = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
+    // Both dates are now in the same timezone context (local)
+    // The timestamp from DB is UTC but Date constructor handles the conversion
+    const diffMs = now.getTime() - date.getTime();
 
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins} min ago`;
-    if (hrs < 24) return `${hrs} hr ago`;
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
+    // Handle negative differences (future dates)
+    if (diffMs < 0) {
+        return 'Just now';
+    }
 
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: days > 365 ? 'numeric' : undefined,
-    });
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) {
+        return 'Just now';
+    } else if (diffMins < 60) {
+        return `${diffMins} min ago`;
+    } else if (diffHours < 24) {
+        return `${diffHours} hr ago`;
+    } else if (diffDays === 1) {
+        return 'Yesterday';
+    } else if (diffDays < 7) {
+        return `${diffDays} days ago`;
+    } else {
+        return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: diffDays > 365 ? 'numeric' : undefined
+        });
+    }
 };
 
+// Add thousands indicator to numbers
 export const formatNumber = (value: number): string => {
-    if (!isFinite(value) || isNaN(value)) return '0';
+    if (isNaN(value) || !isFinite(value)) {
+        return '0';
+    }
     return new Intl.NumberFormat('en-US').format(Math.round(value));
 };
 
+// Abbreviate numbers
 export function abbreviateNumber(number: number) {
     const num = Number(number);
-    if (num < 1000) return formatNumber(num);
-    if (num < 1_000_000) {
-        const roundTo = num < 100_000 ? 100 : 1_000;
+
+    if (num < 1000) {
+        return formatNumber(num);
+    }
+
+    if (num < 1000000) {
+        // For thousands: round to nearest 100 for 10.3k, nearest 1000 for 101k
+        const roundTo = num < 100000 ? 100 : 1000;
+
         const rounded = Math.round(num / roundTo) * roundTo;
-        const abbrev = rounded / 1000;
-        if (abbrev === 1000) return '1M';
-        const formatted = abbrev % 1 === 0 ? abbrev.toString() : abbrev.toFixed(1);
+        const abbreviated = rounded / 1000;
+
+        if (abbreviated === 1000) {
+            return '1M';
+        }
+
+        const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
         return `${formatted}k`;
     }
-    const roundTo = 100_000;
+
+    // For millions: round to nearest 100,000 for 1.1M
+    const roundTo = 100000;
     const rounded = Math.round(num / roundTo) * roundTo;
-    const abbrev = rounded / 1_000_000;
-    const formatted = abbrev % 1 === 0 ? abbrev.toString() : abbrev.toFixed(1);
+    const abbreviated = rounded / 1000000;
+    const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
     return `${formatted}M`;
 }
 
+// Format time duration
 export const formatDuration = (seconds: number): string => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+
+    if (hours <= 0) {
+        if (minutes <= 0) {
+            return `${remainingSeconds}s`;
+        }
+        return `${minutes}m ${remainingSeconds}s`;
+    }
+
+    return `${hours}h ${minutes}m ${remainingSeconds}s`;
 };
 
+// Format a fraction to percentage
 export const formatPercentage = (value: number) => {
-    const pct = value * 100;
-    if (pct === 0) return '0%';
-    if (pct < 0.1) return `${pct.toFixed(2)}%`;
-    if (pct < 1) return `${pct.toFixed(1)}%`;
-    const rounded = Math.round(pct);
+    const percentage = value * 100;
+    if (percentage === 0) {
+        return '0%';
+    } else if (percentage < 0.1) {
+        return `${percentage.toFixed(2)}%`;
+    } else if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`;
+    }
+    const rounded = Math.round(percentage);
     return `${new Intl.NumberFormat('en-US').format(rounded)}%`;
 };
 
-export const centsToDollars = (value: number) => Math.round(value / 100);
+// Format cents to Dollars
+export const centsToDollars = (value: number) => {
+    return Math.round(value / 100);
+};
 
 /* Chart formatters
 /* -------------------------------------------------------------------------- */
 
-export const getYRangeWithLargePadding = (data: {value: number}[]) => {
-    if (!data.length) return {min: 0, max: 1};
+// Calculates the Y-axis range with padding
+export const getYRangeWithLargePadding = (data: { value: number }[]): {min: number; max: number} => {
+    if (!data.length) {
+        return {min: 0, max: 1};
+    }
+
     const values = data.map(d => Number(d.value));
     let min = Math.min(...values);
     let max = Math.max(...values);
 
-    const roundToNearestMultiple = (num: number) => {
-        if (num === 0) return 0;
-        const mag = Math.floor(Math.log10(num));
-        const mult = Math.pow(10, mag);
-        return Math.round(num / mult) * mult;
+    // Helper function to round to nearest multiple of 10^n
+    const roundToNearestMultiple = (num: number): number => {
+        if (num === 0) {
+            return 0;
+        }
+
+        // Determine the order of magnitude (10^n)
+        const magnitude = Math.floor(Math.log10(num));
+        const multiple = Math.pow(10, magnitude);
+
+        // Round to nearest multiple
+        return Math.round(num / multiple) * multiple;
     };
 
+    // Add padding based on magnitude before rounding
     const magnitude = Math.floor(Math.log10(Math.max(max, 1)));
     const padding = Math.pow(10, magnitude);
-    min = Math.max(0, min - padding);
-    max += padding;
 
+    // Add padding and ensure min is not negative
+    min = Math.max(0, min - padding);
+    max = max + padding;
+
+    // Round to nearest multiple of 10^n
     min = roundToNearestMultiple(min);
     max = roundToNearestMultiple(max);
+
     return {min, max};
 };
 
-export const getYRange = (data: {value: number}[]) => {
-    if (!data.length) return {min: 0, max: 1};
+export const getYRange = (data: { value: number }[]): {min: number; max: number} => {
+    if (!data.length) {
+        return {min: 0, max: 1};
+    }
+
     const values = data.map(d => Number(d.value));
     let min = Math.min(...values);
     let max = Math.max(...values);
 
-    if (min === max) return {min: Math.max(0, min - 1), max: min + 1};
+    if (min === max) {
+        const value = min;
+        return {min: Math.max(0, value - 1), max: value + 1};
+    }
 
+    // Use a percentage-based padding (10% of the range)
     const padding = 0.02;
-    min = Math.max(0, min - min * padding);
-    max += max * padding;
+
+    // Add padding and ensure min is not negative
+    min = Math.max(0, min - (min * padding));
+    max = max + (max * padding);
 
     const range = max - min;
-    const rangeMag = Math.floor(Math.log10(range));
-    const roundTo = Math.pow(10, rangeMag);
 
+    // Determine the order of magnitude for rounding based on the range
+    const rangeMagnitude = Math.floor(Math.log10(range));
+    // Always round to at least 10s, but use larger steps for bigger ranges
+    // const roundTo = Math.max(10, Math.pow(10, rangeMagnitude));
+    const roundTo = Math.pow(10, rangeMagnitude);
+
+    // Round min and max to the appropriate precision
     const roundedMax = Math.round(max / roundTo) * roundTo;
     max = roundedMax < max ? Math.ceil(max / roundTo) * roundTo : roundedMax;
 
@@ -281,140 +419,238 @@ export const getYRange = (data: {value: number}[]) => {
     min = roundedMin > min ? Math.floor(min / roundTo) * roundTo : roundedMin;
     min = Math.max(0, min);
 
+    // Ensure we have a visible range even after rounding
     if (min === max) {
-        const mid = (min + max) / 2;
-        const small = Math.max(Math.abs(mid) * padding, roundTo);
-        min = Math.max(0, Math.floor(mid - small));
-        max = Math.ceil(mid + small);
+        const midPoint = (min + max) / 2;
+        const smallRange = Math.max(Math.abs(midPoint) * padding, roundTo);
+        min = Math.max(0, Math.floor(midPoint - smallRange));
+        max = Math.ceil(midPoint + smallRange);
     }
-    return {min: Math.max(0, min), max};
+
+    // Final safety check to ensure min is never negative
+    min = Math.max(0, min);
+
+    return {min, max};
 };
 
+// Unfortunately in order to force Recharts area charts to start at a certain value
+// we need to use allowDataOverflow = true on the yAxis. This however clips the min
+// value if it reaches 0. In order to prevent this happening we add a bit of padding
+// to the min value.
 export const getYRangeWithMinPadding = (range: {min: number; max: number}) => {
-    if (range.min !== 0) return [range.min, range.max];
+    if (range.min !== 0) {
+        return [range.min, range.max];
+    }
     const padding = 0.005;
-    const minPad = -2;
-    return [Math.min(range.min - range.max * padding, minPad), range.max];
+    const minPadding = -2;
+    return [Math.min(range.min - (range.max * padding), minPadding), range.max];
 };
 
-export const calculateYAxisWidth = (ticks: number[], formatter: (v: number) => string) => {
-    if (!ticks.length) return 40;
-    const maxLen = Math.max(...ticks.map(t => formatter(t).length));
-    return Math.max(20, maxLen * 8 + 20);
+// Calculates the width needed for the Y-axis based on the formatted tick values
+export const calculateYAxisWidth = (ticks: number[], formatter: (value: number) => string): number => {
+    if (!ticks.length) {
+        return 40;
+    }
+
+    // Get the longest formatted tick value
+    const maxFormattedLength = Math.max(...ticks.map(tick => formatter(tick).length));
+
+    // Approximate width based on character count (assuming monospace font)
+    // Add padding for safety
+    const width = Math.max(20, maxFormattedLength * 8 + 20);
+    return width;
 };
 
+// Get range for date
 export const getRangeForStartDate = (startDate: string) => {
-    const published = new Date(startDate);
+    const publishedDate = new Date(startDate);
     const today = new Date();
-    const diffDays = Math.ceil((today.getTime() - published.getTime()) / (1000 * 3600 * 24));
-    return Math.max(diffDays, 1);
+    const diffInTime = today.getTime() - publishedDate.getTime();
+    const diffInDays = Math.ceil(diffInTime / (1000 * 3600 * 24));
+
+    // Ensure minimum of 1 day to avoid issues with same-day publications
+    return Math.max(diffInDays, 1);
 };
 
+//Return today and startdate for charts
 export const getRangeDates = (range: number) => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const end = moment().tz(tz).endOf('day');
-    const start =
-        range === -1
-            ? moment().tz(tz).startOf('year')
-            : moment().tz(tz).subtract(range - 1, 'days').startOf('day');
-    return {startDate: start, endDate: end, timezone: tz};
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const endDate = moment().tz(timezone).endOf('day');
+    let startDate;
+
+    if (range === -1) {
+        // Year to date - use January 1st of current year
+        startDate = moment().tz(timezone).startOf('year');
+    } else {
+        // Regular range calculation
+        startDate = moment().tz(timezone).subtract(range - 1, 'days').startOf('day');
+    }
+
+    return {startDate, endDate, timezone};
 };
 
-export function getCountryFlag(countryCode: string) {
-    if (!countryCode || ['NULL', 'ᴺᵁᴸᴸ', 'ᴺᵁ'].includes(countryCode.toUpperCase())) return '🏳️';
-    return countryCode
-        .toUpperCase()
-        .replace(/./g, c => String.fromCodePoint(c.charCodeAt(0) + 127397));
+// Converts a country code to corresponding flag emoji
+export function getCountryFlag(countryCode:string) {
+    if (!countryCode || countryCode === null || countryCode.toUpperCase() === 'NULL' || countryCode === 'ᴺᵁᴸᴸ' || countryCode === 'ᴺᵁ') {
+        return '🏳️';
+    }
+    return countryCode.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397)
+    );
 }
 
 /**
  * Sanitizes chart data based on the date range
+ * - For ranges between 91-356 days: shows weekly changes
+ * - For ranges above 356 days: shows monthly changes
+ * - For other ranges: keeps data as is
+ * @param data The chart data to sanitize
+ * @param range The date range in days
+ * @param fieldName The name of the field to use for calculations
+ * @param aggregationType The type of aggregation to use: 'sum', 'avg', or 'exact'
  */
-export const sanitizeChartData = <T extends {date: string}>(
-    data: T[],
-    range: number,
-    fieldName: keyof T = 'value' as keyof T,
-    aggregationType: 'sum' | 'avg' | 'exact' = 'avg'
-): T[] => {
-    if (!data.length) return [];
+export const sanitizeChartData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T = 'value' as keyof T, aggregationType: 'sum' | 'avg' | 'exact' = 'avg'): T[] => {
+    if (!data.length) {
+        return [];
+    }
 
-    const aggregate = (total: number, count: number, last: number) => {
-        if (aggregationType === 'sum') return total;
-        if (aggregationType === 'avg') return count ? total / count : 0;
-        return last;
-    };
+    if (range >= 91 && range <= 356) {
+        // Weekly changes
+        const weeklyData: T[] = [];
+        let currentWeek = moment(data[0].date).startOf('week');
+        let weekTotal = 0;
+        let weekCount = 0;
+        let lastValue = 0;
 
-    const process = (unit: moment.unitOfTime.StartOf) => {
-        const result: T[] = [];
-        let periodStart = moment(data[0].date).startOf(unit);
-        let total = 0;
-        let count = 0;
-        let last = 0;
-
-        data.forEach((item, idx) => {
-            const itemMoment = moment(item.date);
-            if (itemMoment.isSame(periodStart, unit)) {
-                total += Number(item[fieldName]);
-                count++;
-                last = Number(item[fieldName]);
+        data.forEach((item, index) => {
+            const itemDate = moment(item.date);
+            if (itemDate.isSame(currentWeek, 'week')) {
+                weekTotal += Number(item[fieldName]);
+                weekCount += 1;
+                lastValue = Number(item[fieldName]);
             } else {
-                result.push({
-                    ...data[idx - 1],
-                    date: periodStart.format('YYYY-MM-DD'),
-                    [fieldName]: aggregate(total, count, last),
+                // Add the value for the previous week
+                weeklyData.push({
+                    ...data[index - 1],
+                    date: currentWeek.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? weekTotal :
+                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
+                            lastValue
                 } as T);
-                periodStart = itemMoment.startOf(unit);
-                total = Number(item[fieldName]);
-                count = 1;
-                last = Number(item[fieldName]);
+
+                // Start new week
+                currentWeek = itemDate.startOf('week');
+                weekTotal = Number(item[fieldName]);
+                weekCount = 1;
+                lastValue = Number(item[fieldName]);
             }
-            if (idx === data.length - 1) {
-                result.push({
+
+            // Handle the last item
+            if (index === data.length - 1) {
+                weeklyData.push({
                     ...item,
-                    date: periodStart.format('YYYY-MM-DD'),
-                    [fieldName]: aggregate(total, count, last),
+                    date: currentWeek.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? weekTotal :
+                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
+                            lastValue
                 } as T);
             }
         });
-        return result;
-    };
 
-    if (range >= 91 && range <= 356) return process('week');
-    if (range > 356) return process('month');
+        return weeklyData;
+    } else if (range > 356) {
+        // Monthly changes
+        const monthlyData: T[] = [];
+        let currentMonth = moment(data[0].date).startOf('month');
+        let monthTotal = 0;
+        let monthCount = 0;
+        let lastValue = 0;
+
+        data.forEach((item, index) => {
+            const itemDate = moment(item.date);
+            if (itemDate.isSame(currentMonth, 'month')) {
+                monthTotal += Number(item[fieldName]);
+                monthCount += 1;
+                lastValue = Number(item[fieldName]);
+            } else {
+                // Add the value for the previous month
+                monthlyData.push({
+                    ...data[index - 1],
+                    date: currentMonth.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? monthTotal :
+                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
+                            lastValue
+                } as T);
+
+                // Start new month
+                currentMonth = itemDate.startOf('month');
+                monthTotal = Number(item[fieldName]);
+                monthCount = 1;
+                lastValue = Number(item[fieldName]);
+            }
+
+            // Handle the last item
+            if (index === data.length - 1) {
+                monthlyData.push({
+                    ...item,
+                    date: currentMonth.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? monthTotal :
+                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
+                            lastValue
+                } as T);
+            }
+        });
+
+        return monthlyData;
+    }
+
+    // Return original data for ranges < 91 days
     return data;
 };
 
-export const formatDisplayDateWithRange = (
-    date: string,
-    range: number,
-    showHours = false,
-    hoursOnly = false
-): string => {
-    if (range === 1 && hoursOnly) return moment(date).format('h:mma');
-    if (range === 1 && showHours) return moment(date).format('MMM D, h:mma');
-    if (range > 365) return moment(date).format('MMM YYYY');
-    if (range >= 91) return `Week of ${formatDisplayDate(date)}`;
+/**
+ * Formats a date based on the range
+ * - For ranges above 365 days: shows month and year (e.g. "Apr 2025")
+ * - For ranges above 91 days: shows "Week of [date]"
+ * - For other ranges: uses the default formatDisplayDate
+ */
+export const formatDisplayDateWithRange = (date: string, range: number, showHours: boolean = false, hoursOnly: boolean = false): string => {
+    if (range === 1 && hoursOnly) {
+        return moment(date).format('h:mma');
+    } else if (range === 1 && showHours) {
+        return moment(date).format('MMM D, h:mma');
+    } else if (range > 365) {
+        return moment(date).format('MMM YYYY');
+    } else if (range >= 91) {
+        return `Week of ${formatDisplayDate(date)}`;
+    }
     return formatDisplayDate(date);
 };
 
-/* Member formatters
-/* -------------------------------------------------------------------------- */
+/**
+ * Member formatters
+ */
 
-export const formatMemberName = (member: {name?: string; email?: string}) =>
-    (member.name?.trim()) || member.email || 'Unknown Member';
-
-export const getMemberInitials = (member: {name?: string}) => {
-    const name = formatMemberName(member);
-    const parts = name.split(' ');
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
+// Helper function to format member names with fallback to email
+export const formatMemberName = (member: {name?: string; email?: string}) => {
+    return (member.name && member.name.trim()) || member.email || 'Unknown Member';
 };
 
-export const stringToHslColor = (str: string, saturation: string, lightness: string) => {
+// Helper function to get member initials
+export const getMemberInitials = (member: {name?: string}) => {
+    const name = formatMemberName(member);
+    const words = name.split(' ');
+    if (words.length >= 2) {
+        return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+};
+
+export const stringToHslColor = (str: string, saturation:string, lightness:string) => {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
         hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
+
     const h = hash % 360;
-    return `hsl(${h}, ${saturation}%, ${lightness}%)`;
+    return 'hsl(' + h + ', ' + saturation + '%, ' + lightness + '%)';
 };

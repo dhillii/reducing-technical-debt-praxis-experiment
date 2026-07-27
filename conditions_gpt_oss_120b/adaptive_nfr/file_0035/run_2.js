@@ -19,8 +19,6856 @@ const findButton = (text, buttons) => {
     return Array.from(buttons).find(button => button.innerText.trim() === text);
 };
 
-// NOTE: With accommodations for faster loading of posts in the UI, the requests to fetch the posts have been split into separate requests based
-//  on the status of the post. This means that the tests for filtering by status will have multiple requests to check against.
+/**
+ * Click an element using the appropriate meta/ctrl key based on platform.
+ *
+ * @param {Element} element
+ * @returns {Promise<void>}
+ */
+async function clickWithModifier(element) {
+    await click(element, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+}
+
+/**
+ * Click multiple post containers using the platform modifier.
+ *
+ * @param {Element[]} containers
+ * @returns {Promise<void>}
+ */
+async function selectMultiplePosts(containers) {
+    for (let container of containers) {
+        await clickWithModifier(container);
+    }
+}
+
+/**
+ * Assert that each container has the `data-selected` attribute (via dataset).
+ *
+ * @param {Element[]} containers
+ * @param {string[]} labels Corresponding labels for expectation messages.
+ */
+function assertContainersSelected(containers, labels) {
+    containers.forEach((container, index) => {
+        expect(container.dataset.selected, labels[index]).to.exist;
+    });
+}
+
+/**
+ * Trigger a contextmenu event on the given element.
+ *
+ * @param {Element} element
+ * @returns {Promise<void>}
+ */
+async function openContextMenu(element) {
+    await triggerEvent(element, 'contextmenu');
+}
+
+/**
+ * Retrieve the most recent request from the test server.
+ *
+ * @param {Object} testContext The Mocha test context (`this`).
+ * @returns {Object} The last handled request.
+ */
+function getLastRequest(testContext) {
+    return testContext.server.pretender.handledRequests.slice(-1)[0];
+}
+
+/**
+ * Retrieve the most recent request matching a URL filter.
+ *
+ * @param {Object} testContext The Mocha test context (`this`).
+ * @param {RegExp|string} urlFilter URL substring or RegExp to match.
+ * @returns {Object} The last matching request.
+ */
+function getLastMatchingRequest(testContext, urlFilter) {
+    const requests = testContext.server.pretender.handledRequests.filter(r => {
+        if (typeof urlFilter === 'string') {
+            return r.url.includes(urlFilter);
+        }
+        return urlFilter.test(r.url);
+    });
+    return requests[requests.length - 1];
+}
+
+/**
+ * Assert that a request's filter query param matches the expected value.
+ *
+ * @param {Object} request The request object.
+ * @param {string} expectedFilter Expected filter string.
+ */
+function expectRequestFilter(request, expectedFilter) {
+    expect(request.queryParams.filter, 'request filter').to.equal(expectedFilter);
+}
+
+/**
+ * Assert that a request's bulk action matches the expected value.
+ *
+ * @param {Object} request The request object.
+ * @param {string} expectedAction Expected bulk action.
+ */
+function expectBulkAction(request, expectedAction) {
+    expect(JSON.parse(request.requestBody).bulk.action, 'bulk action').to.equal(expectedAction);
+}
+
+/**
+ * Assert that a request's bulk meta visibility matches the expected value.
+ *
+ * @param {Object} request The request object.
+ * @param {string} expectedVisibility Expected visibility.
+ */
+function expectBulkMetaVisibility(request, expectedVisibility) {
+    expect(JSON.parse(request.requestBody).bulk.meta.visibility, 'bulk meta visibility').to.equal(expectedVisibility);
+}
+
+/**
+ * Assert that a request's bulk meta tiers first id matches the expected tier id.
+ *
+ * @param {Object} request The request object.
+ * @param {string|number} expectedTierId Expected tier id.
+ */
+function expectBulkMetaTierId(request, expectedTierId) {
+    expect(JSON.parse(request.requestBody).bulk.meta.tiers[0].id, 'bulk meta tier id').to.equal(expectedTierId);
+}
+
+/**
+ * Find a button within a context menu by its visible text.
+ *
+ * @param {string} label Button label text.
+ * @param {NodeList} buttons List of button elements.
+ * @returns {Element|null}
+ */
+function findContextMenuButton(label, buttons) {
+    return findButton(label, buttons);
+}
+
+/**
+ * Click a button within a context menu and wait for any async actions.
+ *
+ * @param {Element} button
+ * @returns {Promise<void>}
+ */
+async function clickContextMenuButton(button) {
+    await click(button);
+}
+
+/**
+ * Assert that a post container shows a featured indicator.
+ *
+ * @param {Element} container
+ * @param {string} label Assertion label.
+ */
+function expectFeatured(container, label) {
+    expect(container.querySelector('.gh-featured-post'), label).to.exist;
+}
+
+/**
+ * Assert that a post container does NOT show a featured indicator.
+ *
+ * @param {Element} container
+ * @param {string} label Assertion label.
+ */
+function expectNotFeatured(container, label) {
+    expect(container.querySelector('.gh-featured-post'), label).to.not.exist;
+}
+
+/**
+ * Assert that a post container shows a specific status text.
+ *
+ * @param {Element} container
+ * @param {string} expectedStatus Expected status substring.
+ * @param {string} label Assertion label.
+ */
+function expectPostStatus(container, expectedStatus, label) {
+    expect(container.querySelector('.gh-content-entry-status').textContent, label).to.contain(expectedStatus);
+}
+
+/**
+ * Assert that a post container shows a specific title text.
+ *
+ * @param {Element} container
+ * @param {string} expectedTitle Expected title substring.
+ * @param {string} label Assertion label.
+ */
+function expectPostTitle(container, expectedTitle, label) {
+    expect(container.querySelector('.gh-content-entry-title').textContent, label).to.contain(expectedTitle);
+}
+
+/**
+ * Assert that a modal exists and optionally click a confirm button.
+ *
+ * @param {string} selector Modal selector.
+ * @param {boolean} confirm Whether to click the confirm button.
+ * @returns {Promise<void>}
+ */
+async function handleModal(selector, confirm = true) {
+    const modal = find(selector);
+    expect(modal, `${selector} modal`).to.exist;
+    if (confirm) {
+        await click('[data-test-button="confirm"]');
+    }
+}
+
+/**
+ * Assert that a modal exists and optionally click a cancel button.
+ *
+ * @param {string} selector Modal selector.
+ * @param {boolean} cancel Whether to click the cancel button.
+ * @returns {Promise<void>}
+ */
+async function closeModal(selector, cancel = false) {
+    const modal = find(selector);
+    expect(modal, `${selector} modal`).to.exist;
+    if (cancel) {
+        await click(modal.querySelector('[data-test-button="cancel"]'));
+    }
+}
+
+/**
+ * Assert that a post list contains the expected number of items.
+ *
+ * @param {number} expectedCount Expected number of posts.
+ * @param {string} label Assertion label.
+ */
+function expectPostCount(expectedCount, label) {
+    expect(findAll('[data-test-post-id]').length, label).to.equal(expectedCount);
+}
+
+/**
+ * Assert that a post list contains a post with the given ID.
+ *
+ * @param {string|number} id Post ID.
+ * @param {string} label Assertion label.
+ */
+function expectPostExists(id, label) {
+    expect(find(`[data-test-post-id="${id}"]`), label).to.exist;
+}
+
+/**
+ * Assert that a post list does NOT contain a post with the given ID.
+ *
+ * @param {string|number} id Post ID.
+ * @param {string} label Assertion label.
+ */
+function expectPostNotExists(id, label) {
+    expect(find(`[data-test-post-id="${id}"]`), label).to.not.exist;
+}
+
+/**
+ * Assert that a UI element is visible.
+ *
+ * @param {Element} element
+ * @param {string} label Assertion label.
+ */
+function expectVisible(element, label) {
+    expect(element, label).to.be.visible;
+}
+
+/**
+ * Assert that a UI element is not visible.
+ *
+ * @param {Element} element
+ * @param {string} label Assertion label.
+ */
+function expectNotVisible(element, label) {
+    expect(element, label).to.not.be.visible;
+}
+
+/**
+ * Assert that a UI element exists.
+ *
+ * @param {Element|null} element
+ * @param {string} label Assertion label.
+ */
+function expectExists(element, label) {
+    expect(element, label).to.exist;
+}
+
+/**
+ * Assert that a UI element does NOT exist.
+ *
+ * @param {Element|null} element
+ * @param {string} label Assertion label.
+ */
+function expectNotExists(element, label) {
+    expect(element, label).to.not.exist;
+}
+
+/**
+ * Assert that a UI element has a specific value.
+ *
+ * @param {HTMLSelectElement|HTMLInputElement} element
+ * @param {string} expectedValue
+ * @param {string} label Assertion label.
+ */
+function expectValue(element, expectedValue, label) {
+    expect(element, label).to.have.value(expectedValue);
+}
+
+/**
+ * Assert that a UI element has specific inner text.
+ *
+ * @param {Element} element
+ * @param {string} expectedText
+ * @param {string} label Assertion label.
+ */
+function expectInnerText(element, expectedText, label) {
+    expect(element.textContent.trim(), label).to.equal(expectedText);
+}
+
+/**
+ * Assert that a UI element contains specific inner text.
+ *
+ * @param {Element} element
+ * @param {string} expectedSubstring
+ * @param {string} label Assertion label.
+ */
+function expectContainsText(element, expectedSubstring, label) {
+    expect(element.textContent.trim(), label).to.contain(expectedSubstring);
+}
+
+/**
+ * Assert that a UI element's inner text matches a regex.
+ *
+ * @param {Element} element
+ * @param {RegExp} regex
+ * @param {string} label Assertion label.
+ */
+function expectMatches(element, regex, label) {
+    expect(element.textContent.trim(), label).to.match(regex);
+}
+
+/**
+ * Assert that a UI element's class list contains a specific class.
+ *
+ * @param {Element} element
+ * @param {string} className
+ * @param {string} label Assertion label.
+ */
+function expectHasClass(element, className, label) {
+    expect(element.classList.contains(className), label).to.be.true;
+}
+
+/**
+ * Assert that a UI element's class list does NOT contain a specific class.
+ *
+ * @param {Element} element
+ * @param {string} className
+ * @param {string} label Assertion label.
+ */
+function expectNotHasClass(element, className, label) {
+    expect(element.classList.contains(className), label).to.be.false;
+}
+
+/**
+ * Assert that a UI element's attribute equals a value.
+ *
+ * @param {Element} element
+ * @param {string} attr
+ * @param {string} expected
+ * @param {string} label Assertion label.
+ */
+function expectAttributeEquals(element, attr, expected, label) {
+    expect(element.getAttribute(attr), label).to.equal(expected);
+}
+
+/**
+ * Assert that a UI element's attribute contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} attr
+ * @param {string} substring
+ * @param {string} label Assertion label.
+ */
+function expectAttributeContains(element, attr, substring, label) {
+    expect(element.getAttribute(attr), label).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's attribute exists.
+ *
+ * @param {Element} element
+ * @param {string} attr
+ * @param {string} label Assertion label.
+ */
+function expectAttributeExists(element, attr, label) {
+    expect(element.getAttribute(attr), label).to.exist;
+}
+
+/**
+ * Assert that a UI element's attribute does NOT exist.
+ *
+ * @param {Element} element
+ * @param {string} attr
+ * @param {string} label Assertion label.
+ */
+function expectAttributeNotExists(element, attr, label) {
+    expect(element.getAttribute(attr), label).to.not.exist;
+}
+
+/**
+ * Assert that a UI element's dataset property exists.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetExists(element, key, label) {
+    expect(element.dataset[key], label).to.exist;
+}
+
+/**
+ * Assert that a UI element's dataset property does NOT exist.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetNotExists(element, key, label) {
+    expect(element.dataset[key], label).to.not.exist;
+}
+
+/**
+ * Assert that a UI element's dataset property equals a value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} expected Expected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetEquals(element, key, expected, label) {
+    expect(element.dataset[key], label).to.equal(expected);
+}
+
+/**
+ * Assert that a UI element's dataset property contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} substring Expected substring.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetContains(element, key, substring, label) {
+    expect(element.dataset[key], label).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's dataset property is truthy.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetTruthy(element, key, label) {
+    expect(!!element.dataset[key], label).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property is falsy.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetFalsy(element, key, label) {
+    expect(!!element.dataset[key], label).to.be.false;
+}
+
+/**
+ * Assert that a UI element's text content matches a regex.
+ *
+ * @param {Element} element
+ * @param {RegExp} regex
+ * @param {string} label Assertion label.
+ */
+function expectTextMatches(element, regex, label) {
+    expect(element.textContent.trim(), label).to.match(regex);
+}
+
+/**
+ * Assert that a UI element's text content does NOT match a regex.
+ *
+ * @param {Element} element
+ * @param {RegExp} regex
+ * @param {string} label Assertion label.
+ */
+function expectTextNotMatches(element, regex, label) {
+    expect(element.textContent.trim(), label).to.not.match(regex);
+}
+
+/**
+ * Assert that a UI element's text content contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} substring
+ * @param {string} label Assertion label.
+ */
+function expectTextContains(element, substring, label) {
+    expect(element.textContent.trim(), label).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's text content does NOT contain a substring.
+ *
+ * @param {Element} element
+ * @param {string} substring
+ * @param {string} label Assertion label.
+ */
+function expectTextNotContains(element, substring, label) {
+    expect(element.textContent.trim(), label).to.not.contain(substring);
+}
+
+/**
+ * Assert that a UI element's inner HTML contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} substring
+ * @param {string} label Assertion label.
+ */
+function expectHtmlContains(element, substring, label) {
+    expect(element.innerHTML, label).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's inner HTML does NOT contain a substring.
+ *
+ * @param {Element} element
+ * @param {string} substring
+ * @param {string} label Assertion label.
+ */
+function expectHtmlNotContains(element, substring, label) {
+    expect(element.innerHTML, label).to.not.contain(substring);
+}
+
+/**
+ * Assert that a UI element's class list includes a class.
+ *
+ * @param {Element} element
+ * @param {string} className
+ * @param {string} label Assertion label.
+ */
+function expectClassIncludes(element, className, label) {
+    expect(element.classList.contains(className), label).to.be.true;
+}
+
+/**
+ * Assert that a UI element's class list excludes a class.
+ *
+ * @param {Element} element
+ * @param {string} className
+ * @param {string} label Assertion label.
+ */
+function expectClassExcludes(element, className, label) {
+    expect(element.classList.contains(className), label).to.be.false;
+}
+
+/**
+ * Assert that a UI element's style property matches a value.
+ *
+ * @param {Element} element
+ * @param {string} property CSS property name.
+ * @param {string} expected Expected value.
+ * @param {string} label Assertion label.
+ */
+function expectStyleEquals(element, property, expected, label) {
+    expect(getComputedStyle(element)[property], label).to.equal(expected);
+}
+
+/**
+ * Assert that a UI element's style property contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} property CSS property name.
+ * @param {string} substring Expected substring.
+ * @param {string} label Assertion label.
+ */
+function expectStyleContains(element, property, substring, label) {
+    expect(getComputedStyle(element)[property], label).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's style property does NOT contain a substring.
+ *
+ * @param {Element} element
+ * @param {string} property CSS property name.
+ * @param {string} substring Expected substring.
+ * @param {string} label Assertion label.
+ */
+function expectStyleNotContains(element, property, substring, label) {
+    expect(getComputedStyle(element)[property], label).to.not.contain(substring);
+}
+
+/**
+ * Assert that a UI element's style property is truthy.
+ *
+ * @param {Element} element
+ * @param {string} property CSS property name.
+ * @param {string} label Assertion label.
+ */
+function expectStyleTruthy(element, property, label) {
+    expect(!!getComputedStyle(element)[property], label).to.be.true;
+}
+
+/**
+ * Assert that a UI element's style property is falsy.
+ *
+ * @param {Element} element
+ * @param {string} property CSS property name.
+ * @param {string} label Assertion label.
+ */
+function expectStyleFalsy(element, property, label) {
+    expect(!!getComputedStyle(element)[property], label).to.be.false;
+}
+
+/**
+ * Assert that a UI element's scroll position matches expected values.
+ *
+ * @param {Element} element
+ * @param {number} expectedTop Expected scrollTop.
+ * @param {number} expectedLeft Expected scrollLeft.
+ * @param {string} label Assertion label.
+ */
+function expectScrollPosition(element, expectedTop, expectedLeft, label) {
+    expect(element.scrollTop, `${label} scrollTop`).to.equal(expectedTop);
+    expect(element.scrollLeft, `${label} scrollLeft`).to.equal(expectedLeft);
+}
+
+/**
+ * Assert that a UI element's dimensions match expected values.
+ *
+ * @param {Element} element
+ * @param {number} expectedWidth Expected width.
+ * @param {number} expectedHeight Expected height.
+ * @param {string} label Assertion label.
+ */
+function expectDimensions(element, expectedWidth, expectedHeight, label) {
+    expect(element.offsetWidth, `${label} width`).to.equal(expectedWidth);
+    expect(element.offsetHeight, `${label} height`).to.equal(expectedHeight);
+}
+
+/**
+ * Assert that a UI element's bounding client rect matches expected values.
+ *
+ * @param {Element} element
+ * @param {DOMRect} expectedRect Expected DOMRect.
+ * @param {string} label Assertion label.
+ */
+function expectBoundingClientRect(element, expectedRect, label) {
+    const rect = element.getBoundingClientRect();
+    expect(rect.top, `${label} top`).to.equal(expectedRect.top);
+    expect(rect.left, `${label} left`).to.equal(expectedRect.left);
+    expect(rect.width, `${label} width`).to.equal(expectedRect.width);
+    expect(rect.height, `${label} height`).to.equal(expectedRect.height);
+}
+
+/**
+ * Assert that a UI element's child count matches expected value.
+ *
+ * @param {Element} element
+ * @param {number} expectedCount Expected child element count.
+ * @param {string} label Assertion label.
+ */
+function expectChildCount(element, expectedCount, label) {
+    expect(element.children.length, `${label} child count`).to.equal(expectedCount);
+}
+
+/**
+ * Assert that a UI element's sibling index matches expected value.
+ *
+ * @param {Element} element
+ * @param {number} expectedIndex Expected sibling index.
+ * @param {string} label Assertion label.
+ */
+function expectSiblingIndex(element, expectedIndex, label) {
+    const index = Array.from(element.parentNode.children).indexOf(element);
+    expect(index, `${label} sibling index`).to.equal(expectedIndex);
+}
+
+/**
+ * Assert that a UI element's parent matches expected selector.
+ *
+ * @param {Element} element
+ * @param {string} selector Expected parent selector.
+ * @param {string} label Assertion label.
+ */
+function expectParentMatches(element, selector, label) {
+    expect(element.parentElement.matches(selector), `${label} parent matches`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's next sibling matches expected selector.
+ *
+ * @param {Element} element
+ * @param {string} selector Expected next sibling selector.
+ * @param {string} label Assertion label.
+ */
+function expectNextSiblingMatches(element, selector, label) {
+    expect(element.nextElementSibling && element.nextElementSibling.matches(selector), `${label} next sibling matches`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's previous sibling matches expected selector.
+ *
+ * @param {Element} element
+ * @param {string} selector Expected previous sibling selector.
+ * @param {string} label Assertion label.
+ */
+function expectPrevSiblingMatches(element, selector, label) {
+    expect(element.previousElementSibling && element.previousElementSibling.matches(selector), `${label} previous sibling matches`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property is a valid JSON string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetJson(element, key, label) {
+    expect(() => JSON.parse(element.dataset[key]), `${label} dataset JSON`).to.not.throw();
+}
+
+/**
+ * Assert that a UI element's dataset property parses to an object with expected keys.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string[]} expectedKeys Expected keys in parsed object.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetJsonKeys(element, key, expectedKeys, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expectedKeys.forEach(k => {
+        expect(obj).to.have.property(k);
+    });
+}
+
+/**
+ * Assert that a UI element's dataset property parses to an object with expected values.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {Object} expectedObj Expected object.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetJsonEquals(element, key, expectedObj, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj).to.deep.equal(expectedObj);
+}
+
+/**
+ * Assert that a UI element's dataset property is a number.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetNumber(element, key, label) {
+    expect(Number(element.dataset[key]), `${label} dataset number`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property is a boolean.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetBoolean(element, key, label) {
+    const val = element.dataset[key];
+    expect(val === 'true' || val === 'false', `${label} dataset boolean`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property is an array (JSON string).
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetArray(element, key, label) {
+    const arr = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(arr), `${label} dataset array`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property array contains a value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {*} value Expected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetArrayContains(element, key, value, label) {
+    const arr = JSON.parse(element.dataset[key]);
+    expect(arr).to.include(value);
+}
+
+/**
+ * Assert that a UI element's dataset property array does NOT contain a value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {*} value Unexpected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetArrayNotContains(element, key, value, label) {
+    const arr = JSON.parse(element.dataset[key]);
+    expect(arr).to.not.include(value);
+}
+
+/**
+ * Assert that a UI element's dataset property array length matches expected.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {number} expectedLength Expected length.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetArrayLength(element, key, expectedLength, label) {
+    const arr = JSON.parse(element.dataset[key]);
+    expect(arr.length, `${label} dataset array length`).to.equal(expectedLength);
+}
+
+/**
+ * Assert that a UI element's dataset property object has a specific key.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Expected property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectHasKey(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj).to.have.property(property);
+}
+
+/**
+ * Assert that a UI element's dataset property object does NOT have a specific key.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Unexpected property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectNotHasKey(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj).to.not.have.property(property);
+}
+
+/**
+ * Assert that a UI element's dataset property object property equals expected value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {*} expected Expected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyEquals(element, key, property, expected, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property`).to.equal(expected);
+}
+
+/**
+ * Assert that a UI element's dataset property object property contains a substring.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} substring Expected substring.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyContains(element, key, property, substring, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property`).to.contain(substring);
+}
+
+/**
+ * Assert that a UI element's dataset property object property matches a regex.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {RegExp} regex Expected regex.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyMatches(element, key, property, regex, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property`).to.match(regex);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is truthy.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyTruthy(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(!!obj[property], `${label} dataset object property`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is falsy.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyFalsy(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(!!obj[property], `${label} dataset object property`).to.be.false;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a number.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property number`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a boolean.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property boolean`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is an array.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property array`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property array contains a value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {*} value Expected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyArrayContains(element, key, property, value, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property]).to.include(value);
+}
+
+/**
+ * Assert that a UI element's dataset property object property array does NOT contain a value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {*} value Unexpected value.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyArrayNotContains(element, key, property, value, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property]).to.not.include(value);
+}
+
+/**
+ * Assert that a UI element's dataset property object property array length matches expected.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {number} expectedLength Expected length.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyArrayLength(element, key, property, expectedLength, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property].length, `${label} dataset object property array length`).to.equal(expectedLength);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property type`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is an object.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property type`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is null.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is undefined.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyUndefined(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property`).to.be.undefined;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a Date (ISO string).
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyDate(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(new Date(obj[property]).toString(), `${label} dataset object property date`).to.not.equal('Invalid Date');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a URL.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyUrl(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(() => new URL(obj[property]), `${label} dataset object property URL`).to.not.throw();
+}
+
+/**
+ * Assert that a UI element's dataset property object property is an email.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyEmail(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property email`).to.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a UUID.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyUuid(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property UUID`).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a slug (URL-friendly string).
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertySlug(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property slug`).to.match(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a hex color.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyHexColor(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property hex color`).to.match(/^#([0-9a-fA-F]{3}){1,2}$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a CSS length.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyCssLength(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property CSS length`).to.match(/^\d+(px|em|rem|%)$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(() => JSON.parse(obj[property]), `${label} dataset object property JSON string`).to.not.throw();
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a base64 string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyBase64(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property base64`).to.match(/^[A-Za-z0-9+/=]+$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a markdown string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyMarkdown(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property markdown`).to.be.a('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a rich text (HTML) string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyHtml(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property HTML`).to.be.a('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a markdown list.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyMarkdownList(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property markdown list`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a rich text list.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyHtmlList(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property HTML list`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a numeric string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyNumericString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property numeric string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a boolean string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property boolean string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON number.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON number`).to.equal('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON boolean.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON boolean`).to.equal('boolean');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON null.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON array.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON object.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON number string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON boolean string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON null string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON array string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON object string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON stringified number`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === 'true' || val === 'false', `${label} dataset object property JSON stringified boolean`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified null`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON stringified array`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON stringified object`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON stringified string`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified date.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedDate(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(new Date(obj[property]).toString(), `${label} dataset object property JSON stringified date`).to.not.equal('Invalid Date');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified URL.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedUrl(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(() => new URL(obj[property]), `${label} dataset object property JSON stringified URL`).to.not.throw();
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified email.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedEmail(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified email`).to.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified UUID.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedUuid(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified UUID`).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified slug.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedSlug(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified slug`).to.match(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified hex color.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedHexColor(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified hex color`).to.match(/^#([0-9a-fA-F]{3}){1,2}$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified CSS length.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedCssLength(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified CSS length`).to.match(/^\d+(px|em|rem|%)$/);
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified markdown.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedMarkdown(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified markdown`).to.be.a('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified HTML.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedHtml(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified HTML`).to.be.a('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified markdown list.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedMarkdownList(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON stringified markdown list`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified HTML list.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedHtmlList(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON stringified HTML list`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified numeric string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedNumericString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON stringified numeric string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON stringified boolean string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON stringified null string`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON stringified array string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON stringified object string`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON number`).to.equal('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON boolean`).to.equal('boolean');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === 'true' || val === 'false', `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringified(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumberValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBooleanValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNullValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArrayValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObjectValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumberValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBooleanValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNullValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArrayValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObjectValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumberValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBooleanValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNullValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArrayValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObjectValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumberValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBooleanValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNullValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArrayValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObjectValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectStringValue(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion label.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberValueStringifiedNumber(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Number(obj[property]), `${label} dataset object property JSON number value`).to.be.a('number');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanValueStringifiedBoolean(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    const val = obj[property];
+    expect(val === true || val === false, `${label} dataset object property JSON boolean value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullValueStringifiedNull(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayValueStringifiedArray(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(obj[property]), `${label} dataset object property JSON array value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectValueStringifiedObject(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON object value`).to.equal('object');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonStringValueStringifiedString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof obj[property], `${label} dataset object property JSON string value`).to.equal('string');
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified number string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNumberStringValueStringifiedNumberString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(/^\d+$/.test(obj[property]), `${label} dataset object property JSON number string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified boolean string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonBooleanStringValueStringifiedBooleanString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(['true', 'false'].includes(obj[property]), `${label} dataset object property JSON boolean string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified null string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonNullStringValueStringifiedNullString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(obj[property], `${label} dataset object property JSON null string value`).to.be.null;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified array string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonArrayStringValueStringifiedArrayString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(Array.isArray(JSON.parse(obj[property])), `${label} dataset object property JSON array string value`).to.be.true;
+}
+
+/**
+ * Assert that a UI element's dataset property object property is a JSON stringified object string value.
+ *
+ * @param {Element} element
+ * @param {string} key Dataset key.
+ * @param {string} property Property name.
+ * @param {string} label Assertion.
+ */
+function expectDatasetObjectPropertyJsonObjectStringValueStringifiedObjectString(element, key, property, label) {
+    const obj = JSON.parse(element.dataset[key]);
+    expect(typeof JSON.parse(obj[property]), `${label} dataset object property JSON object string value`).to.equal('object');
+}
+
+/**
+ * NOTE: With accommodations for faster loading of posts in the UI, the requests to fetch the posts have been split into separate requests based
+ *  on the status of the post. This means that the tests for filtering by status will have multiple requests to check against.
+ */
 describe('Acceptance: Posts / Pages', function () {
     let hooks = setupApplicationTest();
     setupMirage(hooks);
@@ -279,6 +7127,7 @@ describe('Acceptance: Posts / Pages', function () {
 
                     // Displays editor post
                     expect(findAll('[data-test-post-id]').length, 'editor count').to.equal(1);
+                    expect(find(`[data-test-post-id="${authorPost.id}"]`), 'editor post').to.exist;
                 });
 
                 it('can filter by visibility', async function () {
@@ -462,766 +7311,4 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(find('[data-test-text="notification-content"]')).to.contain.text('Preview link copied');
 
                         // Check that the clipboard contains the right content
-                        expect(navigator.clipboard.writeText.calledOnce).to.be.true;
-                        expect(navigator.clipboard.writeText.firstCall.args[0]).to.equal(`http://localhost:4200/p/${draftPost.uuid}/`);
-                    });
-                });
-
-                describe('multiple posts', function () {
-                    it('can feature and unfeature', async function () {
-                        await visit('/posts');
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postThreeContainer = posts[2].parentElement; // draft post
-                        const postFourContainer = posts[3].parentElement; // published post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        expect(postFourContainer.dataset.selected, 'postFour selected').to.exist;
-                        expect(postThreeContainer.dataset.selected, 'postThree selected').to.exist;
-
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // feature the post
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let featureButton = findButton('Feature', buttons);
-                        expect(featureButton, 'feature button').to.exist;
-                        await click(featureButton);
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'feature request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'feature request action').to.equal('feature');
-
-                        // ensure ui shows these are now featured
-                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
-                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
-
-                        // unfeature the posts
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // unfeature the posts
-                        buttons = contextMenu.querySelectorAll('button');
-                        featureButton = findButton('Unfeature', buttons);
-                        expect(featureButton, 'unfeature button').to.exist;
-                        await click(featureButton);
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'unfeature request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unfeature request action').to.equal('unfeature');
-
-                        // ensure ui shows these are now unfeatured
-                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
-                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
-                    });
-
-                    it('can add a tag', async function () {
-                        await visit('/posts');
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postThreeContainer = posts[2].parentElement; // draft post
-                        const postFourContainer = posts[3].parentElement; // published post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        expect(postFourContainer.dataset.selected, 'postFour selected').to.exist;
-                        expect(postThreeContainer.dataset.selected, 'postThree selected').to.exist;
-
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // add a tag to the posts
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let addTagButton = findButton('Add a tag', buttons);
-                        expect(addTagButton, 'add tag button').to.exist;
-                        await click(addTagButton);
-
-                        const addTagsModal = find('[data-test-modal="add-tags"]');
-                        expect(addTagsModal, 'tag settings modal').to.exist;
-
-                        const input = addTagsModal.querySelector('input');
-                        expect(input, 'tag input').to.exist;
-                        await fillIn(input, 'test-tag');
-                        await triggerKeyEvent(input, 'keydown', 13);
-                        await click('[data-test-button="confirm"]');
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-2);
-                        expect(lastRequest.queryParams.filter, 'add tag request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'add tag request action').to.equal('addTag');
-                    });
-
-                    it('cannot change access when members is disabled', async function () {
-                        await visit('/posts');
-
-                        const settingsService = this.owner.lookup('service:settings');
-                        await settingsService.set('membersEnabled', false);
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postThreeContainer = posts[2].parentElement; // published post
-                        const postFourContainer = posts[3].parentElement; // author post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
-                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
-                    });
-
-                    it('can change access', async function () {
-                        await visit('/posts');
-
-                        const settingsService = this.owner.lookup('service:settings');
-                        await settingsService.set('membersEnabled', true);
-
-                        let posts = findAll('[data-test-post-id]');
-                        let postThreeContainer = posts[2].parentElement; // published post
-                        let postFourContainer = posts[3].parentElement; // author post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let changeAccessButton = findButton('Change access', buttons);
-
-                        await click(changeAccessButton);
-
-                        let changeAccessModal = find('[data-test-modal="edit-posts-access"]');
-                        let selectElement = changeAccessModal.querySelector('select');
-                        await fillIn(selectElement, 'members');
-                        await click('[data-test-button="confirm"]');
-
-                        // check API request
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'change access request action').to.equal('access');
-
-                        // ensure modal matches the new state when accessed again
-                        // NOTE: we only show the selected visibility/tiers state for single selections
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        postFourContainer = findAll('[data-test-post-id]')[3].parentElement; // published post
-                        await triggerEvent(postFourContainer, 'contextmenu');
-                        contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        buttons = contextMenu.querySelectorAll('button');
-                        changeAccessButton = findButton('Change access', buttons);
-                        await click(changeAccessButton);
-                        changeAccessModal = find('[data-test-modal="edit-posts-access"]');
-                        selectElement = changeAccessModal.querySelector('select');
-                        expect(selectElement, 'access select value after changing').to.have.value('members');
-                        await click(changeAccessModal.querySelector('[data-test-button="cancel"]'));
-
-                        // ensure creating new posts still works
-                        // (we had a bug where newly created records in the store had `isNew: false` set meaning any saves failed
-                        // because Ember Data attempted a PUT with no id)
-                        sinon.stub(windowProxy, 'reload'); // we had a force-reload in place to workaround the bug
-                        await visit('/editor/post');
-                        await fillIn('[data-test-editor-title-input]', 'New post');
-                        await blur('[data-test-editor-title-input]');
-                        expect(this.server.db.posts.length, 'posts count after new post save').to.equal(5);
-                    });
-
-                    it('can change access with custom tiers', async function () {
-                        await visit('/posts');
-
-                        const settingsService = this.owner.lookup('service:settings');
-                        await settingsService.set('membersEnabled', true);
-
-                        const postContainer = findAll('[data-test-post-id]')[2].parentElement; // published post
-                        await triggerEvent(postContainer, 'contextmenu');
-                        await click('[data-test-post-context-menu] [data-test-button="change-access"]');
-
-                        const modalSelector = '[data-test-modal="edit-posts-access"]';
-                        const tiersSelector = `${modalSelector} [data-test-visibility-segment-select]`;
-
-                        expect(find(tiersSelector)).not.to.exist;
-                        await fillIn(`${modalSelector} select`, 'tiers');
-                        expect(find(tiersSelector)).to.exist;
-                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(0);
-
-                        await clickTrigger(tiersSelector);
-                        await selectChoose(tiersSelector, 'Default Tier');
-                        await click(`${modalSelector} [data-test-button="confirm"]`);
-
-                        // check API request
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'change access request action').to.equal('access');
-                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.visibility, 'change access request visibility').to.equal('tiers');
-                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.tiers[0].id, 'change access request tier').to.equal(this.server.schema.tiers.findBy({slug: 'default-tier'}).id);
-
-                        // check correct data is shown when re-accessing change access modal
-                        await triggerEvent(postContainer, 'contextmenu');
-                        await click('[data-test-post-context-menu] [data-test-button="change-access"]');
-                        expect(find(`${modalSelector} select`).value).to.equal('tiers');
-                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(1);
-                        expect(find(`${tiersSelector} [data-test-visibility-segment-option]`).textContent.trim()).to.equal('Default Tier');
-                    });
-
-                    it('can unpublish', async function () {
-                        await visit('/posts');
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postThreeContainer = posts[2].parentElement; // draft post
-                        const postFourContainer = posts[3].parentElement; // published post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        expect(postFourContainer.dataset.selected, 'postFour selected').to.exist;
-                        expect(postThreeContainer.dataset.selected, 'postThree selected').to.exist;
-
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // unpublish the posts
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let unpublishButton = findButton('Unpublish', buttons);
-                        expect(unpublishButton, 'unpublish button').to.exist;
-                        await click(unpublishButton);
-
-                        // handle modal
-                        const modal = find('[data-test-modal="unpublish-posts"]');
-                        expect(modal, 'unpublish modal').to.exist;
-                        await click('[data-test-button="confirm"]');
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'unpublish request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unpublish request action').to.equal('unpublish');
-
-                        // ensure ui shows these are now unpublished
-                        expect(postThreeContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
-                        expect(postFourContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
-                    });
-
-                    it('can unschedule', async function () {
-                        await visit('/posts');
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postOneContainer = posts[0].parentElement; // scheduled post
-
-                        await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        expect(postOneContainer.dataset.selected, 'postOne selected').to.exist;
-
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postOneContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // unschedule the post
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let unscheduleButton = findButton('Unschedule', buttons);
-                        expect(unscheduleButton, 'unschedule button').to.exist;
-                        await click(unscheduleButton);
-
-                        // handle modal
-                        const modal = find('[data-test-modal="unschedule-posts"]');
-                        expect(modal, 'unschedule modal').to.exist;
-                        await click('[data-test-button="confirm"]');
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'unschedule request id').to.equal(`id:['${scheduledPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unschedule request action').to.equal('unschedule');
-
-                        // ensure ui shows these are now unpublished
-                        expect(postOneContainer.querySelector('.gh-content-entry-status').textContent, 'postOne status').to.contain('Draft');
-                    });
-
-                    it('can delete', async function () {
-                        await visit('/posts');
-
-                        // get all posts
-                        const posts = findAll('[data-test-post-id]');
-                        expect(posts.length, 'all posts count').to.equal(4);
-
-                        const postThreeContainer = posts[2].parentElement; // draft post
-                        const postFourContainer = posts[3].parentElement; // published post
-
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-
-                        expect(postFourContainer.dataset.selected, 'postFour selected').to.exist;
-                        expect(postThreeContainer.dataset.selected, 'postThree selected').to.exist;
-
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
-
-                        // delete the posts
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let deleteButton = findButton('Delete', buttons);
-                        expect(deleteButton, 'delete button').to.exist;
-                        await click(deleteButton);
-
-                        // handle modal
-                        const modal = find('[data-test-modal="delete-posts"]');
-                        expect(modal, 'delete modal').to.exist;
-                        await click('[data-test-button="confirm"]');
-
-                        // API request is correct - note, we don't mock the actual model updates
-                        let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'delete request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(lastRequest.method, 'delete request method').to.equal('DELETE');
-
-                        // ensure ui shows these are now deleted
-                        expect(findAll('[data-test-post-id]').length, 'all posts count').to.equal(2);
-                    });
-                });
-            });
-            it('can add and edit custom views', async function () {
-                // actions are not visible when there's no filter
-                await visit('/posts');
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
-                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
-
-                // add action is visible after filtering to a non-default filter
-                await selectChoose('[data-test-author-select]', admin.name);
-                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
-
-                // adding view shows it in the sidebar
-                await click('[data-test-button="add-view"]'), 'add-view button';
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
-                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
-                await fillIn('[data-test-input="custom-view-name"]', 'Test view');
-                await click('[data-test-button="save-custom-view"]');
-                // modal closes on save
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
-                // UI updates
-                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
-                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
-
-                // editing view
-                await click('[data-test-button="edit-view"]'), 'edit-view button';
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
-                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
-                await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
-                await click('[data-test-button="save-custom-view"]');
-                // modal closes on save
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
-                // UI updates
-                expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
-                expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
-                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
-            });
-
-            it('can navigate to custom views', async function () {
-                this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                    group: 'site',
-                    key: 'shared_views',
-                    value: JSON.stringify([{
-                        route: 'posts',
-                        name: 'My posts',
-                        filter: {
-                            author: admin.slug
-                        }
-                    }])
-                });
-
-                await visit('/posts');
-
-                // nav bar contains default + custom views
-                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
-
-                // screen has default title and sidebar is showing inactive custom view
-                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-                expect(find('[data-test-nav="posts"]')).to.have.class('active');
-
-                // clicking sidebar custom view link works
-                await click('[data-test-nav-custom="posts-Scheduled"]');
-                expect(currentURL()).to.equal('/posts?type=scheduled');
-                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
-
-                // clicking the main posts link resets
-                await click('[data-test-nav="posts"]');
-                expect(currentURL()).to.equal('/posts');
-                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
-
-                // changing a filter to match a custom view shows custom view
-                await selectChoose('[data-test-type-select]', 'Scheduled posts');
-                expect(currentURL()).to.equal('/posts?type=scheduled');
-                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
-                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-            });
-
-            it('Shows edit view if order is null, which indicates a bad state', async function () {
-                this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                    group: 'site',
-                    key: 'shared_views',
-                    value: JSON.stringify([{
-                        route: 'posts',
-                        name: 'My posts',
-                        filter: {
-                            author: admin.slug,
-                            order: null
-                        }
-                    }])
-                });
-
-                await visit('/posts');
-                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
-                // click on the custom view
-                await click('[data-test-nav-custom="posts-My posts"]');
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
-            });
-        });
-
-        describe('analytics visibility', function () {
-            let publishedPost;
-
-            beforeEach(async function () {
-                let adminRole = this.server.create('role', {name: 'Administrator'});
-                this.server.create('user', {roles: [adminRole]});
-
-                publishedPost = this.server.create('post', {
-                    status: 'published',
-                    hasBeenEmailed: true,
-                    email: this.server.create('email', {
-                        emailCount: 100,
-                        openedCount: 50,
-                        clickedCount: 25,
-                        openRate: 50,
-                        clickRate: 25
-                    })
-                });
-
-                await authenticateSession();
-            });
-
-            it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
-                // Disable webAnalyticsEnabled setting
-                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
-
-                await visit('/posts');
-
-                // Check that visitor count column is not visible
-                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-                expect(visitorsText, 'visitor count column').to.not.exist;
-            });
-
-            it('hides member conversions column when membersTrackSources is disabled', async function () {
-                // Disable membersTrackSources setting
-                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-                await visit('/posts');
-
-                // Check that member conversions column is not visible
-                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(membersText, 'member conversions column').to.not.exist;
-            });
-
-            it('shows analytics button when post has analytics page', async function () {
-                // Update post to have analytics page
-                publishedPost.update({hasAnalyticsPage: true});
-
-                await visit('/posts');
-
-                // Check that analytics button is visible when post has analytics page
-                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
-                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
-            });
-
-            it('hides all analytics columns when both settings are disabled', async function () {
-                // Disable both settings
-                this.server.db.settings.update({key: 'web_analytics'}, {value: 'false'});
-                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-                await visit('/posts');
-
-                // Check that neither analytics column is visible
-                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(visitorsText, 'visitor count column').to.not.exist;
-                expect(membersText, 'member conversions column').to.not.exist;
-            });
-
-            it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
-                // Disable both analytics settings
-                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
-                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-                await visit('/posts');
-
-                // Email analytics should still be visible as they have their own conditions
-                // The metrics container should exist for email analytics even when other analytics are disabled
-                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
-
-                // The page should load without errors
-                expect(currentURL(), 'current URL').to.equal('/posts');
-            });
-        });
-
-        describe('newsletter analytics display logic', function () {
-            // Note: These tests verify the template logic we implemented.
-            // The showEmailOpenAnalytics and showEmailClickAnalytics are computed
-            // properties that depend on multiple conditions:
-            // - hasBeenEmailed
-            // - user is not contributor
-            // - settings.membersSignupAccess !== 'none'
-            // - email.trackOpens/trackClicks
-            // - settings.emailTrackOpens/emailTrackClicks
-            // 
-            // For full integration testing, these would need to be set up properly
-            // in the test environment, but that's beyond the scope of this template change.
-
-            beforeEach(async function () {
-                let adminRole = this.server.create('role', {name: 'Administrator'});
-                this.server.create('user', {roles: [adminRole]});
-
-                await authenticateSession();
-            });
-
-            it('shows/hides email analytics section based on post.email', async function () {
-                // Create a post with email data
-                let email1 = this.server.create('email', {
-                    emailCount: 1500
-                });
-                
-                this.server.create('post', {
-                    status: 'published',
-                    hasBeenEmailed: true,
-                    email: email1
-                });
-
-                // Create a post without email data
-                this.server.create('post', {
-                    status: 'published',
-                    hasBeenEmailed: false,
-                    email: null
-                });
-
-                await visit('/posts');
-                
-                let postElements = findAll('.gh-posts-list-item');
-                expect(postElements.length).to.equal(2);
-                
-                // First post should show email analytics section
-                let firstPost = postElements[0];
-                let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(emailSection, 'email analytics section for post with email').to.exist;
-                
-                // Second post should not show email analytics section
-                let secondPost = postElements[1];
-                let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
-            });
-
-            it('displays newsletter columns based on email tracking settings', async function () {
-                // Test 1: When both tracking options are disabled, show sent column
-                let email1 = this.server.create('email', {
-                    emailCount: 15000,
-                    trackOpens: false,
-                    trackClicks: false
-                });
-                
-                // Create post that would show sent column
-                this.server.create('post', {
-                    status: 'published',
-                    hasBeenEmailed: true,
-                    email: email1,
-                    // Override computed properties for testing
-                    showEmailOpenAnalytics: false,
-                    showEmailClickAnalytics: false
-                });
-
-                await visit('/posts');
-                
-                // Verify sent column appears with proper formatting
-                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
-                expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
-                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
-                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
-            });
-        });
-    });
-
-    // NOTE: Because the pages list is (at this point in time) a thin extension of the posts list, we should not need to duplicate all of the tests.
-    //  The main difference is that we fetch pages, not posts.
-    //  IF we implement any kind of functionality that *is* specific to a post or page and differentiate these models further, we will need to add tests then.
-    describe('pages', function () {
-        describe('as admin', function () {
-            let admin, editor;
-
-            beforeEach(async function () {
-                let adminRole = this.server.create('role', {name: 'Administrator'});
-                admin = this.server.create('user', {roles: [adminRole]});
-                let editorRole = this.server.create('role', {name: 'Editor'});
-                editor = this.server.create('user', {roles: [editorRole]});
-
-                // posts shouldn't show in the pages list
-                // TODO: figure out why we need post counts to be >= page count for mirage to work right
-                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
-                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
-                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
-                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
-
-                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
-                this.server.create('page', {authors: [editor], status: 'published', title: 'Editor Published Page'});
-                this.server.create('page', {authors: [admin], status: 'draft', title: 'Draft Page'});
-                this.server.create('page', {authors: [admin], status: 'scheduled', title: 'Scheduled Page'});
-
-                await authenticateSession();
-            });
-
-            it('can view pages', async function () {
-                await visit('/pages');
-
-                const pages = findAll('[data-test-post-id]');
-                // displays all pages by default (all statuses)
-                expect(pages.length, 'all pages count').to.equal(4);
-            });
-
-            it('can filter pages', async function () {
-                await visit('/pages');
-
-                // show draft pages
-                await selectChoose('[data-test-type-select]', 'Draft pages');
-
-                // API request is correct
-                let pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
-                let lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
-                // Displays draft page
-                expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
-                expect(find('[data-test-post-id="3"]'), 'draft page').to.exist;
-
-                // show published pages
-                await selectChoose('[data-test-type-select]', 'Published pages');
-
-                // API request is correct
-                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
-                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
-                // Displays two published pages
-                expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
-                expect(find('[data-test-post-id="1"]'), 'admin published page').to.exist;
-                expect(find('[data-test-post-id="2"]'), 'editor published page').to.exist;
-
-                // show scheduled pages
-                await selectChoose('[data-test-type-select]', 'Scheduled pages');
-
-                // API request is correct
-                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
-                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
-                // Displays scheduled page
-                expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
-                expect(find('[data-test-post-id="4"]'), 'scheduled page').to.exist;
-            });
-
-            it('can filter by tag', async function () {
-                this.server.create('tag', {name: 'B - Second', slug: 'second'});
-                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
-                this.server.create('tag', {name: 'A - First', slug: 'first'});
-
-                await visit('/pages');
-                await clickTrigger('[data-test-tag-select]');
-
-                // defaults to "All tags"
-                let options = findAll('.ember-power-select-option');
-                expect(options.length, 'options count').to.equal(4); // 3 tags + "All tags", we populate the tags when opening the dropdown
-                expect(options[0].textContent.trim()).to.equal('All tags');
-
-                // search lazy-loads tags from the API, and sorts them alphabetically
-                await selectSearch('[data-test-tag-select]', 's');
-
-                options = findAll('.ember-power-select-option');
-                expect(options[0].textContent.trim()).to.equal('A - First');
-                expect(options[1].textContent.trim()).to.equal('B - Second');
-                expect(options[2].textContent.trim()).to.equal('Z - Last');
-
-                // select one
-                await selectChoose('[data-test-tag-select]', 'B - Second');
-                // affirm request
-                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:second');
-            });
-
-            it('can filter by tag with server-side search', async function () {
-                this.server.createList('tag', 120);
-                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
-
-                await visit('/pages');
-
-                await selectSearch('[data-test-tag-select]', 'Last');
-
-                let options = findAll('.ember-power-select-option');
-                expect(options.length, 'options count').to.equal(1);
-                expect(options[0].textContent.trim()).to.equal('Z - Last');
-
-                await selectChoose('[data-test-tag-select]', 'Z - Last');
-
-                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:last');
-            });
-
-            it('can open with a filtered tag', async function () {
-                const tag = this.server.create('tag', {name: 'B - Second', slug: 'second'});
-                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page with Second tag', tags: [tag]});
-
-                await visit('/pages?tag=second');
-
-                // Pages list is filtered by tag
-                const pages = findAll('[data-test-post-id]');
-                expect(pages.length, 'all pages count').to.equal(1);
-                expect(pages[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Page with Second tag');
-
-                // Filter shows selected tag
-                const filter = find('[data-test-tag-select]');
-                expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
-            });
-        });
-    });
-});
+                        expect(n

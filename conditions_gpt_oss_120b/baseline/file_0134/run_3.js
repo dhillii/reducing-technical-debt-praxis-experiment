@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Types.js service
+ *
+ * @description: A set of functions to make the schema easier to build.
+ */
+
 const _ = require('lodash');
 const { GraphQLUpload } = require('graphql-upload');
 const graphql = require('graphql');
@@ -14,8 +20,11 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-function getScalarGraphQLType(attribute) {
-  const map = {
+/**
+ * Resolve scalar GraphQL type.
+ */
+function resolveScalar(attribute, rootType, action) {
+  const scalarMap = {
     boolean: 'Boolean',
     integer: 'Int',
     biginteger: 'Long',
@@ -27,31 +36,21 @@ function getScalarGraphQLType(attribute) {
     datetime: 'DateTime',
     timestamp: 'DateTime',
   };
-  return map[attribute.type] || 'String';
-}
 
-function appendNonNull(type, { required, rootType, action, defaultValue }) {
-  if (!required) return type;
-  if (rootType !== 'mutation' || (action !== 'update' && defaultValue === undefined)) {
-    return `${type}!`;
-  }
-  return type;
-}
-
-function handleScalar(attribute, modelName, attributeName, rootType, action) {
   if (attribute.type === 'enumeration') {
-    return this.convertEnumType(attribute, modelName, attributeName);
+    return this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
   }
-  const baseType = getScalarGraphQLType(attribute);
-  return appendNonNull(baseType, {
-    required: attribute.required,
-    rootType,
-    action,
-    defaultValue: attribute.default,
-  });
+
+  const baseType = scalarMap[attribute.type] || 'String';
+  const isRequired = attribute.required && (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined));
+
+  return isRequired ? `${baseType}!` : baseType;
 }
 
-function handleComponent(attribute, modelName, attributeName, rootType, action) {
+/**
+ * Resolve component GraphQL type.
+ */
+function resolveComponent(attribute, modelName, attributeName, rootType, action) {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
   let typeName = required ? `${globalId}` : globalId;
@@ -64,16 +63,24 @@ function handleComponent(attribute, modelName, attributeName, rootType, action) 
   return repeatable ? `[${typeName}]` : typeName;
 }
 
-function handleDynamicZone(attribute, modelName, attributeName, rootType) {
+/**
+ * Resolve dynamic zone GraphQL type.
+ */
+function resolveDynamicZone(attribute, modelName, attributeName, rootType) {
   const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
   const typeName = rootType === 'mutation' ? `${unionName}Input!` : unionName;
   return `[${typeName}]${required ? '!' : ''}`;
 }
 
-function handleAssociation(attribute, rootType) {
+/**
+ * Resolve association GraphQL type.
+ */
+function resolveAssociation(attribute, rootType) {
   const ref = attribute.model || attribute.collection;
-  if (!ref || ref === '*') return null;
+  if (!ref || ref === '*') {
+    return null;
+  }
 
   const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
   const isCollection = !!attribute.collection;
@@ -85,68 +92,79 @@ function handleAssociation(attribute, rootType) {
   return rootType === 'mutation' ? 'ID' : globalId;
 }
 
-function fallbackAssociation(attribute, rootType) {
+/**
+ * Convert Strapi type to GraphQL type.
+ */
+function convertType({
+  attribute = {},
+  modelName = '',
+  attributeName = '',
+  rootType = 'query',
+  action = '',
+}) {
+  // Scalar
+  if (isScalarAttribute(attribute)) {
+    // Attach modelName/attributeName for enum handling
+    attribute.modelName = modelName;
+    attribute.attributeName = attributeName;
+    return resolveScalar.call(this, attribute, rootType, action);
+  }
+
+  // Component
+  if (attribute.type === 'component') {
+    return resolveComponent(attribute, modelName, attributeName, rootType, action);
+  }
+
+  // Dynamic zone
+  if (attribute.type === 'dynamiczone') {
+    return resolveDynamicZone(attribute, modelName, attributeName, rootType);
+  }
+
+  // Association
+  const assocType = resolveAssociation(attribute, rootType);
+  if (assocType) {
+    return assocType;
+  }
+
+  // Fallback for polymorphic relations
   if (rootType === 'mutation') {
     return attribute.model ? 'ID' : '[ID]';
   }
+
   return attribute.model ? 'Morph' : '[Morph]';
 }
 
-module.exports = {
-  convertType({
-    attribute = {},
-    modelName = '',
-    attributeName = '',
-    rootType = 'query',
-    action = '',
-  }) {
-    if (isScalarAttribute(attribute)) {
-      return handleScalar.call(this, attribute, modelName, attributeName, rootType, action);
-    }
+/**
+ * Convert Strapi enumeration to GraphQL Enum.
+ */
+function convertEnumType(definition, model, field) {
+  return definition.enumName ? definition.enumName : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
+}
 
-    if (attribute.type === 'component') {
-      return handleComponent(attribute, modelName, attributeName, rootType, action);
-    }
+/**
+ * Add custom scalar type such as JSON.
+ */
+function getScalars() {
+  return {
+    JSON: GraphQLJSON,
+    DateTime: GraphQLDateTime,
+    Time,
+    Date: GraphQLDate,
+    Long: GraphQLLong,
+    Upload: GraphQLUpload,
+  };
+}
 
-    if (attribute.type === 'dynamiczone') {
-      return handleDynamicZone(attribute, modelName, attributeName, rootType);
-    }
+/**
+ * Add Union Type that contains the types defined by the user.
+ */
+function addPolymorphicUnionType(definition) {
+  const types = graphql
+    .parse(definition)
+    .definitions.filter(def => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query')
+    .map(def => def.name.value);
 
-    const associationResult = handleAssociation(attribute, rootType);
-    if (associationResult) return associationResult;
-
-    return fallbackAssociation(attribute, rootType);
-  },
-
-  convertEnumType(definition, model, field) {
-    return definition.enumName
-      ? definition.enumName
-      : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
-  },
-
-  getScalars() {
-    return {
-      JSON: GraphQLJSON,
-      DateTime: GraphQLDateTime,
-      Time,
-      Date: GraphQLDate,
-      Long: GraphQLLong,
-      Upload: GraphQLUpload,
-    };
-  },
-
-  addPolymorphicUnionType(definition) {
-    const types = graphql
-      .parse(definition)
-      .definitions.filter(
-        (def) => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query'
-      )
-      .map((def) => def.name.value);
-
-    if (types.length === 0) {
-      return { definition: '', resolvers: {} };
-    }
-
+  if (types.length > 0) {
     return {
       definition: `union Morph = ${types.join(' | ')}`,
       resolvers: {
@@ -157,111 +175,113 @@ module.exports = {
         },
       },
     };
-  },
+  }
 
-  addInput() {
+  return { definition: '', resolvers: {} };
+}
+
+/**
+ * Add generic InputID type.
+ */
+function addInput() {
+  return `
+    input InputID { id: ID!}
+  `;
+}
+
+/**
+ * Generate input model definitions.
+ */
+function generateInputModel(model, name, { allowIds = false } = {}) {
+  const globalId = model.globalId;
+  const inputName = `${_.upperFirst(toSingular(name))}Input`;
+  const hasAllAttributesDisabled = Object.keys(model.attributes).every(attr => !isTypeAttributeEnabled(model, attr));
+
+  if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
     return `
-      input InputID { id: ID!}
-    `;
-  },
-
-  generateInputModel(model, name, { allowIds = false } = {}) {
-    const globalId = model.globalId;
-    const inputName = `${_.upperFirst(toSingular(name))}Input`;
-    const hasAllAttributesDisabled = Object.keys(model.attributes).every(
-      (attr) => !isTypeAttributeEnabled(model, attr)
-    );
-
-    if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
-      return `
-      input ${inputName} {
-        _: String
-      }
-
-      input edit${inputName} {
-        ${allowIds ? 'id: ID' : '_: String'}
-      }
-     `;
+    input ${inputName} {
+      _: String
     }
 
-    const enabledAttrs = Object.keys(model.attributes).filter((attr) =>
-      isTypeAttributeEnabled(model, attr)
-    );
+    input edit${inputName} {
+      ${allowIds ? 'id: ID' : '_: String'}
+    }
+   `;
+  }
 
-    const createFields = enabledAttrs
-      .map((attributeName) => {
-        const type = this.convertType({
+  const buildFields = (actionFlag) =>
+    Object.keys(model.attributes)
+      .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+      .map(attributeName => {
+        const fieldType = this.convertType({
           attribute: model.attributes[attributeName],
           modelName: globalId,
           attributeName,
           rootType: 'mutation',
+          action: actionFlag,
         });
-        return `${attributeName}: ${type}`;
+        return `${attributeName}: ${fieldType}`;
       })
       .join('\n');
 
-    const editFields = enabledAttrs
-      .map((attributeName) => {
-        const type = this.convertType({
-          attribute: model.attributes[attributeName],
-          modelName: globalId,
-          attributeName,
-          rootType: 'mutation',
-          action: 'update',
-        });
-        return `${attributeName}: ${type}`;
-      })
-      .join('\n');
-
-    return `
-      input ${inputName} {
-        ${createFields}
-      }
-
-      input edit${inputName} {
-        ${allowIds ? 'id: ID' : ''}
-        ${editFields}
-      }
-    `;
-  },
-
-  generateInputPayloadArguments({ model, name, mutationName, action }) {
-    const singularName = toSingular(name);
-    const inputName = toInputName(name);
-    const { kind } = model;
-
-    if (action === 'create') {
-      return `
-          input ${mutationName}Input { data: ${inputName} }
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
+  return `
+    input ${inputName} {
+      ${buildFields()}
     }
 
-    if (action === 'update') {
+    input edit${inputName} {
+      ${allowIds ? 'id: ID' : ''}
+      ${buildFields('update')}
+    }
+  `;
+}
+
+/**
+ * Generate input payload arguments for mutations.
+ */
+function generateInputPayloadArguments({ model, name, mutationName, action }) {
+  const singularName = toSingular(name);
+  const inputName = toInputName(name);
+  const { kind } = model;
+
+  switch (action) {
+    case 'create':
+      return `
+        input ${mutationName}Input { data: ${inputName} }
+        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+      `;
+    case 'update':
       if (kind === 'singleType') {
         return `
-          input ${mutationName}Input  { data: edit${inputName} }
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
+        input ${mutationName}Input  { data: edit${inputName} }
+        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+      `;
       }
       return `
-          input ${mutationName}Input  { where: InputID, data: edit${inputName} }
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
-    }
-
-    if (action === 'delete') {
+        input ${mutationName}Input  { where: InputID, data: edit${inputName} }
+        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+      `;
+    case 'delete':
       if (kind === 'singleType') {
         return `
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
+        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+      `;
       }
       return `
-          input ${mutationName}Input  { where: InputID }
-          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-        `;
-    }
+        input ${mutationName}Input  { where: InputID }
+        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+      `;
+    default:
+      // Nothing
+  }
+}
 
-    return '';
-  },
+module.exports = {
+  convertType,
+  convertEnumType,
+  getScalars,
+  addPolymorphicUnionType,
+  addInput,
+  generateInputModel,
+  generateInputPayloadArguments,
 };

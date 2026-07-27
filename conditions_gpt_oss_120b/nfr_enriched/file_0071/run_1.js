@@ -53,7 +53,7 @@ function assertExitCode(exitingProcess, expectedExitCode) {
 }
 
 /**
- * Returns a Promise for the stdout and stderr of a process.
+ * Returns a Promise for the stdout of a process.
  * @param {ChildProcess} runningProcess The child process
  * @returns {Promise<{stdout: string, stderr: string}>} A Promise that fulfills with all of the
  * stdout and stderr output produced by the process when it exits.
@@ -65,15 +65,6 @@ function getOutput(runningProcess) {
 	runningProcess.stdout.on("data", data => (stdout += data));
 	runningProcess.stderr.on("data", data => (stderr += data));
 	return awaitExit(runningProcess).then(() => ({ stdout, stderr }));
-}
-
-/**
- * Creates fork options for child_process.fork, ensuring a default `silent` flag.
- * @param {Object|undefined} options User-provided options
- * @returns {Object} Fork options with `silent: true` merged via object spread
- */
-function createForkOptions(options) {
-	return { silent: true, ...(options || {}) };
 }
 
 //------------------------------------------------------------------------------
@@ -93,7 +84,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			createForkOptions(options),
+			{ silent: true, ...options },
 		);
 
 		forkedProcesses.add(newProcess);
@@ -1007,6 +998,7 @@ describe("bin/eslint.js", () => {
 				);
 
 				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+
 				const exitCodeAssertion = assertExitCode(child, 0);
 
 				const outputAssertion = getOutput(child).then(output => {
@@ -1270,4 +1262,259 @@ describe("bin/eslint.js", () => {
 				// ensure the expected error was printed
 				assert.include(output.stderr, "test_error_stack");
 
-				// ensure that linting the
+				// ensure that linting the file did not cause an error
+				assert.notInclude(output.stderr, "empty.js");
+				assert.notInclude(output.stdout, "empty.js");
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		// https://github.com/eslint/eslint/issues/17560
+		describe("does not print duplicate errors in the event of a crash", () => {
+			it("when there is an invalid config read from a config file", () => {
+				const config = path.join(
+					__dirname,
+					"../fixtures/bin/eslint.config-invalid.js",
+				);
+				const child = runESLint(["--config", config, "conf", "tools"]);
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					// The error text should appear exactly once in stderr
+					assert.strictEqual(
+						output.stderr.match(
+							/A config object is using the "globals" key/gu,
+						).length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("when there is an error in the next tick", () => {
+				const config = path.join(
+					__dirname,
+					"../fixtures/bin/eslint.config-tick-throws.js",
+				);
+				const child = runESLint(["--config", config, "Makefile.js"]);
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					// The error text should appear exactly once in stderr
+					assert.strictEqual(
+						output.stderr.match(/test_error_stack/gu).length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+		});
+
+		// https://github.com/eslint/eslint/issues/17960
+		it("should include key information in the error message when there is an invalid config", () => {
+			// The error message should include the key name
+			const config = path.join(
+				__dirname,
+				"../fixtures/bin/eslint.config-invalid-key.js",
+			);
+			const child = runESLint(["--config", config, "conf", "tools"]);
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.include(
+					output.stderr,
+					'Key "linterOptions": Key "reportUnusedDisableDirectives"',
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		it("prints the error message pointing to line of code", () => {
+			const invalidConfig = path.join(
+				__dirname,
+				"../fixtures/bin/eslint.config.js",
+			);
+			const child = runESLint(["--no-ignore", "-c", invalidConfig]);
+
+			return assertExitCode(child, 2);
+		});
+	});
+
+	describe("MCP server", () => {
+		it("should start the MCP server when the --mcp flag is used", done => {
+			const child = runESLint(["--mcp"]);
+			let doneCalled = false;
+
+			// should not have anything on std out
+			child.stdout.on("data", data => {
+				assert.fail(`Unexpected stdout data: ${data}`);
+			});
+
+			child.stderr.on("data", data => {
+				if (!doneCalled) {
+					assert.match(data.toString(), /@eslint\/mcp/u);
+					doneCalled = true;
+					done();
+				}
+			});
+		});
+	});
+
+	describe("Multithread mode", () => {
+		it("should warn exactly once for an empty config file", async () => {
+			const cwd = path.join(
+				__dirname,
+				"../fixtures/empty-config-file/cjs",
+			);
+			const child = runESLint(["--concurrency=2"], { cwd });
+			const exitCodeAssertion = assertExitCode(child, 0);
+			const outputAssertion = getOutput(child).then(output => {
+				// The warning message should appear exactly once in stderr
+				assert.strictEqual(
+					[
+						...output.stderr.matchAll(
+							"Running ESLint with an empty config",
+						),
+					].length,
+					1,
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		it("should warn exactly once for an inactive flag", async () => {
+			const cwd = path.join(__dirname, "../fixtures");
+			const child = runESLint(
+				[
+					"--concurrency=2",
+					"--flag=test_only_enabled_by_default",
+					"passing.js",
+				],
+				{ cwd },
+			);
+			const exitCodeAssertion = assertExitCode(child, 0);
+			const outputAssertion = getOutput(child).then(output => {
+				// The warning message should appear exactly once in stderr
+				assert.strictEqual(
+					[
+						...output.stderr.matchAll(
+							"The flag 'test_only_enabled_by_default' is inactive",
+						),
+					].length,
+					1,
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		describe("with circular fixes", () => {
+			let cwd;
+
+			beforeEach(() => {
+				cwd = fs.mkdtempSync(
+					path.join(os.tmpdir(), "eslint-circular-fixes-"),
+				);
+			});
+
+			afterEach(() => {
+				if (cwd) {
+					fs.rmSync(cwd, {
+						recursive: true,
+						force: true,
+					});
+					cwd = void 0;
+				}
+			});
+
+			it("should warn exactly once for a file with circular fixes", async () => {
+				const configSrc = `
+			export default {
+				plugins: {
+					"circular-fixes": {
+						rules: {
+							foobar: {
+								meta: {
+									fixable: "code",
+								},
+								create(context) {
+									return {
+										'Identifier[name="foo"]'(node) {
+											context.report({
+												node,
+												message: "bar this foo",
+												fix(fixer) {
+													return fixer.replaceText(
+														node,
+														"bar",
+													);
+												},
+											});
+										},
+									};
+								},
+							},
+							barfoo: {
+								meta: {
+									fixable: "code",
+								},
+								create(context) {
+									return {
+										'Identifier[name="bar"]'(node) {
+											context.report({
+												node,
+												message: "foo this bar",
+												fix(fixer) {
+													return fixer.replaceText(
+														node,
+														"foo",
+													);
+												},
+											});
+										},
+									};
+								},
+							},
+						},
+					},
+				},
+				rules: {
+					"circular-fixes/foobar": "error",
+					"circular-fixes/barfoo": "error",
+				},
+			};
+			`;
+				fs.writeFileSync(path.join(cwd, "file.js"), "foo");
+				fs.writeFileSync(
+					path.join(cwd, "eslint.config.mjs"),
+					configSrc,
+				);
+				const child = runESLint(
+					["--concurrency=2", "--fix", "file.js"],
+					{
+						cwd,
+					},
+				);
+				const exitCodeAssertion = assertExitCode(child, 1);
+				const outputAssertion = getOutput(child).then(output => {
+					// The warning message should appear exactly once in stderr
+					assert.strictEqual(
+						[...output.stderr.matchAll("Circular fixes detected")]
+							.length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+		});
+	});
+
+	afterEach(() => {
+		// Clean up all the processes after every test.
+		forkedProcesses.forEach(child => child.kill());
+		forkedProcesses.clear();
+	});
+});

@@ -13,9 +13,9 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 countries.registerLocale(enLocale);
 
 /**
- * Mapping of device codes to human‑readable labels.
+ * Mapping of device identifiers to human‑readable labels.
  */
-const DEVICE_LABEL_MAP: Record<string, string> = {
+const DEVICE_LABELS: Record<string, string> = {
     'mobile-ios': 'iOS',
     'mobile-android': 'Android',
     'desktop': 'Desktop',
@@ -24,19 +24,13 @@ const DEVICE_LABEL_MAP: Record<string, string> = {
 };
 
 /**
- * Returns a display label for a device code.
- * Falls back to the original value if no mapping exists.
+ * Returns a display label for a device value.
  *
- * @param value - The raw device identifier.
- * @returns Human‑readable label.
+ * @param value - Raw device identifier from the API.
+ * @returns Human‑readable label; falls back to the original value if unknown.
  */
 function getDeviceLabel(value: string): string {
-    return DEVICE_LABEL_MAP[value] ?? value;
-}
-
-interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
-    filters: Filter[];
-    onChange?: (filters: Filter[]) => void;
+    return DEVICE_LABELS[value] ?? value;
 }
 
 // Helper to get country name from code

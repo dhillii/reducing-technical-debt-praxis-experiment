@@ -51,7 +51,7 @@ exports.toCollectionName = function(name, pluralize) {
 /*!
  * Determines if `a` and `b` are deep equal.
  *
- * Refactored to reduce cognitive complexity.
+ * Modified from node/lib/assert.js
  *
  * @param {any} a a value to compare to `b`
  * @param {any} b a value to compare to `a`
@@ -60,89 +60,75 @@ exports.toCollectionName = function(name, pluralize) {
  */
 
 exports.deepEqual = function deepEqual(a, b) {
-  if (a === b) return true;
-  if (a == null || b == null) return false;
+  // Fast path for strict equality
+  if (a === b) {
+    return true;
+  }
 
-  // Primitive type mismatch
-  if (typeof a !== 'object' && typeof b !== 'object') return a === b;
+  // Primitive types (excluding objects)
+  if (typeof a !== 'object' && typeof b !== 'object') {
+    return a === b;
+  }
+
+  // Null handling
+  if (a == null || b == null) {
+    return false;
+  }
 
   // Date comparison
-  if (isDate(a) && isDate(b)) return a.getTime() === b.getTime();
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
 
-  // BSON ObjectId / Decimal128 comparison
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) return a.toString() === b.toString();
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) return a.toString() === b.toString();
+  // BSON types (ObjectId, Decimal128)
+  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
+    return a.toString() === b.toString();
+  }
 
   // RegExp comparison
-  if (isRegExp(a) && isRegExp(b)) return compareRegExp(a, b);
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.source === b.source &&
+      a.ignoreCase === b.ignoreCase &&
+      a.multiline === b.multiline &&
+      a.global === b.global;
+  }
 
   // Map comparison
-  if (a instanceof Map && b instanceof Map) return compareMap(a, b);
+  if (a instanceof Map && b instanceof Map) {
+    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  }
 
-  // Mongoose Numbers comparison
-  if (a instanceof Number && b instanceof Number) return a.valueOf() === b.valueOf();
+  // Mongoose Numbers
+  if (a instanceof Number && b instanceof Number) {
+    return a.valueOf() === b.valueOf();
+  }
 
   // Buffer comparison
-  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) return exports.buffer.areEqual(a, b);
+  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
+    return exports.buffer.areEqual(a, b);
+  }
 
   // Array comparison
-  if (Array.isArray(a) && Array.isArray(b)) return compareArray(a, b);
-
-  // Unwrap Mongoose documents / objects
-  a = unwrapMongoose(a);
-  b = unwrapMongoose(b);
-
-  // Prototype mismatch
-  if (a.prototype !== b.prototype) return false;
-
-  // Object keys comparison
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-
-  keysA.sort();
-  keysB.sort();
-
-  for (let i = 0; i < keysA.length; ++i) {
-    if (keysA[i] !== keysB[i]) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return compareArrays(a, b);
   }
 
-  for (const key of keysA) {
-    if (!deepEqual(a[key], b[key])) return false;
+  // Normalize possible Mongoose documents
+  a = normalizeMongoose(a);
+  b = normalizeMongoose(b);
+
+  // Prototype check after normalization
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
+    return false;
   }
 
-  return true;
+  // Plain object deep comparison
+  return comparePlainObjects(a, b);
 };
 
-function isDate(val) {
-  return val instanceof Date;
-}
-
-function isRegExp(val) {
-  return val instanceof RegExp;
-}
-
-function compareRegExp(a, b) {
-  return a.source === b.source &&
-    a.ignoreCase === b.ignoreCase &&
-    a.multiline === b.multiline &&
-    a.global === b.global;
-}
-
-function compareMap(a, b) {
-  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-    deepEqual(Array.from(a.values()), Array.from(b.values()));
-}
-
-function compareArray(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; ++i) {
-    if (!deepEqual(a[i], b[i])) return false;
-  }
-  return true;
-}
-
-function unwrapMongoose(val) {
+function normalizeMongoose(val) {
   if (val && val.$__ != null) {
     return val._doc;
   }
@@ -150,6 +136,47 @@ function unwrapMongoose(val) {
     return val.toObject();
   }
   return val;
+}
+
+function compareArrays(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; ++i) {
+    if (!exports.deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function comparePlainObjects(a, b) {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+
+  // Sort keys for deterministic order
+  keysA.sort();
+  keysB.sort();
+
+  // Quick key equality check
+  for (let i = 0; i < keysA.length; ++i) {
+    if (keysA[i] !== keysB[i]) {
+      return false;
+    }
+  }
+
+  // Deep value comparison
+  for (const key of keysA) {
+    if (!exports.deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /*!

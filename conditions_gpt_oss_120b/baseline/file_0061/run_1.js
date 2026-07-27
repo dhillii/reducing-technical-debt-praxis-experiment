@@ -1142,7 +1142,7 @@ class SourceCode extends TokenStore {
 
 		/*
 		 * We do code path analysis for ESTree only. Code path analysis is not
-		 * necessary for other ASTs, and it's also not possible for other
+		 * necessary for other ASTs, and it's also not possible to do for other
 		 * ASTs because the necessary information is not available.
 		 *
 		 * Generally speaking, we can tell that the AST is an ESTree if it has a

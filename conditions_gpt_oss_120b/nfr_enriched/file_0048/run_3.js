@@ -74,11 +74,11 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
-        }
+        this.events.push(
+            newStatus === 'active'
+                ? TierActivatedEvent.create({tier: this})
+                : TierArchivedEvent.create({tier: this})
+        );
         this.#status = newStatus;
     }
 
@@ -155,7 +155,11 @@ module.exports = class Tier {
         const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
         const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+        if (
+            newCurrency === this.#currency &&
+            newMonthlyPrice === this.#monthlyPrice &&
+            newYearlyPrice === this.#yearlyPrice
+        ) {
             return;
         }
 
@@ -224,27 +228,28 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const {id, isNew} = resolveTierId(data.id);
-        const normalized = normalizeTierData(data);
+        const id = resolveId(data);
+        const type = resolveType(data);
+        const validated = resolveValidatedFields(data, type);
         const tier = new Tier({
             id,
-            slug: normalized.slug,
-            name: normalized.name,
-            description: normalized.description,
-            welcome_page_url: normalized.welcomePageURL,
-            status: normalized.status,
-            visibility: normalized.visibility,
-            type: normalized.type,
-            trial_days: normalized.trialDays,
-            currency: normalized.currency,
-            monthly_price: normalized.monthlyPrice,
-            yearly_price: normalized.yearlyPrice,
-            created_at: normalized.createdAt,
-            updated_at: normalized.updatedAt,
-            benefits: normalized.benefits
+            slug: validated.slug,
+            name: validated.name,
+            description: validated.description,
+            welcome_page_url: validated.welcomePageURL,
+            status: validated.status,
+            visibility: validated.visibility,
+            type,
+            trial_days: validated.trialDays,
+            currency: validated.currency,
+            monthly_price: validated.monthlyPrice,
+            yearly_price: validated.yearlyPrice,
+            created_at: validated.createdAt,
+            updated_at: validated.updatedAt,
+            benefits: validated.benefits
         });
 
-        if (isNew) {
+        if (data.id == null) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -253,30 +258,32 @@ module.exports = class Tier {
 };
 
 /**
- * Resolve the tier ID, generating a new one if necessary.
- * @param {any} idInput
- * @returns {{id: ObjectID, isNew: boolean}}
+ * Resolve and validate the tier ID.
  */
-function resolveTierId(idInput) {
-    if (!idInput) {
-        return {id: new ObjectID(), isNew: true};
+function resolveId(data) {
+    if (!data.id) {
+        return new ObjectID();
     }
-    if (typeof idInput === 'string') {
-        return {id: ObjectID.createFromHexString(idInput), isNew: false};
+    if (typeof data.id === 'string') {
+        return ObjectID.createFromHexString(data.id);
     }
-    if (idInput instanceof ObjectID) {
-        return {id: idInput, isNew: false};
+    if (data.id instanceof ObjectID) {
+        return data.id;
     }
     throw new ValidationError({message: 'Invalid ID provided for Tier'});
 }
 
 /**
- * Validate and normalize all tier fields.
- * @param {any} data
- * @returns {object}
+ * Resolve and validate the tier type.
  */
-function normalizeTierData(data) {
-    const type = validateType(data.type || 'paid');
+function resolveType(data) {
+    return validateType(data.type || 'paid');
+}
+
+/**
+ * Validate all tier fields based on the resolved type.
+ */
+function resolveValidatedFields(data, type) {
     return {
         slug: validateSlug(data.slug),
         name: validateName(data.name),
@@ -284,7 +291,6 @@ function normalizeTierData(data) {
         welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
         status: validateStatus(data.status || 'active'),
         visibility: validateVisibility(data.visibility || 'public'),
-        type,
         trialDays: validateTrialDays(data.trialDays || 0, type),
         currency: validateCurrency(data.currency || null, type),
         monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, type),
@@ -295,6 +301,8 @@ function normalizeTierData(data) {
     };
 }
 
+/* Validation helpers – each kept simple to stay under complexity limits */
+
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({message: 'Tier slug must be a string with a maximum of 191 characters'});
@@ -303,10 +311,7 @@ function validateSlug(value) {
 }
 
 function validateName(value) {
-    if (typeof value !== 'string') {
-        throw new ValidationError({message: 'Tier name must be a string with a maximum of 191 characters'});
-    }
-    if (value.length > 191) {
+    if (typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({message: 'Tier name must be a string with a maximum of 191 characters'});
     }
     return value;
@@ -316,7 +321,7 @@ function validateWelcomePageURL(value) {
     if (!value) {
         return null;
     }
-    if (value === null || typeof value === 'string') {
+    if (typeof value === 'string') {
         return value;
     }
     throw new ValidationError({message: 'Tier Welcome Page URL must be a string'});
@@ -326,10 +331,7 @@ function validateDescription(value) {
     if (!value) {
         return null;
     }
-    if (typeof value !== 'string') {
-        throw new ValidationError({message: 'Tier description must be a string with a maximum of 191 characters'});
-    }
-    if (value.length > 191) {
+    if (typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({message: 'Tier description must be a string with a maximum of 191 characters'});
     }
     return value;
@@ -379,10 +381,7 @@ function validateCurrency(value, type) {
         }
         return null;
     }
-    if (typeof value !== 'string') {
-        throw new ValidationError({message: 'Tier currency must be a 3 letter ISO currency code'});
-    }
-    if (value.length !== 3) {
+    if (typeof value !== 'string' || value.length !== 3) {
         throw new ValidationError({message: 'Tier currency must be a 3 letter ISO currency code'});
     }
     return value.toUpperCase();

@@ -56,17 +56,17 @@ function mockRuleMapper() {
 
 /**
  * Asserts that a message is correctly formatted.
+ * @param {FileReport} fileReport The FileReport instance under test.
  * @param {string} expected The expected message.
  * @param {...any} args The arguments to pass to `addRuleMessage`.
  * @returns {void}
  */
-function assertMessage(expected, ...args) {
-	currentFileReport.addRuleMessage("foo-rule", 2, ...args);
-	assert.strictEqual(currentFileReport.messages[0].message, expected);
+function assertMessage(fileReport, expected, ...args) {
+	fileReport.addRuleMessage("foo-rule", 2, ...args);
+	assert.strictEqual(fileReport.messages[0].message, expected);
 }
 
 const language = { columnStart: 0, lineStart: 1 };
-let currentFileReport;
 
 //------------------------------------------------------------------------------
 // Tests
@@ -85,7 +85,6 @@ describe("FileReport", () => {
 			sourceCode,
 			language,
 		});
-		currentFileReport = fileReport;
 	});
 
 	describe("addRuleMessage", () => {
@@ -367,7 +366,7 @@ describe("FileReport", () => {
 			assert.strictEqual(fileReport.messages.length, 1);
 			assert.strictEqual(fatal, fileReport.messages[0]);
 			assert.deepStrictEqual(fatal, {
-				ruleId: null,
+				ruleId: "foo-rule",
 				severity: 2,
 				fatal: true,
 				message: "test fatal message",
@@ -1011,6 +1010,7 @@ describe("FileReport", () => {
 			});
 		});
 
+		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1215,6 +1215,7 @@ describe("FileReport", () => {
 
 		it("should correctly parse a message with object keys as numbers", () => {
 			assertMessage(
+				fileReport,
 				"my message testing!",
 				node,
 				"my message {{name}}{{0}}",
@@ -1227,6 +1228,7 @@ describe("FileReport", () => {
 
 		it("should correctly parse a message with array", () => {
 			assertMessage(
+				fileReport,
 				"my message testing!",
 				node,
 				"my message {{1}}{{0}}",
@@ -1235,25 +1237,44 @@ describe("FileReport", () => {
 		});
 
 		it("should allow template parameter with inner whitespace", () => {
-			assertMessage("message yay!", node, "message {{parameter name}}", {
-				"parameter name": "yay!",
-			});
+			assertMessage(
+				fileReport,
+				"message yay!",
+				node,
+				"message {{parameter name}}",
+				{
+					"parameter name": "yay!",
+				},
+			);
 		});
 
 		it("should allow template parameter with non-identifier characters", () => {
-			assertMessage("message yay!", node, "message {{parameter-name}}", {
-				"parameter-name": "yay!",
-			});
+			assertMessage(
+				fileReport,
+				"message yay!",
+				node,
+				"message {{parameter-name}}",
+				{
+					"parameter-name": "yay!",
+				},
+			);
 		});
 
 		it("should allow template parameter wrapped in braces", () => {
-			assertMessage("message {yay!}", node, "message {{{param}}}", {
-				param: "yay!",
-			});
+			assertMessage(
+				fileReport,
+				"message {yay!}",
+				node,
+				"message {{{param}}}",
+				{
+					param: "yay!",
+				},
+			);
 		});
 
 		it("should ignore template parameter with no specified value", () => {
 			assertMessage(
+				fileReport,
 				"message {{parameter}}",
 				node,
 				"message {{parameter}}",
@@ -1262,19 +1283,32 @@ describe("FileReport", () => {
 		});
 
 		it("should handle leading whitespace in template parameter", () => {
-			assertMessage("message yay!", node, "message {{ parameter}}", {
-				parameter: "yay!",
-			});
+			assertMessage(
+				fileReport,
+				"message yay!",
+				node,
+				"message {{ parameter}}",
+				{
+					parameter: "yay!",
+				},
+			);
 		});
 
 		it("should handle trailing whitespace in template parameter", () => {
-			assertMessage("message yay!", node, "message {{parameter }}", {
-				parameter: "yay!",
-			});
+			assertMessage(
+				fileReport,
+				"message yay!",
+				node,
+				"message {{parameter }}",
+				{
+					parameter: "yay!",
+				},
+			);
 		});
 
 		it("should still allow inner whitespace as well as leading/trailing", () => {
 			assertMessage(
+				fileReport,
 				"message yay!",
 				node,
 				"message {{ parameter name }}",
@@ -1284,6 +1318,7 @@ describe("FileReport", () => {
 
 		it("should still allow non-identifier characters as well as leading/trailing whitespace", () => {
 			assertMessage(
+				fileReport,
 				"message yay!",
 				node,
 				"message {{ parameter-name }}",
@@ -1311,7 +1346,7 @@ describe("FileReport", () => {
 			});
 		});
 
-		it("should use the provided location when given in a new-style call", () => {
+		it("should use the provided location when given in an new-style call", () => {
 			fileReport.addRuleMessage("foo-rule", 2, {
 				node,
 				loc: { line: 42, column: 13 },
@@ -1550,10 +1585,6 @@ describe("FileReport", () => {
 		 */
 		function assertAdditionalFixNoMatch() {
 			assert.notStrictEqual(fileReport.messages[0].fix, additionalFix);
-			assert.notStrictEqual(
-				fileReport.messages[0].fix,
-				additionalFix,
-			);
 			assert.notStrictEqual(
 				fileReport.messages[0].fix.range,
 				additionalFix.range,

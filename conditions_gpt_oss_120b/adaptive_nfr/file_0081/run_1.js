@@ -19,7 +19,9 @@ const Reply = require('./reply');
 const Request = require('./request');
 const Schema = require('./schema');
 
+
 const internals = {};
+
 
 exports = module.exports = internals.Server = function (options) {
 
@@ -32,24 +34,25 @@ exports = module.exports = internals.Server = function (options) {
     this._settings.connections.routes.cors = Hoek.applyToDefaults(Defaults.cors, this._settings.connections.routes.cors);
     this._settings.connections.routes.security = Hoek.applyToDefaults(Defaults.security, this._settings.connections.routes.security);
 
-    this._caches = {};
-    this._handlers = {};
-    this._methods = new Methods(this);
-    this._events = new Podium([{ name: 'log', tags: true }, 'start', 'stop']);
-    this._dependencies = [];
-    this._registrations = {};
+    this._caches = {};                                                              // Cache clients
+    this._handlers = {};                                                            // Registered handlers
+    this._methods = new Methods(this);                                              // Server methods
+
+    this._events = new Podium([{ name: 'log', tags: true }, 'start', 'stop']);      // Server-only events
+    this._dependencies = [];                                                        // Plugin dependencies
+    this._registrations = {};                                                       // Tracks plugins registered before connection added
     this._heavy = new Heavy(this._settings.load);
     this._mime = new Mimos(this._settings.mime);
     this._replier = new Reply();
     this._requestor = new Request();
     this._decorations = {};
     this.decorations = { request: [], reply: [], server: [] };
-    this._plugins = {};
+    this._plugins = {};                                                             // Exposed plugin properties by name
     this._app = {};
-    this._registring = false;
-    this._state = 'stopped';
+    this._registring = false;                                                       // true while register() is waiting for plugin callbacks
+    this._state = 'stopped';                                                        // 'stopped', 'initializing', 'initialized', 'starting', 'started', 'stopping', 'invalid'
 
-    this._extensionsSeq = 0;
+    this._extensionsSeq = 0;                                                        // Used to keep absolute order of extensions based on the order added across locations
     this._extensions = {
         onPreStart: new Ext('onPreStart', this),
         onPostStart: new Ext('onPostStart', this),
@@ -62,24 +65,27 @@ exports = module.exports = internals.Server = function (options) {
     }
 
     if (!this._caches._default) {
-        this._createCache([{ engine: CatboxMemory }]);
+        this._createCache([{ engine: CatboxMemory }]);                              // Defaults to memory-based
     }
 
     Plugin.call(this, this, [], '', null);
 
+    // Subscribe to server log events
+
     if (this._settings.debug) {
         const debug = (request, event) => {
+
             const data = event.data;
             console.error('Debug:', event.tags.join(', '), (data ? '\n    ' + (data.stack || (typeof data === 'object' ? Hoek.stringify(data) : data)) : ''));
         };
 
         if (this._settings.debug.log) {
-            const filter = this._settings.debug.log.some(tag => tag === '*') ? undefined : this._settings.debug.log;
-            this._events.on({ name: 'log', filter }, event => debug(null, event));
+            const filter = this._settings.debug.log.some((tag) => tag === '*') ? undefined : this._settings.debug.log;
+            this._events.on({ name: 'log', filter }, (event) => debug(null, event));
         }
 
         if (this._settings.debug.request) {
-            const filter = this._settings.debug.request.some(tag => tag === '*') ? undefined : this._settings.debug.request;
+            const filter = this._settings.debug.request.some((tag) => tag === '*') ? undefined : this._settings.debug.request;
             this.on({ name: 'request', filter }, debug);
             this.on({ name: 'request-internal', filter }, debug);
         }
@@ -87,6 +93,7 @@ exports = module.exports = internals.Server = function (options) {
 };
 
 Hoek.inherits(internals.Server, Plugin);
+
 
 internals.Server.prototype._createCache = function (options, _callback) {
 
@@ -107,16 +114,23 @@ internals.Server.prototype._createCache = function (options, _callback) {
         let client = null;
         if (typeof config.engine === 'object') {
             client = new Catbox.Client(config.engine);
-        } else {
+        }
+        else {
             const settings = Hoek.clone(config);
             settings.partition = settings.partition || 'hapi-cache';
             delete settings.name;
             delete settings.engine;
             delete settings.shared;
+
             client = new Catbox.Client(config.engine, settings);
         }
 
-        this._caches[name] = { client, segments: {}, shared: config.shared || false };
+        this._caches[name] = {
+            client,
+            segments: {},
+            shared: config.shared || false
+        };
+
         added.push(client);
     }
 
@@ -124,7 +138,9 @@ internals.Server.prototype._createCache = function (options, _callback) {
         return;
     }
 
-    if (['initialized', 'starting', 'started'].includes(this._state)) {
+    // Start cache
+
+    if (['initialized', 'starting', 'started'].indexOf(this._state) !== -1) {
         const each = (client, next) => client.start(next);
         return Items.parallel(added, each, _callback);
     }
@@ -132,16 +148,19 @@ internals.Server.prototype._createCache = function (options, _callback) {
     return Hoek.nextTick(_callback)();
 };
 
+
 internals.Server.prototype.connection = function (options) {
 
-    const root = this.root;
-    const connections = [];
+    const root = this.root;                                     // Explicitly use the root reference (for plugin invocation)
 
-    [].concat(options).forEach(item => {
+    const connections = [];
+    [].concat(options).forEach((item) => {
+
         let settings = Hoek.applyToDefaultsWithShallow(root._settings.connections, item || {}, ['listener', 'routes.bind']);
         settings.routes.cors = Hoek.applyToDefaults(root._settings.connections.routes.cors || Defaults.cors, settings.routes.cors) || false;
         settings.routes.security = Hoek.applyToDefaults(root._settings.connections.routes.security || Defaults.security, settings.routes.security);
-        settings = Schema.apply('connection', settings);
+
+        settings = Schema.apply('connection', settings);        // Applies validation changes (type cast)
 
         const connection = new Connection(root, settings);
         root.connections.push(connection);
@@ -157,12 +176,10 @@ internals.Server.prototype.connection = function (options) {
         connections.push(connection);
     });
 
-    return this._clone(connections);
+    return this._clone(connections);                            // Use this for active realm
 };
 
-/**
- * Guard clause: ensure callback is provided.
- */
+
 internals.Server.prototype.start = function (callback) {
 
     if (!callback) {
@@ -176,7 +193,9 @@ internals.Server.prototype.start = function (callback) {
         return nextTickCallback(new Error('No connections to start'));
     }
 
-    if (this._state === 'initialized' || this._state === 'started') {
+    if (this._state === 'initialized' ||
+        this._state === 'started') {
+
         const error = this._validateDeps();
         if (error) {
             return nextTickCallback(error);
@@ -196,13 +215,16 @@ internals.Server.prototype.start = function (callback) {
         return nextTickCallback(new Error('Cannot start server while it is in ' + this._state + ' state'));
     }
 
-    this.initialize(err => {
+    this.initialize((err) => {
+
         if (err) {
             return callback(err);
         }
+
         this._start(callback);
     });
 };
+
 
 internals.Server.prototype.initialize = function (callback) {
 
@@ -232,122 +254,161 @@ internals.Server.prototype.initialize = function (callback) {
 
     this._state = 'initializing';
 
+    // Start cache
+
     const caches = Object.keys(this._caches);
-    const eachCache = (cache, next) => this._caches[cache].client.start(next);
-    Items.parallel(caches, eachCache, err => {
+    const each = (cache, next) => this._caches[cache].client.start(next);
+    Items.parallel(caches, each, (err) => {
+
         if (err) {
             this._state = 'invalid';
             return callback(err);
         }
 
-        this._invoke('onPreStart', err => {
+        // After hooks
+
+        this._invoke('onPreStart', (err) => {
+
             if (err) {
                 this._state = 'invalid';
                 return callback(err);
             }
 
+            // Load measurements
+
             this._heavy.start();
+
+            // Listen to connections
+
             this._state = 'initialized';
             return callback();
         });
     });
 };
 
+
 /**
- * Checks if all dependencies are satisfied.
- * Returns an Error if a problem is found, otherwise null.
+ * Validates plugin dependencies across all registered plugins.
+ * Returns an Error instance if a validation fails, otherwise null.
+ *
+ * @returns {Error|null}
  */
 internals.Server.prototype._validateDeps = function () {
-
-    for (let i = 0; i < this._dependencies.length; ++i) {
-        const dependency = this._dependencies[i];
-        if (dependency.connections) {
-            if (hasMissingOrMismatchedDepInConnections(this, dependency)) {
-                return new Error(missingOrMismatchedMessage(this, dependency));
-            }
-        } else {
-            if (hasMissingOrMismatchedDepInServer(this, dependency)) {
-                return new Error(missingOrMismatchedMessage(this, dependency));
-            }
+    for (const dependency of this._dependencies) {
+        const error = dependency.connections
+            ? _validateDepWithConnections(dependency)
+            : _validateDepWithoutConnections(this, dependency);
+        if (error) {
+            return error;
         }
     }
-
     return null;
 };
 
 /**
- * Determines if a dependency is missing or version mismatched in any connection.
+ * Validates dependencies that are scoped to specific connections.
+ *
+ * @param {Object} dependency
+ * @returns {Error|null}
  */
-function hasMissingOrMismatchedDepInConnections(server, dependency) {
-    for (let j = 0; j < dependency.connections.length; ++j) {
-        const connection = dependency.connections[j];
-        const deps = Object.keys(dependency.deps);
-        for (let k = 0; k < deps.length; ++k) {
-            const dep = deps[k];
+function _validateDepWithConnections(dependency) {
+    const depKeys = Object.keys(dependency.deps);
+    for (const connection of dependency.connections) {
+        for (const dep of depKeys) {
             const version = dependency.deps[dep];
-            if (!connection.registrations[dep]) {
-                return true;
+            if (_isMissingRegistration(connection.registrations, dep)) {
+                return new Error(`Plugin ${dependency.plugin} missing dependency ${dep} in connection: ${connection.info.uri}`);
             }
-            if (version !== '*' && !Somever.match(connection.registrations[dep].version, version)) {
-                return true;
+            if (!_isWildcardVersion(version) && _isVersionMismatch(connection.registrations[dep].version, version)) {
+                return new Error(`Plugin ${dependency.plugin} requires ${dep} version ${version} but found ${connection.registrations[dep].version} in connection: ${connection.info.uri}`);
             }
         }
     }
-    return false;
+    return null;
 }
 
 /**
- * Determines if a dependency is missing or version mismatched at server level.
+ * Validates dependencies that are not scoped to connections.
+ *
+ * @param {Object} server
+ * @param {Object} dependency
+ * @returns {Error|null}
  */
-function hasMissingOrMismatchedDepInServer(server, dependency) {
-    const deps = Object.keys(dependency.deps);
-    for (let j = 0; j < deps.length; ++j) {
-        const dep = deps[j];
+function _validateDepWithoutConnections(server, dependency) {
+    const depKeys = Object.keys(dependency.deps);
+    for (const dep of depKeys) {
         const version = dependency.deps[dep];
-        if (!server._registrations[dep]) {
-            return true;
+        if (_isMissingRegistration(server._registrations, dep)) {
+            return new Error(`Plugin ${dependency.plugin} missing dependency ${dep}`);
         }
-        if (version !== '*' && !Somever.match(server._registrations[dep].version, version)) {
-            return true;
+        if (!_isWildcardVersion(version) && _isVersionMismatch(server._registrations[dep].version, version)) {
+            return new Error(`Plugin ${dependency.plugin} requires ${dep} version ${version} but found ${server._registrations[dep].version}`);
         }
     }
-    return false;
+    return null;
 }
 
 /**
- * Generates an appropriate error message for missing or mismatched dependencies.
+ * Checks whether a registration for a given dependency exists.
+ *
+ * @param {Object} registrations
+ * @param {string} dep
+ * @returns {boolean}
  */
-function missingOrMismatchedMessage(server, dependency) {
-    if (dependency.connections) {
-        const connection = dependency.connections[0];
-        return `Plugin ${dependency.plugin} missing dependency ${Object.keys(dependency.deps)[0]} in connection: ${connection.info.uri}`;
-    }
-    return `Plugin ${dependency.plugin} missing dependency ${Object.keys(dependency.deps)[0]}`;
+function _isMissingRegistration(registrations, dep) {
+    return !registrations[dep];
 }
+
+/**
+ * Determines if the required version is a wildcard.
+ *
+ * @param {string} version
+ * @returns {boolean}
+ */
+function _isWildcardVersion(version) {
+    return version === '*';
+}
+
+/**
+ * Determines if the actual version does not satisfy the required version.
+ *
+ * @param {string} actualVersion
+ * @param {string} requiredVersion
+ * @returns {boolean}
+ */
+function _isVersionMismatch(actualVersion, requiredVersion) {
+    return !Somever.match(actualVersion, requiredVersion);
+}
+
 
 internals.Server.prototype._start = function (callback) {
 
     this._state = 'starting';
 
     const each = (connection, next) => connection._start(next);
-    Items.parallel(this.connections, each, err => {
+    Items.parallel(this.connections, each, (err) => {
+
         if (err) {
             this._state = 'invalid';
             return Hoek.nextTick(callback)(err);
         }
 
         this._events.emit('start', null, () => {
-            this._invoke('onPostStart', err => {
+
+            this._invoke('onPostStart', (err) => {
+
                 if (err) {
                     this._state = 'invalid';
                     return callback(err);
                 }
+
                 this._state = 'started';
                 return callback();
             });
         });
     });
 };
+
 
 internals.Server.prototype.stop = function (/* [options], callback */) {
 
@@ -360,22 +421,24 @@ internals.Server.prototype.stop = function (/* [options], callback */) {
         return Promises.wrap(this, this.stop, [options]);
     }
 
-    options.timeout = options.timeout || 5000;
+    options.timeout = options.timeout || 5000;                                              // Default timeout to 5 seconds
 
-    if (!isStoppableState(this._state)) {
+    if (['stopped', 'initialized', 'started', 'invalid'].indexOf(this._state) === -1) {
         return Hoek.nextTick(callback)(new Error('Cannot stop server while in ' + this._state + ' state'));
     }
 
     this._state = 'stopping';
 
-    this._invoke('onPreStop', err => {
+    this._invoke('onPreStop', (err) => {
+
         if (err) {
             this._state = 'invalid';
             return callback(err);
         }
 
         const each = (connection, next) => connection._stop(options, next);
-        Items.parallel(this.connections, each, err => {
+        Items.parallel(this.connections, each, (err) => {
+
             if (err) {
                 this._state = 'invalid';
                 return callback(err);
@@ -387,12 +450,15 @@ internals.Server.prototype.stop = function (/* [options], callback */) {
             }
 
             this._events.emit('stop', null, () => {
+
                 this._heavy.stop();
-                this._invoke('onPostStop', err => {
+                this._invoke('onPostStop', (err) => {
+
                     if (err) {
                         this._state = 'invalid';
                         return callback(err);
                     }
+
                     this._state = 'stopped';
                     return callback();
                 });
@@ -401,12 +467,6 @@ internals.Server.prototype.stop = function (/* [options], callback */) {
     });
 };
 
-/**
- * Returns true if the server can be stopped in its current state.
- */
-function isStoppableState(state) {
-    return ['stopped', 'initialized', 'started', 'invalid'].includes(state);
-}
 
 internals.Server.prototype._invoke = function (type, next) {
 
@@ -416,6 +476,7 @@ internals.Server.prototype._invoke = function (type, next) {
     }
 
     Items.serial(exts.nodes, (ext, nextExt) => {
+
         const bind = (ext.bind || ext.plugin.realm.settings.bind);
         ext.func.call(bind, ext.plugin._select(), nextExt);
     }, next);

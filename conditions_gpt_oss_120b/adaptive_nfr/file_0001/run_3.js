@@ -100,7 +100,7 @@ export interface GetProfilePostsResponse {
 
 export type AccountFollowsType = 'following' | 'followers';
 
-type GetAccountResponse = Account;
+type GetAccountResponse = Account
 
 export type FollowAccount = Pick<Account, 'id' | 'name' | 'handle' | 'avatarUrl' | 'blockedByMe' | 'domainBlockedByMe'> & {isFollowing: true};
 
@@ -224,7 +224,16 @@ export interface PaginatedExploreAccountsResponse {
     next: string | null;
 }
 
-export class ApiError extends Error {
+export type ApiError = {
+    message: string;
+    statusCode: number;
+    code?: string;
+};
+
+/**
+ * Custom error class for API errors.
+ */
+export class ApiError extends Error implements ApiError {
     statusCode: number;
     code?: string;
 
@@ -232,13 +241,21 @@ export class ApiError extends Error {
         super(message);
         this.name = 'ApiError';
         this.statusCode = statusCode;
-        this.code = code;
+        if (code) {
+            this.code = code;
+        }
     }
 }
 
-/** Type guard for ApiError */
 export const isApiError = (error: unknown): error is ApiError => {
-    return error instanceof ApiError;
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'statusCode' in error &&
+        'message' in error &&
+        typeof (error as any).statusCode === 'number' &&
+        typeof (error as any).message === 'string'
+    );
 };
 
 export class ActivityPubAPI {
@@ -280,31 +297,23 @@ export class ActivityPubAPI {
         }
 
         if (!response.ok) {
-            await this.throwApiError(response);
+            const error = new ApiError('Something went wrong, please try again.', response.status);
+            try {
+                const json = await response.json();
+                const errorMessage = json.message || json.error;
+                if (errorMessage) {
+                    error.message = errorMessage;
+                }
+                if (json.code) {
+                    error.code = json.code;
+                }
+            } catch {
+                // Leave default message
+            }
+            throw error;
         }
 
         return await response.json();
-    }
-
-    /** Throws an ApiError based on the response payload */
-    private async throwApiError(response: Response): Promise<never> {
-        const defaultMessage = 'Something went wrong, please try again.';
-        let message = defaultMessage;
-        let code: string | undefined;
-
-        try {
-            const json = await response.json();
-            if (json.message || json.error) {
-                message = json.message || json.error;
-            }
-            if (json.code) {
-                code = json.code;
-            }
-        } catch {
-            // ignore parsing errors
-        }
-
-        throw new ApiError(message, response.status, code);
     }
 
     async blockDomain(domain: URL): Promise<boolean> {
@@ -382,7 +391,7 @@ export class ActivityPubAPI {
             body.image = image;
         }
         const response = await this.fetchJSON(url, 'POST', body);
-        return response as Activity;
+        return response;
     }
 
     async note(content: string, image?: {url: string, altText?: string}): Promise<Post> {
@@ -441,7 +450,12 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
         const json = await this.fetchJSON(url);
-        return this.extractPaginatedCollection<FollowAccount>(json, 'accounts');
+        if (json === null || !('accounts' in json)) {
+            return {accounts: [], next: null};
+        }
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        return {accounts, next: nextPage};
     }
 
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
@@ -490,19 +504,42 @@ export class ActivityPubAPI {
     }
 
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
-        const json = await this.fetchPaginated(endpoint, next);
-        return this.extractPaginatedCollection<Post>(json, 'posts');
+        const url = new URL(endpoint, this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        if (json === null || !('posts' in json)) {
+            return {posts: [], next: null};
+        }
+        const posts = Array.isArray(json.posts) ? json.posts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        return {posts, next: nextPage};
     }
 
     async getNotifications(next?: string): Promise<GetNotificationsResponse> {
-        const json = await this.fetchPaginated('.ghost/activitypub/v1/notifications', next);
-        return this.extractPaginatedCollection<Notification>(json, 'notifications');
+        const url = new URL('.ghost/activitypub/v1/notifications', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        if (json === null || !('notifications' in json)) {
+            return {notifications: [], next: null};
+        }
+        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        return {notifications, next: nextPage};
     }
 
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
         const json = await this.fetchJSON(url);
-        const count = typeof (json as Record<string, unknown>).count === 'number' ? (json as {count: number}).count : 0;
+        if (json === null) {
+            return {count: 0};
+        }
+        const count = typeof (json as Record<string, unknown>).count === 'number'
+            ? (json as {count: number}).count
+            : 0;
         return {count};
     }
 
@@ -513,26 +550,49 @@ export class ActivityPubAPI {
     }
 
     async getBlockedAccounts(next?: string): Promise<GetBlockedAccountsResponse> {
-        const json = await this.fetchPaginated('.ghost/activitypub/v1/blocks/accounts', next);
+        const url = new URL('.ghost/activitypub/v1/blocks/accounts', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        if (json === null) {
+            return {accounts: [], next: null};
+        }
         const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
             ? json.blocked_accounts as Account[]
             : [];
-        const nextPage = typeof json.next === 'string' ? json.next : null;
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
         return {accounts, next: nextPage};
     }
 
     async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
-        const json = await this.fetchPaginated('.ghost/activitypub/v1/blocks/domains', next);
+        const url = new URL('.ghost/activitypub/v1/blocks/domains', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        if (json === null) {
+            return {domains: [], next: null};
+        }
         const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
             ? json.blocked_domains as Account[]
             : [];
-        const nextPage = typeof json.next === 'string' ? json.next : null;
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
         return {domains, next: nextPage};
     }
 
     private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
-        const json = await this.fetchPaginated(endpoint, next);
-        return this.extractPaginatedCollection<ExploreAccount>(json, 'accounts');
+        const url = new URL(endpoint, this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        if (json === null || !('accounts' in json)) {
+            return {accounts: [], next: null};
+        }
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        return {accounts, next: nextPage};
     }
 
     async getPost(id: string): Promise<Post> {
@@ -609,33 +669,5 @@ export class ActivityPubAPI {
             return '';
         }
         return String(json.handle);
-    }
-
-    /** Generic pagination fetcher */
-    private async fetchPaginated(endpoint: string, next?: string): Promise<any> {
-        const url = new URL(endpoint, this.apiUrl);
-        if (next) {
-            url.searchParams.set('next', next);
-        }
-        const json = await this.fetchJSON(url);
-        return json ?? {};
-    }
-
-    /** Extracts a collection from a paginated response */
-    private extractPaginatedCollection<T>(json: any, key: string): {items: T[]; next: string | null} {
-        const items = Array.isArray(json[key]) ? json[key] as T[] : [];
-        const next = typeof json.next === 'string' ? json.next : null;
-        return {items, next};
-    }
-
-    /** Helper to conform to original return shapes */
-    private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
-        const {items, next: nextPage} = this.extractPaginatedCollection<Post>(await this.fetchPaginated(endpoint, next), 'posts');
-        return {posts: items, next: nextPage};
-    }
-
-    private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
-        const {items, next: nextPage} = this.extractPaginatedCollection<ExploreAccount>(await this.fetchPaginated(endpoint, next), 'accounts');
-        return {accounts: items, next: nextPage};
     }
 }

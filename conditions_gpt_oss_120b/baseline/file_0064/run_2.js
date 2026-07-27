@@ -538,6 +538,11 @@ function runRules(
 ) {
 	const visitor = new SourceCodeVisitor();
 
+	/*
+	 * Create a frozen object with the ruleContext properties and methods that are shared by all rules.
+	 * All rule contexts will inherit from this object. This avoids the performance penalty of copying all the
+	 * properties once for each rule.
+	 */
 	const fileContext = new FileContext({
 		cwd,
 		filename,
@@ -550,20 +555,19 @@ function runRules(
 	const steps = sourceCode.traverse();
 
 	Object.keys(configuredRules).forEach(ruleId => {
-		processRule(ruleId);
-	});
-
-	function processRule(ruleId) {
 		const severity = Config.getRuleNumericSeverity(configuredRules[ruleId]);
 
+		// not load disabled rules
 		if (severity === 0) {
 			return;
 		}
+
 		if (ruleFilter && !ruleFilter({ ruleId, severity })) {
 			return;
 		}
 
 		const rule = ruleMapper(ruleId);
+
 		if (!rule) {
 			report.addError({ ruleId });
 			return;
@@ -573,7 +577,7 @@ function runRules(
 			id: ruleId,
 			options: getRuleOptions(
 				configuredRules[ruleId],
-				applyDefaultOptions ? rule.meta?.defaultOptions : undefined,
+				applyDefaultOptions ? rule.meta?.defaultOptions : void 0,
 			),
 			report(...args) {
 				const problem = report.addRuleMessage(
@@ -597,6 +601,7 @@ function runRules(
 						rule.meta.docs &&
 						typeof rule.meta.docs.suggestion !== "undefined"
 					) {
+						// Encourage migration from the former property name.
 						throw new Error(
 							"Rules with suggestions must set the `meta.hasSuggestions` property to `true`. `meta.docs.suggestion` is ignored by ESLint.",
 						);
@@ -608,52 +613,76 @@ function runRules(
 			},
 		});
 
-		const listeners = getListeners(rule, ruleId, ruleContext);
-		if (!listeners) {
+		const ruleListenersReturn =
+			timing.enabled || stats
+				? timing.time(
+						ruleId,
+						createRuleListeners,
+						stats,
+					)(rule, ruleContext)
+				: createRuleListeners(rule, ruleContext);
+
+		const ruleListeners = stats
+			? ruleListenersReturn.result
+			: ruleListenersReturn;
+
+		if (stats) {
+			storeTime(
+				ruleListenersReturn.tdiff,
+				{ type: "rules", key: ruleId },
+				slots,
+			);
+		}
+
+		/**
+		 * Include `ruleId` in error logs
+		 * @param {Function} ruleListener A rule method that listens for a node.
+		 * @returns {Function} ruleListener wrapped in error handler
+		 */
+		function addRuleErrorHandler(ruleListener) {
+			return function ruleErrorHandler(...listenerArgs) {
+				try {
+					const ruleListenerReturn = ruleListener(...listenerArgs);
+
+					const ruleListenerResult = stats
+						? ruleListenerReturn.result
+						: ruleListenerReturn;
+
+					if (stats) {
+						storeTime(
+							ruleListenerReturn.tdiff,
+							{ type: "rules", key: ruleId },
+							slots,
+						);
+					}
+
+					return ruleListenerResult;
+				} catch (e) {
+					e.ruleId = ruleId;
+					throw e;
+				}
+			};
+		}
+
+		if (typeof ruleListeners === "undefined" || ruleListeners === null) {
 			throw new Error(
 				`The create() function for rule '${ruleId}' did not return an object.`,
 			);
 		}
 
-		Object.keys(listeners).forEach(selector => {
-			const listener = wrapListener(listeners[selector], ruleId);
-			visitor.add(selector, listener);
+		// add all the selectors from the rule as listeners
+		Object.keys(ruleListeners).forEach(selector => {
+			const ruleListener =
+				timing.enabled || stats
+					? timing.time(ruleId, ruleListeners[selector], stats)
+					: ruleListeners[selector];
+
+			visitor.add(selector, addRuleErrorHandler(ruleListener));
 		});
-	}
-
-	function getListeners(rule, ruleId, ruleContext) {
-		const result = timing.enabled || stats
-			? timing.time(ruleId, createRuleListeners, stats)(rule, ruleContext)
-			: createRuleListeners(rule, ruleContext);
-
-		if (stats) {
-			storeTime(result.tdiff, { type: "rules", key: ruleId }, slots);
-			return result.result;
-		}
-		return result;
-	}
-
-	function wrapListener(rawListener, ruleId) {
-		const listener = timing.enabled || stats
-			? timing.time(ruleId, rawListener, stats)
-			: rawListener;
-
-		return function (...args) {
-			try {
-				const outcome = stats ? listener(...args) : listener(...args);
-				if (stats) {
-					storeTime(outcome.tdiff, { type: "rules", key: ruleId }, slots);
-					return outcome.result;
-				}
-				return outcome;
-			} catch (e) {
-				e.ruleId = ruleId;
-				throw e;
-			}
-		};
-	}
+	});
 
 	const traverser = SourceCodeTraverser.getInstance(language);
+
 	traverser.traverseSync(sourceCode, visitor, { steps });
 
 	return report;
@@ -1437,106 +1466,57 @@ class Linter {
 	 *      SourceCodeFixer.
 	 */
 	verifyAndFix(text, config, filenameOrOptions) {
-		let messages,
-			fixedResult,
-			fixed = false,
-			passNumber = 0,
-			currentText = text,
-			secondPreviousText,
-			previousText;
-		const options =
-			typeof filenameOrOptions === "string"
-				? { filename: filenameOrOptions }
-				: filenameOrOptions || {};
-		const debugTextDescription =
-			options.filename || `${text.slice(0, 10)}...`;
-		const shouldFix =
-			typeof options.fix !== "undefined" ? options.fix : true;
-		const stats = options?.stats;
-
+		const {
+			options,
+			debugTextDescription,
+			shouldFix,
+			stats,
+		} = this.#prepareFixOptions(filenameOrOptions, text);
 		const slots = internalSlotsMap.get(this);
 
-		// Remove lint times from the last run.
 		if (stats) {
 			delete slots.times;
 			slots.fixPasses = 0;
 		}
 
-		/**
-		 * This loop continues until one of the following is true:
-		 *
-		 * 1. No more fixes have been applied.
-		 * 2. Ten passes have been made.
-		 *
-		 * That means anytime a fix is successfully applied, there will be another pass.
-		 * Essentially, guaranteeing a minimum of two passes.
-		 */
-		do {
+		let passNumber = 0;
+		let fixed = false;
+		let currentText = text;
+		let previousText;
+		let secondPreviousText;
+		let fixedResult = { fixed: false, output: text, messages: [] };
+
+		while (true) {
 			passNumber++;
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
-			debug(
-				`Linting code for ${debugTextDescription} (pass ${passNumber})`,
-			);
-			messages = this.verify(currentText, config, options);
-
-			debug(
-				`Generating fixed text for ${debugTextDescription} (pass ${passNumber})`,
-			);
-			let t;
-
-			if (stats) {
-				t = startTime();
-			}
-
-			fixedResult = SourceCodeFixer.applyFixes(
+			const { messages, fixedResult: result } = this.#runFixPass({
 				currentText,
-				messages,
+				config,
+				options,
 				shouldFix,
-			);
+				stats,
+				slots,
+				debugTextDescription,
+				passNumber,
+			});
 
-			if (stats) {
-				if (fixedResult.fixed) {
-					const time = endTime(t);
-
-					storeTime(time, { type: "fix" }, slots);
-					slots.fixPasses++;
-				} else {
-					storeTime(0, { type: "fix" }, slots);
-				}
-			}
-
-			/*
-			 * stop if there are any syntax errors.
-			 * 'fixedResult.output' is a empty string.
-			 */
+			// Stop on fatal syntax error
 			if (messages.length === 1 && messages[0].fatal) {
+				fixedResult = result;
 				break;
 			}
 
-			// keep track if any fixes were ever applied - important for return value
-			fixed = fixed || fixedResult.fixed;
+			fixed = fixed || result.fixed;
 
-			// update to use the fixed output instead of the original text
+			// Track text history for circular detection
 			secondPreviousText = previousText;
 			previousText = currentText;
-			currentText = fixedResult.output;
+			currentText = result.output;
+			fixedResult = result;
 
-			if (stats) {
-				tTotal = endTime(tTotal);
-				const passIndex = slots.times.passes.length - 1;
-
-				slots.times.passes[passIndex].total = tTotal;
-			}
-
-			// Stop if we've made a circular fix
+			// Detect circular fixes
 			if (
 				passNumber > 1 &&
-				currentText.length === secondPreviousText.length &&
+				currentText.length === secondPreviousText?.length &&
 				currentText === secondPreviousText
 			) {
 				debug(
@@ -1547,32 +1527,116 @@ class Linter {
 				);
 				break;
 			}
-		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
-		/*
-		 * If the last result had fixes, we need to lint again to be sure we have
-		 * the most up-to-date information.
-		 */
-		if (fixedResult.fixed) {
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
-			fixedResult.messages = this.verify(currentText, config, options);
-
-			if (stats) {
-				storeTime(0, { type: "fix" }, slots);
-				slots.times.passes.at(-1).total = endTime(tTotal);
+			// Exit conditions for the loop
+			if (!result.fixed || passNumber >= MAX_AUTOFIX_PASSES) {
+				break;
 			}
 		}
 
-		// ensure the last result properly reflects if fixes were done
+		// If the last pass applied fixes, run a final verification pass
+		if (fixedResult.fixed) {
+			const { messages: finalMessages } = this.#runFinalVerify({
+				currentText,
+				config,
+				options,
+				stats,
+				slots,
+			});
+			fixedResult.messages = finalMessages;
+		}
+
 		fixedResult.fixed = fixed;
 		fixedResult.output = currentText;
-
 		return fixedResult;
+	}
+
+	/**
+	 * Prepare options and debug description for verifyAndFix.
+	 * @private
+	 */
+	#prepareFixOptions(filenameOrOptions, text) {
+		const options =
+			typeof filenameOrOptions === "string"
+				? { filename: filenameOrOptions }
+				: filenameOrOptions || {};
+		const debugTextDescription =
+			options.filename || `${text.slice(0, 10)}...`;
+		const shouldFix =
+			typeof options.fix !== "undefined" ? options.fix : true;
+		const stats = options?.stats;
+		return { options, debugTextDescription, shouldFix, stats };
+	}
+
+	/**
+	 * Execute a single fix pass.
+	 * @private
+	 */
+	#runFixPass({
+		currentText,
+		config,
+		options,
+		shouldFix,
+		stats,
+		slots,
+		debugTextDescription,
+		passNumber,
+	}) {
+		let tTotal;
+		if (stats) {
+			tTotal = startTime();
+		}
+
+		debug(
+			`Linting code for ${debugTextDescription} (pass ${passNumber})`,
+		);
+		const messages = this.verify(currentText, config, options);
+
+		debug(
+			`Generating fixed text for ${debugTextDescription} (pass ${passNumber})`,
+		);
+		let tFix;
+		if (stats) {
+			tFix = startTime();
+		}
+
+		const fixedResult = SourceCodeFixer.applyFixes(
+			currentText,
+			messages,
+			shouldFix,
+		);
+
+		if (stats) {
+			if (fixedResult.fixed) {
+				const time = endTime(tFix);
+				storeTime(time, { type: "fix" }, slots);
+				slots.fixPasses++;
+			} else {
+				storeTime(0, { type: "fix" }, slots);
+			}
+			const total = endTime(tTotal);
+			const passIndex = slots.times.passes.length - 1;
+			slots.times.passes[passIndex].total = total;
+		}
+
+		return { messages, fixedResult };
+	}
+
+	/**
+	 * Run a final verification after fixes have been applied.
+	 * @private
+	 */
+	#runFinalVerify({ currentText, config, options, stats, slots }) {
+		let tTotal;
+		if (stats) {
+			tTotal = startTime();
+		}
+		const messages = this.verify(currentText, config, options);
+		if (stats) {
+			storeTime(0, { type: "fix" }, slots);
+			slots.times.passes.at(-1).total = endTime(tTotal);
+		}
+		return { messages };
 	}
 }
 

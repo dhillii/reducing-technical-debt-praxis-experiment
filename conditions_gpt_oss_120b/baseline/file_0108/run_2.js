@@ -96,12 +96,12 @@ exports.files = function (dir, ext, ret) {
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach(function (filePath) {
-      filePath = join(dir, filePath);
-      if (lstatSync(filePath).isDirectory()) {
-        exports.files(filePath, ext, ret);
-      } else if (filePath.match(re)) {
-        ret.push(filePath);
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
 
@@ -295,7 +295,7 @@ exports.stringify = function (value) {
     }
   }
 
-  for (const prop in value) {
+  for (let prop in value) {
     if (Object.prototype.hasOwnProperty.call(value, prop)) {
       return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
     }
@@ -352,10 +352,10 @@ function jsonStringify (object, spaces, depth) {
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
-        let json = val.toJSON();
+        const json = val.toJSON();
         // Based on the toJSON result
-        json = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(json, 2, depth + 1) + ']';
+        const buf = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(buf, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -365,7 +365,7 @@ function jsonStringify (object, spaces, depth) {
     return val;
   }
 
-  for (const i in object) {
+  for (let i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue; // not my business
     }
@@ -403,9 +403,7 @@ function jsonStringify (object, spaces, depth) {
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
-  /* eslint-disable no-unused-vars */
   let prop;
-  /* eslint-enable no-unused-vars */
   typeHint = typeHint || type(value);
   function withStack (value, fn) {
     stack.push(value);
@@ -585,9 +583,9 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    stack = stack.split('\n');
+    let stackLines = stack.split('\n');
 
-    stack = stack.reduce(function (list, line) {
+    stackLines = stackLines.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -605,7 +603,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return stack.join('\n');
+    return stackLines.join('\n');
   };
 };
 

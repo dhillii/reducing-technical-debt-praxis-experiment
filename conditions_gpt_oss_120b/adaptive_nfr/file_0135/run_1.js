@@ -11,40 +11,43 @@ import useModalContext from '../../hooks/useModalContext';
 
 /**
  * Shows a confirmation dialog using `globalThis.confirm`.
- * @param {string} messageId - Translation id for the message.
- * @param {function} formatMessage - i18n formatter.
- * @returns {boolean}
+ * @param {string} messageId - The translation id for the message.
+ * @param {function} formatMessage - Function to format the message.
+ * @returns {boolean} - The user's confirmation choice.
  */
-const showConfirm = (messageId, formatMessage) =>
-  globalThis.confirm(formatMessage({ id: messageId }));
+const confirmDialog = (messageId, formatMessage) => {
+  // eslint-disable-next-line no-alert
+  return globalThis.confirm(formatMessage({ id: messageId }));
+};
 
 /**
- * Determines if there are files pending upload.
- * @param {Array} filesToUpload
- * @returns {boolean}
- */
-const hasFilesToUpload = filesToUpload => !isEmpty(filesToUpload);
-
-/**
- * Determines if the current step is the upload step.
+ * Determines if the back button should trigger upload-step navigation.
+ * @param {string|null} elementName
+ * @param {string|undefined} backButtonDestination
  * @param {string} currentStep
  * @returns {boolean}
  */
-const isUploadStep = currentStep => currentStep === 'upload';
+const isUploadBackButton = (elementName, backButtonDestination, currentStep) =>
+  elementName === 'backButton' && !!backButtonDestination && currentStep === 'upload';
 
 /**
- * Determines if the current step is the browse step.
+ * Determines if the back button should trigger browse-step navigation with pending uploads.
+ * @param {string|null} elementName
+ * @param {string|undefined} backButtonDestination
  * @param {string} currentStep
+ * @param {boolean} hasFilesToUpload
  * @returns {boolean}
  */
-const isBrowseStep = currentStep => currentStep === 'browse';
-
-/**
- * Determines if the current step is the edit step.
- * @param {string} currentStep
- * @returns {boolean}
- */
-const isEditStep = currentStep => currentStep === 'edit';
+const isBrowseBackButtonWithFiles = (
+  elementName,
+  backButtonDestination,
+  currentStep,
+  hasFilesToUpload
+) =>
+  elementName === 'backButton' &&
+  !!backButtonDestination &&
+  currentStep === 'browse' &&
+  hasFilesToUpload;
 
 const InputModalStepper = ({
   allowedActions,
@@ -92,7 +95,6 @@ const InputModalStepper = ({
     submitEditExistingFile,
     toggleModalWarning,
   } = useModalContext();
-
   const {
     backButtonDestination,
     Component,
@@ -103,7 +105,6 @@ const InputModalStepper = ({
     withBackButton,
     HeaderComponent,
   } = stepper[currentStep];
-
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
@@ -113,7 +114,7 @@ const InputModalStepper = ({
   };
 
   useEffect(() => {
-    if (isUploadStep(currentStep)) {
+    if (currentStep === 'upload') {
       if (filesToUploadLength === 0) {
         goToList();
       } else {
@@ -129,24 +130,18 @@ const InputModalStepper = ({
   };
 
   const goBack = (elementName = null) => {
-    const hasPendingUploads = hasFilesToUpload(filesToUpload);
+    const hasFilesToUpload = !isEmpty(filesToUpload);
 
-    const isBackFromUpload =
-      elementName === 'backButton' && backButtonDestination && isUploadStep(currentStep);
-    const isBackFromBrowse =
-      elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && hasPendingUploads;
-
-    if (isBackFromUpload) {
-      if (hasPendingUploads) {
-        const confirm = showConfirm(getTrad('window.confirm.close-modal.files'), formatMessage);
-        if (!confirm) return;
+    if (isUploadBackButton(elementName, backButtonDestination, currentStep)) {
+      if (hasFilesToUpload && !confirmDialog(getTrad('window.confirm.close-modal.files'), formatMessage)) {
+        return;
       }
       goTo(backButtonDestination);
       handleClearFilesToUploadAndDownload();
       return;
     }
 
-    if (isBackFromBrowse) {
+    if (isBrowseBackButtonWithFiles(elementName, backButtonDestination, currentStep, hasFilesToUpload)) {
       goTo(backButtonDestination);
       return;
     }
@@ -297,27 +292,29 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const confirm = showConfirm(getTrad('window.confirm.close-modal.files'), formatMessage);
-      if (!confirm) return;
+      if (!confirmDialog(getTrad('window.confirm.close-modal.files'), formatMessage)) {
+        return;
+      }
     }
 
-    const isListChanged =
+    const needsConfirm =
       (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-      (isEditStep(currentStep) && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (isEditStep(currentStep) && selectedFiles.length > 0);
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0);
 
-    if (isListChanged) {
-      const confirm = showConfirm(getTrad('window.confirm.close-modal.file'), formatMessage);
-      if (!confirm) return;
+    if (needsConfirm) {
+      if (!confirmDialog(getTrad('window.confirm.close-modal.file'), formatMessage)) {
+        return;
+      }
     }
 
     onToggle(true);
   };
 
-  const shouldDisplayNextButton = isBrowseStep(currentStep) && displayNextButton;
+  const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
   const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
   const areButtonsDisabledOnEditExistingFile =
-    isEditStep(currentStep) && fileToEdit.isUploading === true;
+    currentStep === 'edit' && fileToEdit.isUploading === true;
 
   return (
     <>
@@ -399,7 +396,7 @@ const InputModalStepper = ({
                 {formatMessage({ id: 'form.button.finish' })}
               </Button>
             )}
-            {isEditStep(currentStep) && (
+            {currentStep === 'edit' && (
               <div style={{ margin: 'auto 0' }}>
                 <Button
                   disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
