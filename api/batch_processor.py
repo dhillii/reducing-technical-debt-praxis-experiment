@@ -679,10 +679,10 @@ class BatchOrchestrator:
         support well more requests than a typical experiment run (≤1,314).
 
         Returns:
-            List of submitted batch IDs (always length 1)
+            List of submitted batch IDs.
         """
         if isinstance(self.processor, TogetherBatchProvider):
-            return self._submit_together(experiment_runs)
+            return self._submit_together(experiment_runs, batch_size)
 
         return self._submit_anthropic(experiment_runs)
 
@@ -702,19 +702,36 @@ class BatchOrchestrator:
             logger.error(f"Failed to submit Anthropic batch: {e}")
             return []
 
-    def _submit_together(self, experiment_runs: List[Dict[str, Any]]) -> List[str]:
-        total_runs = len(experiment_runs)
-        logger.info(f"Building Together AI batch for {total_runs} runs")
+    def _submit_together(
+        self,
+        experiment_runs: List[Dict[str, Any]],
+        batch_size: int,
+    ) -> List[str]:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
 
-        jsonl_path = self.processor.build_batch_requests(experiment_runs)
-        batch_name = f"refactor_all_{total_runs}_runs"
-        try:
-            batch_id = self.processor.submit_batch(jsonl_path, batch_name=batch_name)
-            logger.info(f"Submitted 1 Together AI batch: {batch_id}")
-            return [batch_id]
-        except Exception as e:
-            logger.error(f"Failed to submit Together AI batch: {e}")
-            return []
+        total_runs = len(experiment_runs)
+        chunks = [
+            experiment_runs[index:index + batch_size]
+            for index in range(0, total_runs, batch_size)
+        ]
+        logger.info(
+            f"Building {len(chunks)} Together AI batches for {total_runs} runs "
+            f"(up to {batch_size} requests each)"
+        )
+
+        batch_ids = []
+        for index, chunk in enumerate(chunks, start=1):
+            try:
+                jsonl_path = self.processor.build_batch_requests(chunk)
+                batch_name = f"refactor_{index}_of_{len(chunks)}_{len(chunk)}_runs"
+                batch_id = self.processor.submit_batch(jsonl_path, batch_name=batch_name)
+                batch_ids.append(batch_id)
+                logger.info(f"Submitted Together AI batch {index}/{len(chunks)}: {batch_id}")
+            except Exception as e:
+                logger.error(f"Failed to submit Together AI batch {index}/{len(chunks)}: {e}")
+
+        return batch_ids
 
     def poll_all_batches(self, batch_ids: List[str]) -> Dict[str, Any]:
         """Poll all batches and return aggregated summary."""
