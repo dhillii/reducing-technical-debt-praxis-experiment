@@ -1,0 +1,34 @@
+public StandardChartTheme clone() throws CloneNotSupportedException {
+    StandardChartTheme clone = (StandardChartTheme) super.clone();
+    clone.extraLargeFont = (Font) this.extraLargeFont.clone();
+    clone.largeFont = (Font) this.largeFont.clone();
+    clone.regularFont = (Font) this.regularFont.clone();
+    clone.smallFont = (Font) this.smallFont.clone();
+    clone.titlePaint = PaintUtilities.createPaint(this.titlePaint);
+    clone.subtitlePaint = PaintUtilities.createPaint(this.subtitlePaint);
+    clone.chartBackgroundPaint = PaintUtilities.createPaint(this.chartBackgroundPaint);
+    clone.legendBackgroundPaint = PaintUtilities.createPaint(this.legendBackgroundPaint);
+    clone.legendItemPaint = PaintUtilities.createPaint(this.legendItemPaint);
+    clone.plotBackgroundPaint = PaintUtilities.createPaint(this.plotBackgroundPaint);
+    clone.plotOutlinePaint = PaintUtilities.createPaint(this.plotOutlinePaint);
+    clone.labelLinkPaint = PaintUtilities.createPaint(this.labelLinkPaint);
+    clone.baselinePaint = PaintUtilities.createPaint(this.baselinePaint);
+    clone.domainGridlinePaint = PaintUtilities.createPaint(this.domainGridlinePaint);
+    clone.rangeGridlinePaint = PaintUtilities.createPaint(this.rangeGridlinePaint);
+    clone.crosshairPaint = PaintUtilities.createPaint(this.crosshairPaint);
+    clone.axisLabelPaint = PaintUtilities.createPaint(this.axisLabelPaint);
+    clone.tickLabelPaint = PaintUtilities.createPaint(this.tickLabelPaint);
+    clone.itemLabelPaint = PaintUtilities.createPaint(this.itemLabelPaint);
+    clone.shadowPaint = PaintUtilities.createPaint(this.shadowPaint);
+    clone.thermometerPaint = PaintUtilities.createPaint(this.thermometerPaint);
+    clone.wallPaint = PaintUtilities.createPaint(this.wallPaint);
+    clone.errorIndicatorPaint = PaintUtilities.createPaint(this.errorIndicatorPaint);
+    clone.gridBandPaint = PaintUtilities.createPaint(this.gridBandPaint);
+    clone.gridBandAlternatePaint = PaintUtilities.createPaint(this.gridBandAlternatePaint);
+    clone.drawingSupplier = (DrawingSupplier) this.drawingSupplier.clone();
+    clone.axisOffset = (RectangleInsets) this.axisOffset.clone();
+    clone.barPainter = (BarPainter) this.barPainter.clone();
+    clone.xyBarPainter = (XYBarPainter) this.xyBarPainter.clone();
+    clone.shadowGenerator = this.shadowGenerator != null ? (ShadowGenerator) this.shadowGenerator.clone() : null;
+    return clone;
+}

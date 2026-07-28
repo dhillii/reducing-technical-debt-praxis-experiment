@@ -1,0 +1,16 @@
+{
+  "batch_id": "c597cbb0-34cd-4a7a-8c55-17317efcb3fe",
+  "batch_name": "refactor_2_of_106_1_runs",
+  "model_key": "gpt_oss_120b",
+  "model_id": "openai/gpt-oss-120b",
+  "file_id": "file-41f9ea07-44eb-4abf-bdf7-cde35347ae86",
+  "request_file": "/mnt/c/Users/David Hill/iCloudDrive/GWU/Dissertation/reducing-technical-debt-praxis-experiment/experiments/multilang_v1/batches/together_batch_gpt_oss_120b_im3dqhc4.jsonl",
+  "submitted_at": "2026-07-28T18:24:21.045020+00:00",
+  "submitted_count": 1,
+  "submitted_ids": [
+    "104"
+  ],
+  "file_extensions": {
+    "104": ".java"
+  }
+}

@@ -1,0 +1,48 @@
+private void formatElements(final StringBuilder sb, final String prefix, final int commonCount,
+        final StackTraceElement[] causedTrace, final ExtendedStackTraceElement[] extStackTrace,
+        final List<String> ignorePackages) {
+    if (ignorePackages == null || ignorePackages.isEmpty()) {
+        formatAllElements(sb, prefix, extStackTrace);
+    } else {
+        formatElementsWithIgnoredPackages(sb, prefix, commonCount, causedTrace, extStackTrace, ignorePackages);
+    }
+}
+
+private void formatAllElements(final StringBuilder sb, final String prefix, final ExtendedStackTraceElement[] extStackTrace) {
+    for (final ExtendedStackTraceElement element : extStackTrace) {
+        formatEntry(element, sb, prefix);
+    }
+}
+
+private void formatElementsWithIgnoredPackages(final StringBuilder sb, final String prefix, final int commonCount,
+        final StackTraceElement[] causedTrace, final ExtendedStackTraceElement[] extStackTrace,
+        final List<String> ignorePackages) {
+    int count = 0;
+    for (int i = 0; i < extStackTrace.length; ++i) {
+        if (isElementIgnored(causedTrace[i], ignorePackages)) {
+            ++count;
+        } else {
+            if (count > 0) {
+                appendSuppressedCount(sb, prefix, count);
+                count = 0;
+            }
+            formatEntry(extStackTrace[i], sb, prefix);
+        }
+    }
+    if (count > 0) {
+        appendSuppressedCount(sb, prefix, count);
+    }
+    if (commonCount != 0) {
+        sb.append(prefix).append("\t... ").append(commonCount).append(" more").append(EOL);
+    }
+}
+
+private boolean isElementIgnored(final StackTraceElement element, final List<String> ignorePackages) {
+    final String className = element.getClassName();
+    for (final String pkg : ignorePackages) {
+        if (className.startsWith(pkg)) {
+            return true;
+        }
+    }
+    return false;
+}
