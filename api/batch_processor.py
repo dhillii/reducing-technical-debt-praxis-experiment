@@ -303,7 +303,7 @@ class TogetherBatchProvider:
     System prompt is placed as role=system inside the messages array (not top-level).
     """
 
-    def __init__(self, model_key: str):
+    def __init__(self, model_key: str, batch_dir: Optional[Path] = None):
         if not TOGETHER_API_KEY:
             raise ValueError("TOGETHER_API_KEY not set")
 
@@ -317,8 +317,9 @@ class TogetherBatchProvider:
         self.client = Together(api_key=TOGETHER_API_KEY)
         self.model_key = model_key
         self.model_id = TOGETHER_MODELS[model_key]["model_id"]
-        self.batch_dir = TOGETHER_BATCH_IDS_DIR
+        self.batch_dir = batch_dir or TOGETHER_BATCH_IDS_DIR
         self.batch_dir.mkdir(parents=True, exist_ok=True)
+        self._pending_file_extensions: Dict[str, str] = {}
 
     def _download_file(self, file_id: str, dest: Path) -> None:
         """Download a Together AI file via REST API (avoids SDK quirks)."""
@@ -347,6 +348,7 @@ class TogetherBatchProvider:
         """
         context_window = TOGETHER_MODELS[self.model_key]["context_window_tokens"]
         over_budget = []
+        self._pending_file_extensions = {}
         for req in requests_list:
             budget = evaluate_token_budget(
                 system_prompt=req["system_prompt"],
@@ -357,6 +359,7 @@ class TogetherBatchProvider:
             )
             if not budget.fits:
                 over_budget.append((req["record_id"], budget))
+            self._pending_file_extensions[str(req["record_id"])] = req.get("file_extension", ".js")
 
         if over_budget:
             details = "; ".join(
@@ -458,6 +461,7 @@ class TogetherBatchProvider:
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "submitted_count": len(submitted_ids),
             "submitted_ids": submitted_ids,
+            "file_extensions": self._pending_file_extensions,
         }
         with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -507,6 +511,14 @@ class TogetherBatchProvider:
         batch = self.client.batches.retrieve(batch_id)
         output_file_id = getattr(batch, "output_file_id", None)
         error_file_id = getattr(batch, "error_file_id", None)
+        file_extensions: Dict[str, str] = {}
+        metadata_path = self.batch_dir / f"{batch_id}_metadata.json"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, encoding="utf-8") as metadata_file:
+                    file_extensions = json.load(metadata_file).get("file_extensions", {})
+            except Exception as e:
+                logger.warning(f"Could not load file extensions for batch {batch_id}: {e}")
 
         results: List[Dict[str, Any]] = []
 
@@ -533,7 +545,8 @@ class TogetherBatchProvider:
                             content_raw = body["choices"][0]["message"]["content"]
                             # Step 4: strip bare control chars before extraction + storage
                             content_raw = _sanitize_content(content_raw)
-                            content = extract_code_from_response(content_raw, file_extension=".js")
+                            file_extension = file_extensions.get(str(custom_id), ".js")
+                            content = extract_code_from_response(content_raw, file_extension=file_extension)
                             usage = body.get("usage", {})
                             results.append({
                                 "record_id": custom_id,
@@ -542,6 +555,7 @@ class TogetherBatchProvider:
                                 "prompt_tokens": usage.get("prompt_tokens", 0),
                                 "completion_tokens": usage.get("completion_tokens", 0),
                                 "error": None,
+                                "file_extension": file_extension,
                             })
                         else:
                             results.append({

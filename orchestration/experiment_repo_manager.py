@@ -93,11 +93,12 @@ class ExperimentRepoManager:
         run_number: int,
         code: str,
         conditions_root: str = "conditions",
+        file_extension: str = ".js",
     ) -> Path:
         """
         Write refactored code to file in the repository.
 
-        File structure: {conditions_root}/{condition}/file_{file_id:04d}/run_{run_number}.js
+        File structure: {conditions_root}/{condition}/file_{file_id:04d}/run_{run_number}{extension}
 
         Args:
             condition: Refactoring condition (baseline, nfr_enriched, adaptive_nfr)
@@ -106,6 +107,7 @@ class ExperimentRepoManager:
             code: Refactored code content
             conditions_root: Root directory name (default "conditions"; use
                              "conditions_<model_key>" for Together AI runs)
+            file_extension: Extension from the original source file.
 
         Returns:
             Path to written file
@@ -118,7 +120,8 @@ class ExperimentRepoManager:
         file_dir.mkdir(parents=True, exist_ok=True)
 
         # Write code file
-        file_path = file_dir / f"run_{run_number}.js"
+        extension = file_extension if file_extension.startswith(".") else f".{file_extension}"
+        file_path = file_dir / f"run_{run_number}{extension}"
         file_path.write_text(code, encoding="utf-8")
 
         logger.debug(f"Code written to {file_path}")

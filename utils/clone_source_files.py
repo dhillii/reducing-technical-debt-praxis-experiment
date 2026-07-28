@@ -56,7 +56,7 @@ PROJECT_REPOS = {
     "calibre-2.85.1_5_12_2017": "https://github.com/dhillii/calibre-2.85.1_5_12_2017.git",
     "django-1.11.x-stable_3_5_2020": "https://github.com/dhillii/django-1.11.x-stable_3_5_2020.git",
     "nltk-3.2_3_2_2016": "https://github.com/dhillii/nltk-3.2_3_2_2016.git",
-    "twisted-twisted-15.4.0_9_4_2015": "https://github.com/dhillii/twisted-twisted-15.4.0_9_4_2015.git",
+    "twisted-15.4.0_9_4_2015": "https://github.com/dhillii/twisted-15.4.0_9_4_2015.git",
     "zulip-1.9.x_1_29_2019": "https://github.com/dhillii/zulip-1.9.x_1_29_2019.git",
     "ant-rel-1.9.0_1_13_2016": "https://github.com/dhillii/ant-rel-1.9.0_1_13_2016.git",
     "argouml-0.35.1_8_31_2014": "https://github.com/dhillii/argouml-0.35.1_8_31_2014.git",

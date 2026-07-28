@@ -1,0 +1,1296 @@
+/*
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package org.apache.tools.ant;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.EOFException;
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.Properties;
+import java.util.Stack;
+import java.util.Vector;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.WeakHashMap;
+import org.apache.tools.ant.input.DefaultInputHandler;
+import org.apache.tools.ant.input.InputHandler;
+import org.apache.tools.ant.helper.DefaultExecutor;
+import org.apache.tools.ant.types.FilterSet;
+import org.apache.tools.ant.types.FilterSetCollection;
+import org.apache.tools.ant.types.Description;
+import org.apache.tools.ant.types.Path;
+import org.apache.tools.ant.types.Resource;
+import org.apache.tools.ant.types.ResourceFactory;
+import org.apache.tools.ant.types.resources.FileResource;
+import org.apache.tools.ant.util.CollectionUtils;
+import org.apache.tools.ant.util.FileUtils;
+import org.apache.tools.ant.util.JavaEnvUtils;
+import org.apache.tools.ant.util.StringUtils;
+import org.apache.tools.ant.util.VectorSet;
+
+/**
+ * Central representation of an Ant project. This class defines an
+ * Ant project with all of its targets, tasks and various other
+ * properties. It also provides the mechanism to kick off a build using
+ * a particular target name.
+ * <p>
+ * This class also encapsulates methods which allow files to be referred
+ * to using abstract path names which are translated to native system
+ * file paths at runtime.
+ *
+ */
+public class Project implements ResourceFactory {
+    /** Message priority of &quot;error&quot;. */
+    public static final int MSG_ERR = 0;
+    /** Message priority of &quot;warning&quot;. */
+    public static final int MSG_WARN = 1;
+    /** Message priority of &quot;information&quot;. */
+    public static final int MSG_INFO = 2;
+    /** Message priority of &quot;verbose&quot;. */
+    public static final int MSG_VERBOSE = 3;
+    /** Message priority of &quot;debug&quot;. */
+    public static final int MSG_DEBUG = 4;
+
+    /**
+     * Constant for the &quot;visiting&quot; state, used when
+     * traversing a DFS of target dependencies.
+     */
+    private static final String VISITING = "VISITING";
+    /**
+     * Constant for the &quot;visited&quot; state, used when
+     * traversing a DFS of target dependencies.
+     */
+    private static final String VISITED = "VISITED";
+
+    /**
+     * Version constant for Java 1.0 .
+     *
+     * @deprecated since 1.5.x.
+     *             Use {@link JavaEnvUtils#JAVA_1_0} instead.
+     */
+    public static final String JAVA_1_0 = JavaEnvUtils.JAVA_1_0;
+    /**
+     * Version constant for Java 1.1 .
+     *
+     * @deprecated since 1.5.x.
+     *             Use {@link JavaEnvUtils#JAVA_1_1} instead.
+     */
+    public static final String JAVA_1_1 = JavaEnvUtils.JAVA_1_1;
+    /**
+     * Version constant for Java 1.2 .
+     *
+     * @deprecated since 1.5.x.
+     *             Use {@link JavaEnvUtils#JAVA_1_2} instead.
+     */
+    public static final String JAVA_1_2 = JavaEnvUtils.JAVA_1_2;
+    /**
+     * Version constant for Java 1.3 .
+     *
+     * @deprecated since 1.5.x.
+     *             Use {@link JavaEnvUtils#JAVA_1_3} instead.
+     */
+    public static final String JAVA_1_3 = JavaEnvUtils.JAVA_1_3;
+    /**
+     * Version constant for Java 1.4 .
+     *
+     * @deprecated since 1.5.x.
+     *             Use {@link JavaEnvUtils#JAVA_1_4} instead.
+     */
+    public static final String JAVA_1_4 = JavaEnvUtils.JAVA_1_4;
+
+    /** Default filter start token. */
+    public static final String TOKEN_START = FilterSet.DEFAULT_TOKEN_START;
+    /** Default filter end token. */
+    public static final String TOKEN_END = FilterSet.DEFAULT_TOKEN_END;
+
+    /** Instance of a utility class to use for file operations. */
+    private static final FileUtils FILE_UTILS = FileUtils.getFileUtils();
+
+    /** Name of this project. */
+    private String name;
+    /** Description for this project (if any). */
+    private String description;
+
+
+    /** Map of references within the project (paths etc) (String to Object). */
+    private Hashtable<String, Object> references = new AntRefTable();
+
+    /** Map of id references - used for indicating broken build files */
+    private HashMap<String, Object> idReferences = new HashMap<String, Object>();
+
+    /** Name of the project's default target. */
+    private String defaultTarget;
+
+    /** Map from target names to targets (String to Target). */
+    private Hashtable<String, Target> targets = new Hashtable<String, Target>();
+    /** Set of global filters. */
+    private FilterSet globalFilterSet = new FilterSet();
+    {
+        // Initialize the globalFileSet's project
+        globalFilterSet.setProject(this);
+    }
+
+    /**
+     * Wrapper around globalFilterSet. This collection only ever
+     * contains one FilterSet, but the wrapper is needed in order to
+     * make it easier to use the FileUtils interface.
+     */
+    private FilterSetCollection globalFilters
+        = new FilterSetCollection(globalFilterSet);
+
+    /** Project base directory. */
+    private File baseDir;
+
+    /** lock object used when adding/removing listeners */
+    private final Object listenersLock = new Object();
+
+    /** List of listeners to notify of build events. */
+    private volatile BuildListener[] listeners = new BuildListener[0];
+
+    /** for each thread, record whether it is currently executing
+        messageLogged */
+    private final ThreadLocal<Boolean> isLoggingMessage = new ThreadLocal<Boolean>() {
+            protected Boolean initialValue() {
+                return Boolean.FALSE;
+            }
+        };
+
+    /**
+     * The Ant core classloader--may be <code>null</code> if using
+     * parent classloader.
+     */
+    private ClassLoader coreLoader = null;
+
+    /** Records the latest task to be executed on a thread. */
+    private final Map<Thread,Task> threadTasks =
+        Collections.synchronizedMap(new WeakHashMap<Thread, Task>());
+
+    /** Records the latest task to be executed on a thread group. */
+    private final Map<ThreadGroup,Task> threadGroupTasks
+        = Collections.synchronizedMap(new WeakHashMap<ThreadGroup,Task>());
+
+    /**
+     * Called to handle any input requests.
+     */
+    private InputHandler inputHandler = null;
+
+    /**
+     * The default input stream used to read any input.
+     */
+    private InputStream defaultInputStream = null;
+
+    /**
+     * Keep going flag.
+     */
+    private boolean keepGoingMode = false;
+
+    /**
+     * Set the input handler.
+     *
+     * @param handler the InputHandler instance to use for gathering input.
+     */
+    public void setInputHandler(InputHandler handler) {
+        inputHandler = handler;
+    }
+
+    /**
+     * Set the default System input stream. Normally this stream is set to
+     * System.in. This inputStream is used when no task input redirection is
+     * being performed.
+     *
+     * @param defaultInputStream the default input stream to use when input
+     *        is requested.
+     * @since Ant 1.6
+     */
+    public void setDefaultInputStream(InputStream defaultInputStream) {
+        this.defaultInputStream = defaultInputStream;
+    }
+
+    /**
+     * Get this project's input stream.
+     *
+     * @return the InputStream instance in use by this Project instance to
+     * read input.
+     */
+    public InputStream getDefaultInputStream() {
+        return defaultInputStream;
+    }
+
+    /**
+     * Retrieve the current input handler.
+     *
+     * @return the InputHandler instance currently in place for the project
+     *         instance.
+     */
+    public InputHandler getInputHandler() {
+        return inputHandler;
+    }
+
+    /**
+     * Create a new Ant project.
+     */
+    public Project() {
+        inputHandler = new DefaultInputHandler();
+    }
+
+    /**
+     * Create and initialize a subproject. By default the subproject will be of
+     * the same type as its parent. If a no-arg constructor is unavailable, the
+     * <code>Project</code> class will be used.
+     * @return a Project instance configured as a subproject of this Project.
+     * @since Ant 1.7
+     */
+    public Project createSubProject() {
+        Project subProject = null;
+        try {
+            subProject = (Project) (getClass().newInstance());
+        } catch (Exception e) {
+            subProject = new Project();
+        }
+        initSubProject(subProject);
+        return subProject;
+    }
+
+    /**
+     * Initialize a subproject.
+     * @param subProject the subproject to initialize.
+     */
+    public void initSubProject(Project subProject) {
+        ComponentHelper.getComponentHelper(subProject)
+            .initSubProject(ComponentHelper.getComponentHelper(this));
+        subProject.setDefaultInputStream(getDefaultInputStream());
+        subProject.setKeepGoingMode(this.isKeepGoingMode());
+        subProject.setExecutor(getExecutor().getSubProjectExecutor());
+    }
+
+    /**
+     * Initialise the project.
+     *
+     * This involves setting the default task definitions and loading the
+     * system properties.
+     *
+     * @exception BuildException if the default task list cannot be loaded.
+     */
+    public void init() throws BuildException {
+        initProperties();
+
+        ComponentHelper.getComponentHelper(this).initDefaultDefinitions();
+    }
+
+    /**
+     * Initializes the properties.
+     * @exception BuildException if an vital property could not be set.
+     * @since Ant 1.7
+     */
+    public void initProperties() throws BuildException {
+        setJavaVersionProperty();
+        setSystemProperties();
+        setPropertyInternal(MagicNames.ANT_VERSION, Main.getAntVersion());
+        setAntLib();
+    }
+
+    /**
+     * Set a property to the location of ant.jar.
+     * Use the locator to find the location of the Project.class, and
+     * if this is not null, set the property {@link MagicNames#ANT_LIB}
+     * to the result
+     */
+    private void setAntLib() {
+        File antlib = org.apache.tools.ant.launch.Locator.getClassSource(
+            Project.class);
+        if (antlib != null) {
+            setPropertyInternal(MagicNames.ANT_LIB, antlib.getAbsolutePath());
+        }
+    }
+    /**
+     * Factory method to create a class loader for loading classes from
+     * a given path.
+     *
+     * @param path the path from which classes are to be loaded.
+     *
+     * @return an appropriate classloader.
+     */
+    public AntClassLoader createClassLoader(Path path) {
+        return AntClassLoader
+            .newAntClassLoader(getClass().getClassLoader(), this, path, true);
+    }
+
+    /**
+     * Factory method to create a class loader for loading classes from
+     * a given path.
+     *
+     * @param parent the parent classloader for the new loader.
+     * @param path the path from which classes are to be loaded.
+     *
+     * @return an appropriate classloader.
+     */
+    public AntClassLoader createClassLoader(
+        ClassLoader parent, Path path) {
+        return AntClassLoader.newAntClassLoader(parent, this, path, true);
+    }
+
+    /**
+     * Set the core classloader for the project. If a <code>null</code>
+     * classloader is specified, the parent classloader should be used.
+     *
+     * @param coreLoader The classloader to use for the project.
+     *                   May be <code>null</code>.
+     */
+    public void setCoreLoader(ClassLoader coreLoader) {
+        this.coreLoader = coreLoader;
+    }
+
+    /**
+     * Return the core classloader to use for this project.
+     * This may be <code>null</code>, indicating that
+     * the parent classloader should be used.
+     *
+     * @return the core classloader to use for this project.
+     *
+     */
+    public ClassLoader getCoreLoader() {
+        return coreLoader;
+    }
+
+    /**
+     * Add a build listener to the list. This listener will
+     * be notified of build events for this project.
+     *
+     * @param listener The listener to add to the list.
+     *                 Must not be <code>null</code>.
+     */
+    public void addBuildListener(BuildListener listener) {
+        synchronized (listenersLock) {
+            // If the listeners already has this listener, do nothing
+            for (int i = 0; i < listeners.length; i++) {
+                if (listeners[i] == listener) {
+                    return;
+                }
+            }
+            // copy on write semantics
+            BuildListener[] newListeners =
+                new BuildListener[listeners.length + 1];
+            System.arraycopy(listeners, 0, newListeners, 0, listeners.length);
+            newListeners[listeners.length] = listener;
+            listeners = newListeners;
+        }
+    }
+
+    /**
+     * Remove a build listener from the list. This listener
+     * will no longer be notified of build events for this project.
+     *
+     * @param listener The listener to remove from the list.
+     *                 Should not be <code>null</code>.
+     */
+    public void removeBuildListener(BuildListener listener) {
+        synchronized (listenersLock) {
+            // copy on write semantics
+            for (int i = 0; i < listeners.length; i++) {
+                if (listeners[i] == listener) {
+                    BuildListener[] newListeners =
+                        new BuildListener[listeners.length - 1];
+                    System.arraycopy(listeners, 0, newListeners, 0, i);
+                    System.arraycopy(listeners, i + 1, newListeners, i,
+                                     listeners.length - i - 1);
+                    listeners = newListeners;
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Return a copy of the list of build listeners for the project.
+     *
+     * @return a list of build listeners for the project
+     */
+    public Vector<BuildListener> getBuildListeners() {
+        synchronized (listenersLock) {
+            Vector<BuildListener> r = new Vector<BuildListener>(listeners.length);
+            for (int i = 0; i < listeners.length; i++) {
+                r.add(listeners[i]);
+            }
+            return r;
+        }
+    }
+
+    /**
+     * Write a message to the log with the default log level
+     * of MSG_INFO .
+     * @param message The text to log. Should not be <code>null</code>.
+     */
+
+    public void log(String message) {
+        log(message, MSG_INFO);
+    }
+
+    /**
+     * Write a project level message to the log with the given log level.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     */
+    public void log(String message, int msgLevel) {
+        log(message, null, msgLevel);
+    }
+
+    /**
+     * Write a project level message to the log with the given log level.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param throwable The exception causing this log, may be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     * @since 1.7
+     */
+    public void log(String message, Throwable throwable, int msgLevel) {
+        fireMessageLogged(this, message, throwable, msgLevel);
+    }
+
+    /**
+     * Write a task level message to the log with the given log level.
+     * @param task The task to use in the log. Must not be <code>null</code>.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     */
+    public void log(Task task, String message, int msgLevel) {
+        fireMessageLogged(task, message, null, msgLevel);
+    }
+
+    /**
+     * Write a task level message to the log with the given log level.
+     * @param task The task to use in the log. Must not be <code>null</code>.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param throwable The exception causing this log, may be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     * @since 1.7
+     */
+    public void log(Task task, String message, Throwable throwable, int msgLevel) {
+        fireMessageLogged(task, message, throwable, msgLevel);
+    }
+
+    /**
+     * Write a target level message to the log with the given log level.
+     * @param target The target to use in the log.
+     *               Must not be <code>null</code>.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     */
+    public void log(Target target, String message, int msgLevel) {
+        log(target, message, null, msgLevel);
+    }
+
+    /**
+     * Write a target level message to the log with the given log level.
+     * @param target The target to use in the log.
+     *               Must not be <code>null</code>.
+     * @param message The text to log. Should not be <code>null</code>.
+     * @param throwable The exception causing this log, may be <code>null</code>.
+     * @param msgLevel The log priority level to use.
+     * @since 1.7
+     */
+    public void log(Target target, String message, Throwable throwable,
+            int msgLevel) {
+        fireMessageLogged(target, message, throwable, msgLevel);
+    }
+
+    /**
+     * Return the set of global filters.
+     *
+     * @return the set of global filters.
+     */
+    public FilterSet getGlobalFilterSet() {
+        return globalFilterSet;
+    }
+
+    /**
+     * Set a property. Any existing property of the same name
+     * is overwritten, unless it is a user property.
+     * @param name The name of property to set.
+     *             Must not be <code>null</code>.
+     * @param value The new value of the property.
+     *              Must not be <code>null</code>.
+     */
+    public void setProperty(String name, String value) {
+        PropertyHelper.getPropertyHelper(this).setProperty(name, value, true);
+    }
+
+    /**
+     * Set a property if no value currently exists. If the property
+     * exists already, a message is logged and the method returns with
+     * no other effect.
+     *
+     * @param name The name of property to set.
+     *             Must not be <code>null</code>.
+     * @param value The new value of the property.
+     *              Must not be <code>null</code>.
+     * @since 1.5
+     */
+    public void setNewProperty(String name, String value) {
+        PropertyHelper.getPropertyHelper(this).setNewProperty(name, value);
+    }
+
+    /**
+     * Set a user property, which cannot be overwritten by
+     * set/unset property calls. Any previous value is overwritten.
+     * @param name The name of property to set.
+     *             Must not be <code>null</code>.
+     * @param value The new value of the property.
+     *              Must not be <code>null</code>.
+     * @see #setProperty(String,String)
+     */
+    public void setUserProperty(String name, String value) {
+        PropertyHelper.getPropertyHelper(this).setUserProperty(name, value);
+    }
+
+    /**
+     * Set a user property, which cannot be overwritten by set/unset
+     * property calls. Any previous value is overwritten. Also marks
+     * these properties as properties that have not come from the
+     * command line.
+     *
+     * @param name The name of property to set.
+     *             Must not be <code>null</code>.
+     * @param value The new value of the property.
+     *              Must not be <code>null</code>.
+     * @see #setProperty(String,String)
+     */
+    public void setInheritedProperty(String name, String value) {
+        PropertyHelper.getPropertyHelper(this).setInheritedProperty(name, value);
+    }
+
+    /**
+     * Set a property unless it is already defined as a user property
+     * (in which case the method returns silently).
+     *
+     * @param name The name of the property.
+     *             Must not be <code>null</code>.
+     * @param value The property value. Must not be <code>null</code>.
+     */
+    private void setPropertyInternal(String name, String value) {
+        PropertyHelper.getPropertyHelper(this).setProperty(name, value, false);
+    }
+
+    /**
+     * Return the value of a property, if it is set.
+     *
+     * @param propertyName The name of the property.
+     *             May be <code>null</code>, in which case
+     *             the return value is also <code>null</code>.
+     * @return the property value, or <code>null</code> for no match
+     *         or if a <code>null</code> name is provided.
+     */
+    public String getProperty(String propertyName) {
+        Object value = PropertyHelper.getPropertyHelper(this).getProperty(propertyName);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    /**
+     * Replace ${} style constructions in the given value with the
+     * string value of the corresponding data types.
+     *
+     * @param value The string to be scanned for property references.
+     *              May be <code>null</code>.
+     *
+     * @return the given string with embedded property names replaced
+     *         by values, or <code>null</code> if the given string is
+     *         <code>null</code>.
+     *
+     * @exception BuildException if the given value has an unclosed
+     *                           property name, e.g. <code>${xxx</code>.
+     */
+    public String replaceProperties(String value) throws BuildException {
+        return PropertyHelper.getPropertyHelper(this).replaceProperties(null, value, null);
+    }
+
+    /**
+     * Return the value of a user property, if it is set.
+     *
+     * @param propertyName The name of the property.
+     *             May be <code>null</code>, in which case
+     *             the return value is also <code>null</code>.
+     * @return the property value, or <code>null</code> for no match
+     *         or if a <code>null</code> name is provided.
+     */
+     public String getUserProperty(String propertyName) {
+        return (String) PropertyHelper.getPropertyHelper(this).getUserProperty(propertyName);
+    }
+
+    /**
+     * Return a copy of the properties table.
+     * @return a hashtable containing all properties
+     *         (including user properties).
+     */
+    public Hashtable<String, Object> getProperties() {
+        return PropertyHelper.getPropertyHelper(this).getProperties();
+    }
+
+    /**
+     * Return a copy of the user property hashtable.
+     * @return a hashtable containing just the user properties.
+     */
+    public Hashtable<String, Object> getUserProperties() {
+        return PropertyHelper.getPropertyHelper(this).getUserProperties();
+    }
+
+    /**
+     * Return a copy of the inherited property hashtable.
+     * @return a hashtable containing just the inherited properties.
+     * @since Ant 1.8.0
+     */
+    public Hashtable<String, Object> getInheritedProperties() {
+        return PropertyHelper.getPropertyHelper(this).getInheritedProperties();
+    }
+
+    /**
+     * Copy all user properties that have been set on the command
+     * line or a GUI tool from this instance to the Project instance
+     * given as the argument.
+     *
+     * <p>To copy all &quot;user&quot; properties, you will also have to call
+     * {@link #copyInheritedProperties copyInheritedProperties}.</p>
+     *
+     * @param other the project to copy the properties to.  Must not be null.
+     *
+     * @since Ant 1.5
+     */
+    public void copyUserProperties(Project other) {
+        PropertyHelper.getPropertyHelper(this).copyUserProperties(other);
+    }
+
+    /**
+     * Copy all user properties that have not been set on the
+     * command line or a GUI tool from this instance to the Project
+     * instance given as the argument.
+     *
+     * <p>To copy all &quot;user&quot; properties, you will also have to call
+     * {@link #copyUserProperties copyUserProperties}.</p>
+     *
+     * @param other the project to copy the properties to.  Must not be null.
+     *
+     * @since Ant 1.5
+     */
+    public void copyInheritedProperties(Project other) {
+        PropertyHelper.getPropertyHelper(this).copyInheritedProperties(other);
+    }
+
+    /**
+     * Set the default target of the project.
+     *
+     * @param defaultTarget The name of the default target for this project.
+     *                      May be <code>null</code>, indicating that there is
+     *                      no default target.
+     *
+     * @deprecated since 1.5.x.
+     *             Use setDefault.
+     * @see #setDefault(String)
+     */
+    public void setDefaultTarget(String defaultTarget) {
+        setDefault(defaultTarget);
+    }
+
+    /**
+     * Return the name of the default target of the project.
+     * @return name of the default target or
+     *         <code>null</code> if no default has been set.
+     */
+    public String getDefaultTarget() {
+        return defaultTarget;
+    }
+
+    /**
+     * Set the default target of the project.
+     *
+     * @param defaultTarget The name of the default target for this project.
+     *                      May be <code>null</code>, indicating that there is
+     *                      no default target.
+     */
+    public void setDefault(String defaultTarget) {
+        if (defaultTarget != null) {
+            setUserProperty(MagicNames.PROJECT_DEFAULT_TARGET, defaultTarget);
+        }
+        this.defaultTarget = defaultTarget;
+    }
+
+    /**
+     * Set the name of the project, also setting the user
+     * property <code>ant.project.name</code>.
+     *
+     * @param name The name of the project.
+     *             Must not be <code>null</code>.
+     */
+    public void setName(String name) {
+        setUserProperty(MagicNames.PROJECT_NAME,  name);
+        this.name = name;
+    }
+
+    /**
+     * Return the project name, if one has been set.
+     *
+     * @return the project name, or <code>null</code> if it hasn't been set.
+     */
+    public String getName() {
+        return name;
+    }
+
+    /**
+     * Set the project description.
+     *
+     * @param description The description of the project.
+     *                    May be <code>null</code>.
+     */
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    /**
+     * Return the project description, if one has been set.
+     *
+     * @return the project description, or <code>null</code> if it hasn't
+     *         been set.
+     */
+    public String getDescription() {
+        if (description == null) {
+            description = Description.getDescription(this);
+        }
+        return description;
+    }
+
+    /**
+     * Add a filter to the set of global filters.
+     *
+     * @param token The token to filter.
+     *              Must not be <code>null</code>.
+     * @param value The replacement value.
+     *              Must not be <code>null</code>.
+     * @deprecated since 1.4.x.
+     *             Use getGlobalFilterSet().addFilter(token,value)
+     *
+     * @see #getGlobalFilterSet()
+     * @see FilterSet#addFilter(String,String)
+     */
+    public void addFilter(String token, String value) {
+        if (token == null) {
+            return;
+        }
+        globalFilterSet.addFilter(new FilterSet.Filter(token, value));
+    }
+
+    /**
+     * Return a hashtable of global filters, mapping tokens to values.
+     *
+     * @return a hashtable of global filters, mapping tokens to values
+     *         (String to String).
+     *
+     * @deprecated since 1.4.x
+     *             Use getGlobalFilterSet().getFilterHash().
+     *
+     * @see #getGlobalFilterSet()
+     * @see FilterSet#getFilterHash()
+     */
+    public Hashtable<String, String> getFilters() {
+        // we need to build the hashtable dynamically
+        return globalFilterSet.getFilterHash();
+    }
+
+    /**
+     * Set the base directory for the project, checking that
+     * the given filename exists and is a directory.
+     *
+     * @param baseD The project base directory.
+     *              Must not be <code>null</code>.
+     *
+     * @exception BuildException if the directory if invalid.
+     */
+    public void setBasedir(String baseD) throws BuildException {
+        setBaseDirectory(new File(baseD));
+    }
+
+    /**
+     * Set the base directory for the project, checking that
+     * the given file exists and is a directory.
+     *
+     * @param baseDir The project base directory.
+     *                Must not be <code>null</code>.
+     * @exception BuildException if the specified file doesn't exist or
+     *                           isn't a directory.
+     */
+    public void setBaseDirectory(File baseDir) throws BuildException {
+        baseDir = FILE_UTILS.normalize(baseDir.getAbsolutePath());
+        if (!baseDir.exists()) {
+            throw new BuildException("Basedir " + baseDir.getAbsolutePath()
+                + " does not exist");
+        }
+        if (!baseDir.isDirectory()) {
+            throw new BuildException("Basedir " + baseDir.getAbsolutePath()
+                + " is not a directory");
+        }
+        this.baseDir = baseDir;
+        setPropertyInternal(MagicNames.PROJECT_BASEDIR, this.baseDir.getPath());
+        String msg = "Project base dir set to: " + this.baseDir;
+        log(msg, MSG_VERBOSE);
+    }
+
+    /**
+     * @deprecated Use {@link #setBaseDirectory(File)} instead.
+     */
+    @Deprecated
+    public void setBaseDir(File baseDir) throws BuildException {
+        setBaseDirectory(baseDir);
+    }
+
+    /**
+     * Return the base directory of the project as a file object.
+     *
+     * @return the project base directory, or <code>null</code> if the
+     *         base directory has not been successfully set to a valid value.
+     */
+    public File getBaseDir() {
+        if (baseDir == null) {
+            try {
+                setBasedir(".");
+            } catch (BuildException ex) {
+                ex.printStackTrace();
+            }
+        }
+        return baseDir;
+    }
+
+    /**
+     * Set &quot;keep-going&quot; mode. In this mode Ant will try to execute
+     * as many targets as possible. All targets that do not depend
+     * on failed target(s) will be executed.  If the keepGoing settor/getter
+     * methods are used in conjunction with the <code>ant.executor.class</code>
+     * property, they will have no effect.
+     * @param keepGoingMode &quot;keep-going&quot; mode
+     * @since Ant 1.6
+     */
+    public void setKeepGoingMode(boolean keepGoingMode) {
+        this.keepGoingMode = keepGoingMode;
+    }
+
+    /**
+     * Return the keep-going mode.  If the keepGoing settor/getter
+     * methods are used in conjunction with the <code>ant.executor.class</code>
+     * property, they will have no effect.
+     * @return &quot;keep-going&quot; mode
+     * @since Ant 1.6
+     */
+    public boolean isKeepGoingMode() {
+        return this.keepGoingMode;
+    }
+
+    /**
+     * Return the version of Java this class is running under.
+     * @return the version of Java as a String, e.g. "1.1" .
+     * @see org.apache.tools.ant.util.JavaEnvUtils#getJavaVersion
+     * @deprecated since 1.5.x.
+     *             Use org.apache.tools.ant.util.JavaEnvUtils instead.
+     */
+    public static String getJavaVersion() {
+        return JavaEnvUtils.getJavaVersion();
+    }
+
+    /**
+     * Set the <code>ant.java.version</code> property and tests for
+     * unsupported JVM versions. If the version is supported,
+     * verbose log messages are generated to record the Java version
+     * and operating system name.
+     *
+     * @exception BuildException if this Java version is not supported.
+     *
+     * @see org.apache.tools.ant.util.JavaEnvUtils#getJavaVersion
+     */
+    public void setJavaVersionProperty() throws BuildException {
+        String javaVersion = JavaEnvUtils.getJavaVersion();
+        setPropertyInternal(MagicNames.ANT_JAVA_VERSION, javaVersion);
+
+        // sanity check
+        if (!JavaEnvUtils.isAtLeastJavaVersion(JavaEnvUtils.JAVA_1_4))  {
+            throw new BuildException("Ant cannot work on Java prior to 1.4");
+        }
+        log("Detected Java version: " + javaVersion + " in: "
+            + System.getProperty("java.home"), MSG_VERBOSE);
+
+        log("Detected OS: " + System.getProperty("os.name"), MSG_VERBOSE);
+    }
+
+    /**
+     * Add all system properties which aren't already defined as
+     * user properties to the project properties.
+     */
+    public void setSystemProperties() {
+        Properties systemP = System.getProperties();
+        Enumeration<?> e = systemP.propertyNames();
+        while (e.hasMoreElements()) {
+            String propertyName = (String) e.nextElement();
+            String value = systemP.getProperty(propertyName);
+            if (value != null) {
+                this.setPropertyInternal(propertyName, value);
+            }
+        }
+    }
+
+    /**
+     * Add a new task definition to the project.
+     * Attempting to override an existing definition with an
+     * equivalent one (i.e. with the same classname) results in
+     * a verbose log message. Attempting to override an existing definition
+     * with a different one results in a warning log message and
+     * invalidates any tasks which have already been created with the
+     * old definition.
+     *
+     * @param taskName The name of the task to add.
+     *                 Must not be <code>null</code>.
+     * @param taskClass The full name of the class implementing the task.
+     *                  Must not be <code>null</code>.
+     *
+     * @exception BuildException if the class is unsuitable for being an Ant
+     *                           task. An error level message is logged before
+     *                           this exception is thrown.
+     *
+     * @see #checkTaskClass(Class)
+     */
+    public void addTaskDefinition(String taskName, Class<?> taskClass)
+         throws BuildException {
+        ComponentHelper.getComponentHelper(this).addTaskDefinition(taskName,
+                taskClass);
+    }
+
+    /**
+     * Check whether or not a class is suitable for serving as Ant task.
+     * Ant task implementation classes must be public, concrete, and have
+     * a no-arg constructor.
+     *
+     * @param taskClass The class to be checked.
+     *                  Must not be <code>null</code>.
+     *
+     * @exception BuildException if the class is unsuitable for being an Ant
+     *                           task. An error level message is logged before
+     *                           this exception is thrown.
+     */
+    public void checkTaskClass(final Class<?> taskClass) throws BuildException {
+        ComponentHelper.getComponentHelper(this).checkTaskClass(taskClass);
+
+        if (!Modifier.isPublic(taskClass.getModifiers())) {
+            final String message = taskClass + " is not public";
+            log(message, Project.MSG_ERR);
+            throw new BuildException(message);
+        }
+        if (Modifier.isAbstract(taskClass.getModifiers())) {
+            final String message = taskClass + " is abstract";
+            log(message, Project.MSG_ERR);
+            throw new BuildException(message);
+        }
+        try {
+            taskClass.getConstructor();
+            // don't have to check for public, since
+            // getConstructor finds public constructors only.
+        } catch (NoSuchMethodException e) {
+            final String message = "No public no-arg constructor in "
+                + taskClass;
+            log(message, Project.MSG_ERR);
+            throw new BuildException(message);
+        } catch (LinkageError e) {
+            String message = "Could not load " + taskClass + ": " + e;
+            log(message, Project.MSG_ERR);
+            throw new BuildException(message, e);
+        }
+        if (!Task.class.isAssignableFrom(taskClass)) {
+            TaskAdapter.checkTaskClass(taskClass, this);
+        }
+    }
+
+    /**
+     * Return the current task definition hashtable. The returned hashtable is
+     * &quot;live&quot; and so should not be modified.
+     *
+     * @return a map of from task name to implementing class
+     *         (String to Class).
+     */
+    public Hashtable<String, Class<?>> getTaskDefinitions() {
+        return ComponentHelper.getComponentHelper(this).getTaskDefinitions();
+    }
+
+    /**
+     * Return the current task definition map. The returned map is a
+     * copy of the &quot;live&quot; definitions.
+     *
+     * @return a map of from task name to implementing class
+     *         (String to Class).
+     *
+     * @since Ant 1.8.1
+     */
+    public Map<String, Class<?>> getCopyOfTaskDefinitions() {
+        return new HashMap<String, Class<?>>(getTaskDefinitions());
+    }
+
+    /**
+     * Add a new datatype definition.
+     * Attempting to override an existing definition with an
+     * equivalent one (i.e. with the same classname) results in
+     * a verbose log message. Attempting to override an existing definition
+     * with a different one results in a warning log message, but the
+     * definition is changed.
+     *
+     * @param typeName The name of the datatype.
+     *                 Must not be <code>null</code>.
+     * @param typeClass The full name of the class implementing the datatype.
+     *                  Must not be <code>null</code>.
+     */
+    public void addDataTypeDefinition(String typeName, Class<?> typeClass) {
+        ComponentHelper.getComponentHelper(this).addDataTypeDefinition(typeName,
+                typeClass);
+    }
+
+    /**
+     * Return the current datatype definition hashtable. The returned
+     * Hashtable is &quot;live&quot; and so should not be modified.
+     *
+     * @return a map of from datatype name to implementing class
+     *         (String to Class).
+     */
+    public Hashtable<String, Class<?>> getDataTypeDefinitions() {
+        return ComponentHelper.getComponentHelper(this).getDataTypeDefinitions();
+    }
+
+    /**
+     * Return the current datatype definition map. The returned
+     * map is a copy pf the &quot;live&quot; definitions.
+     *
+     * @return a map of from datatype name to implementing class
+     *         (String to Class).
+     *
+     * @since Ant 1.8.1
+     */
+    public Map<String, Class<?>> getCopyOfDataTypeDefinitions() {
+        return new HashMap<String, Class<?>>(getDataTypeDefinitions());
+    }
+
+    /**
+     * Add a <em>new</em> target to the project.
+     *
+     * @param target The target to be added to the project.
+     *               Must not be <code>null</code>.
+     *
+     * @exception BuildException if the target already exists in the project
+     *
+     * @see Project#addOrReplaceTarget(Target)
+     */
+    public void addTarget(Target target) throws BuildException {
+        addTarget(target.getName(), target);
+    }
+
+    /**
+     * Add a <em>new</em> target to the project.
+     *
+     * @param targetName The name to use for the target.
+     *             Must not be <code>null</code>.
+     * @param target The target to be added to the project.
+     *               Must not be <code>null</code>.
+     *
+     * @exception BuildException if the target already exists in the project.
+     *
+     * @see Project#addOrReplaceTarget(String, Target)
+     */
+     public void addTarget(String targetName, Target target)
+         throws BuildException {
+         if (targets.get(targetName) != null) {
+             throw new BuildException("Duplicate target: `" + targetName + "'");
+         }
+         addOrReplaceTarget(targetName, target);
+     }
+
+    /**
+     * Add a target to the project, or replaces one with the same
+     * name.
+     *
+     * @param target The target to be added or replaced in the project.
+     *               Must not be <code>null</code>.
+     */
+    public void addOrReplaceTarget(Target target) {
+        addOrReplaceTarget(target.getName(), target);
+    }
+
+    /**
+     * Add a target to the project, or replaces one with the same
+     * name.
+     *
+     * @param targetName The name to use for the target.
+     *                   Must not be <code>null</code>.
+     * @param target The target to be added or replaced in the project.
+     *               Must not be <code>null</code>.
+     */
+    public void addOrReplaceTarget(String targetName, Target target) {
+        String msg = " +Target: " + targetName;
+        log(msg, MSG_DEBUG);
+        target.setProject(this);
+        targets.put(targetName, target);
+    }
+
+    /**
+     * Return the hashtable of targets. The returned hashtable
+     * is &quot;live&quot; and so should not be modified.
+     * @return a map from name to target (String to Target).
+     */
+    public Hashtable<String, Target> getTargets() {
+        return targets;
+    }
+
+    /**
+     * Return the map of targets. The returned map
+     * is a copy of the &quot;live&quot; targets.
+     * @return a map from name to target (String to Target).
+     * @since Ant 1.8.1
+     */
+    public Map<String, Target> getCopyOfTargets() {
+        return new HashMap<String, Target>(targets);
+    }
+
+    /**
+     * Create a new instance of a task, adding it to a list of
+     * created tasks for later invalidation. This causes all tasks
+     * to be remembered until the containing project is removed
+     * @param taskType The name of the task to create an instance of.
+     *                 Must not be <code>null</code>.
+     *
+     * @return an instance of the specified task, or <code>null</code> if
+     *         the task name is not recognised.
+     *
+     * @exception BuildException if the task name is recognised but task
+     *                           creation fails.
+     */
+    public Task createTask(String taskType) throws BuildException {
+        return ComponentHelper.getComponentHelper(this).createTask(taskType);
+    }
+
+    /**
+     * Create a new instance of a data type.
+     *
+     * @param typeName The name of the data type to create an instance of.
+     *                 Must not be <code>null</code>.
+     *
+     * @return an instance of the specified data type, or <code>null</code> if
+     *         the data type name is not recognised.
+     *
+     * @exception BuildException if the data type name is recognised but
+     *                           instance creation fails.
+     */
+    public Object createDataType(String typeName) throws BuildException {
+        return ComponentHelper.getComponentHelper(this).createDataType(typeName);
+    }
+
+    /**
+     * Set the Executor instance for this Project.
+     * @param e the Executor to use.
+     */
+    public void setExecutor(Executor e) {
+        addReference(MagicNames.ANT_EXECUTOR_REFERENCE, e);
+    }
+
+    /**
+     * Get this Project's Executor (setting it if necessary).
+     * @return an Executor instance.
+     */
+    public Executor getExecutor() {
+        Object o = getReference(MagicNames.ANT_EXECUTOR_REFERENCE);
+        if (o == null) {
+            String classname = getProperty(MagicNames.ANT_EXECUTOR_CLASSNAME);
+            if (classname == null) {
+                classname = DefaultExecutor.class.getName();
+            }
+            log("Attempting to create object of type " + classname, MSG_DEBUG);
+            try {
+                o = Class.forName(classname, true, coreLoader).newInstance();
+            } catch (ClassNotFoundException seaEnEfEx) {
+                //try the current classloader
+                try {
+                    o = Class.forName(classname).newInstance();
+                } catch (Exception ex) {
+                    log(ex.toString(), MSG_ERR);
+                }
+            } catch (Exception ex) {
+                log(ex.toString(), MSG_ERR);
+            }
+            if (o == null) {
+                throw new BuildException(
+                    "Unable to obtain a Target Executor instance.");
+            }
+            setExecutor((Executor) o);
+        }
+        return (Executor) o;
+    }
+
+    /**
+     * Execute the specified sequence of targets, and the targets
+     * they depend on.
+     *
+     * @param names A vector of target name strings to execute.
+     *              Must not be <code>null</code>.
+     *
+     * @exception BuildException if the build failed.
+     */
+    public void executeTargets(Vector<String> names) throws BuildException {
+        setUserProperty(MagicNames.PROJECT_INVOKED_TARGETS,
+                        CollectionUtils.flattenToString(names));
+        getExecutor().executeTargets(this, names.toArray(new String[names.size()]));
+    }
+
+    /**
+     * Demultiplex output so that each task receives the appropriate
+     * messages. If the current thread is not currently executing a task,
+     * the message is logged directly.
+     *
+     * @param output Message to handle. Should not be <code>null</code>.
+     * @param isWarning Whether the text represents an warning (<code>true</code>)
+     *        or information (<code>false</code>).
+     */
+    public void demuxOutput(String output, boolean isWarning) {
+        Task task = getThreadTask(Thread.currentThread());
+        if (task == null) {
+            log(output, isWarning ? MSG_WARN : MSG_INFO);
+        } else {
+            if (isWarning) {
+                task.handleErrorOutput(output);
+            } else {
+                task.handleOutput(output);
+            }
+        }
+    }
+
+    /**
+     * Read data from the default input stream. If no default has been
+     * specified, System.in is used.
+     *
+     * @param buffer the buffer into which data is to be read.
+     * @param offset the offset into the buffer at which data is stored.
+     * @param length the amount of data to read.
+     *
+     * @return the number of bytes read.
+     *
+     * @exception IOException if the data cannot be read.
+     * @since Ant 1.6
+     */
+    public int defaultInput(byte[] buffer, int offset, int length)
+        throws IOException {
+        if (defaultInputStream !=

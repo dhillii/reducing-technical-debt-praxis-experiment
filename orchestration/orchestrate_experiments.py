@@ -983,23 +983,72 @@ def validate() -> None:
 
 # ─── Batch Processing Commands ────────────────────────────────────────────────
 
+def _batch_dataset_options(command):
+    """Add the paths required to run an isolated dataset namespace."""
+    command = click.option("--namespace", help="Isolated experiment namespace (for example: multilang_v1)")(command)
+    command = click.option("--dataset-csv", type=click.Path(path_type=Path), help="Dataset manifest CSV")(command)
+    command = click.option("--prompts-file", type=click.Path(path_type=Path), help="Per-record prompt CSV")(command)
+    command = click.option("--source-dir", type=click.Path(path_type=Path), help="Extracted source-code directory")(command)
+    command = click.option("--manifest-file", type=click.Path(path_type=Path), help="Extraction manifest CSV")(command)
+    return command
+
+
+def _create_batch_run_orchestrator(
+    provider: str,
+    model: str,
+    namespace: Optional[str],
+    dataset_csv: Optional[Path],
+    prompts_file: Optional[Path],
+    source_dir: Optional[Path],
+    manifest_file: Optional[Path],
+) -> BatchRunOrchestrator:
+    """Create a legacy or fully isolated batch orchestrator."""
+    custom_paths = [dataset_csv, prompts_file, source_dir, manifest_file]
+    if namespace and not all(custom_paths):
+        raise click.UsageError(
+            "--namespace requires --dataset-csv, --prompts-file, --source-dir, and --manifest-file"
+        )
+    if not namespace and any(custom_paths):
+        raise click.UsageError("Custom dataset paths require --namespace to protect legacy runs")
+
+    return BatchRunOrchestrator(
+        provider=provider,
+        model_key=model,
+        namespace=namespace,
+        dataset_csv=dataset_csv,
+        prompts_file=prompts_file,
+        source_code_dir=source_dir,
+        extraction_manifest_file=manifest_file,
+    )
+
 @cli.command("batch-submit")
+@_batch_dataset_options
 @click.option(
     "--status",
     type=str,
     default="PENDING",
     help="Which runs to submit (PENDING, IN_PROGRESS, etc.)"
 )
+@click.option(
+    "--batch-size",
+    type=int,
+    default=100,
+    show_default=True,
+    help="Maximum Together requests per batch"
+)
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_submit(status: str, provider: str, model: str) -> None:
+def batch_submit(status: str, batch_size: int, provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Submit all pending refactoring runs to the batch API."""
     setup_logging()
     logger.info(f"Submitting {status} runs as a single batch (provider={provider}, model={model})")
 
     try:
-        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
-        batch_ids = orchestrator.submit_batches(status_filter=status)
+        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
+        batch_ids = orchestrator.submit_batches(
+            status_filter=status,
+            batch_size=batch_size,
+        )
 
         logger.info(f"✅ Successfully submitted {len(batch_ids)} batches:")
         for batch_id in batch_ids:
@@ -1016,14 +1065,15 @@ def batch_submit(status: str, provider: str, model: str) -> None:
 
 
 @cli.command("batch-poll")
+@_batch_dataset_options
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_poll(provider: str, model: str) -> None:
+def batch_poll(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Poll status of submitted batches."""
     setup_logging()
 
     try:
-        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
+        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
         summary = orchestrator.poll_batches()
 
         if not summary:
@@ -1060,6 +1110,7 @@ _ALL_MODELS = [
 
 
 @cli.command("batch-stream")
+@_batch_dataset_options
 @click.option(
     "--poll-interval",
     type=int,
@@ -1075,10 +1126,12 @@ _ALL_MODELS = [
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | qwen_3_5_9b | gpt_oss_20b | llama_70b | gpt_oss_120b")
 @click.option("--all-models", is_flag=True, default=False, help="Stream all models sequentially (ignores --provider and --model)")
-def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, all_models: bool) -> None:
+def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, all_models: bool, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Stream results from batches as they complete."""
     setup_logging()
 
+    if all_models and namespace:
+        raise click.UsageError("--all-models cannot be used with an isolated namespace")
     targets = _ALL_MODELS if all_models else [(provider, model)]
 
     for prov, mdl in targets:
@@ -1087,7 +1140,7 @@ def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, 
         logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours")
         logger.info("=" * 80)
         try:
-            orchestrator = BatchRunOrchestrator(provider=prov, model_key=mdl)
+            orchestrator = _create_batch_run_orchestrator(prov, mdl, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
             summary = orchestrator.stream_batch_results(
                 poll_interval=poll_interval,
                 max_wait_hours=max_hours,
@@ -1103,15 +1156,16 @@ def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, 
 
 
 @cli.command("batch-retrieve")
+@_batch_dataset_options
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_retrieve(provider: str, model: str) -> None:
+def batch_retrieve(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Retrieve results from completed batches."""
     setup_logging()
     logger.info(f"Retrieving results from completed batches (provider={provider}, model={model})...")
 
     try:
-        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
+        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
         count = orchestrator.retrieve_and_process_results(auto_update_csv=True)
 
         logger.info(f"✅ Retrieved and processed {count} results")
@@ -1123,16 +1177,17 @@ def batch_retrieve(provider: str, model: str) -> None:
 
 
 @cli.command("batch-cancel")
+@_batch_dataset_options
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_cancel(provider: str, model: str) -> None:
+def batch_cancel(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Cancel all submitted batches and reset PENDING state for resubmission."""
     setup_logging()
     logger.info(f"Cancelling all submitted batches (provider={provider}, model={model})...")
 
     try:
         from api.batch_processor import AnthropicBatchProvider, TogetherBatchProvider
-        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
+        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
         batch_ids = orchestrator._load_batch_ids(None)
 
         if not batch_ids:

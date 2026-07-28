@@ -34,6 +34,7 @@ from utils.config import (
     ACTIVE_PROMPTS_FILE,
     SOURCE_CODE_DIR,
     EXTRACTION_MANIFEST_FILE,
+    SONARCLOUD_PROJECT_KEY,
     SONARCLOUD_COMPONENT_TEMPLATE,
     CLAUDE_MODEL,
     CLAUDE_TEMPERATURE,
@@ -83,10 +84,28 @@ _LOCAL_COMPUTED_COLUMNS = [
 LOCATION_CONTEXT_LINES = 3
 
 
+def _validate_namespace(namespace: str) -> str:
+    """Return a filesystem-safe namespace used to isolate an experiment."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", namespace):
+        raise ValueError(
+            "namespace must contain only letters, numbers, underscores, and hyphens"
+        )
+    return namespace
+
+
 class BatchRunOrchestrator:
     """Orchestrates batch refactoring experiments end-to-end."""
 
-    def __init__(self, provider: str = "anthropic", model_key: str = "haiku"):
+    def __init__(
+        self,
+        provider: str = "anthropic",
+        model_key: str = "haiku",
+        namespace: Optional[str] = None,
+        dataset_csv: Optional[Path] = None,
+        prompts_file: Optional[Path] = None,
+        source_code_dir: Optional[Path] = None,
+        extraction_manifest_file: Optional[Path] = None,
+    ):
         """
         Initialize batch orchestrator.
 
@@ -94,9 +113,27 @@ class BatchRunOrchestrator:
             provider:  "anthropic" (default) or "together"
             model_key: "haiku" for Anthropic; one of "llama_8b", "gpt_oss_20b",
                        "llama_70b", "gpt_oss_120b" for Together AI
+            namespace: Isolated experiment name. Omit only for legacy runs.
+            dataset_csv: Manifest CSV for this experiment.
+            prompts_file: Per-record prompt CSV for this experiment.
+            source_code_dir: Directory containing extracted source files.
+            extraction_manifest_file: Mapping from dataset paths to source files.
         """
         self.provider = provider
         self.model_key = model_key
+        self.namespace = _validate_namespace(namespace) if namespace else None
+        self.dataset_csv = Path(dataset_csv or CSV_INPUT_FILE)
+        self.prompts_file = Path(prompts_file or ACTIVE_PROMPTS_FILE)
+        self.source_code_dir = Path(source_code_dir or SOURCE_CODE_DIR)
+        self.extraction_manifest_file = Path(extraction_manifest_file or EXTRACTION_MANIFEST_FILE)
+
+        if self.namespace:
+            self.experiment_dir = PROJECT_ROOT / "experiments" / self.namespace
+            self.batch_dir = self.experiment_dir / "batches"
+            self.experiment_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.experiment_dir = PROJECT_ROOT
+            self.batch_dir = TOGETHER_BATCH_IDS_DIR
 
         # --- Resolve per-provider/model configuration ---
         if provider == "anthropic":
@@ -105,9 +142,14 @@ class BatchRunOrchestrator:
             self.temperature = CLAUDE_TEMPERATURE
             self.gpt_oss_prefix = False
             self.disable_reasoning = False
-            self.conditions_root = "conditions"
-            self.state_file = EXPERIMENT_STATE_FILE
-            self.output_csv = CSV_INPUT_FILE
+            self.conditions_root = (
+                f"experiments/{self.namespace}/conditions" if self.namespace else "conditions"
+            )
+            self.state_file = (
+                self.experiment_dir / "experiment_state.json"
+                if self.namespace else EXPERIMENT_STATE_FILE
+            )
+            self.output_csv = self.experiment_dir / "data" / "dataset_haiku.csv" if self.namespace else CSV_INPUT_FILE
             batch_provider = AnthropicBatchProvider()
         elif provider == "together":
             if model_key not in TOGETHER_MODELS:
@@ -121,10 +163,19 @@ class BatchRunOrchestrator:
             self.temperature = TOGETHER_TEMPERATURE
             self.gpt_oss_prefix = cfg["gpt_oss_prefix"]
             self.disable_reasoning = cfg.get("disable_reasoning", False)
-            self.conditions_root = f"conditions_{model_key}"
-            self.state_file = PROJECT_ROOT / f"experiment_state_{model_key}.json"
-            self.output_csv = DATA_DIR / f"together_dataset_{model_key}.csv"
-            batch_provider = TogetherBatchProvider(model_key=model_key)
+            self.conditions_root = (
+                f"experiments/{self.namespace}/conditions_{model_key}"
+                if self.namespace else f"conditions_{model_key}"
+            )
+            self.state_file = (
+                self.experiment_dir / f"experiment_state_{model_key}.json"
+                if self.namespace else PROJECT_ROOT / f"experiment_state_{model_key}.json"
+            )
+            self.output_csv = (
+                self.experiment_dir / "data" / f"together_dataset_{model_key}.csv"
+                if self.namespace else DATA_DIR / f"together_dataset_{model_key}.csv"
+            )
+            batch_provider = TogetherBatchProvider(model_key=model_key, batch_dir=self.batch_dir)
         else:
             raise ValueError(f"Unknown provider {provider!r}. Use 'anthropic' or 'together'.")
 
@@ -145,7 +196,10 @@ class BatchRunOrchestrator:
             f"BatchRunOrchestrator: provider={provider}, model={self.model}, "
             f"csv={self.output_csv.name}, state={self.state_file.name}"
         )
-        logger.info(f"Loaded CSV: {len(self.csv_df)} records, {len(self._prompts)} prompts")
+        logger.info(
+            f"Loaded CSV: {len(self.csv_df)} records, {len(self._prompts)} prompts, "
+            f"namespace={self.namespace or 'legacy'}"
+        )
 
     # -------------------------------------------------------------------------
     # CSV helpers
@@ -161,7 +215,7 @@ class BatchRunOrchestrator:
             f"Output CSV not found at {self.output_csv}. "
             f"Seeding from shell CSV: {CSV_INPUT_FILE}"
         )
-        shell_df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
+        shell_df = pd.read_csv(self.dataset_csv, dtype={"record_id": str})
         self.output_csv.parent.mkdir(parents=True, exist_ok=True)
         shell_df.to_csv(self.output_csv, index=False)
         logger.info(f"Initialized Together AI CSV with {len(shell_df)} rows: {self.output_csv}")
@@ -188,10 +242,10 @@ class BatchRunOrchestrator:
         if self._manifest_index is not None:
             return self._manifest_index
 
-        if not EXTRACTION_MANIFEST_FILE.exists():
-            raise FileNotFoundError(f"Extraction manifest not found: {EXTRACTION_MANIFEST_FILE}")
+        if not self.extraction_manifest_file.exists():
+            raise FileNotFoundError(f"Extraction manifest not found: {self.extraction_manifest_file}")
 
-        manifest_df = pd.read_csv(EXTRACTION_MANIFEST_FILE)
+        manifest_df = pd.read_csv(self.extraction_manifest_file)
         mapping: Dict[Tuple[str, str], int] = {}
 
         for _, row in manifest_df.iterrows():
@@ -229,11 +283,9 @@ class BatchRunOrchestrator:
                 f"Could not resolve file_id for project={project!r}, file_path={file_path!r}"
             )
 
-        candidates = sorted(SOURCE_CODE_DIR.glob(f"file_{file_id:04d}_*"))
+        candidates = sorted(self.source_code_dir.glob(f"file_{file_id:04d}_*"))
         if not candidates:
-            raise FileNotFoundError(
-                f"No source file for file_id={file_id:04d} under {SOURCE_CODE_DIR}"
-            )
+            raise FileNotFoundError(f"No source file for file_id={file_id:04d} under {self.source_code_dir}")
 
         file_name = str(csv_row.get("file_name", "")).strip()
         if file_name:
@@ -307,6 +359,7 @@ class BatchRunOrchestrator:
                 "temperature": self.temperature,
                 "reasoning_effort": "medium" if self.gpt_oss_prefix else None,
                 "disable_reasoning": self.disable_reasoning,
+                "file_extension": source_file.suffix or ".txt",
             })
 
         logger.info(f"Prepared {len(requests)} batch requests")
@@ -314,13 +367,14 @@ class BatchRunOrchestrator:
 
     def submit_batches(
         self,
-        status_filter: str = "PENDING"
+        status_filter: str = "PENDING",
+        batch_size: int = 100,
     ) -> List[str]:
         """
-        Submit all pending runs as a single batch.
+        Submit pending runs in independently retryable batches.
 
         Returns:
-            List of batch IDs (always length 1)
+            List of submitted batch IDs.
         """
         requests = self.prepare_batch_requests(status_filter)
 
@@ -328,12 +382,15 @@ class BatchRunOrchestrator:
             logger.warning(f"No {status_filter} runs found")
             return []
 
-        batch_ids = self.batch_orchestrator.create_and_submit_batches(requests)
+        batch_ids = self.batch_orchestrator.create_and_submit_batches(
+            requests,
+            batch_size=batch_size,
+        )
 
         if self.provider == "anthropic":
             batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
         else:
-            batch_ids_file = TOGETHER_BATCH_IDS_DIR / f"batch_ids_{self.model_key}.json"
+            batch_ids_file = self.batch_dir / f"batch_ids_{self.model_key}.json"
         batch_ids_file.parent.mkdir(parents=True, exist_ok=True)
         with open(batch_ids_file, "w") as f:
             json.dump({
@@ -457,6 +514,7 @@ class BatchRunOrchestrator:
                     run_number=run.run_number,
                     code=code,
                     conditions_root=self.conditions_root,
+                    file_extension=source_file.suffix or ".txt",
                 )
             except Exception as e:
                 logger.warning(f"Failed to write code file for {record_id}: {e}")
@@ -487,8 +545,9 @@ class BatchRunOrchestrator:
             # Calculate local before/after metrics
             try:
                 source_code = source_file.read_text(encoding="utf-8")
-                pre_local = analyze_code_metrics(source_code, extension="js")
-                post_local = analyze_code_metrics(code, extension="js")
+                extension = source_file.suffix.lstrip(".") or "txt"
+                pre_local = analyze_code_metrics(source_code, extension=extension)
+                post_local = analyze_code_metrics(code, extension=extension)
                 local_deltas = local_metric_delta(pre_local, post_local)
                 nfr_score = local_nfr_alignment_score(pre_local, post_local)
             except Exception as e:
@@ -500,11 +559,18 @@ class BatchRunOrchestrator:
             self.state_manager.update_run_status(record_id, "COMPLETED", "CSV_UPDATE")
 
             # Build SonarCloud component key
-            sonar_key = SONARCLOUD_COMPONENT_TEMPLATE.format(
-                condition=run.condition,
-                file_id=run.file_id,
-                run_number=run.run_number,
-            )
+            if self.namespace:
+                relative_path = (
+                    f"{self.conditions_root}/{run.condition}/file_{run.file_id:04d}/"
+                    f"run_{run.run_number}{source_file.suffix or '.txt'}"
+                )
+                sonar_key = f"{SONARCLOUD_PROJECT_KEY}:{relative_path}"
+            else:
+                sonar_key = SONARCLOUD_COMPONENT_TEMPLATE.format(
+                    condition=run.condition,
+                    file_id=run.file_id,
+                    run_number=run.run_number,
+                )
 
             # Update CSV row — including model/temperature written by both providers
             self._ensure_text_columns()
@@ -655,7 +721,7 @@ class BatchRunOrchestrator:
         if self.provider == "anthropic":
             batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
         else:
-            batch_ids_file = TOGETHER_BATCH_IDS_DIR / f"batch_ids_{self.model_key}.json"
+            batch_ids_file = self.batch_dir / f"batch_ids_{self.model_key}.json"
         if batch_ids_file.exists():
             try:
                 with open(batch_ids_file) as f:
@@ -670,14 +736,14 @@ class BatchRunOrchestrator:
 
     def _load_prompts(self) -> Dict[str, str]:
         """Load record_id -> active_prompt mapping from active_prompts_for_experiment.csv."""
-        if not ACTIVE_PROMPTS_FILE.exists():
+        if not self.prompts_file.exists():
             raise FileNotFoundError(
-                f"Active prompts file not found: {ACTIVE_PROMPTS_FILE}\n"
+                f"Active prompts file not found: {self.prompts_file}\n"
                 "Copy active_prompts_for_experiment.csv to the data/ directory."
             )
-        df = pd.read_csv(ACTIVE_PROMPTS_FILE, dtype={"record_id": str})
+        df = pd.read_csv(self.prompts_file, dtype={"record_id": str})
         mapping = dict(zip(df["record_id"], df["active_prompt"]))
-        logger.info(f"Loaded {len(mapping)} prompts from {ACTIVE_PROMPTS_FILE.name}")
+        logger.info(f"Loaded {len(mapping)} prompts from {self.prompts_file.name}")
         return mapping
 
     @staticmethod
