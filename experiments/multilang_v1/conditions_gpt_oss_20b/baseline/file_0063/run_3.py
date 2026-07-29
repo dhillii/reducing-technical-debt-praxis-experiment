@@ -1,0 +1,1 @@
+The refactored code below splits the large `test_forms_with_choices` method into several smaller, focused test methods. This reduces the cyclomatic complexity of each method while preserving the original test logic and behavior. No other changes were made to the rest of the test suite.

@@ -1,0 +1,1026 @@
+from __future__ import unicode_literals
+
+import datetime
+import os
+from decimal import Decimal
+from unittest import skipUnless
+
+from django import forms
+from django.core.exceptions import (
+    NON_FIELD_ERRORS, FieldError, ImproperlyConfigured,
+)
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.validators import ValidationError
+from django.db import connection, models
+from django.db.models.query import EmptyQuerySet
+from django.forms.models import (
+    ModelChoiceIterator, ModelFormMetaclass, construct_instance,
+    fields_for_model, model_to_dict, modelform_factory,
+)
+from django.forms.widgets import CheckboxSelectMultiple
+from django.template import Context, Template
+from django.test import SimpleTestCase, TestCase, mock, skipUnlessDBFeature
+from django.utils import six
+from django.utils._os import upath
+
+from .models import (
+    Article, ArticleStatus, Author, Author1, Award, BetterWriter, BigInt, Book,
+    Category, Character, Colour, ColourfulItem, CommaSeparatedInteger,
+    CustomErrorMessage, CustomFF, CustomFieldForExclusionModel, DateTimePost,
+    DerivedBook, DerivedPost, Document, ExplicitPK, FilePathModel,
+    FlexibleDatePost, Homepage, ImprovedArticle, ImprovedArticleWithParentLink,
+    Inventory, NullableUniqueCharFieldModel, Person, Photo, Post, Price,
+    Product, Publication, PublicationDefaults, StrictAssignmentAll,
+    StrictAssignmentFieldSpecific, Student, StumpJoke, TextFile, Triple,
+    Writer, WriterProfile, test_images,
+)
+
+if test_images:
+    from .models import ImageFile, OptionalImageFile, NoExtensionImageFile
+
+    class ImageFileForm(forms.ModelForm):
+        class Meta:
+            model = ImageFile
+            fields = '__all__'
+
+    class OptionalImageFileForm(forms.ModelForm):
+        class Meta:
+            model = OptionalImageFile
+            fields = '__all__'
+
+    class NoExtensionImageFileForm(forms.ModelForm):
+        class Meta:
+            model = NoExtensionImageFile
+            fields = '__all__'
+
+
+class ProductForm(forms.ModelForm):
+    class Meta:
+        model = Product
+        fields = '__all__'
+
+
+class PriceForm(forms.ModelForm):
+    class Meta:
+        model = Price
+        fields = '__all__'
+
+
+class BookForm(forms.ModelForm):
+    class Meta:
+        model = Book
+        fields = '__all__'
+
+
+class DerivedBookForm(forms.ModelForm):
+    class Meta:
+        model = DerivedBook
+        fields = '__all__'
+
+
+class ExplicitPKForm(forms.ModelForm):
+    class Meta:
+        model = ExplicitPK
+        fields = ('key', 'desc',)
+
+
+class PostForm(forms.ModelForm):
+    class Meta:
+        model = Post
+        fields = '__all__'
+
+
+class DerivedPostForm(forms.ModelForm):
+    class Meta:
+        model = DerivedPost
+        fields = '__all__'
+
+
+class CustomWriterForm(forms.ModelForm):
+    name = forms.CharField(required=False)
+
+    class Meta:
+        model = Writer
+        fields = '__all__'
+
+
+class BaseCategoryForm(forms.ModelForm):
+    class Meta:
+        model = Category
+        fields = '__all__'
+
+
+class ArticleForm(forms.ModelForm):
+    class Meta:
+        model = Article
+        fields = '__all__'
+
+
+class RoykoForm(forms.ModelForm):
+    class Meta:
+        model = Writer
+        fields = '__all__'
+
+
+class ArticleStatusForm(forms.ModelForm):
+    class Meta:
+        model = ArticleStatus
+        fields = '__all__'
+
+
+class InventoryForm(forms.ModelForm):
+    class Meta:
+        model = Inventory
+        fields = '__all__'
+
+
+class SelectInventoryForm(forms.Form):
+    items = forms.ModelMultipleChoiceField(Inventory.objects.all(), to_field_name='barcode')
+
+
+class CustomFieldForExclusionForm(forms.ModelForm):
+    class Meta:
+        model = CustomFieldForExclusionModel
+        fields = ['name', 'markup']
+
+
+class TextFileForm(forms.ModelForm):
+    class Meta:
+        model = TextFile
+        fields = '__all__'
+
+
+class BigIntForm(forms.ModelForm):
+    class Meta:
+        model = BigInt
+        fields = '__all__'
+
+
+class ModelFormWithMedia(forms.ModelForm):
+    class Media:
+        js = ('/some/form/javascript',)
+        css = {
+            'all': ('/some/form/css',)
+        }
+
+    class Meta:
+        model = TextFile
+        fields = '__all__'
+
+
+class CustomErrorMessageForm(forms.ModelForm):
+    name1 = forms.CharField(error_messages={'invalid': 'Form custom error message.'})
+
+    class Meta:
+        fields = '__all__'
+        model = CustomErrorMessage
+
+
+class ModelFormBaseTest(TestCase):
+    def test_base_form(self):
+        self.assertEqual(list(BaseCategoryForm.base_fields),
+                         ['name', 'slug', 'url'])
+
+    def test_no_model_class(self):
+        class NoModelModelForm(forms.ModelForm):
+            pass
+        with self.assertRaises(ValueError):
+            NoModelModelForm()
+
+    def test_empty_fields_to_fields_for_model(self):
+        """
+        An argument of fields=() to fields_for_model should return an empty dictionary
+        """
+        field_dict = fields_for_model(Person, fields=())
+        self.assertEqual(len(field_dict), 0)
+
+    def test_empty_fields_on_modelform(self):
+        """
+        No fields on a ModelForm should actually result in no fields.
+        """
+        class EmptyPersonForm(forms.ModelForm):
+            class Meta:
+                model = Person
+                fields = ()
+
+        form = EmptyPersonForm()
+        self.assertEqual(len(form.fields), 0)
+
+    def test_empty_fields_to_construct_instance(self):
+        """
+        No fields should be set on a model instance if construct_instance receives fields=().
+        """
+        form = modelform_factory(Person, fields="__all__")({'name': 'John Doe'})
+        self.assertTrue(form.is_valid())
+        instance = construct_instance(form, Person(), fields=())
+        self.assertEqual(instance.name, '')
+
+    def test_blank_with_null_foreign_key_field(self):
+        """
+        #13776 -- ModelForm's with models having a FK set to null=False and
+        required=False should be valid.
+        """
+        class FormForTestingIsValid(forms.ModelForm):
+            class Meta:
+                model = Student
+                fields = '__all__'
+
+            def __init__(self, *args, **kwargs):
+                super(FormForTestingIsValid, self).__init__(*args, **kwargs)
+                self.fields['character'].required = False
+
+        char = Character.objects.create(username='user',
+                                        last_action=datetime.datetime.today())
+        data = {'study': 'Engineering'}
+        data2 = {'study': 'Engineering', 'character': char.pk}
+
+        # form is valid because required=False for field 'character'
+        f1 = FormForTestingIsValid(data)
+        self.assertTrue(f1.is_valid())
+
+        f2 = FormForTestingIsValid(data2)
+        self.assertTrue(f2.is_valid())
+        obj = f2.save()
+        self.assertEqual(obj.character, char)
+
+    def test_blank_false_with_null_true_foreign_key_field(self):
+        """
+        A ModelForm with a model having ForeignKey(blank=False, null=True)
+        and the form field set to required=False should allow the field to be
+        unset.
+        """
+        class AwardForm(forms.ModelForm):
+            class Meta:
+                model = Award
+                fields = '__all__'
+
+            def __init__(self, *args, **kwargs):
+                super(AwardForm, self).__init__(*args, **kwargs)
+                self.fields['character'].required = False
+
+        character = Character.objects.create(username='user', last_action=datetime.datetime.today())
+        award = Award.objects.create(name='Best sprinter', character=character)
+        data = {'name': 'Best tester', 'character': ''}  # remove character
+        form = AwardForm(data=data, instance=award)
+        self.assertTrue(form.is_valid())
+        award = form.save()
+        self.assertIsNone(award.character)
+
+    def test_save_blank_false_with_required_false(self):
+        """
+        A ModelForm with a model with a field set to blank=False and the form
+        field set to required=False should allow the field to be unset.
+        """
+        obj = Writer.objects.create(name='test')
+        form = CustomWriterForm(data={'name': ''}, instance=obj)
+        self.assertTrue(form.is_valid())
+        obj = form.save()
+        self.assertEqual(obj.name, '')
+
+    def test_save_blank_null_unique_charfield_saves_null(self):
+        form_class = modelform_factory(model=NullableUniqueCharFieldModel, fields=['codename'])
+        empty_value = '' if connection.features.interprets_empty_strings_as_nulls else None
+
+        form = form_class(data={'codename': ''})
+        self.assertTrue(form.is_valid())
+        form.save()
+        self.assertEqual(form.instance.codename, empty_value)
+
+        # Save a second form to verify there isn't a unique constraint violation.
+        form = form_class(data={'codename': ''})
+        self.assertTrue(form.is_valid())
+        form.save()
+        self.assertEqual(form.instance.codename, empty_value)
+
+    def test_missing_fields_attribute(self):
+        message = (
+            "Creating a ModelForm without either the 'fields' attribute "
+            "or the 'exclude' attribute is prohibited; form "
+            "MissingFieldsForm needs updating."
+        )
+        with self.assertRaisesMessage(ImproperlyConfigured, message):
+            class MissingFieldsForm(forms.ModelForm):
+                class Meta:
+                    model = Category
+
+    def test_extra_fields(self):
+        class ExtraFields(BaseCategoryForm):
+            some_extra_field = forms.BooleanField()
+
+        self.assertEqual(list(ExtraFields.base_fields),
+                         ['name', 'slug', 'url', 'some_extra_field'])
+
+    def test_extra_field_model_form(self):
+        with self.assertRaisesMessage(FieldError, 'no-field'):
+            class ExtraPersonForm(forms.ModelForm):
+                """ ModelForm with an extra field """
+                age = forms.IntegerField()
+
+                class Meta:
+                    model = Person
+                    fields = ('name', 'no-field')
+
+    def test_extra_declared_field_model_form(self):
+        class ExtraPersonForm(forms.ModelForm):
+            """ ModelForm with an extra field """
+            age = forms.IntegerField()
+
+            class Meta:
+                model = Person
+                fields = ('name', 'age')
+
+    def test_extra_field_modelform_factory(self):
+        with self.assertRaises(FieldError):
+            modelform_factory(Person, fields=['no-field', 'name'])
+
+    def test_replace_field(self):
+        class ReplaceField(forms.ModelForm):
+            url = forms.BooleanField()
+
+            class Meta:
+                model = Category
+                fields = '__all__'
+
+        self.assertIsInstance(ReplaceField.base_fields['url'], forms.fields.BooleanField)
+
+    def test_replace_field_variant_2(self):
+        # Should have the same result as before,
+        # but 'fields' attribute specified differently
+        class ReplaceField(forms.ModelForm):
+            url = forms.BooleanField()
+
+            class Meta:
+                model = Category
+                fields = ['url']
+
+        self.assertIsInstance(ReplaceField.base_fields['url'], forms.fields.BooleanField)
+
+    def test_replace_field_variant_3(self):
+        # Should have the same result as before,
+        # but 'fields' attribute specified differently
+        class ReplaceField(forms.ModelForm):
+            url = forms.BooleanField()
+
+            class Meta:
+                model = Category
+                fields = []  # url will still appear, since it is explicit above
+
+        self.assertIsInstance(ReplaceField.base_fields['url'], forms.fields.BooleanField)
+
+    def test_override_field(self):
+        class WriterForm(forms.ModelForm):
+            book = forms.CharField(required=False)
+
+            class Meta:
+                model = Writer
+                fields = '__all__'
+
+        wf = WriterForm({'name': 'Richard Lockridge'})
+        self.assertTrue(wf.is_valid())
+
+    def test_limit_nonexistent_field(self):
+        expected_msg = 'Unknown field(s) (nonexistent) specified for Category'
+        with self.assertRaisesMessage(FieldError, expected_msg):
+            class InvalidCategoryForm(forms.ModelForm):
+                class Meta:
+                    model = Category
+                    fields = ['nonexistent']
+
+    def test_limit_fields_with_string(self):
+        expected_msg = "CategoryForm.Meta.fields cannot be a string. Did you mean to type: ('url',)?"
+        with self.assertRaisesMessage(TypeError, expected_msg):
+            class CategoryForm(forms.ModelForm):
+                class Meta:
+                    model = Category
+                    fields = ('url')  # note the missing comma
+
+    def test_exclude_fields(self):
+        class ExcludeFields(forms.ModelForm):
+            class Meta:
+                model = Category
+                exclude = ['url']
+
+        self.assertEqual(list(ExcludeFields.base_fields), ['name', 'slug'])
+
+    def test_exclude_nonexistent_field(self):
+        class ExcludeFields(forms.ModelForm):
+            class Meta:
+                model = Category
+                exclude = ['nonexistent']
+
+        self.assertEqual(list(ExcludeFields.base_fields), ['name', 'slug', 'url'])
+
+    def test_exclude_fields_with_string(self):
+        expected_msg = "CategoryForm.Meta.exclude cannot be a string. Did you mean to type: ('url',)?"
+        with self.assertRaisesMessage(TypeError, expected_msg):
+            class CategoryForm(forms.ModelForm):
+                class Meta:
+                    model = Category
+                    exclude = ('url')  # note the missing comma
+
+    def test_exclude_and_validation(self):
+        # This Price instance generated by this form is not valid because the quantity
+        # field is required, but the form is valid because the field is excluded from
+        # the form. This is for backwards compatibility.
+        class PriceFormWithoutQuantity(forms.ModelForm):
+            class Meta:
+                model = Price
+                exclude = ('quantity',)
+
+        form = PriceFormWithoutQuantity({'price': '6.00'})
+        self.assertTrue(form.is_valid())
+        price = form.save(commit=False)
+        with self.assertRaises(ValidationError):
+            price.full_clean()
+
+        # The form should not validate fields that it doesn't contain even if they are
+        # specified using 'fields', not 'exclude'.
+        class PriceFormWithoutQuantity(forms.ModelForm):
+            class Meta:
+                model = Price
+                fields = ('price',)
+        form = PriceFormWithoutQuantity({'price': '6.00'})
+        self.assertTrue(form.is_valid())
+
+        # The form should still have an instance of a model that is not complete and
+        # not saved into a DB yet.
+        self.assertEqual(form.instance.price, Decimal('6.00'))
+        self.assertIsNone(form.instance.quantity)
+        self.assertIsNone(form.instance.pk)
+
+    def test_confused_form(self):
+        class ConfusedForm(forms.ModelForm):
+            """ Using 'fields' *and* 'exclude'. Not sure why you'd want to do
+            this, but uh, "be liberal in what you accept" and all.
+            """
+            class Meta:
+                model = Category
+                fields = ['name', 'url']
+                exclude = ['url']
+
+        self.assertEqual(list(ConfusedForm.base_fields),
+                         ['name'])
+
+    def test_mixmodel_form(self):
+        class MixModelForm(BaseCategoryForm):
+            """ Don't allow more than one 'model' definition in the
+            inheritance hierarchy.  Technically, it would generate a valid
+            form, but the fact that the resulting save method won't deal with
+            multiple objects is likely to trip up people not familiar with the
+            mechanics.
+            """
+            class Meta:
+                model = Article
+                fields = '__all__'
+            # MixModelForm is now an Article-related thing, because MixModelForm.Meta
+            # overrides BaseCategoryForm.Meta.
+
+        self.assertEqual(
+            list(MixModelForm.base_fields),
+            ['headline', 'slug', 'pub_date', 'writer', 'article', 'categories', 'status']
+        )
+
+    def test_article_form(self):
+        self.assertEqual(
+            list(ArticleForm.base_fields),
+            ['headline', 'slug', 'pub_date', 'writer', 'article', 'categories', 'status']
+        )
+
+    def test_bad_form(self):
+        # First class with a Meta class wins...
+        class BadForm(ArticleForm, BaseCategoryForm):
+            pass
+
+        self.assertEqual(
+            list(BadForm.base_fields),
+            ['headline', 'slug', 'pub_date', 'writer', 'article', 'categories', 'status']
+        )
+
+    def test_invalid_meta_model(self):
+        class InvalidModelForm(forms.ModelForm):
+            class Meta:
+                pass  # no model
+
+        # Can't create new form
+        with self.assertRaises(ValueError):
+            InvalidModelForm()
+
+        # Even if you provide a model instance
+        with self.assertRaises(ValueError):
+            InvalidModelForm(instance=Category)
+
+    def test_subcategory_form(self):
+        class SubCategoryForm(BaseCategoryForm):
+            """ Subclassing without specifying a Meta on the class will use
+            the parent's Meta (or the first parent in the MRO if there are
+            multiple parent classes).
+            """
+            pass
+
+        self.assertEqual(list(SubCategoryForm.base_fields),
+                         ['name', 'slug', 'url'])
+
+    def test_subclassmeta_form(self):
+        class SomeCategoryForm(forms.ModelForm):
+            checkbox = forms.BooleanField()
+
+            class Meta:
+                model = Category
+                fields = '__all__'
+
+        class SubclassMeta(SomeCategoryForm):
+            """ We can also subclass the Meta inner class to change the fields
+            list.
+            """
+            class Meta(SomeCategoryForm.Meta):
+                exclude = ['url']
+
+        self.assertHTMLEqual(
+            str(SubclassMeta()),
+            """<tr><th><label for="id_name">Name:</label></th>
+<td><input id="id_name" type="text" name="name" maxlength="20" required /></td></tr>
+<tr><th><label for="id_slug">Slug:</label></th>
+<td><input id="id_slug" type="text" name="slug" maxlength="20" required /></td></tr>
+<tr><th><label for="id_checkbox">Checkbox:</label></th>
+<td><input type="checkbox" name="checkbox" id="id_checkbox" required /></td></tr>"""
+        )
+
+    def test_orderfields_form(self):
+        class OrderFields(forms.ModelForm):
+            class Meta:
+                model = Category
+                fields = ['url', 'name']
+
+        self.assertEqual(list(OrderFields.base_fields),
+                         ['url', 'name'])
+        self.assertHTMLEqual(
+            str(OrderFields()),
+            """<tr><th><label for="id_url">The URL:</label></th>
+<td><input id="id_url" type="text" name="url" maxlength="40" required /></td></tr>
+<tr><th><label for="id_name">Name:</label></th>
+<td><input id="id_name" type="text" name="name" maxlength="20" required /></td></tr>"""
+        )
+
+    def test_orderfields2_form(self):
+        class OrderFields2(forms.ModelForm):
+            class Meta:
+                model = Category
+                fields = ['slug', 'url', 'name']
+                exclude = ['url']
+
+        self.assertEqual(list(OrderFields2.base_fields),
+                         ['slug', 'name'])
+
+    def test_default_populated_on_optional_field(self):
+        class PubForm(forms.ModelForm):
+            mode = forms.CharField(max_length=255, required=False)
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('mode',)
+
+        # Empty data uses the model field default.
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.mode, 'di')
+        self.assertEqual(m1._meta.get_field('mode').get_default(), 'di')
+
+        # Blank data doesn't use the model default.
+        mf2 = PubForm({'mode': ''})
+        self.assertEqual(mf2.errors, {})
+        m2 = mf2.save(commit=False)
+        self.assertEqual(m2.mode, '')
+
+    def test_default_not_populated_on_optional_checkbox_input(self):
+        class PubForm(forms.ModelForm):
+            class Meta:
+                model = PublicationDefaults
+                fields = ('active',)
+
+        # Empty data doesn't use the model default because CheckboxInput
+        # doesn't have a value in HTML form submission.
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertIs(m1.active, False)
+        self.assertIsInstance(mf1.fields['active'].widget, forms.CheckboxInput)
+        self.assertIs(m1._meta.get_field('active').get_default(), True)
+
+    def test_default_not_populated_on_checkboxselectmultiple(self):
+        class PubForm(forms.ModelForm):
+            mode = forms.CharField(required=False, widget=forms.CheckboxSelectMultiple)
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('mode',)
+
+        # Empty data doesn't use the model default because an unchecked
+        # CheckboxSelectMultiple doesn't have a value in HTML form submission.
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.mode, '')
+        self.assertEqual(m1._meta.get_field('mode').get_default(), 'di')
+
+    def test_default_not_populated_on_selectmultiple(self):
+        class PubForm(forms.ModelForm):
+            mode = forms.CharField(required=False, widget=forms.SelectMultiple)
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('mode',)
+
+        # Empty data doesn't use the model default because an unselected
+        # SelectMultiple doesn't have a value in HTML form submission.
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.mode, '')
+        self.assertEqual(m1._meta.get_field('mode').get_default(), 'di')
+
+    def test_prefixed_form_with_default_field(self):
+        class PubForm(forms.ModelForm):
+            prefix = 'form-prefix'
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('mode',)
+
+        mode = 'de'
+        self.assertNotEqual(mode, PublicationDefaults._meta.get_field('mode').get_default())
+
+        mf1 = PubForm({'form-prefix-mode': mode})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.mode, mode)
+
+    def test_default_splitdatetime_field(self):
+        class PubForm(forms.ModelForm):
+            datetime_published = forms.SplitDateTimeField(required=False)
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('datetime_published',)
+
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.datetime_published, datetime.datetime(2000, 1, 1))
+
+        mf2 = PubForm({'datetime_published_0': '2010-01-01', 'datetime_published_1': '0:00:00'})
+        self.assertEqual(mf2.errors, {})
+        m2 = mf2.save(commit=False)
+        self.assertEqual(m2.datetime_published, datetime.datetime(2010, 1, 1))
+
+    def test_default_filefield(self):
+        class PubForm(forms.ModelForm):
+            class Meta:
+                model = PublicationDefaults
+                fields = ('file',)
+
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.file.name, 'default.txt')
+
+        mf2 = PubForm({}, {'file': SimpleUploadedFile('name', b'foo')})
+        self.assertEqual(mf2.errors, {})
+        m2 = mf2.save(commit=False)
+        self.assertEqual(m2.file.name, 'name')
+
+    def test_default_selectdatewidget(self):
+        class PubForm(forms.ModelForm):
+            date_published = forms.DateField(required=False, widget=forms.SelectDateWidget)
+
+            class Meta:
+                model = PublicationDefaults
+                fields = ('date_published',)
+
+        mf1 = PubForm({})
+        self.assertEqual(mf1.errors, {})
+        m1 = mf1.save(commit=False)
+        self.assertEqual(m1.date_published, datetime.date.today())
+
+        mf2 = PubForm({'date_published_year': '2010', 'date_published_month': '1', 'date_published_day': '1'})
+        self.assertEqual(mf2.errors, {})
+        m2 = mf2.save(commit=False)
+        self.assertEqual(m2.date_published, datetime.date(2010, 1, 1))
+
+
+class FieldOverridesByFormMetaForm(forms.ModelForm):
+    class Meta:
+        model = Category
+        fields = ['name', 'url', 'slug']
+        widgets = {
+            'name': forms.Textarea,
+            'url': forms.TextInput(attrs={'class': 'url'})
+        }
+        labels = {
+            'name': 'Title',
+        }
+        help_texts = {
+            'slug': 'Watch out! Letters, numbers, underscores and hyphens only.',
+        }
+        error_messages = {
+            'slug': {
+                'invalid': (
+                    "Didn't you read the help text? "
+                    "We said letters, numbers, underscores and hyphens only!"
+                )
+            }
+        }
+        field_classes = {
+            'url': forms.URLField,
+        }
+
+
+class TestFieldOverridesByFormMeta(SimpleTestCase):
+    def test_widget_overrides(self):
+        form = FieldOverridesByFormMetaForm()
+        self.assertHTMLEqual(
+            str(form['name']),
+            '<textarea id="id_name" rows="10" cols="40" name="name" maxlength="20" required></textarea>',
+        )
+        self.assertHTMLEqual(
+            str(form['url']),
+            '<input id="id_url" type="text" class="url" name="url" maxlength="40" required />',
+        )
+        self.assertHTMLEqual(
+            str(form['slug']),
+            '<input id="id_slug" type="text" name="slug" maxlength="20" required />',
+        )
+
+    def test_label_overrides(self):
+        form = FieldOverridesByFormMetaForm()
+        self.assertHTMLEqual(
+            str(form['name'].label_tag()),
+            '<label for="id_name">Title:</label>',
+        )
+        self.assertHTMLEqual(
+            str(form['url'].label_tag()),
+            '<label for="id_url">The URL:</label>',
+        )
+        self.assertHTMLEqual(
+            str(form['slug'].label_tag()),
+            '<label for="id_slug">Slug:</label>',
+        )
+
+    def test_help_text_overrides(self):
+        form = FieldOverridesByFormMetaForm()
+        self.assertEqual(
+            form['slug'].help_text,
+            'Watch out! Letters, numbers, underscores and hyphens only.',
+        )
+
+    def test_error_messages_overrides(self):
+        form = FieldOverridesByFormMetaForm(data={
+            'name': 'Category',
+            'url': 'http://www.example.com/category/',
+            'slug': '!%#*@',
+        })
+        form.full_clean()
+
+        error = [
+            "Didn't you read the help text? "
+            "We said letters, numbers, underscores and hyphens only!",
+        ]
+        self.assertEqual(form.errors, {'slug': error})
+
+    def test_field_type_overrides(self):
+        form = FieldOverridesByFormMetaForm()
+        self.assertIs(Category._meta.get_field('url').__class__, models.CharField)
+        self.assertIsInstance(form.fields['url'], forms.URLField)
+
+
+class IncompleteCategoryFormWithFields(forms.ModelForm):
+    """
+    A form that replaces the model's url field with a custom one. This should
+    prevent the model field's validation from being called.
+    """
+    url = forms.CharField(required=False)
+
+    class Meta:
+        fields = ('name', 'slug')
+        model = Category
+
+
+class IncompleteCategoryFormWithExclude(forms.ModelForm):
+    """
+    A form that replaces the model's url field with a custom one. This should
+    prevent the model field's validation from being called.
+    """
+    url = forms.CharField(required=False)
+
+    class Meta:
+        exclude = ['url']
+        model = Category
+
+
+class ValidationTest(SimpleTestCase):
+    def test_validates_with_replaced_field_not_specified(self):
+        form = IncompleteCategoryFormWithFields(data={'name': 'some name', 'slug': 'some-slug'})
+        assert form.is_valid()
+
+    def test_validates_with_replaced_field_excluded(self):
+        form = IncompleteCategoryFormWithExclude(data={'name': 'some name', 'slug': 'some-slug'})
+        assert form.is_valid()
+
+    def test_notrequired_overrides_notblank(self):
+        form = CustomWriterForm({})
+        assert form.is_valid()
+
+
+class UniqueTest(TestCase):
+    """
+    unique/unique_together validation.
+    """
+    def setUp(self):
+        self.writer = Writer.objects.create(name='Mike Royko')
+
+    def test_simple_unique(self):
+        form = ProductForm({'slug': 'teddy-bear-blue'})
+        self.assertTrue(form.is_valid())
+        obj = form.save()
+        form = ProductForm({'slug': 'teddy-bear-blue'})
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['slug'], ['Product with this Slug already exists.'])
+        form = ProductForm({'slug': 'teddy-bear-blue'}, instance=obj)
+        self.assertTrue(form.is_valid())
+
+    def test_unique_together(self):
+        """ModelForm test of unique_together constraint"""
+        form = PriceForm({'price': '6.00', 'quantity': '1'})
+        self.assertTrue(form.is_valid())
+        form.save()
+        form = PriceForm({'price': '6.00', 'quantity': '1'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['__all__'], ['Price with this Price and Quantity already exists.'])
+
+    def test_multiple_field_unique_together(self):
+        """
+        When the same field is involved in multiple unique_together
+        constraints, we need to make sure we don't remove the data for it
+        before doing all the validation checking (not just failing after
+        the first one).
+        """
+        class TripleForm(forms.ModelForm):
+            class Meta:
+                model = Triple
+                fields = '__all__'
+
+        Triple.objects.create(left=1, middle=2, right=3)
+
+        form = TripleForm({'left': '1', 'middle': '2', 'right': '3'})
+        self.assertFalse(form.is_valid())
+
+        form = TripleForm({'left': '1', 'middle': '3', 'right': '1'})
+        self.assertTrue(form.is_valid())
+
+    @skipUnlessDBFeature('supports_nullable_unique_constraints')
+    def test_unique_null(self):
+        title = 'I May Be Wrong But I Doubt It'
+        form = BookForm({'title': title, 'author': self.writer.pk})
+        self.assertTrue(form.is_valid())
+        form.save()
+        form = BookForm({'title': title, 'author': self.writer.pk})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['__all__'], ['Book with this Title and Author already exists.'])
+        form = BookForm({'title': title})
+        self.assertTrue(form.is_valid())
+        form.save()
+        form = BookForm({'title': title})
+        self.assertTrue(form.is_valid())
+
+    def test_inherited_unique(self):
+        title = 'Boss'
+        Book.objects.create(title=title, author=self.writer, special_id=1)
+        form = DerivedBookForm({'title': 'Other', 'author': self.writer.pk, 'special_id': '1', 'isbn': '12345'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['special_id'], ['Book with this Special id already exists.'])
+
+    def test_inherited_unique_together(self):
+        title = 'Boss'
+        form = BookForm({'title': title, 'author': self.writer.pk})
+        self.assertTrue(form.is_valid())
+        form.save()
+        form = DerivedBookForm({'title': title, 'author': self.writer.pk, 'isbn': '12345'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['__all__'], ['Book with this Title and Author already exists.'])
+
+    def test_abstract_inherited_unique(self):
+        title = 'Boss'
+        isbn = '12345'
+        DerivedBook.objects.create(title=title, author=self.writer, isbn=isbn)
+        form = DerivedBookForm({
+            'title': 'Other', 'author': self.writer.pk, 'isbn': isbn,
+            'suffix1': '1', 'suffix2': '2',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['isbn'], ['Derived book with this Isbn already exists.'])
+
+    def test_abstract_inherited_unique_together(self):
+        title = 'Boss'
+        isbn = '12345'
+        DerivedBook.objects.create(title=title, author=self.writer, isbn=isbn)
+        form = DerivedBookForm({
+            'title': 'Other',
+            'author': self.writer.pk,
+            'isbn': '9876',
+            'suffix1': '0',
+            'suffix2': '0'
+        })
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['__all__'],
+                         ['Derived book with this Suffix1 and Suffix2 already exists.'])
+
+    def test_explicitpk_unspecified(self):
+        """Test for primary_key being in the form and failing validation."""
+        form = ExplicitPKForm({'key': '', 'desc': ''})
+        self.assertFalse(form.is_valid())
+
+    def test_explicitpk_unique(self):
+        """Ensure keys and blank character strings are tested for uniqueness."""
+        form = ExplicitPKForm({'key': 'key1', 'desc': ''})
+        self.assertTrue(form.is_valid())
+        form.save()
+        form = ExplicitPKForm({'key': 'key1', 'desc': ''})
+        self.assertFalse(form.is_valid())
+        if connection.features.interprets_empty_strings_as_nulls:
+            self.assertEqual(len(form.errors), 1)
+            self.assertEqual(form.errors['key'], ['Explicit pk with this Key already exists.'])
+        else:
+            self.assertEqual(len(form.errors), 3)
+            self.assertEqual(form.errors['__all__'], ['Explicit pk with this Key and Desc already exists.'])
+            self.assertEqual(form.errors['desc'], ['Explicit pk with this Desc already exists.'])
+            self.assertEqual(form.errors['key'], ['Explicit pk with this Key already exists.'])
+
+    def test_unique_for_date(self):
+        p = Post.objects.create(
+            title="Django 1.0 is released", slug="Django 1.0",
+            subtitle="Finally", posted=datetime.date(2008, 9, 3),
+        )
+        form = PostForm({'title': "Django 1.0 is released", 'posted': '2008-09-03'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['title'], ['Title must be unique for Posted date.'])
+        form = PostForm({'title': "Work on Django 1.1 begins", 'posted': '2008-09-03'})
+        self.assertTrue(form.is_valid())
+        form = PostForm({'title': "Django 1.0 is released", 'posted': '2008-09-04'})
+        self.assertTrue(form.is_valid())
+        form = PostForm({'slug': "Django 1.0", 'posted': '2008-01-01'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['slug'], ['Slug must be unique for Posted year.'])
+        form = PostForm({'subtitle': "Finally", 'posted': '2008-09-30'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['subtitle'], ['Subtitle must be unique for Posted month.'])
+        data = {'subtitle': "Finally", "title": "Django 1.0 is released", "slug": "Django 1.0", 'posted': '2008-09-03'}
+        form = PostForm(data, instance=p)
+        self.assertTrue(form.is_valid())
+        form = PostForm({'title': "Django 1.0 is released"})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['posted'], ['This field is required.'])
+
+    def test_unique_for_date_in_exclude(self):
+        """
+        If the date for unique_for_* constraints is excluded from the
+        ModelForm (in this case 'posted' has editable=False, then the
+        constraint should be ignored.
+        """
+        class DateTimePostForm(forms.ModelForm):
+            class Meta:
+                model = DateTimePost
+                fields = '__all__'
+
+        DateTimePost.objects.create(
+            title="Django 1.0 is released", slug="Django 1.0",
+            subtitle="Finally", posted=datetime.datetime(2008, 9, 3, 10, 10, 1),
+        )
+        # 'title' has unique_for_date='posted'
+        form = DateTimePostForm({'title': "Django 1.0", 'posted': '2008-09-03'})
+        self.assertTrue(form.is_valid())
+        # 'slug' has unique_for_year='posted'
+        form = DateTimePostForm({'slug': "Django 1.0", 'posted': '2008-01-01'})
+        self.assertTrue(form.is_valid())
+        # 'subtitle' has unique_for_month='posted'
+        form = DateTimePostForm({'subtitle': "Finally", 'posted': '2008-09-30'})
+        self.assertTrue(form.is_valid())
+
+    def test_inherited_unique_for_date(self):
+        p = Post.objects.create(
+            title="Django 1.0 is released", slug="Django 1.0",
+            subtitle="Finally", posted=datetime.date(2008, 9, 3),
+        )
+        form = DerivedPostForm({'title': "Django 1.0", 'posted': '2008-09-03'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['title'], ['Title must be unique for Posted date.'])
+        form = DerivedPostForm({'title': "Work on
