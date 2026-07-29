@@ -463,6 +463,19 @@ class BatchRunOrchestrator:
 
         for result in all_results:
             if result["status"] != "succeeded":
+                if result["status"] == "retryable":
+                    record_id = result["record_id"]
+                    self.state_manager.schedule_run_retry(
+                        record_id,
+                        stage="CODE_GENERATION",
+                        error_type="CompletionTruncated",
+                        message=result["error"],
+                    )
+                    logger.warning(
+                        f"Result {record_id} was truncated and returned to PENDING "
+                        "for a higher-output-budget retry."
+                    )
+                    continue
                 logger.warning(f"Result {result['record_id']} failed: {result['error']}")
                 continue
 

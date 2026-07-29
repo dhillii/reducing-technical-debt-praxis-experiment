@@ -9,7 +9,7 @@ Both providers expose the same public interface so BatchOrchestrator and
 BatchRunOrchestrator are provider-agnostic.
 
 Result dicts returned by retrieve_results() are normalized to:
-  {record_id, status: "succeeded"|"failed", content: str,
+    {record_id, status: "succeeded"|"retryable"|"failed", content: str,
    prompt_tokens: int, completion_tokens: int, error}
 """
 
@@ -542,7 +542,24 @@ class TogetherBatchProvider:
                         status_code = resp.get("status_code", 0)
 
                         if status_code == 200 and body.get("choices"):
-                            content_raw = body["choices"][0]["message"]["content"]
+                            choice = body["choices"][0]
+                            finish_reason = choice.get("finish_reason")
+                            if finish_reason == "length":
+                                results.append({
+                                    "record_id": custom_id,
+                                    "status": "retryable",
+                                    "content": "",
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "error": "finish_reason=length (completion truncated)",
+                                })
+                                logger.warning(
+                                    f"Record {custom_id} reached the completion limit; "
+                                    "it will be returned to PENDING for retry."
+                                )
+                                continue
+
+                            content_raw = choice["message"]["content"]
                             # Step 4: strip bare control chars before extraction + storage
                             content_raw = _sanitize_content(content_raw)
                             file_extension = file_extensions.get(str(custom_id), ".js")

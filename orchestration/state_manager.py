@@ -403,6 +403,40 @@ class StateManager:
             else:
                 logger.warning(f"Cannot reset run {record_id}: status is {run.get('status')}")
 
+    def schedule_run_retry(
+        self,
+        record_id: str,
+        stage: str,
+        error_type: str,
+        message: str,
+    ) -> None:
+        """Return a run to PENDING and preserve the retriable failure history."""
+        with self._lock:
+            if record_id not in self._state["runs"]:
+                logger.warning(f"Record {record_id} not found")
+                return
+
+            run = self._state["runs"][record_id]
+            run["errors"].append({
+                "timestamp": _utc_now_iso(),
+                "stage": stage,
+                "error_type": error_type,
+                "message": message,
+                "is_retriable": True,
+            })
+            run["status"] = "PENDING"
+            run["current_stage"] = stage
+            run["completed_at"] = None
+            run["failed_at"] = None
+            run["failure_stage"] = stage
+            run["retry_count"] = run.get("retry_count", 0) + 1
+            self._update_metadata()
+            self._save_state()
+            logger.info(
+                f"Run {record_id} returned to PENDING "
+                f"(retry_count={run['retry_count']}, reason={error_type})"
+            )
+
     def _update_metadata(self) -> None:
         """Update experiment metadata counts (must be called with lock held)."""
         runs = self._state["runs"]

@@ -144,6 +144,33 @@ class TestStateManager(unittest.TestCase):
         self.assertEqual(updated.status, "PENDING")
         self.assertEqual(updated.retry_count, 1)
 
+    def test_schedule_run_retry_from_completed(self):
+        """A truncated completion can be resubmitted without losing its history."""
+        run = ExperimentRun(
+            record_id="6",
+            file_id=6,
+            project_name="Test",
+            file_name="test.js",
+            condition="baseline",
+            run_number=1,
+        )
+
+        self.state_manager.add_run(run)
+        self.state_manager.update_run_status("6", "COMPLETED", "CSV_UPDATE")
+        self.state_manager.schedule_run_retry(
+            "6",
+            stage="CODE_GENERATION",
+            error_type="CompletionTruncated",
+            message="finish_reason=length (completion truncated)",
+        )
+
+        updated = self.state_manager.get_run("6")
+        self.assertEqual(updated.status, "PENDING")
+        self.assertEqual(updated.current_stage, "CODE_GENERATION")
+        self.assertEqual(updated.retry_count, 1)
+        self.assertTrue(updated.errors[-1].is_retriable)
+        self.assertEqual(updated.errors[-1].error_type, "CompletionTruncated")
+
     def test_get_next_pending_run(self):
         """Test getting next pending run."""
         for i in range(3):
