@@ -1,0 +1,48 @@
+public void setTypedVariable(String name, Class type, Object value, boolean isFinal) throws EvalError {
+    if (variables == null)
+        variables = new Hashtable();
+
+    if (value == null)
+        value = defaultValueForType(type);
+
+    TypedVariable existingTyped = getExistingTypedVariable(name);
+    if (existingTyped != null) {
+        if (!existingTyped.getType().equals(type))
+            throw new EvalError("Typed variable: " + name
+                    + " was previously declared with type: "
+                    + existingTyped.getType());
+        existingTyped.setValue(value);
+        return;
+    }
+
+    variables.put(name, new TypedVariable(type, value, isFinal));
+}
+
+private Object defaultValueForType(Class type) {
+    if (type.isPrimitive()) {
+        if (type == Boolean.TYPE)
+            return new Primitive(Boolean.FALSE);
+        if (type == Byte.TYPE)
+            return new Primitive((byte) 0);
+        if (type == Short.TYPE)
+            return new Primitive((short) 0);
+        if (type == Character.TYPE)
+            return new Primitive((char) 0);
+        if (type == Integer.TYPE)
+            return new Primitive((int) 0);
+        if (type == Long.TYPE)
+            return new Primitive(0L);
+        if (type == Float.TYPE)
+            return new Primitive(0.0f);
+        if (type == Double.TYPE)
+            return new Primitive(0.0d);
+    }
+    return Primitive.NULL;
+}
+
+private TypedVariable getExistingTypedVariable(String name) {
+    if (!variables.containsKey(name))
+        return null;
+    Object existing = getVariableImpl(name, false);
+    return (existing instanceof TypedVariable) ? (TypedVariable) existing : null;
+}

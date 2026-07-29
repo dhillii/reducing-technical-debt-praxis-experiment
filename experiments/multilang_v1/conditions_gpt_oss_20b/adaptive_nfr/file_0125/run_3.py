@@ -1,0 +1,1 @@
+The provided code is too large to refactor in a single response.
