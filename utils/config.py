@@ -99,7 +99,7 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 TOGETHER_TEMPERATURE = 0.0
 # Maximum completion budget. The 64K cap leaves room for the current source
 # prompts in a 128K context window; requests are validated before submission.
-TOGETHER_MAX_TOKENS = 45000
+TOGETHER_MAX_TOKENS = 40000
 TOGETHER_CONTEXT_SAFETY_MARGIN = 2048
 # Keep Together batch artifacts with the experiment for auditability and
 # reproducibility instead of placing them in the invoking user's home folder.
