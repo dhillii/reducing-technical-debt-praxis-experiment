@@ -1,0 +1,1407 @@
+/*
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+
+package org.apache.tools.ant.taskdefs;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+import org.apache.tools.ant.Task;
+import org.apache.tools.ant.Project;
+import org.apache.tools.ant.BuildException;
+import org.apache.tools.ant.DirectoryScanner;
+import org.apache.tools.ant.types.Mapper;
+import org.apache.tools.ant.types.FileSet;
+import org.apache.tools.ant.types.FilterSet;
+import org.apache.tools.ant.types.FilterChain;
+import org.apache.tools.ant.types.FilterSetCollection;
+import org.apache.tools.ant.types.Resource;
+import org.apache.tools.ant.types.ResourceCollection;
+import org.apache.tools.ant.types.ResourceFactory;
+import org.apache.tools.ant.types.resources.FileProvider;
+import org.apache.tools.ant.types.resources.FileResource;
+import org.apache.tools.ant.util.FileUtils;
+import org.apache.tools.ant.util.FileNameMapper;
+import org.apache.tools.ant.util.IdentityMapper;
+import org.apache.tools.ant.util.LinkedHashtable;
+import org.apache.tools.ant.util.ResourceUtils;
+import org.apache.tools.ant.util.SourceFileScanner;
+import org.apache.tools.ant.util.FlatFileNameMapper;
+
+/**
+ * Copies a file or directory to a new file
+ * or directory.  Files are only copied if the source file is newer
+ * than the destination file, or when the destination file does not
+ * exist.  It is possible to explicitly overwrite existing files.</p>
+ *
+ * <p>This implementation is based on Arnout Kuiper's initial design
+ * document, the following mailing list discussions, and the
+ * copyfile/copydir tasks.</p>
+ *
+ *
+ * @since Ant 1.2
+ *
+ * @ant.task category="filesystem"
+ */
+public class Copy extends Task {
+    private static final String MSG_WHEN_COPYING_EMPTY_RC_TO_FILE =
+        "Cannot perform operation from directory to file.";
+
+    static final File NULL_FILE_PLACEHOLDER = new File("/NULL_FILE");
+    static final String LINE_SEPARATOR = System.getProperty("line.separator");
+    // CheckStyle:VisibilityModifier OFF - bc
+    protected File file = null;     // the source file
+    protected File destFile = null; // the destination file
+    protected File destDir = null;  // the destination directory
+    protected Vector<ResourceCollection> rcs = new Vector<ResourceCollection>();
+    // here to provide API backwards compatibility
+    protected Vector<ResourceCollection> filesets = rcs;
+
+    private boolean enableMultipleMappings = false;
+    protected boolean filtering = false;
+    protected boolean preserveLastModified = false;
+    protected boolean forceOverwrite = false;
+    protected boolean flatten = false;
+    protected int verbosity = Project.MSG_VERBOSE;
+    protected boolean includeEmpty = true;
+    protected boolean failonerror = true;
+
+    protected Hashtable<String, String[]> fileCopyMap = new LinkedHashtable<String, String[]>();
+    protected Hashtable<String, String[]> dirCopyMap = new LinkedHashtable<String, String[]>();
+    protected Hashtable<File, File> completeDirMap = new LinkedHashtable<File, File>();
+
+    protected Mapper mapperElement = null;
+    protected FileUtils fileUtils;
+    //CheckStyle:VisibilityModifier ON
+    private Vector<FilterChain> filterChains = new Vector<FilterChain>();
+    private Vector<FilterSet> filterSets = new Vector<FilterSet>();
+    private String inputEncoding = null;
+    private String outputEncoding = null;
+    private long granularity = 0;
+    private boolean force = false;
+    private boolean quiet = false;
+
+    // used to store the single non-file resource to copy when the
+    // tofile attribute has been used
+    private Resource singleResource = null;
+
+    /**
+     * Copy task constructor.
+     */
+    public Copy() {
+        fileUtils = FileUtils.getFileUtils();
+        granularity = fileUtils.getFileTimestampGranularity();
+    }
+
+    /**
+     * Get the FileUtils for this task.
+     * @return the fileutils object.
+     */
+    protected FileUtils getFileUtils() {
+        return fileUtils;
+    }
+
+    /**
+     * Set a single source file to copy.
+     * @param file the file to copy.
+     */
+    public void setFile(File file) {
+        this.file = file;
+    }
+
+    /**
+     * Set the destination file.
+     * @param destFile the file to copy to.
+     */
+    public void setTofile(File destFile) {
+        this.destFile = destFile;
+    }
+
+    /**
+     * Set the destination directory.
+     * @param destDir the destination directory.
+     */
+    public void setTodir(File destDir) {
+        this.destDir = destDir;
+    }
+
+    /**
+     * Add a FilterChain.
+     * @return a filter chain object.
+     */
+    public FilterChain createFilterChain() {
+        FilterChain filterChain = new FilterChain();
+        filterChains.addElement(filterChain);
+        return filterChain;
+    }
+
+    /**
+     * Add a filterset.
+     * @return a filter set object.
+     */
+    public FilterSet createFilterSet() {
+        FilterSet filterSet = new FilterSet();
+        filterSets.addElement(filterSet);
+        return filterSet;
+    }
+
+    /**
+     * Give the copied files the same last modified time as the original files.
+     * @param preserve a boolean string.
+     * @deprecated since 1.5.x.
+     *             setPreserveLastModified(String) has been deprecated and
+     *             replaced with setPreserveLastModified(boolean) to
+     *             consistently let the Introspection mechanism work.
+     */
+    public void setPreserveLastModified(String preserve) {
+        setPreserveLastModified(Project.toBoolean(preserve));
+    }
+
+    /**
+     * Give the copied files the same last modified time as the original files.
+     * @param preserve if true preserve the modified time; default is false.
+     */
+    public void setPreserveLastModified(boolean preserve) {
+        preserveLastModified = preserve;
+    }
+
+    /**
+     * Get whether to give the copied files the same last modified time as
+     * the original files.
+     * @return the whether destination files will inherit the modification
+     *         times of the corresponding source files.
+     * @since 1.32, Ant 1.5
+     */
+    public boolean getPreserveLastModified() {
+        return preserveLastModified;
+    }
+
+    /**
+     * Get the filtersets being applied to this operation.
+     *
+     * @return a vector of FilterSet objects.
+     */
+    protected Vector<FilterSet> getFilterSets() {
+        return filterSets;
+    }
+
+    /**
+     * Get the filterchains being applied to this operation.
+     *
+     * @return a vector of FilterChain objects.
+     */
+    protected Vector<FilterChain> getFilterChains() {
+        return filterChains;
+    }
+
+    /**
+     * Set filtering mode.
+     * @param filtering if true enable filtering; default is false.
+     */
+    public void setFiltering(boolean filtering) {
+        this.filtering = filtering;
+    }
+
+    /**
+     * Set overwrite mode regarding existing destination file(s).
+     * @param overwrite if true force overwriting of destination file(s)
+     *                  even if the destination file(s) are younger than
+     *                  the corresponding source file. Default is false.
+     */
+    public void setOverwrite(boolean overwrite) {
+        this.forceOverwrite = overwrite;
+    }
+
+    /**
+     * Whether read-only destinations will be overwritten.
+     *
+     * <p>Defaults to false</p>
+     *
+     * @since Ant 1.8.2
+     */
+    public void setForce(boolean f) {
+        force = f;
+    }
+
+    /**
+     * Whether read-only destinations will be overwritten.
+     *
+     * @since Ant 1.8.2
+     */
+    public boolean getForce() {
+        return force;
+    }
+
+    /**
+     * Set whether files copied from directory trees will be "flattened"
+     * into a single directory.  If there are multiple files with
+     * the same name in the source directory tree, only the first
+     * file will be copied into the "flattened" directory, unless
+     * the forceoverwrite attribute is true.
+     * @param flatten if true flatten the destination directory. Default
+     *                is false.
+     */
+    public void setFlatten(boolean flatten) {
+        this.flatten = flatten;
+    }
+
+    /**
+     * Set verbose mode. Used to force listing of all names of copied files.
+     * @param verbose whether to output the names of copied files.
+     *                Default is false.
+     */
+    public void setVerbose(boolean verbose) {
+        this.verbosity = verbose ? Project.MSG_INFO : Project.MSG_VERBOSE;
+    }
+
+    /**
+     * Set whether to copy empty directories.
+     * @param includeEmpty if true copy empty directories. Default is true.
+     */
+    public void setIncludeEmptyDirs(boolean includeEmpty) {
+        this.includeEmpty = includeEmpty;
+    }
+
+	/**
+	 * Set quiet mode. Used to hide messages when a file or directory to be
+	 * copied does not exist.
+	 *
+	 * @param quiet
+	 *            whether or not to display error messages when a file or
+	 *            directory does not exist. Default is false.
+	 */
+	public void setQuiet(boolean quiet) {
+		this.quiet = quiet;
+	}
+
+    /**
+     * Set method of handling mappers that return multiple
+     * mappings for a given source path.
+     * @param enableMultipleMappings If true the task will
+     *        copy to all the mappings for a given source path, if
+     *        false, only the first file or directory is
+     *        processed.
+     *        By default, this setting is false to provide backward
+     *        compatibility with earlier releases.
+     * @since Ant 1.6
+     */
+    public void setEnableMultipleMappings(boolean enableMultipleMappings) {
+        this.enableMultipleMappings = enableMultipleMappings;
+    }
+
+    /**
+     * Get whether multiple mapping is enabled.
+     * @return true if multiple mapping is enabled; false otherwise.
+     */
+    public boolean isEnableMultipleMapping() {
+        return enableMultipleMappings;
+    }
+
+    /**
+     * Set whether to fail when errors are encountered. If false, note errors
+     * to the output but keep going. Default is true.
+     * @param failonerror true or false.
+     */
+    public void setFailOnError(boolean failonerror) {
+        this.failonerror = failonerror;
+    }
+
+    /**
+     * Add a set of files to copy.
+     * @param set a set of files to copy.
+     */
+    public void addFileset(FileSet set) {
+        add(set);
+    }
+
+    /**
+     * Add a collection of files to copy.
+     * @param res a resource collection to copy.
+     * @since Ant 1.7
+     */
+    public void add(ResourceCollection res) {
+        rcs.add(res);
+    }
+
+    /**
+     * Define the mapper to map source to destination files.
+     * @return a mapper to be configured.
+     * @exception BuildException if more than one mapper is defined.
+     */
+    public Mapper createMapper() throws BuildException {
+        if (mapperElement != null) {
+            throw new BuildException("Cannot define more than one mapper",
+                                     getLocation());
+        }
+        mapperElement = new Mapper(getProject());
+        return mapperElement;
+    }
+
+    /**
+     * Add a nested filenamemapper.
+     * @param fileNameMapper the mapper to add.
+     * @since Ant 1.6.3
+     */
+    public void add(FileNameMapper fileNameMapper) {
+        createMapper().add(fileNameMapper);
+    }
+
+    /**
+     * Set the character encoding.
+     * @param encoding the character encoding.
+     * @since 1.32, Ant 1.5
+     */
+    public void setEncoding(String encoding) {
+        this.inputEncoding = encoding;
+        if (outputEncoding == null) {
+            outputEncoding = encoding;
+        }
+    }
+
+    /**
+     * Get the character encoding to be used.
+     * @return the character encoding, <code>null</code> if not set.
+     *
+     * @since 1.32, Ant 1.5
+     */
+    public String getEncoding() {
+        return inputEncoding;
+    }
+
+    /**
+     * Set the character encoding for output files.
+     * @param encoding the output character encoding.
+     * @since Ant 1.6
+     */
+    public void setOutputEncoding(String encoding) {
+        this.outputEncoding = encoding;
+    }
+
+    /**
+     * Get the character encoding for output files.
+     * @return the character encoding for output files,
+     * <code>null</code> if not set.
+     *
+     * @since Ant 1.6
+     */
+    public String getOutputEncoding() {
+        return outputEncoding;
+    }
+
+    /**
+     * Set the number of milliseconds leeway to give before deciding a
+     * target is out of date.
+     *
+     * <p>Default is 1 second, or 2 seconds on DOS systems.</p>
+     * @param granularity the granularity used to decide if a target is out of
+     *                    date.
+     * @since Ant 1.6.2
+     */
+    public void setGranularity(long granularity) {
+        this.granularity = granularity;
+    }
+
+    /**
+     * Perform the copy operation.
+     * @exception BuildException if an error occurs.
+     */
+    public void execute() throws BuildException {
+        File savedFile = file;
+        File savedDestFile = destFile;
+        File savedDestDir = destDir;
+        ResourceCollection savedRc = null;
+        if (file == null && destFile != null && rcs.size() == 1) {
+            savedRc = (ResourceCollection) rcs.elementAt(0);
+        }
+
+        try {
+            validateAndPrepare();
+            copySingleFile();
+            processResourceCollections();
+            processNonFileResources();
+        } finally {
+            cleanupAfterExecution(savedFile, savedDestFile, savedDestDir, savedRc);
+        }
+    }
+
+    /**
+     * Validate attributes and handle validation errors.
+     */
+    private void validateAndPrepare() throws BuildException {
+        try {
+            validateAttributes();
+        } catch (BuildException e) {
+            if (shouldThrowValidationError(e)) {
+                throw e;
+            }
+            logWarning(getMessage(e));
+        }
+    }
+
+    /**
+     * Determine if validation error should be thrown.
+     */
+    private boolean shouldThrowValidationError(BuildException e) {
+        return failonerror || !getMessage(e).equals(MSG_WHEN_COPYING_EMPTY_RC_TO_FILE);
+    }
+
+    /**
+     * Process all resource collections.
+     */
+    private void processResourceCollections() throws BuildException {
+        HashMap<File, List<String>> filesByBasedir = new HashMap<File, List<String>>();
+        HashMap<File, List<String>> dirsByBasedir = new HashMap<File, List<String>>();
+        HashSet<File> baseDirs = new HashSet<File>();
+        ArrayList<Resource> nonFileResources = new ArrayList<Resource>();
+
+        collectResourcesByBasedir(filesByBasedir, dirsByBasedir, baseDirs, nonFileResources);
+        iterateOverBaseDirs(baseDirs, dirsByBasedir, filesByBasedir);
+        executeFileOperations();
+    }
+
+    /**
+     * Collect resources organized by base directory.
+     */
+    private void collectResourcesByBasedir(
+        HashMap<File, List<String>> filesByBasedir,
+        HashMap<File, List<String>> dirsByBasedir,
+        HashSet<File> baseDirs,
+        ArrayList<Resource> nonFileResources) throws BuildException {
+
+        final int size = rcs.size();
+        for (int i = 0; i < size; i++) {
+            ResourceCollection rc = rcs.elementAt(i);
+            if (isFileSetWithFilesystemOnly(rc)) {
+                processFileSet((FileSet) rc, filesByBasedir, dirsByBasedir, baseDirs);
+            } else {
+                processNonFileSet(rc, filesByBasedir, dirsByBasedir, baseDirs, nonFileResources);
+            }
+        }
+    }
+
+    /**
+     * Check if resource collection is a FileSet with filesystem-only resources.
+     */
+    private boolean isFileSetWithFilesystemOnly(ResourceCollection rc) {
+        return rc instanceof FileSet && rc.isFilesystemOnly();
+    }
+
+    /**
+     * Process a FileSet resource collection.
+     */
+    private void processFileSet(
+        FileSet fs,
+        HashMap<File, List<String>> filesByBasedir,
+        HashMap<File, List<String>> dirsByBasedir,
+        HashSet<File> baseDirs) throws BuildException {
+
+        DirectoryScanner ds = getDirectoryScanner(fs);
+        if (ds == null) {
+            return;
+        }
+
+        File fromDir = fs.getDir(getProject());
+        String[] srcFiles = ds.getIncludedFiles();
+        String[] srcDirs = ds.getIncludedDirectories();
+
+        if (shouldMapCompleteDir(fs, ds)) {
+            completeDirMap.put(fromDir, destDir);
+        }
+
+        add(fromDir, srcFiles, filesByBasedir);
+        add(fromDir, srcDirs, dirsByBasedir);
+        baseDirs.add(fromDir);
+    }
+
+    /**
+     * Get directory scanner for a FileSet, handling errors appropriately.
+     */
+    private DirectoryScanner getDirectoryScanner(FileSet fs) throws BuildException {
+        try {
+            return fs.getDirectoryScanner(getProject());
+        } catch (BuildException e) {
+            if (shouldThrowDirectoryScannerError(e)) {
+                throw e;
+            }
+            logWarningIfNotQuiet("Warning: " + getMessage(e));
+            return null;
+        }
+    }
+
+    /**
+     * Determine if directory scanner error should be thrown.
+     */
+    private boolean shouldThrowDirectoryScannerError(BuildException e) {
+        return failonerror || !getMessage(e).endsWith(DirectoryScanner.DOES_NOT_EXIST_POSTFIX);
+    }
+
+    /**
+     * Check if complete directory mapping should be created.
+     */
+    private boolean shouldMapCompleteDir(FileSet fs, DirectoryScanner ds) {
+        return !flatten && mapperElement == null && ds.isEverythingIncluded() && !fs.hasPatterns();
+    }
+
+    /**
+     * Process non-FileSet resource collections.
+     */
+    private void processNonFileSet(
+        ResourceCollection rc,
+        HashMap<File, List<String>> filesByBasedir,
+        HashMap<File, List<String>> dirsByBasedir,
+        HashSet<File> baseDirs,
+        ArrayList<Resource> nonFileResources) throws BuildException {
+
+        if (!rc.isFilesystemOnly() && !supportsNonFileResources()) {
+            throw new BuildException("Only FileSystem resources are supported.");
+        }
+
+        for (Resource r : rc) {
+            processResource(r, filesByBasedir, dirsByBasedir, baseDirs, nonFileResources);
+        }
+    }
+
+    /**
+     * Process a single resource.
+     */
+    private void processResource(
+        Resource r,
+        HashMap<File, List<String>> filesByBasedir,
+        HashMap<File, List<String>> dirsByBasedir,
+        HashSet<File> baseDirs,
+        ArrayList<Resource> nonFileResources) throws BuildException {
+
+        if (!r.isExists()) {
+            handleMissingResource(r);
+            return;
+        }
+
+        File baseDir = NULL_FILE_PLACEHOLDER;
+        String name = r.getName();
+        FileProvider fp = r.as(FileProvider.class);
+
+        if (fp != null) {
+            FileResource fr = ResourceUtils.asFileResource(fp);
+            baseDir = getKeyFile(fr.getBaseDir());
+            if (fr.getBaseDir() == null) {
+                name = fr.getFile().getAbsolutePath();
+            }
+        }
+
+        if (isDirectoryOrFileProvider(r, fp)) {
+            addResourceToMap(baseDir, name, r.isDirectory(), filesByBasedir, dirsByBasedir);
+            baseDirs.add(baseDir);
+        } else {
+            nonFileResources.add(r);
+        }
+    }
+
+    /**
+     * Handle missing resource.
+     */
+    private void handleMissingResource(Resource r) throws BuildException {
+        String message = "Warning: Could not find resource " + r.toLongString() + " to copy.";
+        if (!failonerror) {
+            logWarningIfNotQuiet(message);
+        } else {
+            throw new BuildException(message);
+        }
+    }
+
+    /**
+     * Check if resource is a directory or file provider.
+     */
+    private boolean isDirectoryOrFileProvider(Resource r, FileProvider fp) {
+        return r.isDirectory() || fp != null;
+    }
+
+    /**
+     * Add resource to appropriate map.
+     */
+    private void addResourceToMap(
+        File baseDir,
+        String name,
+        boolean isDirectory,
+        HashMap<File, List<String>> filesByBasedir,
+        HashMap<File, List<String>> dirsByBasedir) {
+
+        if (isDirectory) {
+            add(baseDir, name, dirsByBasedir);
+        } else {
+            add(baseDir, name, filesByBasedir);
+        }
+    }
+
+    /**
+     * Execute file operations with error handling.
+     */
+    private void executeFileOperations() throws BuildException {
+        try {
+            doFileOperations();
+        } catch (BuildException e) {
+            if (!failonerror) {
+                logWarningIfNotQuiet("Warning: " + getMessage(e));
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Process non-file resources.
+     */
+    private void processNonFileResources() throws BuildException {
+        if (nonFileResourcesExist()) {
+            Resource[] nonFiles = collectNonFileResources();
+            Map<Resource, String[]> map = scan(nonFiles, destDir);
+            addSingleResourceToMap(map);
+            executeResourceOperations(map);
+        }
+    }
+
+    /**
+     * Check if non-file resources exist.
+     */
+    private boolean nonFileResourcesExist() {
+        return singleResource != null;
+    }
+
+    /**
+     * Collect non-file resources (placeholder for future use).
+     */
+    private Resource[] collectNonFileResources() {
+        return new Resource[0];
+    }
+
+    /**
+     * Add single resource to map if it exists.
+     */
+    private void addSingleResourceToMap(Map<Resource, String[]> map) {
+        if (singleResource != null) {
+            map.put(singleResource, new String[] { destFile.getAbsolutePath() });
+        }
+    }
+
+    /**
+     * Execute resource operations with error handling.
+     */
+    private void executeResourceOperations(Map<Resource, String[]> map) throws BuildException {
+        try {
+            doResourceOperations(map);
+        } catch (BuildException e) {
+            if (!failonerror) {
+                logWarningIfNotQuiet("Warning: " + getMessage(e));
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Clean up after execution.
+     */
+    private void cleanupAfterExecution(
+        File savedFile,
+        File savedDestFile,
+        File savedDestDir,
+        ResourceCollection savedRc) {
+
+        singleResource = null;
+        file = savedFile;
+        destFile = savedDestFile;
+        destDir = savedDestDir;
+        if (savedRc != null) {
+            rcs.insertElementAt(savedRc, 0);
+        }
+        fileCopyMap.clear();
+        dirCopyMap.clear();
+        completeDirMap.clear();
+    }
+
+    /**
+     * Log warning if not in quiet mode.
+     */
+    private void logWarningIfNotQuiet(String message) {
+        if (!quiet) {
+            log(message, Project.MSG_ERR);
+        }
+    }
+
+    /**
+     * Log warning message.
+     */
+    private void logWarning(String message) {
+        log("Warning: " + message, Project.MSG_ERR);
+    }
+
+    /************************************************************************
+     **  protected and private methods
+     ************************************************************************/
+
+    private void copySingleFile() {
+        if (file == null) {
+            return;
+        }
+
+        if (!file.exists()) {
+            handleMissingFile();
+            return;
+        }
+
+        if (destFile == null) {
+            destFile = new File(destDir, file.getName());
+        }
+
+        if (shouldCopyFile()) {
+            fileCopyMap.put(file.getAbsolutePath(),
+                            new String[] {destFile.getAbsolutePath()});
+        } else {
+            log(file + " omitted as " + destFile + " is up to date.", Project.MSG_VERBOSE);
+        }
+    }
+
+    /**
+     * Handle missing file.
+     */
+    private void handleMissingFile() {
+        String message = "Warning: Could not find file " + file.getAbsolutePath() + " to copy.";
+        if (!failonerror) {
+            logWarningIfNotQuiet(message);
+        } else {
+            throw new BuildException(message);
+        }
+    }
+
+    /**
+     * Check if file should be copied.
+     */
+    private boolean shouldCopyFile() {
+        return forceOverwrite || !destFile.exists()
+            || (file.lastModified() - granularity > destFile.lastModified());
+    }
+
+    private void iterateOverBaseDirs(
+        HashSet<File> baseDirs, HashMap<File, List<String>> dirsByBasedir, HashMap<File, List<String>> filesByBasedir) {
+
+        for (File f : baseDirs) {
+            List<String> files = filesByBasedir.get(f);
+            List<String> dirs = dirsByBasedir.get(f);
+
+            String[] srcFiles = new String[0];
+            if (files != null) {
+                srcFiles = files.toArray(srcFiles);
+            }
+            String[] srcDirs = new String[0];
+            if (dirs != null) {
+                srcDirs = dirs.toArray(srcDirs);
+            }
+            scan(f == NULL_FILE_PLACEHOLDER ? null : f, destDir, srcFiles,
+                 srcDirs);
+        }
+    }
+
+    /**
+     * Ensure we have a consistent and legal set of attributes, and set
+     * any internal flags necessary based on different combinations
+     * of attributes.
+     * @exception BuildException if an error occurs.
+     */
+    protected void validateAttributes() throws BuildException {
+        if (file == null && rcs.size() == 0) {
+            throw new BuildException(
+                "Specify at least one source--a file or a resource collection.");
+        }
+        if (destFile != null && destDir != null) {
+            throw new BuildException(
+                "Only one of tofile and todir may be set.");
+        }
+        if (destFile == null && destDir == null) {
+            throw new BuildException("One of tofile or todir must be set.");
+        }
+        if (file != null && file.isDirectory()) {
+            throw new BuildException("Use a resource collection to copy directories.");
+        }
+        if (destFile != null && rcs.size() > 0) {
+            validateDestFileWithResourceCollections();
+        }
+        if (destFile != null) {
+            destDir = destFile.getParentFile();
+        }
+    }
+
+    /**
+     * Validate destination file with resource collections.
+     */
+    private void validateDestFileWithResourceCollections() throws BuildException {
+        if (rcs.size() > 1) {
+            throw new BuildException(
+                "Cannot concatenate multiple files into a single file.");
+        }
+
+        ResourceCollection rc = (ResourceCollection) rcs.elementAt(0);
+        if (!rc.isFilesystemOnly() && !supportsNonFileResources()) {
+            throw new BuildException("Only FileSystem resources are supported.");
+        }
+
+        if (rc.size() == 0) {
+            throw new BuildException(MSG_WHEN_COPYING_EMPTY_RC_TO_FILE);
+        }
+
+        if (rc.size() == 1) {
+            processSingleResourceCollection(rc);
+        } else {
+            throw new BuildException(
+                "Cannot concatenate multiple files into a single file.");
+        }
+    }
+
+    /**
+     * Process single resource collection.
+     */
+    private void processSingleResourceCollection(ResourceCollection rc) throws BuildException {
+        Resource res = rc.iterator().next();
+        FileProvider r = res.as(FileProvider.class);
+
+        if (file == null) {
+            if (r != null) {
+                file = r.getFile();
+            } else {
+                singleResource = res;
+            }
+            rcs.removeElementAt(0);
+        } else {
+            throw new BuildException(
+                "Cannot concatenate multiple files into a single file.");
+        }
+    }
+
+    /**
+     * Compares source files to destination files to see if they should be
+     * copied.
+     *
+     * @param fromDir  The source directory.
+     * @param toDir    The destination directory.
+     * @param files    A list of files to copy.
+     * @param dirs     A list of directories to copy.
+     */
+    protected void scan(File fromDir, File toDir, String[] files,
+                        String[] dirs) {
+        FileNameMapper mapper = getMapper();
+        buildMap(fromDir, toDir, files, mapper, fileCopyMap);
+
+        if (includeEmpty) {
+            buildMap(fromDir, toDir, dirs, mapper, dirCopyMap);
+        }
+    }
+
+    /**
+     * Compares source resources to destination files to see if they
+     * should be copied.
+     *
+     * @param fromResources  The source resources.
+     * @param toDir          The destination directory.
+     *
+     * @return a Map with the out-of-date resources as keys and an
+     * array of target file names as values.
+     *
+     * @since Ant 1.7
+     */
+    protected Map<Resource, String[]> scan(Resource[] fromResources, File toDir) {
+        return buildMap(fromResources, toDir, getMapper());
+    }
+
+    /**
+     * Add to a map of files/directories to copy.
+     *
+     * @param fromDir the source directory.
+     * @param toDir   the destination directory.
+     * @param names   a list of filenames.
+     * @param mapper  a <code>FileNameMapper</code> value.
+     * @param map     a map of source file to array of destination files.
+     */
+    protected void buildMap(File fromDir, File toDir, String[] names,
+                            FileNameMapper mapper, Hashtable<String, String[]> map) {
+        String[] toCopy = selectFilesToCopy(names, fromDir, toDir, mapper);
+        for (int i = 0; i < toCopy.length; i++) {
+            File src = new File(fromDir, toCopy[i]);
+            String[] mappedFiles = mapper.mapFileName(toCopy[i]);
+            addMappedFilesToMap(src, toDir, mappedFiles, map);
+        }
+    }
+
+    /**
+     * Select files to copy based on force overwrite and modification time.
+     */
+    private String[] selectFilesToCopy(String[] names, File fromDir, File toDir, FileNameMapper mapper) {
+        if (forceOverwrite) {
+            return selectForceOverwriteFiles(names, mapper);
+        }
+        SourceFileScanner ds = new SourceFileScanner(this);
+        return ds.restrict(names, fromDir, toDir, mapper, granularity);
+    }
+
+    /**
+     * Select files when force overwrite is enabled.
+     */
+    private String[] selectForceOverwriteFiles(String[] names, FileNameMapper mapper) {
+        Vector<String> v = new Vector<String>();
+        for (int i = 0; i < names.length; i++) {
+            if (mapper.mapFileName(names[i]) != null) {
+                v.addElement(names[i]);
+            }
+        }
+        String[] toCopy = new String[v.size()];
+        v.copyInto(toCopy);
+        return toCopy;
+    }
+
+    /**
+     * Add mapped files to the copy map.
+     */
+    private void addMappedFilesToMap(File src, File toDir, String[] mappedFiles, Hashtable<String, String[]> map) {
+        if (!enableMultipleMappings) {
+            map.put(src.getAbsolutePath(),
+                    new String[] {new File(toDir, mappedFiles[0]).getAbsolutePath()});
+        } else {
+            for (int k = 0; k < mappedFiles.length; k++) {
+                mappedFiles[k] = new File(toDir, mappedFiles[k]).getAbsolutePath();
+            }
+            map.put(src.getAbsolutePath(), mappedFiles);
+        }
+    }
+
+    /**
+     * Create a map of resources to copy.
+     *
+     * @param fromResources  The source resources.
+     * @param toDir   the destination directory.
+     * @param mapper  a <code>FileNameMapper</code> value.
+     * @return a map of source resource to array of destination files.
+     * @since Ant 1.7
+     */
+    protected Map<Resource, String[]> buildMap(Resource[] fromResources, final File toDir,
+                           FileNameMapper mapper) {
+        HashMap<Resource, String[]> map = new HashMap<Resource, String[]>();
+        Resource[] toCopy = selectResourcesToCopy(fromResources, mapper);
+        for (int i = 0; i < toCopy.length; i++) {
+            String[] mappedFiles = mapper.mapFileName(toCopy[i].getName());
+            validateMappedFiles(mappedFiles);
+            addMappedResourcesToMap(toCopy[i], toDir, mappedFiles, map);
+        }
+        return map;
+    }
+
+    /**
+     * Select resources to copy based on force overwrite and modification time.
+     */
+    private Resource[] selectResourcesToCopy(Resource[] fromResources, FileNameMapper mapper) {
+        if (forceOverwrite) {
+            return selectForceOverwriteResources(fromResources, mapper);
+        }
+        return ResourceUtils.selectOutOfDateSources(this, fromResources,
+                                                     mapper,
+                                                     new ResourceFactory() {
+                           public Resource getResource(String name) {
+                               return new FileResource(destDir, name);
+                           }
+                                                     },
+                                                     granularity);
+    }
+
+    /**
+     * Select resources when force overwrite is enabled.
+     */
+    private Resource[] selectForceOverwriteResources(Resource[] fromResources, FileNameMapper mapper) {
+        Vector<Resource> v = new Vector<Resource>();
+        for (int i = 0; i < fromResources.length; i++) {
+            if (mapper.mapFileName(fromResources[i].getName()) != null) {
+                v.addElement(fromResources[i]);
+            }
+        }
+        Resource[] toCopy = new Resource[v.size()];
+        v.copyInto(toCopy);
+        return toCopy;
+    }
+
+    /**
+     * Validate that mapped files are not null.
+     */
+    private void validateMappedFiles(String[] mappedFiles) throws BuildException {
+        for (int j = 0; j < mappedFiles.length; j++) {
+            if (mappedFiles[j] == null) {
+                throw new BuildException("Can't copy a resource without a"
+                                         + " name if the mapper doesn't"
+                                         + " provide one.");
+            }
+        }
+    }
+
+    /**
+     * Add mapped resources to the copy map.
+     */
+    private void addMappedResourcesToMap(Resource resource, File toDir, String[] mappedFiles, Map<Resource, String[]> map) {
+        if (!enableMultipleMappings) {
+            map.put(resource,
+                    new String[] {new File(toDir, mappedFiles[0]).getAbsolutePath()});
+        } else {
+            for (int k = 0; k < mappedFiles.length; k++) {
+                mappedFiles[k] = new File(toDir, mappedFiles[k]).getAbsolutePath();
+            }
+            map.put(resource, mappedFiles);
+        }
+    }
+
+    /**
+     * Actually does the file (and possibly empty directory) copies.
+     * This is a good method for subclasses to override.
+     */
+    protected void doFileOperations() {
+        if (fileCopyMap.size() > 0) {
+            logFileCopyStart();
+            performFileCopies();
+        }
+        if (includeEmpty) {
+            performDirectoryCreation();
+        }
+    }
+
+    /**
+     * Log the start of file copy operations.
+     */
+    private void logFileCopyStart() {
+        log("Copying " + fileCopyMap.size()
+            + " file" + (fileCopyMap.size() == 1 ? "" : "s")
+            + " to " + destDir.getAbsolutePath());
+    }
+
+    /**
+     * Perform file copy operations.
+     */
+    private void performFileCopies() {
+        for (Map.Entry<String, String[]> e : fileCopyMap.entrySet()) {
+            String fromFile = e.getKey();
+            String[] toFiles = e.getValue();
+            for (int i = 0; i < toFiles.length; i++) {
+                performSingleFileCopy(fromFile, toFiles[i]);
+            }
+        }
+    }
+
+    /**
+     * Perform a single file copy operation.
+     */
+    private void performSingleFileCopy(String fromFile, String toFile) {
+        if (fromFile.equals(toFile)) {
+            log("Skipping self-copy of " + fromFile, verbosity);
+            return;
+        }
+
+        try {
+            executeSingleFileCopy(fromFile, toFile);
+        } catch (IOException ioe) {
+            handleFileCopyError(fromFile, toFile, ioe);
+        }
+    }
+
+    /**
+     * Execute a single file copy.
+     */
+    private void executeSingleFileCopy(String fromFile, String toFile) throws IOException {
+        log("Copying " + fromFile + " to " + toFile, verbosity);
+
+        FilterSetCollection executionFilters = new FilterSetCollection();
+        if (filtering) {
+            executionFilters.addFilterSet(getProject().getGlobalFilterSet());
+        }
+        for (FilterSet filterSet : filterSets) {
+            executionFilters.addFilterSet(filterSet);
+        }
+        fileUtils.copyFile(new File(fromFile), new File(toFile),
+                           executionFilters,
+                           filterChains, forceOverwrite,
+                           preserveLastModified,
+                           /* append: */ false, inputEncoding,
+                           outputEncoding, getProject(),
+                           getForce());
+    }
+
+    /**
+     * Handle file copy error.
+     */
+    private void handleFileCopyError(String fromFile, String toFile, IOException ioe) {
+        String msg = "Failed to copy " + fromFile + " to " + toFile
+            + " due to " + getDueTo(ioe);
+        File targetFile = new File(toFile);
+        if (targetFile.exists() && !targetFile.delete()) {
+            msg += " and I couldn't delete the corrupt " + toFile;
+        }
+        if (failonerror) {
+            throw new BuildException(msg, ioe, getLocation());
+        }
+        log(msg, Project.MSG_ERR);
+    }
+
+    /**
+     * Perform directory creation operations.
+     */
+    private void performDirectoryCreation() {
+        int createCount = 0;
+        for (String[] dirs : dirCopyMap.values()) {
+            for (int i = 0; i < dirs.length; i++) {
+                if (createDirectory(dirs[i])) {
+                    createCount++;
+                }
+            }
+        }
+        if (createCount > 0) {
+            logDirectoryCreationSummary(createCount);
+        }
+    }
+
+    /**
+     * Create a directory if it doesn't exist.
+     */
+    private boolean createDirectory(String dirPath) {
+        File d = new File(dirPath);
+        if (d.exists()) {
+            return false;
+        }
+        if (!d.mkdirs()) {
+            log("Unable to create directory " + d.getAbsolutePath(), Project.MSG_ERR);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Log directory creation summary.
+     */
+    private void logDirectoryCreationSummary(int createCount) {
+        log("Copied " + dirCopyMap.size()
+            + " empty director"
+            + (dirCopyMap.size() == 1 ? "y" : "ies")
+            + " to " + createCount
+            + " empty director"
+            + (createCount == 1 ? "y" : "ies") + " under "
+            + destDir.getAbsolutePath());
+    }
+
+    /**
+     * Actually does the resource copies.
+     * This is a good method for subclasses to override.
+     * @param map a map of source resource to array of destination files.
+     * @since Ant 1.7
+     */
+    protected void doResourceOperations(Map<Resource, String[]> map) {
+        if (map.size() > 0) {
+            logResourceCopyStart(map);
+            performResourceCopies(map);
+        }
+    }
+
+    /**
+     * Log the start of resource copy operations.
+     */
+    private void logResourceCopyStart(Map<Resource, String[]> map) {
+        log("Copying " + map.size()
+            + " resource" + (map.size() == 1 ? "" : "s")
+            + " to " + destDir.getAbsolutePath());
+    }
+
+    /**
+     * Perform resource copy operations.
+     */
+    private void performResourceCopies(Map<Resource, String[]> map) {
+        for (Map.Entry<Resource, String[]> e : map.entrySet()) {
+            Resource fromResource = e.getKey();
+            for (String toFile : e.getValue()) {
+                performSingleResourceCopy(fromResource, toFile);
+            }
+        }
+    }
+
+    /**
+     * Perform a single resource copy operation.
+     */
+    private void performSingleResourceCopy(Resource fromResource, String toFile) {
+        try {
+            executeSingleResourceCopy(fromResource, toFile);
+        } catch (IOException ioe) {
+            handleResourceCopyError(fromResource, toFile, ioe);
+        }
+    }
+
+    /**
+     * Execute a single resource copy.
+     */
+    private void executeSingleResourceCopy(Resource fromResource, String toFile) throws IOException {
+        log("Copying " + fromResource + " to " + toFile, verbosity);
+
+        FilterSetCollection executionFilters = new FilterSetCollection();
+        if (filtering) {
+            executionFilters.addFilterSet(getProject().getGlobalFilterSet());
+        }
+        for (FilterSet filterSet : filterSets) {
+            executionFilters.addFilterSet(filterSet);
+        }
+        ResourceUtils.copyResource(fromResource,
+                                   new FileResource(destDir, toFile),
+                                   executionFilters,
+                                   filterChains,
+                                   forceOverwrite,
+                                   preserveLastModified,
+                                   /* append: */ false,
+                                   inputEncoding,
+                                   outputEncoding,
+                                   getProject(),
+                                   getForce());
+    }
+
+    /**
+     * Handle resource copy error.
+     */
+    private void handleResourceCopyError(Resource fromResource, String toFile, IOException ioe) {
+        String msg = "Failed to copy " + fromResource
+            + " to " + toFile
+            + " due to " + getDueTo(ioe);
+        File targetFile = new File(toFile);
+        if (targetFile.exists() && !targetFile.delete()) {
+            msg += " and I couldn't delete the corrupt " + toFile;
+        }
+        if (failonerror) {
+            throw new BuildException(msg, ioe, getLocation());
+        }
+        log(msg, Project.MSG_ERR);
+    }
+
+    /**
+     * Whether this task can deal with non-file resources.
+     *
+     * <p>&lt;copy&gt; can while &lt;move&gt; can't since we don't
+     * know how to remove non-file resources.</p>
+     *
+     * <p>This implementation returns true only if this task is
+     * &lt;copy&gt;.  Any subclass of this class that also wants to
+     * support non-file resources needs to override this method.  We
+     * need to do so for backwards compatibility reasons since we
+     * can't expect subclasses to support resources.</p>
+     * @return true if this task supports non file resources.
+     * @since Ant 1.7
+     */
+    protected boolean supportsNonFileResources() {
+        return getClass().equals(Copy.class);
+    }
+
+    /**
+     * Adds the given strings to a list contained in the given map.
+     * The file is the key into the map.
+     */
+    private static void add(File baseDir, String[] names, Map<File, List<String>> m) {
+        if (names != null) {
+            baseDir = getKeyFile(baseDir);
+            List<String> l = m.get(baseDir);
+            if (l == null) {
+                l = new ArrayList<String>(names.length);
+                m.put(baseDir, l);
+            }
+            l.addAll(java.util.Arrays.asList(names));
+        }
+    }
+
+    /**
+     * Adds the given string to a list contained in the given map.
+     * The file is the key into the map.
+     */
+    private static void add(File baseDir, String name, Map<File, List<String>> m) {
+        if (name != null) {
+            add(baseDir, new String[] {name}, m);
+        }
+    }
+
+    /**
+     * Either returns its argument or a plaeholder if the argument is null.
+     */
+    private static File getKeyFile(File f) {
+        return f == null ? NULL_FILE_PLACEHOLDER : f;
+    }
+
+    /**
+     * returns the mapper to use based on nested elements or the
+     * flatten attribute.
+     */
+    private FileNameMapper getMapper() {
+        FileNameMapper mapper = null;
+        if (mapperElement != null) {
+            mapper = mapperElement.getImplementation();
+        } else if (flatten) {
+            mapper = new FlatFileNameMapper();
+        } else {
+            mapper = new IdentityMapper();
+        }
+        return mapper;
+    }
+
+    /**
+     * Handle getMessage() for exceptions.
+     * @param ex the exception to handle
+     * @return ex.getMessage() if ex.getMessage() is not null
+     *         otherwise return ex.toString()
+     */
+    private String getMessage(Exception ex) {
+        return ex.getMessage() == null ? ex.toString() : ex.getMessage();
+    }
+
+    /**
+     * Returns a reason for failure based on
+     * the exception thrown.
+     * If the exception is not IOException output the class name,
+     * output the message
+     * if the exception is MalformedInput add a little note.
+     */
+    private String getDueTo(Exception ex) {
+        boolean baseIOException = ex.getClass() == IOException.class;
+        StringBuffer message = new StringBuffer();
+        if (!baseIOException || ex.getMessage() == null) {
+            message.append(ex.getClass().getName());
+        }
+        if (ex.getMessage() != null) {
+            if (!baseIOException) {
+                message.append(" ");
+            }
+            message.append(ex.getMessage());
+        }
+        if (ex.getClass().getName().indexOf("MalformedInput") != -1) {
+            message.append(LINE_SEPARATOR);
+            message.append(
+                "This is normally due to the input file containing invalid");
+             message.append(LINE_SEPARATOR);
+            message.append("bytes for the character encoding used : ");
+            message.append(
+                (inputEncoding == null
+                 ? fileUtils.getDefaultEncoding() : inputEncoding));
+            message.append(LINE_SEPARATOR);
+        }
+        return message.toString();
+    }
+}
