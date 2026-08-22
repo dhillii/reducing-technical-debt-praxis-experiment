@@ -126,6 +126,11 @@ TOGETHER_MODELS: Dict[str, Any] = {
         "context_window_tokens": 131072,
         "gpt_oss_prefix": False,
     },
+    "kimi_k2.7_code": {
+        "model_id": "moonshotai/Kimi-K2.7-Code",
+        "context_window_tokens": 262144,
+        "gpt_oss_prefix": False,
+    }
 }
 
 # SonarCloud polling settings
