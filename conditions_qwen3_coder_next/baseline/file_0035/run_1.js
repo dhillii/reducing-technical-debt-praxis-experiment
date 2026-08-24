@@ -1,0 +1,1 @@
+expect(postOneContainer.dataset.selected, 'postOne selected').to.exist;

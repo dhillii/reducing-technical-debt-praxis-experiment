@@ -4,6 +4,7 @@
 # Core API & HTTP
 anthropic>=0.7.0              
 together>=1.5.13              # Together AI Batch API
+openai>=1.0.0                  # Hugging Face router (OpenAI-compatible)
 requests>=2.31.0             
 python-dotenv>=1.0.0          
 

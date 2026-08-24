@@ -133,6 +133,20 @@ TOGETHER_MODELS: Dict[str, Any] = {
     }
 }
 
+# Hugging Face router settings (OpenAI-compatible chat completions endpoint)
+HF_TOKEN = os.getenv("HF_TOKEN", "")
+HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
+HUGGINGFACE_TEMPERATURE = 0.0
+HUGGINGFACE_MAX_TOKENS = 65536
+HUGGINGFACE_MODELS: Dict[str, Any] = {
+    "qwen3_coder_next": {
+        "model_id": "Qwen/Qwen3-Coder-Next:preferred",
+    },
+    "qwen3_coder_480b": {
+        "model_id": "Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+    },
+}
+
 # SonarCloud polling settings
 SONARCLOUD_POLL_INTERVAL = 5  # seconds between polls
 SONARCLOUD_POLL_TIMEOUT = 300  # max seconds to wait for analysis

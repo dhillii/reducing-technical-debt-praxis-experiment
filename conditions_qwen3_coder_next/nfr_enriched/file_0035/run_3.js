@@ -1,0 +1,959 @@
+const findButton = (text, buttons) => {
+    return Array.from(buttons).find(button => button.innerText.trim() === text);
+};
+
+const getSelectedContainer = (postElement) => postElement.parentElement;
+
+const selectContainerWithKey = (container, ctrlOrCmd) => {
+    return click(container, {
+        metaKey: ctrlOrCmd === 'command',
+        ctrlKey: ctrlOrCmd === 'ctrl'
+    });
+};
+
+const verifySelectedState = (container, expectedMessage) => {
+    expect(container.dataset.selected, expectedMessage).to.exist;
+};
+
+const triggerContextMenu = (element) => {
+    return triggerEvent(element, 'contextmenu');
+};
+
+const getContextMenuButtons = (menu) => {
+    return menu.querySelectorAll('button');
+};
+
+const selectChooseFromContextMenu = async (menu, buttonLabel) => {
+    const buttons = getContextMenuButtons(menu);
+    const button = findButton(buttonLabel, buttons);
+    expect(button, `${buttonLabel} button`).to.exist;
+    await click(button);
+    return button;
+};
+
+const pressDelete = async (postContainer, ctrlOrCmd) => {
+    await selectContainerWithKey(postContainer, ctrlOrCmd);
+    const selectedContainer = getSelectedContainer(postContainer);
+    verifySelectedState(selectedContainer, 'post selected');
+    await triggerContextMenu(selectedContainer);
+    const contextMenu = find('.gh-posts-context-menu');
+    expect(contextMenu, 'context menu').to.exist;
+    const deleteButton = await selectChooseFromContextMenu(contextMenu, 'Delete');
+    expect(deleteButton, 'delete button').to.exist;
+    await click(deleteButton);
+};
+
+describe('Acceptance: Posts / Pages', function () {
+    let hooks = setupApplicationTest();
+    setupMirage(hooks);
+
+    beforeEach(async function () {
+        this.server.loadFixtures('configs');
+        this.server.loadFixtures('settings');
+    });
+
+    this.afterEach(function () {
+        sinon.restore();
+    });
+
+    describe('posts', function () {
+        it('redirects to signin when not authenticated', async function () {
+            await invalidateSession();
+            await visit('/posts');
+            expect(currentURL()).to.equal('/signin');
+        });
+
+        describe('as contributor', function () {
+            beforeEach(async function () {
+                let contributorRole = this.server.create('role', {name: 'Contributor'});
+                this.server.create('user', {roles: [contributorRole]});
+                await authenticateSession();
+            });
+
+            it('shows posts list and allows post creation', async function () {
+                await visit('/posts');
+
+                expect(findAll('[data-test-post-id]')).to.have.length(0);
+                expect(find('[data-test-no-posts-box]')).to.exist;
+                expect(find('[data-test-link="write-a-new-post"]')).to.exist;
+
+                await click('[data-test-link="write-a-new-post"]');
+                expect(currentURL()).to.equal('/editor/post');
+
+                await fillIn('[data-test-editor-title-input]', 'First contributor post');
+                await blur('[data-test-editor-title-input]');
+                expect(currentURL()).to.equal('/editor/post/1');
+
+                await click('[data-test-link="posts"]');
+                expect(findAll('[data-test-post-id]')).to.have.length(1);
+                expect(find('[data-test-no-posts-box]')).to.not.exist;
+            });
+
+            describe('context menu', function () {
+                let publishedPost;
+
+                beforeEach(async function () {
+                    publishedPost = this.server.create('post', {status: 'published'});
+                });
+
+                it('does not render the context menu', async function () {
+                    await visit('/posts');
+
+                    const post = find(`[data-test-post-id="${publishedPost.id}"]`);
+                    expect(post, 'post').to.exist;
+
+                    await triggerEvent(post, 'contextmenu');
+
+                    const contextMenu = find('.gh-posts-context-menu');
+                    expect(contextMenu, 'context menu').to.not.be.visible;
+                });
+            });
+        });
+
+        describe('as author', function () {
+            let author, authorPost;
+
+            beforeEach(async function () {
+                let authorRole = this.server.create('role', {name: 'Author'});
+                author = this.server.create('user', {roles: [authorRole]});
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                let admin = this.server.create('user', {roles: [adminRole]});
+
+                authorPost = this.server.create('post', {authors: [author], status: 'published', title: 'Author Post'});
+                this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Admin Post'});
+
+                await authenticateSession();
+            });
+
+            it('only fetches the author\'s posts', async function () {
+                await visit('/posts');
+                await selectChoose('[data-test-type-select]', 'Published posts');
+
+                const postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                const lastPostsRequest = postsRequests[postsRequests.length - 1];
+                expect(lastPostsRequest.queryParams.filter).to.have.string(`authors:${author.slug}`);
+
+                expect(findAll('[data-test-post-id]').length, 'post count').to.equal(1);
+                expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author post').to.exist;
+            });
+
+            describe('context menu', function () {
+                it('does not render the context menu', async function () {
+                    await visit('/posts');
+
+                    const post = find(`[data-test-post-id="${authorPost.id}"]`);
+                    expect(post, 'post').to.exist;
+
+                    await triggerEvent(post, 'contextmenu');
+
+                    const contextMenu = find('.gh-posts-context-menu');
+                    expect(contextMenu, 'context menu').to.not.be.visible;
+                });
+            });
+        });
+
+        describe('as editor', function () {
+            let editor, editorPost;
+
+            beforeEach(async function () {
+                let editorRole = this.server.create('role', {name: 'Editor'});
+                editor = this.server.create('user', {roles: [editorRole]});
+                editorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Post'});
+
+                await authenticateSession();
+            });
+
+            describe('context menu', function () {
+                it('renders the correct options', async function () {
+                    await visit('/posts');
+
+                    const post = find(`[data-test-post-id="${editorPost.id}"]`);
+                    expect(post, 'post').to.exist;
+
+                    await triggerEvent(post, 'contextmenu');
+
+                    const contextMenu = find('.gh-posts-context-menu');
+                    expect(contextMenu, 'context menu').to.exist;
+
+                    const buttons = getContextMenuButtons(contextMenu);
+                    expect(buttons.length, 'context menu buttons').to.equal(5);
+                    expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                    expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Unpublish');
+                    expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Feature');
+                    expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Add a tag');
+                    expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Duplicate');
+                });
+            });
+        });
+
+        describe('as admin', function () {
+            let admin, editor, publishedPost, scheduledPost, draftPost, authorPost;
+
+            beforeEach(async function () {
+                this.server.loadFixtures('tiers');
+
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                admin = this.server.create('user', {roles: [adminRole]});
+                let editorRole = this.server.create('role', {name: 'Editor'});
+                editor = this.server.create('user', {roles: [editorRole]});
+
+                publishedPost = this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                scheduledPost = this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Scheduled Post'});
+                draftPost = this.server.create('post', {authors: [admin], status: 'draft', title: 'Draft Post'});
+                authorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Published Post'});
+
+                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
+
+                await authenticateSession();
+            });
+
+            describe('displays and filter posts', function () {
+                it('displays posts', async function () {
+                    await visit('/posts');
+
+                    const posts = findAll('[data-test-post-id]');
+                    expect(posts.length, 'all posts count').to.equal(4);
+
+                    expect(posts[0].querySelector('.gh-content-entry-title').textContent, 'post 1 title').to.contain('Scheduled Post');
+                    expect(posts[1].querySelector('.gh-content-entry-title').textContent, 'post 2 title').to.contain('Draft Post');
+                    expect(posts[2].querySelector('.gh-content-entry-title').textContent, 'post 3 title').to.contain('Published Post');
+                    expect(posts[3].querySelector('.gh-content-entry-title').textContent, 'post 4 title').to.contain('Editor Published Post');
+                });
+
+                it('can filter by status', async function () {
+                    await visit('/posts');
+
+                    await selectChoose('[data-test-type-select]', 'Draft posts');
+                    let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    let lastPostsRequest = postsRequests[postsRequests.length - 1];
+                    expect(lastPostsRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                    expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
+                    expect(find(`[data-test-post-id="${draftPost.id}"]`), 'draft post').to.exist;
+
+                    await selectChoose('[data-test-type-select]', 'Published posts');
+                    postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    lastPostsRequest = postsRequests[postsRequests.length - 1];
+                    expect(lastPostsRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                    expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                    expect(find(`[data-test-post-id="${publishedPost.id}"]`), 'admin published post').to.exist;
+                    expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author published post').to.exist;
+
+                    await selectChoose('[data-test-type-select]', 'Scheduled posts');
+                    let scheduledPostsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    let lastScheduledRequest = scheduledPostsRequests[scheduledPostsRequests.length - 1];
+                    expect(lastScheduledRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                    expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                    expect(find(`[data-test-post-id="${scheduledPost.id}"]`), 'scheduled post').to.exist;
+                });
+
+                it('can filter by author', async function () {
+                    await visit('/posts');
+                    await selectChoose('[data-test-author-select]', editor.name);
+
+                    const postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    const lastPostsRequest = postsRequests[postsRequests.length - 1];
+                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request status filter')
+                        .to.have.string('status:[draft,scheduled,published,sent]');
+                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request filter param')
+                        .to.have.string(`authors:${editor.slug}`);
+
+                    expect(findAll('[data-test-post-id]').length, 'editor count').to.equal(1);
+                });
+
+                it('can filter by visibility', async function () {
+                    await visit('/posts');
+                    await selectChoose('[data-test-visibility-select]', 'Paid members-only');
+                    let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    let lastPostsRequest = postsRequests[postsRequests.length - 1];
+                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
+                        .to.have.string('visibility:[paid,tiers]');
+                    let posts = findAll('[data-test-post-id]');
+                    expect(posts.length, 'all posts count').to.equal(1);
+
+                    await selectChoose('[data-test-visibility-select]', 'Public');
+                    postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+                    lastPostsRequest = postsRequests[postsRequests.length - 1];
+                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
+                        .to.have.string('visibility:public');
+                    posts = findAll('[data-test-post-id]');
+                    expect(posts.length, 'all posts count').to.equal(3);
+                });
+
+                it('can filter by tag', async function () {
+                    this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                    this.server.create('tag', {name: 'Z - Last', slug: 'last'});
+                    this.server.create('tag', {name: 'A - First', slug: 'first'});
+
+                    await visit('/posts');
+                    await clickTrigger('[data-test-tag-select]');
+
+                    const options = findAll('.ember-power-select-option');
+                    expect(options.length, 'options count').to.equal(4); // 3 tags + "All tags"
+                    expect(options[0].textContent.trim()).to.equal('All tags');
+
+                    await selectSearch('[data-test-tag-select]', 's');
+                    expect(options[0].textContent.trim()).to.equal('A - First');
+                    expect(options[1].textContent.trim()).to.equal('B - Second');
+                    expect(options[2].textContent.trim()).to.equal('Z - Last');
+
+                    await selectChoose('[data-test-tag-select]', 'B - Second');
+                    const [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:second');
+                });
+
+                it('can filter by tag with server-side search', async function () {
+                    this.server.createList('tag', 120);
+                    this.server.create('tag', {name: 'Z - Last', slug: 'last'});
+
+                    await visit('/posts');
+                    await selectSearch('[data-test-tag-select]', 'Last');
+
+                    let options = findAll('.ember-power-select-option');
+                    expect(options.length, 'options count').to.equal(1);
+                    expect(options[0].textContent.trim()).to.equal('Z - Last');
+
+                    await selectChoose('[data-test-tag-select]', 'Z - Last');
+
+                    let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:last');
+                });
+
+                it('can open with a filtered tag', async function () {
+                    const tag = this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                    this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post with Second tag', tags: [tag]});
+
+                    await visit('/posts?tag=second');
+
+                    const posts = findAll('[data-test-post-id]');
+                    expect(posts.length, 'all posts count').to.equal(1);
+                    expect(posts[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Post with Second tag');
+
+                    const filter = find('[data-test-tag-select]');
+                    expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
+                });
+            });
+
+            describe('context menu actions', function () {
+                describe('single post', function () {
+                    it('can duplicate a post', async function () {
+                        await visit('/posts');
+
+                        const post = find(`[data-test-post-id="${publishedPost.id}"]`);
+                        expect(post, 'post').to.exist;
+
+                        await triggerEvent(post, 'contextmenu');
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const buttons = getContextMenuButtons(contextMenu);
+                        expect(buttons.length, 'context menu buttons').to.equal(6);
+
+                        const duplicateButton = findButton('Duplicate', buttons);
+                        expect(duplicateButton, 'duplicate button').to.exist;
+                        await click(duplicateButton);
+
+                        expect(findAll('[data-test-post-id]').length, 'all posts count').to.equal(5);
+                        const [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                        expect(lastRequest.url, 'request url').to.match(new RegExp(`/posts/${publishedPost.id}/copy/`));
+                    });
+
+                    it('can copy a post link', async function () {
+                        sinon.stub(navigator.clipboard, 'writeText').resolves();
+
+                        await visit('/posts');
+
+                        const post = find(`[data-test-post-id="${publishedPost.id}"]`);
+                        expect(post, 'post').to.exist;
+
+                        await triggerEvent(post, 'contextmenu');
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const buttons = getContextMenuButtons(contextMenu);
+                        const copyLinkButton = findButton('Copy link to post', buttons);
+                        expect(copyLinkButton, 'copy link button').to.exist;
+
+                        await click(copyLinkButton);
+
+                        expect(find('[data-test-text="notification-content"]')).to.contain.text('Post link copied');
+                        expect(navigator.clipboard.writeText.calledOnce).to.be.true;
+                        expect(navigator.clipboard.writeText.firstCall.args[0]).to.equal(`http://localhost:4200/${publishedPost.slug}/`);
+                    });
+
+                    it('can copy a preview link', async function () {
+                        sinon.stub(navigator.clipboard, 'writeText').resolves();
+
+                        await visit('/posts');
+
+                        const post = find(`[data-test-post-id="${draftPost.id}"]`);
+                        expect(post, 'post').to.exist;
+
+                        await triggerEvent(post, 'contextmenu');
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const buttons = getContextMenuButtons(contextMenu);
+                        const previewLinkButton = findButton('Copy preview link', buttons);
+                        expect(previewLinkButton, 'preview link button').to.exist;
+
+                        await click(previewLinkButton);
+
+                        expect(find('[data-test-text="notification-content"]')).to.contain.text('Preview link copied');
+                        expect(navigator.clipboard.writeText.calledOnce).to.be.true;
+                        expect(navigator.clipboard.writeText.firstCall.args[0]).to.equal(`http://localhost:4200/p/${draftPost.uuid}/`);
+                    });
+                });
+
+                describe('multiple posts', function () {
+                    it('can feature and unfeature', async function () {
+                        await visit('/posts');
+
+                        const posts = findAll('[data-test-post-id]');
+                        expect(posts.length, 'all posts count').to.equal(4);
+
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+
+                        verifySelectedState(postThreeContainer, 'postThree selected');
+                        verifySelectedState(postFourContainer, 'postFour selected');
+
+                        await triggerContextMenu(postFourContainer);
+
+                        let contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        let featureButton = await selectChooseFromContextMenu(contextMenu, 'Feature');
+
+                        expect(featureButton, 'feature button').to.exist;
+                        expect(findAll('[data-test-post-id]').length, 'all posts count after feature').to.equal(4);
+
+                        await triggerContextMenu(postFourContainer);
+                        contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        await selectChooseFromContextMenu(contextMenu, 'Unfeature');
+                    });
+
+                    it('can add a tag', async function () {
+                        await visit('/posts');
+
+                        const posts = findAll('[data-test-post-id]');
+                        expect(posts.length, 'all posts count').to.equal(4);
+
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+
+                        verifySelectedState(postThreeContainer, 'postThree selected');
+                        verifySelectedState(postFourContainer, 'postFour selected');
+
+                        await triggerContextMenu(postFourContainer);
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        await selectChooseFromContextMenu(contextMenu, 'Add a tag');
+
+                        const addTagsModal = find('[data-test-modal="add-tags"]');
+                        expect(addTagsModal, 'tag settings modal').to.exist;
+
+                        const input = addTagsModal.querySelector('input');
+                        await fillIn(input, 'test-tag');
+                        await triggerKeyEvent(input, 'keydown', 13);
+                        await click('[data-test-button="confirm"]');
+                    });
+
+                    it('cannot change access when members is disabled', async function () {
+                        await visit('/posts');
+
+                        const settingsService = this.owner.lookup('service:settings');
+                        await settingsService.set('membersEnabled', false);
+
+                        const posts = findAll('[data-test-post-id]');
+                        expect(posts.length, 'all posts count').to.equal(4);
+
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+                        await triggerContextMenu(postFourContainer);
+
+                        expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
+                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
+                    });
+
+                    it('can change access', async function () {
+                        await visit('/posts');
+
+                        const settingsService = this.owner.lookup('service:settings');
+                        await settingsService.set('membersEnabled', true);
+
+                        const posts = findAll('[data-test-post-id]');
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+
+                        await triggerContextMenu(postFourContainer);
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const changeAccessButton = findButton('Change access', getContextMenuButtons(contextMenu));
+                        await click(changeAccessButton);
+
+                        const changeAccessModal = find('[data-test-modal="edit-posts-access"]');
+                        const selectElement = changeAccessModal.querySelector('select');
+                        await fillIn(selectElement, 'members');
+                        await click('[data-test-button="confirm"]');
+                    });
+
+                    it('can change access with custom tiers', async function () {
+                        await visit('/posts');
+
+                        const settingsService = this.owner.lookup('service:settings');
+                        await settingsService.set('membersEnabled', true);
+
+                        const postContainer = getSelectedContainer(findAll('[data-test-post-id]')[2]);
+                        await triggerContextMenu(postContainer);
+
+                        await click('[data-test-post-context-menu] [data-test-button="change-access"]');
+
+                        const modalSelector = '[data-test-modal="edit-posts-access"]';
+                        const tiersSelector = `${modalSelector} [data-test-visibility-segment-select]`;
+
+                        expect(find(tiersSelector)).not.to.exist;
+                        await fillIn(`${modalSelector} select`, 'tiers');
+                        await clickTrigger(tiersSelector);
+                        await selectChoose(tiersSelector, 'Default Tier');
+                        await click(`${modalSelector} [data-test-button="confirm"]`);
+                    });
+
+                    it('can unpublish', async function () {
+                        await visit('/posts');
+
+                        const posts = findAll('[data-test-post-id]');
+                        expect(posts.length, 'all posts count').to.equal(4);
+
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+
+                        verifySelectedState(postThreeContainer, 'postThree selected');
+                        verifySelectedState(postFourContainer, 'postFour selected');
+
+                        await triggerContextMenu(postFourContainer);
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const unpublishButton = await selectChooseFromContextMenu(contextMenu, 'Unpublish');
+                        expect(unpublishButton, 'unpublish button').to.exist;
+
+                        const modal = find('[data-test-modal="unpublish-posts"]');
+                        expect(modal, 'unpublish modal').to.exist;
+                        await click('[data-test-button="confirm"]');
+                    });
+
+                    it('can unschedule', async function () {
+                        await visit('/posts');
+
+                        const posts = findAll('[data-test-post-id]');
+                        const postOneContainer = getSelectedContainer(posts[0]); // scheduled post
+
+                        await selectContainerWithKey(postOneContainer, ctrlOrCmd);
+
+                        verifySelectedState(postOneContainer, 'postOne selected');
+
+                        await triggerContextMenu(postOneContainer);
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        const unscheduleButton = await selectChooseFromContextMenu(contextMenu, 'Unschedule');
+                        expect(unscheduleButton, 'unschedule button').to.exist;
+
+                        const modal = find('[data-test-modal="unschedule-posts"]');
+                        expect(modal, 'unschedule modal').to.exist;
+                        await click('[data-test-button="confirm"]');
+                    });
+
+                    it('can delete', async function () {
+                        await visit('/posts');
+
+                        const posts = findAll('[data-test-post-id]');
+                        expect(posts.length, 'all posts count').to.equal(4);
+
+                        const postThreeContainer = getSelectedContainer(posts[2]);
+                        const postFourContainer = getSelectedContainer(posts[3]);
+
+                        await selectContainerWithKey(postThreeContainer, ctrlOrCmd);
+                        await selectContainerWithKey(postFourContainer, ctrlOrCmd);
+
+                        verifySelectedState(postThreeContainer, 'postThree selected');
+                        verifySelectedState(postFourContainer, 'postFour selected');
+
+                        await triggerContextMenu(postFourContainer);
+
+                        const contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
+                        await pressDelete(postFourContainer, ctrlOrCmd);
+                    });
+                });
+            });
+
+            it('can add and edit custom views', async function () {
+                await visit('/posts');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
+
+                await selectChoose('[data-test-author-select]', admin.name);
+                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
+
+                await click('[data-test-button="add-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
+
+                await fillIn('[data-test-input="custom-view-name"]', 'Test view');
+                await click('[data-test-button="save-custom-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+
+                await click('[data-test-button="edit-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
+
+                await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
+                await click('[data-test-button="save-custom-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
+                expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
+            });
+
+            it('can navigate to custom views', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug
+                        }
+                    }])
+                });
+
+                await visit('/posts');
+
+                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav="posts"]')).to.have.class('active');
+
+                await click('[data-test-nav-custom="posts-Scheduled"]');
+                expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
+
+                await click('[data-test-nav="posts"]');
+                expect(currentURL()).to.equal('/posts');
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
+            });
+
+            it('Shows edit view if order is null, which indicates a bad state', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug,
+                            order: null
+                        }
+                    }])
+                });
+
+                await visit('/posts');
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+
+                await click('[data-test-nav-custom="posts-My posts"]');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+            });
+        });
+
+        describe('analytics visibility', function () {
+            let publishedPost;
+
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                publishedPost = this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: this.server.create('email', {
+                        emailCount: 100,
+                        openedCount: 50,
+                        clickedCount: 25,
+                        openRate: 50,
+                        clickRate: 25
+                    })
+                });
+
+                await authenticateSession();
+            });
+
+            it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+            });
+
+            it('hides member conversions column when membersTrackSources is disabled', async function () {
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows analytics button when post has analytics page', async function () {
+                publishedPost.update({hasAnalyticsPage: true});
+
+                await visit('/posts');
+
+                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
+                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
+            });
+
+            it('hides all analytics columns when both settings are disabled', async function () {
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
+                expect(currentURL(), 'current URL').to.equal('/posts');
+            });
+        });
+
+        describe('newsletter analytics display logic', function () {
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                await authenticateSession();
+            });
+
+            it('shows/hides email analytics section based on post.email', async function () {
+                let email1 = this.server.create('email', {
+                    emailCount: 1500
+                });
+                
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1
+                });
+
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: false,
+                    email: null
+                });
+
+                await visit('/posts');
+                
+                let postElements = findAll('.gh-posts-list-item');
+                expect(postElements.length).to.equal(2);
+                
+                let firstPost = postElements[0];
+                let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(emailSection, 'email analytics section for post with email').to.exist;
+                
+                let secondPost = postElements[1];
+                let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
+            });
+
+            it('displays newsletter columns based on email tracking settings', async function () {
+                let email1 = this.server.create('email', {
+                    emailCount: 15000,
+                    trackOpens: false,
+                    trackClicks: false
+                });
+                
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1,
+                    showEmailOpenAnalytics: false,
+                    showEmailClickAnalytics: false
+                });
+
+                await visit('/posts');
+                
+                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
+                expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
+                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
+                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
+            });
+        });
+    });
+
+    describe('pages', function () {
+        describe('as admin', function () {
+            let admin, editor;
+
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                admin = this.server.create('user', {roles: [adminRole]});
+                let editorRole = this.server.create('role', {name: 'Editor'});
+                editor = this.server.create('user', {roles: [editorRole]});
+
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+
+                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
+                this.server.create('page', {authors: [editor], status: 'published', title: 'Editor Published Page'});
+                this.server.create('page', {authors: [admin], status: 'draft', title: 'Draft Page'});
+                this.server.create('page', {authors: [admin], status: 'scheduled', title: 'Scheduled Page'});
+
+                await authenticateSession();
+            });
+
+            it('can view pages', async function () {
+                await visit('/pages');
+
+                const pages = findAll('[data-test-post-id]');
+                expect(pages.length, 'all pages count').to.equal(4);
+            });
+
+            it('can filter pages', async function () {
+                await visit('/pages');
+
+                await selectChoose('[data-test-type-select]', 'Draft pages');
+
+                let pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                let lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
+                expect(find('[data-test-post-id="3"]'), 'draft page').to.exist;
+
+                await selectChoose('[data-test-type-select]', 'Published pages');
+
+                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                expect(find('[data-test-post-id="1"]'), 'admin published page').to.exist;
+                expect(find('[data-test-post-id="2"]'), 'editor published page').to.exist;
+
+                await selectChoose('[data-test-type-select]', 'Scheduled pages');
+
+                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                expect(find('[data-test-post-id="4"]'), 'scheduled page').to.exist;
+            });
+
+            it('can filter by tag', async function () {
+                this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
+                this.server.create('tag', {name: 'A - First', slug: 'first'});
+
+                await visit('/pages');
+                await clickTrigger('[data-test-tag-select]');
+
+                let options = findAll('.ember-power-select-option');
+                expect(options.length, 'options count').to.equal(4);
+                expect(options[0].textContent.trim()).to.equal('All tags');
+
+                await selectSearch('[data-test-tag-select]', 's');
+
+                options = findAll('.ember-power-select-option');
+                expect(options[0].textContent.trim()).to.equal('A - First');
+                expect(options[1].textContent.trim()).to.equal('B - Second');
+                expect(options[2].textContent.trim()).to.equal('Z - Last');
+
+                await selectChoose('[data-test-tag-select]', 'B - Second');
+                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:second');
+            });
+
+            it('can filter by tag with server-side search', async function () {
+                this.server.createList('tag', 120);
+                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
+
+                await visit('/pages');
+
+                await selectSearch('[data-test-tag-select]', 'Last');
+
+                let options = findAll('.ember-power-select-option');
+                expect(options.length, 'options count').to.equal(1);
+                expect(options[0].textContent.trim()).to.equal('Z - Last');
+
+                await selectChoose('[data-test-tag-select]', 'Z - Last');
+
+                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:last');
+            });
+
+            it('can open with a filtered tag', async function () {
+                const tag = this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page with Second tag', tags: [tag]});
+
+                await visit('/pages?tag=second');
+
+                const pages = findAll('[data-test-post-id]');
+                expect(pages.length, 'all pages count').to.equal(1);
+                expect(pages[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Page with Second tag');
+
+                const filter = find('[data-test-tag-select]');
+                expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
+            });
+        });
+    });
+});

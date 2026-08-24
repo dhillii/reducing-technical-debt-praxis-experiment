@@ -1,12 +1,15 @@
 """
 Batch-mode orchestrator for running large-scale refactoring experiments.
 
-Supports two inference providers:
-  - anthropic (model_key="haiku"): Anthropic Messages Batch API
-  - together   (model_key="llama_8b"|"gpt_oss_20b"|"llama_70b"|"gpt_oss_120b"):
-                Together AI Batch API
+Supports three inference providers:
+  - anthropic    (model_key="haiku"): Anthropic Messages Batch API
+  - together     (model_key="llama_8b"|"gpt_oss_20b"|"llama_70b"|"gpt_oss_120b"):
+                 Together AI Batch API
+  - huggingface  (model_key="qwen3_coder_next"|"qwen3_coder_480b"): HF router
+                 (OpenAI-compatible); requests run concurrently since the router
+                 has no async batch-submission API
 
-Results from both providers are normalized before processing so all downstream
+Results from all providers are normalized before processing so all downstream
 logic (local metrics, CSV writes, git) is provider-agnostic.
 """
 
@@ -22,6 +25,7 @@ from datetime import datetime, timezone
 from api.batch_processor import (
     AnthropicBatchProvider,
     TogetherBatchProvider,
+    HuggingFaceBatchProvider,
     BatchOrchestrator,
     extract_code_from_response,
 )
@@ -44,6 +48,9 @@ from utils.config import (
     TOGETHER_TEMPERATURE,
     TOGETHER_MAX_TOKENS,
     TOGETHER_BATCH_IDS_DIR,
+    HUGGINGFACE_MODELS,
+    HUGGINGFACE_TEMPERATURE,
+    HUGGINGFACE_MAX_TOKENS,
 )
 from utils.local_metrics import (
     analyze_code_metrics,
@@ -176,8 +183,33 @@ class BatchRunOrchestrator:
                 if self.namespace else DATA_DIR / f"together_dataset_{model_key}.csv"
             )
             batch_provider = TogetherBatchProvider(model_key=model_key, batch_dir=self.batch_dir)
+        elif provider == "huggingface":
+            if model_key not in HUGGINGFACE_MODELS:
+                raise ValueError(
+                    f"Unknown Hugging Face model_key {model_key!r}. "
+                    f"Valid keys: {list(HUGGINGFACE_MODELS)}"
+                )
+            cfg = HUGGINGFACE_MODELS[model_key]
+            self.model = cfg["model_id"]
+            self.max_tokens = HUGGINGFACE_MAX_TOKENS
+            self.temperature = HUGGINGFACE_TEMPERATURE
+            self.gpt_oss_prefix = False
+            self.disable_reasoning = False
+            self.conditions_root = (
+                f"experiments/{self.namespace}/conditions_{model_key}"
+                if self.namespace else f"conditions_{model_key}"
+            )
+            self.state_file = (
+                self.experiment_dir / f"experiment_state_{model_key}.json"
+                if self.namespace else PROJECT_ROOT / f"experiment_state_{model_key}.json"
+            )
+            self.output_csv = (
+                self.experiment_dir / "data" / f"huggingface_dataset_{model_key}.csv"
+                if self.namespace else DATA_DIR / f"huggingface_dataset_{model_key}.csv"
+            )
+            batch_provider = HuggingFaceBatchProvider(model_key=model_key, batch_dir=self.batch_dir)
         else:
-            raise ValueError(f"Unknown provider {provider!r}. Use 'anthropic' or 'together'.")
+            raise ValueError(f"Unknown provider {provider!r}. Use 'anthropic', 'together', or 'huggingface'.")
 
         self.state_manager = StateManager(state_file=self.state_file)
         self.batch_orchestrator = BatchOrchestrator(provider=batch_provider)

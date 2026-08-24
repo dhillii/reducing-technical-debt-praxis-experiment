@@ -1,0 +1,57 @@
+const fontClassName = (fontName: string, heading: boolean = true) => {
+        const fontMap: Record<string, string> = {
+            'Cardo': 'font-cardo',
+            'Manrope': 'font-manrope',
+            'Merriweather': 'font-merriweather',
+            'Nunito': 'font-nunito',
+            'Old Standard TT': 'font-old-standard-tt',
+            'Prata': 'font-prata',
+            'Roboto': 'font-roboto',
+            'Rufina': 'font-rufina',
+            'Tenor Sans': 'font-tenor-sans',
+            'Chakra Petch': 'font-chakra-petch',
+            'Fira Mono': 'font-fira-mono',
+            'Fira Sans': 'font-fira-sans',
+            'IBM Plex Serif': 'font-ibm-plex-serif',
+            'Inter': 'font-inter',
+            'JetBrains Mono': 'font-jetbrains-mono',
+            'Lora': 'font-lora',
+            'Noto Sans': 'font-noto-sans',
+            'Noto Serif': 'font-noto-serif',
+            'Poppins': 'font-poppins',
+            'Space Grotesk': 'font-space-grotesk',
+            'Space Mono': 'font-space-mono'
+        };
+
+        const fontWeightMap: Record<string, string> = {
+            'Cardo': 'font-bold',
+            'Manrope': 'font-bold',
+            'Merriweather': 'font-bold',
+            'Nunito': 'font-semibold',
+            'Old Standard TT': 'font-bold',
+            'Prata': 'font-normal',
+            'Roboto': 'font-bold',
+            'Rufina': 'font-bold',
+            'Tenor Sans': 'font-normal',
+            'Chakra Petch': 'font-normal',
+            'Fira Mono': 'font-bold',
+            'Fira Sans': 'font-bold',
+            'IBM Plex Serif': 'font-bold',
+            'Inter': 'font-bold',
+            'JetBrains Mono': 'font-bold',
+            'Lora': 'font-bold',
+            'Noto Sans': 'font-bold',
+            'Noto Serif': 'font-bold',
+            'Poppins': 'font-bold',
+            'Space Grotesk': 'font-bold',
+            'Space Mono': 'font-bold'
+        };
+
+        const baseClass = fontMap[fontName];
+        if (!baseClass) {
+            return '';
+        }
+
+        const weightClass = heading ? fontWeightMap[fontName] || 'font-bold' : 'font-normal';
+        return clsx(baseClass, weightClass);
+    };

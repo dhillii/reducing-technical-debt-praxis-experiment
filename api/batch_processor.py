@@ -1,11 +1,14 @@
 """
 Batch API processors for parallel refactoring experiments.
 
-Supports two providers:
-  - AnthropicBatchProvider: Anthropic Messages Batch API (async, proprietary)
-  - TogetherBatchProvider:  Together AI Batch API (JSONL upload → poll → download)
+Supports three providers:
+  - AnthropicBatchProvider:   Anthropic Messages Batch API (async, proprietary)
+  - TogetherBatchProvider:    Together AI Batch API (JSONL upload → poll → download)
+  - HuggingFaceBatchProvider: HF router (OpenAI-compatible, no async batch API;
+                              requests run concurrently inside submit_batch and
+                              results are cached locally so poll/retrieve still work)
 
-Both providers expose the same public interface so BatchOrchestrator and
+All providers expose the same public interface so BatchOrchestrator and
 BatchRunOrchestrator are provider-agnostic.
 
 Result dicts returned by retrieve_results() are normalized to:
@@ -18,6 +21,8 @@ import re
 import requests as http_requests
 import tempfile
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
@@ -27,6 +32,12 @@ from utils.config import (
     ANTHROPIC_API_KEY,
     CLAUDE_MODEL,
     CLAUDE_MAX_OUTPUT_TOKENS,
+    HF_TOKEN,
+    HUGGINGFACE_BASE_URL,
+    HUGGINGFACE_MAX_TOKENS,
+    HUGGINGFACE_MODELS,
+    HUGGINGFACE_TEMPERATURE,
+    PROJECT_ROOT,
     TOGETHER_API_KEY,
     TOGETHER_BATCH_IDS_DIR,
     TOGETHER_CONTEXT_SAFETY_MARGIN,
@@ -670,6 +681,283 @@ class TogetherBatchProvider:
 
 
 # ---------------------------------------------------------------------------
+# Hugging Face router provider
+# ---------------------------------------------------------------------------
+
+class HuggingFaceBatchProvider:
+    """
+    Manages "batch" refactoring runs against the Hugging Face router
+    (OpenAI-compatible https://router.huggingface.co/v1 endpoint).
+
+    The router has no async batch-submission API like Together or Anthropic, so:
+      - build_batch_requests writes a retained JSONL file (audit trail, same
+        shape as TogetherBatchProvider's).
+      - submit_batch fires every request concurrently right away with a thread
+        pool, writes the results to a local output JSONL, and returns a locally
+        generated batch_id.
+      - poll_batch / retrieve_results read that local state back, so from
+        BatchOrchestrator's point of view this still looks like an async job
+        even though the work already happened inside submit_batch.
+    """
+
+    def __init__(self, model_key: str, batch_dir: Optional[Path] = None):
+        if not HF_TOKEN:
+            raise ValueError("HF_TOKEN not set")
+        if model_key not in HUGGINGFACE_MODELS:
+            raise ValueError(
+                f"Unknown Hugging Face model_key {model_key!r}. "
+                f"Valid keys: {list(HUGGINGFACE_MODELS)}"
+            )
+
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError(
+                "openai package not installed. Run: pip install openai>=1.0.0"
+            )
+
+        self.client = OpenAI(base_url=HUGGINGFACE_BASE_URL, api_key=HF_TOKEN)
+        self.model_key = model_key
+        self.model_id = HUGGINGFACE_MODELS[model_key]["model_id"]
+        self.batch_dir = batch_dir or (PROJECT_ROOT / "batches")
+        self.batch_dir.mkdir(parents=True, exist_ok=True)
+        self._pending_file_extensions: Dict[str, str] = {}
+
+    def build_batch_requests(
+        self,
+        requests_list: List[Dict[str, Any]],
+    ) -> Path:
+        """Write all requests to a retained JSONL file, mirroring TogetherBatchProvider."""
+        self._pending_file_extensions = {}
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".jsonl",
+            delete=False,
+            prefix=f"huggingface_batch_{self.model_key}_",
+            dir=self.batch_dir,
+            encoding="utf-8",
+        )
+        for req in requests_list:
+            self._pending_file_extensions[str(req["record_id"])] = req.get("file_extension", ".js")
+            body: Dict[str, Any] = {
+                "model": self.model_id,
+                "messages": [
+                    {"role": "system", "content": req["system_prompt"]},
+                    {"role": "user",   "content": req["prompt"]},
+                ],
+                "max_tokens":  req.get("max_tokens", HUGGINGFACE_MAX_TOKENS),
+                "temperature": req.get("temperature", HUGGINGFACE_TEMPERATURE),
+            }
+            line = {"custom_id": req["record_id"], "body": body}
+            tmp.write(json.dumps(line) + "\n")
+        tmp.flush()
+        tmp.close()
+        return Path(tmp.name)
+
+    def _call_one(self, custom_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Call the HF router for one request; return a Together-style raw result row."""
+        try:
+            completion = self.client.chat.completions.create(**body)
+            choice = completion.choices[0]
+            usage = completion.usage
+            return {
+                "custom_id": custom_id,
+                "response": {
+                    "status_code": 200,
+                    "body": {
+                        "choices": [{
+                            "finish_reason": choice.finish_reason,
+                            "message": {"content": choice.message.content or ""},
+                        }],
+                        "usage": {
+                            "prompt_tokens": usage.prompt_tokens if usage else 0,
+                            "completion_tokens": usage.completion_tokens if usage else 0,
+                        },
+                    },
+                },
+            }
+        except Exception as e:
+            return {
+                "custom_id": custom_id,
+                "response": {"status_code": 0, "body": {}},
+                "error": str(e),
+            }
+
+    def submit_batch(
+        self,
+        jsonl_path: Path,
+        batch_name: str = ""
+    ) -> str:
+        """Run every request concurrently right now; persist results as a local 'batch'."""
+        requests_list = []
+        with jsonl_path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    requests_list.append(json.loads(line))
+
+        batch_id = f"hf-{uuid.uuid4().hex[:12]}"
+        logger.info(
+            f"Running {len(requests_list)} Hugging Face request(s) concurrently "
+            f"for batch '{batch_name}' ({batch_id})"
+        )
+
+        output_path = self.batch_dir / f"{batch_id}_output.jsonl"
+        submitted_ids: List[str] = []
+        max_workers = max(1, min(len(requests_list), 8))
+        with output_path.open("w", encoding="utf-8") as out_file, ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(self._call_one, row["custom_id"], row["body"]): row["custom_id"]
+                for row in requests_list
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                submitted_ids.append(str(result["custom_id"]))
+                out_file.write(json.dumps(result) + "\n")
+
+        metadata = {
+            "batch_id": batch_id,
+            "batch_name": batch_name,
+            "model_key": self.model_key,
+            "model_id": self.model_id,
+            "request_file": str(jsonl_path),
+            "output_file": str(output_path),
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "submitted_count": len(submitted_ids),
+            "submitted_ids": submitted_ids,
+            "file_extensions": self._pending_file_extensions,
+            "status": "COMPLETED",
+        }
+        with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        logger.info(
+            f"Completed Hugging Face batch '{batch_name}': {batch_id} "
+            f"({len(submitted_ids)} requests)"
+        )
+        return batch_id
+
+    def poll_batch(self, batch_id: str) -> Dict[str, Any]:
+        """Return normalized status; HF batches finish synchronously inside submit_batch."""
+        metadata_path = self.batch_dir / f"{batch_id}_metadata.json"
+        if not metadata_path.exists():
+            return {
+                "batch_id": batch_id,
+                "status": "UNKNOWN",
+                "processing": 0,
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0,
+                "total_requests": 0,
+                "completion_pct": 0,
+            }
+
+        with open(metadata_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        total = meta.get("submitted_count", 0)
+        return {
+            "batch_id": batch_id,
+            "status": "COMPLETED",
+            "processing": 0,
+            "succeeded": total,
+            "errored": 0,
+            "canceled": 0,
+            "expired": 0,
+            "total_requests": total,
+            "completion_pct": 100,
+        }
+
+    def retrieve_results(self, batch_id: str) -> List[Dict[str, Any]]:
+        """Parse the local output JSONL written by submit_batch into normalized results."""
+        status_info = self.poll_batch(batch_id)
+        if status_info["status"] != "COMPLETED":
+            logger.warning(f"Batch {batch_id} not COMPLETED yet (status: {status_info['status']})")
+            return []
+
+        metadata_path = self.batch_dir / f"{batch_id}_metadata.json"
+        with open(metadata_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        file_extensions: Dict[str, str] = meta.get("file_extensions", {})
+        output_path = Path(meta["output_file"])
+
+        results: List[Dict[str, Any]] = []
+        with open(output_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line, strict=False)
+                    custom_id = row.get("custom_id", "")
+                    resp = row.get("response", {})
+                    body = resp.get("body", {})
+                    status_code = resp.get("status_code", 0)
+
+                    if status_code == 200 and body.get("choices"):
+                        choice = body["choices"][0]
+                        finish_reason = choice.get("finish_reason")
+                        if finish_reason == "length":
+                            results.append({
+                                "record_id": custom_id,
+                                "status": "retryable",
+                                "content": "",
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "error": "finish_reason=length (completion truncated)",
+                            })
+                            continue
+
+                        content_raw = _sanitize_content(choice["message"]["content"])
+                        file_extension = file_extensions.get(str(custom_id), ".js")
+                        content = extract_code_from_response(content_raw, file_extension=file_extension)
+                        usage = body.get("usage", {})
+                        results.append({
+                            "record_id": custom_id,
+                            "status": "succeeded",
+                            "content": content,
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "error": None,
+                            "file_extension": file_extension,
+                        })
+                    else:
+                        results.append({
+                            "record_id": custom_id,
+                            "status": "failed",
+                            "content": "",
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "error": row.get("error", f"status_code={status_code}"),
+                        })
+                except Exception as e:
+                    logger.warning(f"Could not parse output line: {e}")
+
+        succeeded_count = sum(1 for r in results if r["status"] == "succeeded")
+        logger.info(
+            f"Retrieved {len(results)} results from Hugging Face batch {batch_id} "
+            f"({succeeded_count} succeeded)"
+        )
+        return results
+
+    def list_batches(self) -> List[Dict[str, Any]]:
+        """List locally recorded Hugging Face batches (there is no remote batch registry)."""
+        batches = []
+        for metadata_path in sorted(self.batch_dir.glob("hf-*_metadata.json")):
+            try:
+                with open(metadata_path, encoding="utf-8") as f:
+                    meta = json.load(f)
+                batches.append({
+                    "batch_id": meta["batch_id"],
+                    "status": meta.get("status", "COMPLETED"),
+                    "created_at": meta.get("submitted_at"),
+                })
+            except Exception as e:
+                logger.error(f"Error reading {metadata_path}: {e}")
+        return batches
+
+
+# ---------------------------------------------------------------------------
 # Provider-agnostic orchestrator
 # ---------------------------------------------------------------------------
 
@@ -698,7 +986,7 @@ class BatchOrchestrator:
         Returns:
             List of submitted batch IDs.
         """
-        if isinstance(self.processor, TogetherBatchProvider):
+        if isinstance(self.processor, (TogetherBatchProvider, HuggingFaceBatchProvider)):
             return self._submit_together(experiment_runs, batch_size)
 
         return self._submit_anthropic(experiment_runs)

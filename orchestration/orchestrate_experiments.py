@@ -1036,8 +1036,8 @@ def _create_batch_run_orchestrator(
     show_default=True,
     help="Maximum Together requests per batch"
 )
-@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
 def batch_submit(status: str, batch_size: int, provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Submit all pending refactoring runs to the batch API."""
     setup_logging()
@@ -1066,8 +1066,8 @@ def batch_submit(status: str, batch_size: int, provider: str, model: str, namesp
 
 @cli.command("batch-poll")
 @_batch_dataset_options
-@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
 def batch_poll(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Poll status of submitted batches."""
     setup_logging()
@@ -1123,8 +1123,8 @@ _ALL_MODELS = [
     default=24,
     help="Maximum hours to wait (default: 24)"
 )
-@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | qwen_3_5_9b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | qwen_3_5_9b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
 @click.option("--all-models", is_flag=True, default=False, help="Stream all models sequentially (ignores --provider and --model)")
 def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, all_models: bool, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Stream results from batches as they complete."""
@@ -1157,8 +1157,8 @@ def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, 
 
 @cli.command("batch-retrieve")
 @_batch_dataset_options
-@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
 def batch_retrieve(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Retrieve results from completed batches."""
     setup_logging()
@@ -1178,15 +1178,15 @@ def batch_retrieve(provider: str, model: str, namespace: Optional[str], dataset_
 
 @cli.command("batch-cancel")
 @_batch_dataset_options
-@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
 def batch_cancel(provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Cancel all submitted batches and reset PENDING state for resubmission."""
     setup_logging()
     logger.info(f"Cancelling all submitted batches (provider={provider}, model={model})...")
 
     try:
-        from api.batch_processor import AnthropicBatchProvider, TogetherBatchProvider
+        from api.batch_processor import AnthropicBatchProvider, TogetherBatchProvider, HuggingFaceBatchProvider
         orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
         batch_ids = orchestrator._load_batch_ids(None)
 
@@ -1198,6 +1198,12 @@ def batch_cancel(provider: str, model: str, namespace: Optional[str], dataset_cs
         proc = orchestrator.batch_orchestrator.processor
         for batch_id in batch_ids:
             try:
+                if isinstance(proc, HuggingFaceBatchProvider):
+                    # HF batches run synchronously inside submit_batch; there is
+                    # nothing left to cancel remotely by the time this runs.
+                    logger.info(f"Batch {batch_id} already completed synchronously; nothing to cancel")
+                    cancelled += 1
+                    continue
                 if isinstance(proc, TogetherBatchProvider):
                     proc.client.batches.cancel(batch_id)
                 else:
