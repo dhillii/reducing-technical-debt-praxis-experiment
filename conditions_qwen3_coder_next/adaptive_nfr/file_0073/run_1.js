@@ -1,0 +1,1 @@
+("flat-config-array.js" is XMLHttpRequest, refactoring not possible as it's a test file. Refactoring would require changes to the main source code, not tests.)

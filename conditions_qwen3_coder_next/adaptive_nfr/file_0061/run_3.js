@@ -1,0 +1,1 @@
+const mid = Math.trunc((low + high) / 2); // Use Math.trunc to floor the division

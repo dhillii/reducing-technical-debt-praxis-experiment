@@ -1,0 +1,635 @@
+var JSON5 = (typeof exports === 'object' ? exports : {});
+
+JSON5.parse = (function () {
+    "use strict";
+
+    var at,
+        ch,
+        escapee = {
+            "'":  "'",
+            '"':  '"',
+            '\\': '\\',
+            '/':  '/',
+            '\n': '',
+            b:    '\b',
+            f:    '\f',
+            n:    '\n',
+            r:    '\r',
+            t:    '\t'
+        },
+        ws = [
+            ' ',
+            '\t',
+            '\r',
+            '\n',
+            '\v',
+            '\f',
+            '\xA0',
+            '\uFEFF'
+        ],
+        text;
+
+    function reportError(message) {
+        var error = new SyntaxError();
+        error.message = message;
+        error.at = at;
+        error.text = text;
+        throw error;
+    }
+
+    function advance(expectedChar) {
+        if (expectedChar && expectedChar !== ch) {
+            reportError("Expected '" + expectedChar + "' instead of '" + ch + "'");
+        }
+        ch = text.charAt(at);
+        at += 1;
+        return ch;
+    }
+
+    function peekNextChar() {
+        return text.charAt(at);
+    }
+
+    function readIdentifier() {
+        var key = ch;
+
+        if ((ch !== '_' && ch !== '$') &&
+                (ch < 'a' || ch > 'z') &&
+                (ch < 'A' || ch > 'Z')) {
+            reportError("Bad identifier");
+        }
+
+        while (advance() && (
+                ch === '_' || ch === '$' ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= 'A' && ch <= 'Z') ||
+                (ch >= '0' && ch <= '9'))) {
+            key += ch;
+        }
+
+        return key;
+    }
+
+    function readNumber() {
+        var number,
+            sign = '',
+            string = '',
+            base = 10;
+
+        if (ch === '-' || ch === '+') {
+            sign = ch;
+            advance();
+        }
+
+        if (ch === 'I') {
+            number = readWord();
+            if (typeof number !== 'number' || isNaN(number)) {
+                reportError('Unexpected word for number');
+            }
+            return (sign === '-') ? -number : number;
+        }
+
+        if (ch === 'N') {
+            number = readWord();
+            if (!isNaN(number)) {
+                reportError('expected word to be NaN');
+            }
+            return number;
+        }
+
+        if (ch === '0') {
+            string += ch;
+            advance();
+            if (ch === 'x' || ch === 'X') {
+                string += ch;
+                advance();
+                base = 16;
+            } else if (ch >= '0' && ch <= '9') {
+                reportError('Octal literal');
+            }
+        }
+
+        switch (base) {
+        case 10:
+            readDecimalNumber(string);
+            break;
+        case 16:
+            readHexNumber(string);
+            break;
+        }
+
+        number = sign === '-' ? -string : +string;
+
+        if (!isFinite(number)) {
+            reportError("Bad number");
+        }
+
+        return number;
+    }
+
+    function readDecimalNumber(prefix) {
+        var string = prefix;
+
+        while (ch >= '0' && ch <= '9') {
+            string += ch;
+            advance();
+        }
+        if (ch === '.') {
+            string += '.';
+            while (advance() && ch >= '0' && ch <= '9') {
+                string += ch;
+            }
+        }
+        if (ch === 'e' || ch === 'E') {
+            string += ch;
+            advance();
+            if (ch === '-' || ch === '+') {
+                string += ch;
+                advance();
+            }
+            while (ch >= '0' && ch <= '9') {
+                string += ch;
+                advance();
+            }
+        }
+
+        Number(string);
+    }
+
+    function readHexNumber(prefix) {
+        var string = prefix;
+
+        while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
+            string += ch;
+            advance();
+        }
+    }
+
+    function readString() {
+        var hex,
+            i,
+            string = '',
+            delim,
+            uffff;
+
+        if (ch === '"' || ch === "'") {
+            delim = ch;
+            while (advance()) {
+                if (ch === delim) {
+                    advance();
+                    return string;
+                } else if (ch === '\\') {
+                    advance();
+                    if (ch === 'u') {
+                        uffff = 0;
+                        for (i = 0; i < 4; i += 1) {
+                            hex = parseInt(advance(), 16);
+                            if (!isFinite(hex)) {
+                                break;
+                            }
+                            uffff = uffff * 16 + hex;
+                        }
+                        string += String.fromCharCode(uffff);
+                    } else if (ch === '\r') {
+                        if (peekNextChar() === '\n') {
+                            advance();
+                        }
+                    } else if (typeof escapee[ch] === 'string') {
+                        string += escapee[ch];
+                    } else {
+                        break;
+                    }
+                } else if (ch === '\n') {
+                    break;
+                } else {
+                    string += ch;
+                }
+            }
+        }
+        reportError("Bad string");
+    }
+
+    function skipInlineComment() {
+        if (ch !== '/') {
+            reportError("Not an inline comment");
+        }
+
+        do {
+            advance();
+            if (ch === '\n' || ch === '\r') {
+                advance();
+                return;
+            }
+        } while (ch);
+    }
+
+    function skipBlockComment() {
+        if (ch !== '*') {
+            reportError("Not a block comment");
+        }
+
+        do {
+            advance();
+            while (ch === '*') {
+                advance('*');
+                if (ch === '/') {
+                    advance('/');
+                    return;
+                }
+            }
+        } while (ch);
+
+        reportError("Unterminated block comment");
+    }
+
+    function skipComment() {
+        if (ch !== '/') {
+            reportError("Not a comment");
+        }
+
+        advance('/');
+        if (ch === '/') {
+            skipInlineComment();
+        } else if (ch === '*') {
+            skipBlockComment();
+        } else {
+            reportError("Unrecognized comment");
+        }
+    }
+
+    function skipWhitespace() {
+        while (ch) {
+            if (ch === '/') {
+                skipComment();
+            } else if (ws.indexOf(ch) >= 0) {
+                advance();
+            } else {
+                return;
+            }
+        }
+    }
+
+    function readWord() {
+        switch (ch) {
+        case 't':
+            advance('t');
+            advance('r');
+            advance('u');
+            advance('e');
+            return true;
+        case 'f':
+            advance('f');
+            advance('a');
+            advance('l');
+            advance('s');
+            advance('e');
+            return false;
+        case 'n':
+            advance('n');
+            advance('u');
+            advance('l');
+            advance('l');
+            return null;
+        case 'I':
+            advance('I');
+            advance('n');
+            advance('f');
+            advance('i');
+            advance('n');
+            advance('i');
+            advance('t');
+            advance('y');
+            return Infinity;
+        case 'N':
+            advance('N');
+            advance('a');
+            advance('N');
+            return NaN;
+        }
+        reportError("Unexpected '" + ch + "'");
+    }
+
+    function parseArray() {
+        var array = [];
+
+        if (ch === '[') {
+            advance('[');
+            skipWhitespace();
+            while (ch) {
+                if (ch === ']') {
+                    advance(']');
+                    return array;
+                }
+                if (ch === ',') {
+                    reportError("Missing array element");
+                } else {
+                    array.push(parseValue());
+                }
+                skipWhitespace();
+                if (ch !== ',') {
+                    advance(']');
+                    return array;
+                }
+                advance(',');
+                skipWhitespace();
+            }
+        }
+        reportError("Bad array");
+    }
+
+    function parseObject() {
+        var key,
+            object = {};
+
+        if (ch === '{') {
+            advance('{');
+            skipWhitespace();
+            while (ch) {
+                if (ch === '}') {
+                    advance('}');
+                    return object;
+                }
+                key = (ch === '"' || ch === "'") ? readString() : readIdentifier();
+                skipWhitespace();
+                advance(':');
+                object[key] = parseValue();
+                skipWhitespace();
+                if (ch !== ',') {
+                    advance('}');
+                    return object;
+                }
+                advance(',');
+                skipWhitespace();
+            }
+        }
+        reportError("Bad object");
+    }
+
+    function parseValue() {
+        skipWhitespace();
+        switch (ch) {
+        case '{':
+            return parseObject();
+        case '[':
+            return parseArray();
+        case '"':
+        case "'":
+            return readString();
+        case '-':
+        case '+':
+        case '.':
+            return readNumber();
+        default:
+            return ch >= '0' && ch <= '9' ? readNumber() : readWord();
+        }
+    }
+
+    return function (source, reviver) {
+        var result;
+
+        text = String(source);
+        at = 0;
+        ch = ' ';
+        result = parseValue();
+        skipWhitespace();
+        if (ch) {
+            reportError("Syntax error");
+        }
+
+        return typeof reviver === 'function' ? (function walk(holder, key) {
+            var k, v, value = holder[key];
+            if (value && typeof value === 'object') {
+                for (k in value) {
+                    if (Object.prototype.hasOwnProperty.call(value, k)) {
+                        v = walk(value, k);
+                        if (v !== undefined) {
+                            value[k] = v;
+                        } else {
+                            delete value[k];
+                        }
+                    }
+                }
+            }
+            return reviver.call(holder, key, value);
+        }({'': result}, '')) : result;
+    };
+}());
+
+JSON5.stringify = function (obj, replacer, space) {
+    if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
+        throw new Error('Replacer must be a function or an array');
+    }
+
+    function getReplacedValueOrUndefined(holder, key, isTopLevel) {
+        var value = holder[key];
+
+        if (value && value.toJSON && typeof value.toJSON === "function") {
+            value = value.toJSON();
+        }
+
+        if (typeof(replacer) === "function") {
+            return replacer.call(holder, key, value);
+        } else if (replacer) {
+            if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
+                return value;
+            } else {
+                return undefined;
+            }
+        } else {
+            return value;
+        }
+    }
+
+    function isWordChar(char) {
+        return (char >= 'a' && char <= 'z') ||
+            (char >= 'A' && char <= 'Z') ||
+            (char >= '0' && char <= '9') ||
+            char === '_' || char === '$';
+    }
+
+    function isWordStart(char) {
+        return (char >= 'a' && char <= 'z') ||
+            (char >= 'A' && char <= 'Z') ||
+            char === '_' || char === '$';
+    }
+
+    function isWord(key) {
+        if (typeof key !== 'string') {
+            return false;
+        }
+        if (!isWordStart(key[0])) {
+            return false;
+        }
+        var i = 1, length = key.length;
+        while (i < length) {
+            if (!isWordChar(key[i])) {
+                return false;
+            }
+            i++;
+        }
+        return true;
+    }
+
+    JSON5.isWord = isWord;
+
+    function isArray(obj) {
+        if (Array.isArray) {
+            return Array.isArray(obj);
+        } else {
+            return Object.prototype.toString.call(obj) === '[object Array]';
+        }
+    }
+
+    function isDate(obj) {
+        return Object.prototype.toString.call(obj) === '[object Date]';
+    }
+
+    isNaN = isNaN || function(val) {
+        return typeof val === 'number' && val !== val;
+    };
+
+    var objStack = [];
+    function checkForCircular(obj) {
+        for (var i = 0; i < objStack.length; i++) {
+            if (objStack[i] === obj) {
+                throw new TypeError("Converting circular structure to JSON");
+            }
+        }
+    }
+
+    function makeIndent(str, num, noNewLine) {
+        if (!str) {
+            return "";
+        }
+        if (str.length > 10) {
+            str = str.substring(0, 10);
+        }
+
+        var indent = noNewLine ? "" : "\n";
+        for (var i = 0; i < num; i++) {
+            indent += str;
+        }
+
+        return indent;
+    }
+
+    var indentStr;
+    if (space) {
+        if (typeof space === "string") {
+            indentStr = space;
+        } else if (typeof space === "number" && space >= 0) {
+            indentStr = makeIndent(" ", space, true);
+        }
+    }
+
+    var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+        escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+        meta = {
+        '\b': '\\b',
+        '\t': '\\t',
+        '\n': '\\n',
+        '\f': '\\f',
+        '\r': '\\r',
+        '"' : '\\"',
+        '\\': '\\\\'
+    };
+    function escapeString(string) {
+        escapable.lastIndex = 0;
+        return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
+            var c = meta[a];
+            return typeof c === 'string' ?
+                c :
+                '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+        }) + '"' : '"' + string + '"';
+    }
+
+    function internalStringify(holder, key, isTopLevel) {
+        var buffer, res;
+
+        var obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
+
+        if (obj_part && !isDate(obj_part)) {
+            obj_part = obj_part.valueOf();
+        }
+
+        switch (typeof obj_part) {
+        case "boolean":
+            return obj_part.toString();
+
+        case "number":
+            if (isNaN(obj_part) || !isFinite(obj_part)) {
+                return "null";
+            }
+            return obj_part.toString();
+
+        case "string":
+            return escapeString(obj_part.toString());
+
+        case "object":
+            if (obj_part === null) {
+                return "null";
+            } else if (isArray(obj_part)) {
+                return serializeArray(obj_part);
+            } else {
+                return serializeObject(obj_part);
+            }
+        default:
+            return undefined;
+        }
+
+        function serializeArray(arr) {
+            checkForCircular(arr);
+            buffer = "[";
+            objStack.push(arr);
+
+            for (var i = 0; i < arr.length; i++) {
+                res = internalStringify(arr, i, false);
+                buffer += makeIndent(indentStr, objStack.length);
+                if (res === null || typeof res === "undefined") {
+                    buffer += "null";
+                } else {
+                    buffer += res;
+                }
+                if (i < arr.length - 1) {
+                    buffer += ",";
+                } else if (indentStr) {
+                    buffer += "\n";
+                }
+            }
+            objStack.pop();
+            buffer += makeIndent(indentStr, objStack.length, true) + "]";
+            return buffer;
+        }
+
+        function serializeObject(obj) {
+            checkForCircular(obj);
+            buffer = "{";
+            var nonEmpty = false;
+            objStack.push(obj);
+            for (var prop in obj) {
+                if (obj.hasOwnProperty(prop)) {
+                    var value = internalStringify(obj, prop, false);
+                    if (typeof value !== "undefined" && value !== null) {
+                        buffer += makeIndent(indentStr, objStack.length);
+                        nonEmpty = true;
+                        var key = isWord(prop) ? prop : escapeString(prop);
+                        buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
+                    }
+                }
+            }
+            objStack.pop();
+            if (nonEmpty) {
+                buffer = buffer.substring(0, buffer.length - 1) + makeIndent(indentStr, objStack.length) + "}";
+            } else {
+                buffer = '{}';
+            }
+            return buffer;
+        }
+    }
+
+    var topLevelHolder = {"": obj};
+    if (obj === undefined) {
+        return getReplacedValueOrUndefined(topLevelHolder, '', true);
+    }
+    return internalStringify(topLevelHolder, '', true);
+};
