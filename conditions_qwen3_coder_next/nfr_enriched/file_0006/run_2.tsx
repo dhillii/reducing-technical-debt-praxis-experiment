@@ -1,31 +1,14 @@
-const processFooterContent = (footerContent?: string | null) => {
-    if (!footerContent) {
-        return '';
-    }
-    return footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"');
-};
+import CoverImage from '../../../../assets/images/user-cover.jpg';
+import LatestPosts1 from '../../../../assets/images/latest-posts-1.jpg';
+import LatestPosts2 from '../../../../assets/images/latest-posts-2.jpg';
+import LatestPosts3 from '../../../../assets/images/latest-posts-3.jpg';
+import clsx from 'clsx';
+import {GhostOrb, Icon} from '@tryghost/admin-x-design-system';
+import {isManagedEmail} from '@tryghost/admin-x-framework/api/config';
+import {useGlobalData} from '../../../providers/global-data-provider';
 
-const getExcerptClasses = (titleFontCategory: string, bodyFontCategory: string, titleAlignment: string) => {
-    let classes = 'mb-5 text-pretty leading-[1.7] text-black';
-
-    if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
-        classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
-        classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
-    } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
-        classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else {
-        classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
-    }
-
-    if (titleAlignment === 'center') {
-        classes = clsx(classes, 'text-center');
-    }
-
-    return classes;
-};
-
-const getHeaderContent = (config: any, senderName?: string, senderEmail?: string | null, senderReplyTo?: string | null) => {
+// Helper: Generate email header JSX based on managed email status
+const renderEmailHeader = (config: any, senderName: string | undefined, senderEmail: string | null, senderReplyTo: string | null) => {
     if (isManagedEmail(config)) {
         return (
             <>
@@ -39,42 +22,78 @@ const getHeaderContent = (config: any, senderName?: string, senderEmail?: string
                 </p>
             </>
         );
-    } else {
-        return (
-            <>
-                <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">{senderName}</span>
-                    <span> {senderEmail}</span>
-                </p>
-                <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com
-                </p>
-            </>
-        );
     }
+    return (
+        <>
+            <p className="leading-normal">
+                <span className="font-semibold text-grey-900">{senderName}</span>
+                <span> {senderEmail}</span>
+            </p>
+            <p className="leading-normal">
+                <span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com
+            </p>
+        </>
+    );
 };
 
-const getPostTitleSection = (
-    showPostTitleSection: boolean,
-    showExcerpt: boolean,
-    titleAlignment: string,
-    titleFontCategory: string,
-    titleFontWeight: string,
-    postTitleColor: string,
-    headerTextColor: string,
-    secondaryHeaderTextColor: string,
-    excerptClasses: string
+// Helper: Build excerpt classes based on font and alignment settings
+const buildExcerptClasses = (
+    titleFontCategory: string | undefined,
+    bodyFontCategory: string | undefined,
+    titleAlignment: string | undefined
 ) => {
-    if (!showPostTitleSection) {
-        return null;
+    let excerptClasses = 'mb-5 text-pretty leading-[1.7] text-black';
+
+    if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
+        excerptClasses = clsx(excerptClasses, 'mb-8 font-serif text-[2.0rem] leading-tight');
+    } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
+        excerptClasses = clsx(excerptClasses, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
+    } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
+        excerptClasses = clsx(excerptClasses, 'mb-8 font-serif text-[2.0rem] leading-tight');
+    } else {
+        excerptClasses = clsx(excerptClasses, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
     }
 
-    const currentDate = new Date().toLocaleDateString('default', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
+    if (titleAlignment === 'center') {
+        excerptClasses = clsx(excerptClasses, 'text-center');
+    }
 
+    return excerptClasses;
+};
+
+// Helper: Process footer content to add link attributes
+const processFooterContent = (footerContent: string | null | undefined) => {
+    return footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
+};
+
+// Helper: Build header section JSX
+const renderHeaderSection = (
+    headerImage: string | null | undefined,
+    headerIcon: string | undefined,
+    headerTitle: string | null | undefined,
+    headerSubtitle: string | null | undefined,
+    headerTextColor: string | undefined,
+    secondaryHeaderTextColor: string | undefined
+) => {
+    return (
+        <div className="py-3">
+            {headerIcon && <img alt="" className="mx-auto mb-2 size-10" role="presentation" src={headerIcon} />}
+            {headerTitle && <h4 className="mb-1 text-center text-[1.6rem] font-bold uppercase leading-tight tracking-tight text-grey-900" style={{color: headerTextColor}}>{headerTitle}</h4>}
+            {headerSubtitle && <h5 className="mb-1 text-center text-[1.3rem] font-normal text-grey-700" style={{color: secondaryHeaderTextColor}}>{headerSubtitle}</h5>}
+        </div>
+    );
+};
+
+// Helper: Build post title section JSX
+const renderPostTitleSection = (
+    showExcerpt: boolean,
+    titleAlignment: string | undefined,
+    titleFontCategory: string | undefined,
+    titleFontWeight: string | undefined,
+    postTitleColor: string | undefined,
+    excerptClasses: string,
+    headerTextColor: string | undefined
+) => {
     return (
         <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
             <h2 className={clsx(
@@ -104,15 +123,13 @@ const getPostTitleSection = (
     );
 };
 
-const getFeatureImageSection = (
+// Helper: Build feature image section JSX
+const renderFeatureImageSection = (
     showFeatureImage: boolean,
-    imageCorners: string,
-    headerBackgroundColor: string,
-    secondaryHeaderTextColor: string
+    imageCorners: string | undefined,
+    secondaryHeaderTextColor: string | undefined
 ) => {
-    if (!showFeatureImage) {
-        return null;
-    }
+    if (!showFeatureImage) return null;
 
     return (
         <>
@@ -131,21 +148,20 @@ const getFeatureImageSection = (
     );
 };
 
-const getMainContentSection = (
-    dividerStyle: string,
-    dividerColor: string,
-    bodyFontCategory: string,
-    linkColor: string,
-    accentColor: string,
-    buttonColor: string,
-    buttonTextColor: string,
-    buttonStyle: string,
-    buttonCorners: string,
-    linkStyle: string,
-    textColor: string,
-    sectionTitleColor: string,
-    titleFontCategory: string,
-    titleFontWeight: string
+// Helper: Build main content section JSX
+const renderMainContentSection = (
+    dividerStyle: string | undefined,
+    dividerColor: string | undefined,
+    bodyFontCategory: string | undefined,
+    linkStyle: string | undefined,
+    linkColor: string | undefined,
+    accentColor: string | undefined,
+    buttonColor: string | undefined,
+    buttonTextColor: string | undefined,
+    buttonStyle: string | undefined,
+    buttonCorners: string | undefined,
+    sectionTitleColor: string | undefined,
+    textColor: string | undefined
 ) => {
     return (
         <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
@@ -205,16 +221,15 @@ const getMainContentSection = (
     );
 };
 
-const getFeedbackSection = (
+// Helper: Build feedback/comment section JSX
+const renderFeedbackSection = (
     showFeedback: boolean,
     showCommentCta: boolean,
-    dividerStyle: string,
-    dividerColor: string,
-    textColor: string
+    dividerStyle: string | undefined,
+    dividerColor: string | undefined,
+    textColor: string | undefined
 ) => {
-    if (!showFeedback && !showCommentCta) {
-        return null;
-    }
+    if (!(showFeedback || showCommentCta)) return null;
 
     return (
         <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
@@ -248,87 +263,69 @@ const getFeedbackSection = (
     );
 };
 
-const getLatestPostsSection = (
+// Helper: Build latest posts section JSX
+const renderLatestPostsSection = (
     showLatestPosts: boolean,
-    dividerStyle: string,
-    dividerColor: string,
-    textColor: string,
-    secondaryTextColor: string,
-    sectionTitleColor: string,
-    titleFontCategory: string,
-    titleFontWeight: string,
-    imageCorners: string
+    dividerStyle: string | undefined,
+    dividerColor: string | undefined,
+    textColor: string | undefined,
+    secondaryTextColor: string | undefined,
+    sectionTitleColor: string | undefined,
+    titleFontCategory: string | undefined,
+    titleFontWeight: string | undefined,
+    imageCorners: string | undefined
 ) => {
-    if (!showLatestPosts) {
-        return null;
-    }
+    if (!showLatestPosts) return null;
 
-    const posts = [
-        {
-            title: 'The three latest posts published on your site',
-            subtitle: 'Posts sent as an email only will never be shown here.',
-            image: LatestPosts1
-        },
-        {
-            title: 'Displayed at the bottom of each newsletter',
-            subtitle: 'Giving your readers one more place to discover your stories.',
-            image: LatestPosts2
-        },
-        {
-            title: 'To keep your work front and center',
-            subtitle: 'Making sure that your audience stays engaged.',
-            image: LatestPosts3
-        }
-    ];
+    const renderLatestPostItem = (image: string, title: string, subtitle: string) => (
+        <div className="flex justify-between gap-4 py-2">
+            <div>
+                <h4
+                    className={clsx(
+                        'mt-0.5 text-[1.9rem] text-black',
+                        titleFontCategory === 'serif' && 'font-serif',
+                        titleFontWeight === 'normal' && 'font-normal',
+                        titleFontWeight === 'medium' && 'font-medium',
+                        titleFontWeight === 'semibold' && 'font-semibold',
+                        titleFontWeight === 'bold' && 'font-bold'
+                    )}
+                    style={{color: sectionTitleColor}}
+                >
+                    {title}
+                </h4>
+                <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>{subtitle}</p>
+            </div>
+            <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
+                <img alt="Latest post" className={clsx(
+                    imageCorners === 'square' && 'rounded-none',
+                    imageCorners === 'rounded' && 'rounded-md'
+                )} src={image} />
+            </div>
+        </div>
+    );
 
     return (
         <div className={clsx('border-b border-grey-200 py-6', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
             <h3 className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black" style={{color: textColor}}>Keep reading</h3>
-            {posts.map((post, index) => (
-                <div key={index} className="flex justify-between gap-4 py-2">
-                    <div>
-                        <h4
-                            className={clsx(
-                                'mt-0.5 text-[1.9rem] text-black',
-                                titleFontCategory === 'serif' && 'font-serif',
-                                titleFontWeight === 'normal' && 'font-normal',
-                                titleFontWeight === 'medium' && 'font-medium',
-                                titleFontWeight === 'semibold' && 'font-semibold',
-                                titleFontWeight === 'bold' && 'font-bold'
-                            )}
-                            style={{color: sectionTitleColor}}
-                        >
-                            {post.title}
-                        </h4>
-                        <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>
-                            {post.subtitle}
-                        </p>
-                    </div>
-                    <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                        <img alt="Latest post" className={clsx(
-                            imageCorners === 'square' && 'rounded-none',
-                            imageCorners === 'rounded' && 'rounded-md'
-                        )} src={post.image} />
-                    </div>
-                </div>
-            ))}
+            {renderLatestPostItem(LatestPosts1, 'The three latest posts published on your site', 'Posts sent as an email only will never be shown here.')}
+            {renderLatestPostItem(LatestPosts2, 'Displayed at the bottom of each newsletter', 'Giving your readers one more place to discover your stories.')}
+            {renderLatestPostItem(LatestPosts3, 'To keep your work front and center', 'Making sure that your audience stays engaged.')}
         </div>
     );
 };
 
-const getSubscriptionDetailsSection = (
+// Helper: Build subscription details section JSX
+const renderSubscriptionDetailsSection = (
     showSubscriptionDetails: boolean,
-    dividerStyle: string,
-    dividerColor: string,
-    siteTitle: string,
-    textColor: string,
-    linkColor: string,
-    accentColor: string,
-    linkStyle: string
+    dividerStyle: string | undefined,
+    dividerColor: string | undefined,
+    siteTitle: string | undefined,
+    textColor: string | undefined,
+    linkColor: string | undefined,
+    accentColor: string | undefined,
+    linkStyle: string | undefined
 ) => {
-    if (!showSubscriptionDetails) {
-        return null;
-    }
+    if (!showSubscriptionDetails) return null;
 
     return (
         <div className={clsx('border-b border-grey-200 py-8', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
@@ -348,14 +345,14 @@ const getSubscriptionDetailsSection = (
     );
 };
 
-const getFooterSection = (
-    footerContent: string | null,
-    siteTitle: string,
+// Helper: Build footer section JSX
+const renderFooterSection = (
+    processedFooterContent: string,
+    siteTitle: string | undefined,
     currentYear: number,
     showBadge: boolean,
-    processedFooterContent: string,
-    secondaryTextColor: string,
-    textColor: string
+    secondaryTextColor: string | undefined,
+    textColor: string | undefined
 ) => {
     return (
         <div className="flex flex-col items-center pt-10">
@@ -467,6 +464,7 @@ const NewsletterPreviewContent: React.FC<{
     linkStyle,
     dividerStyle
 }) => {
+    const showHeader = headerIcon || headerTitle;
     const {config} = useGlobalData();
 
     const currentDate = new Date().toLocaleDateString('default', {
@@ -477,8 +475,7 @@ const NewsletterPreviewContent: React.FC<{
     const currentYear = new Date().getFullYear();
 
     const processedFooterContent = processFooterContent(footerContent);
-    const excerptClasses = getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
-    const emailHeader = getHeaderContent(config, senderName, senderEmail, senderReplyTo);
+    const excerptClasses = buildExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
 
     return (
         <div className="relative flex grow flex-col">
@@ -486,7 +483,7 @@ const NewsletterPreviewContent: React.FC<{
                 <div className="mx-auto my-0 flex max-h-full w-full max-w-[700px] flex-col overflow-hidden rounded-[4px] text-black shadow-sm">
                     {/* Email header */}
                     <div className="flex-column flex min-h-[77px] justify-center rounded-t-sm border-b border-grey-200 bg-white px-6 text-sm text-grey-700">
-                        {emailHeader}
+                        {renderEmailHeader(config, senderName, senderEmail, senderReplyTo)}
                     </div>
 
                     {/* Email content */}
@@ -497,89 +494,21 @@ const NewsletterPreviewContent: React.FC<{
                                     <img alt="" className="mb-4 block pt-6" src={headerImage} />
                                 </div>
                             )}
-                            {showHeader && (
-                                <div className="py-3">
-                                    {headerIcon && <img alt="" className="mx-auto mb-2 size-10" role="presentation" src={headerIcon} />}
-                                    {headerTitle && <h4 className="mb-1 text-center text-[1.6rem] font-bold uppercase leading-tight tracking-tight text-grey-900" style={{color: headerTextColor}}>{headerTitle}</h4>}
-                                    {headerSubtitle && <h5 className="mb-1 text-center text-[1.3rem] font-normal text-grey-700" style={{color: secondaryHeaderTextColor}}>{headerSubtitle}</h5>}
-                                </div>
-                            )}
-                            {getPostTitleSection(
-                                showPostTitleSection,
-                                showExcerpt,
-                                titleAlignment,
-                                titleFontCategory,
-                                titleFontWeight,
-                                postTitleColor,
-                                headerTextColor,
-                                secondaryHeaderTextColor,
-                                excerptClasses
-                            )}
-                            {getFeatureImageSection(
-                                showFeatureImage,
-                                imageCorners,
-                                headerBackgroundColor,
-                                secondaryHeaderTextColor
-                            )}
+                            {showHeader && renderHeaderSection(headerImage, headerIcon, headerTitle, headerSubtitle, headerTextColor, secondaryHeaderTextColor)}
+                            {showPostTitleSection && renderPostTitleSection(showExcerpt, titleAlignment, titleFontCategory, titleFontWeight, postTitleColor, excerptClasses, headerTextColor)}
+
+                            {renderFeatureImageSection(showFeatureImage, imageCorners, secondaryHeaderTextColor)}
                         </div>
 
-                        {getMainContentSection(
-                            dividerStyle,
-                            dividerColor,
-                            bodyFontCategory,
-                            linkColor,
-                            accentColor,
-                            buttonColor,
-                            buttonTextColor,
-                            buttonStyle,
-                            buttonCorners,
-                            linkStyle,
-                            textColor,
-                            sectionTitleColor,
-                            titleFontCategory,
-                            titleFontWeight
-                        )}
+                        {renderMainContentSection(dividerStyle, dividerColor, bodyFontCategory, linkStyle, linkColor, accentColor, buttonColor, buttonTextColor, buttonStyle, buttonCorners, sectionTitleColor, textColor)}
 
-                        {getFeedbackSection(
-                            showFeedback,
-                            showCommentCta,
-                            dividerStyle,
-                            dividerColor,
-                            textColor
-                        )}
+                        {renderFeedbackSection(showFeedback, showCommentCta, dividerStyle, dividerColor, textColor)}
 
-                        {getLatestPostsSection(
-                            showLatestPosts,
-                            dividerStyle,
-                            dividerColor,
-                            textColor,
-                            secondaryTextColor,
-                            sectionTitleColor,
-                            titleFontCategory,
-                            titleFontWeight,
-                            imageCorners
-                        )}
+                        {renderLatestPostsSection(showLatestPosts, dividerStyle, dividerColor, textColor, secondaryTextColor, sectionTitleColor, titleFontCategory, titleFontWeight, imageCorners)}
 
-                        {getSubscriptionDetailsSection(
-                            showSubscriptionDetails,
-                            dividerStyle,
-                            dividerColor,
-                            siteTitle,
-                            textColor,
-                            linkColor,
-                            accentColor,
-                            linkStyle
-                        )}
+                        {renderSubscriptionDetailsSection(showSubscriptionDetails, dividerStyle, dividerColor, siteTitle, textColor, linkColor, accentColor, linkStyle)}
 
-                        {getFooterSection(
-                            footerContent,
-                            siteTitle,
-                            currentYear,
-                            showBadge,
-                            processedFooterContent,
-                            secondaryTextColor,
-                            textColor
-                        )}
+                        {renderFooterSection(processedFooterContent, siteTitle, currentYear, showBadge, secondaryTextColor, textColor)}
                     </div>
                 </div>
             </div>

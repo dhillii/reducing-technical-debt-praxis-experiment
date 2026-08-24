@@ -16,112 +16,77 @@ var config = module.exports = function(prop, value) {
 // The actual config data.
 config.data = {};
 
-/**
- * Escape dots in a namespace string to prevent unintended nesting.
- * @param {string} str - The input string.
- * @returns {string} - The escaped string.
- */
+// Escape any . in name with \. so dot-based namespacing works properly.
 config.escape = function(str) {
   return str.replace(/\./g, '\\.');
 };
 
-/**
- * Convert prop to a string representation.
- * @param {string|string[]} prop - Property path (string or array).
- * @returns {string} - Escaped namespace string.
- */
+// Return prop as a string.
 config.getPropString = function(prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
 };
 
-/**
- * Get raw, unprocessed config data.
- * @param {string|string[]} [prop] - Optional property path.
- * @returns {any|Object} - Raw config value or entire data object.
- */
+// Get raw, unprocessed config data.
 config.getRaw = function(prop) {
   if (prop) {
+    // Prop was passed, get that specific property's value.
     return grunt.util.namespace.get(config.data, config.getPropString(prop));
+  } else {
+    // No prop was passed, return the entire config.data object.
+    return config.data;
   }
-  return config.data;
 };
 
-// Match '<%= FOO %>' where FOO is a propString, e.g., foo or foo.bar but not foo() or foo.bar().
+// Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
+// a method call like foo() or foo.bar().
 var propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
-/**
- * Get config data, recursively processing templates.
- * @param {string|string[]} prop - Property path.
- * @returns {any} - Processed config value.
- */
+// Get config data, recursively processing templates.
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
 };
 
-/**
- * Recursively process raw config values, expanding templates.
- * @param {any} raw - Raw config value.
- * @returns {any} - Processed value.
- */
+// Expand a config value recursively. Used for post-processing raw values
+// already retrieved from the config.
 config.process = function(raw) {
-  return grunt.util.recurse(raw, processTemplateValue);
+  return grunt.util.recurse(raw, function(value) {
+    // If the value is not a string, return it.
+    if (typeof value !== 'string') { return value; }
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
+    var matches = value.match(propStringTmplRe);
+    var result;
+    if (matches) {
+      result = config.get(matches[1]);
+      // If the result retrieved from the config data wasn't null or undefined,
+      // return it.
+      if (result != null) { return result; }
+    }
+    // Process the string as a template.
+    return grunt.template.process(value, {data: config.data});
+  });
 };
 
-/**
- * Process a single template value during recursion.
- * @param {any} value - Raw value!
- * @returns {any} - Processed value.
- */
-function processTemplateValue(value) {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  var matches = value.match(propStringTmplRe);
-  if (matches) {
-    var result = config.get(matches[1]);
-    if (result != null) {
-      return result;
-    }
-  }
-
-  return grunt.template.process(value, {data: config.data});
-}
-
-/**
- * Set config data.
- * @param {string|string[]} prop - Property path.
- * @param {any} value - Value to set.
- * @returns {any} - The set value.
- */
+// Set config data.
 config.set = function(prop, value) {
   return grunt.util.namespace.set(config.data, config.getPropString(prop), value);
 };
 
-/**
- * Deep merge config data.
- * @param {Object} obj - Object to merge.
- * @returns {Object} - Merged config data.
- */
+// Deep merge config data.
 config.merge = function(obj) {
   grunt.util._.merge(config.data, obj);
   return config.data;
 };
 
-/**
- * Initialize config data.
- * @param {Object} [obj] - Optional initial data.
- * @returns {Object} - Initialized config data.
- */
+// Initialize config data.
 config.init = function(obj) {
   grunt.verbose.write('Initializing config...').ok();
+  // Initialize and return data.
   return (config.data = obj || {});
 };
 
-/**
- * Validate required config properties exist.
- * @param {...string} props - Property names to verify.
- */
+// Test to see if required config params have been defined. If not, throw an
+// exception (use this inside of a task).
 config.requires = function() {
   var p = grunt.util.pluralize;
   var props = grunt.util.toArray(arguments).map(config.getPropString);
@@ -129,30 +94,22 @@ config.requires = function() {
     ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
     ' in config...';
   grunt.verbose.write(msg);
-
-  var failProps = config.data && props.filter(isMissing).map(function(prop) {
+  var failProps = config.data && props.filter(function(prop) {
+    return config.get(prop) == null;
+  }).map(function(prop) {
     return '"' + prop + '"';
   });
-
   if (config.data && failProps.length === 0) {
     grunt.verbose.ok();
     return true;
+  } else {
+    grunt.verbose.or.write(msg);
+    grunt.log.error().error('Unable to process task.');
+    if (!config.data) {
+      throw grunt.util.error('Unable to load config.');
+    } else {
+      throw grunt.util.error('Required config propert' +
+        p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
+    }
   }
-
-  grunt.verbose.or.write(msg);
-  grunt.log.error().error('Unable to process task.');
-  if (!config.data) {
-    throw grunt.util.error('Unable to load config.');
-  }
-  throw grunt.util.error('Required config propert' +
-    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
-
-/**
- * Check if a property is missing in the config.
- * @param {string} prop - Property name.
- * @returns {boolean} - True if missing.
- */
-function isMissing(prop) {
-  return config.get(prop) == null;
-}

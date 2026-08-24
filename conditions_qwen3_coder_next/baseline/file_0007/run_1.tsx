@@ -19,71 +19,139 @@ import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateL
 
 const validators: Record<string, (u: Partial<User>) => string> = {
     name: ({name}) => {
+        let error = '';
+
         if (!name) {
-            return 'Name is required';
+            error = 'Name is required';
         }
-        if (name.length > 191) {
-            return 'Name is too long';
+
+        if (name && name.length > 191) {
+            error = 'Name is too long';
         }
-        return '';
+
+        return error;
     },
     email: ({email}) => {
-        return validator.isEmail(email || '') ? '' : 'Enter a valid email address';
+        const valid = validator.isEmail(email || '');
+        return valid ? '' : 'Enter a valid email address';
     },
     url: ({url}) => {
+        // require_tld is automatically true in validator 8+, we set it false here for our default localhost setup
         const valid = !url || validator.isURL(url, {require_tld: false});
         return valid ? '' : 'Enter a valid URL';
     },
     bio: ({bio}) => {
-        return !bio || bio.length <= 250 ? '' : 'Bio is too long';
+        const valid = !bio || bio.length <= 250;
+        return valid ? '' : 'Bio is too long';
     },
     location: ({location}) => {
-        return !location || location.length <= 150 ? '' : 'Location is too long';
+        const valid = !location || location.length <= 150;
+        return valid ? '' : 'Location is too long';
     },
     website: ({website}) => {
         const valid = !website || (validator.isURL(website) && website.length <= 2000);
         return valid ? '' : 'Enter a valid URL';
     },
     facebook: ({facebook}) => {
-        return handleValidation(() => validateFacebookUrl(facebook || ''));
+        try {
+            validateFacebookUrl(facebook || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     twitter: ({twitter}) => {
-        return handleValidation(() => validateTwitterUrl(twitter || ''));
+        try {
+            validateTwitterUrl(twitter || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     threads: ({threads}) => {
-        return handleValidation(() => validateThreadsUrl(threads || ''));
+        try {
+            validateThreadsUrl(threads || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     bluesky: ({bluesky}) => {
-        return handleValidation(() => validateBlueskyUrl(bluesky || ''));
+        try {
+            validateBlueskyUrl(bluesky || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     linkedin: ({linkedin}) => {
-        return handleValidation(() => validateLinkedInUrl(linkedin || ''));
+        try {
+            validateLinkedInUrl(linkedin || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     instagram: ({instagram}) => {
-        return handleValidation(() => validateInstagramUrl(instagram || ''));
+        try {
+            validateInstagramUrl(instagram || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     youtube: ({youtube}) => {
-        return handleValidation(() => validateYouTubeUrl(youtube || ''));
+        try {
+            validateYouTubeUrl(youtube || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     tiktok: ({tiktok}) => {
-        return handleValidation(() => validateTikTokUrl(tiktok || ''));
+        try {
+            validateTikTokUrl(tiktok || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     },
     mastodon: ({mastodon}) => {
-        return handleValidation(() => validateMastodonUrl(mastodon || ''));
+        try {
+            validateMastodonUrl(mastodon || '');
+            return '';
+        } catch (e) {
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
+        }
     }
 };
-
-function handleValidation(fn: () => void): string {
-    try {
-        fn();
-        return '';
-    } catch (e) {
-        if (e instanceof Error) {
-            return e.message;
-        }
-        return '';
-    }
-}
 
 export interface UserDetailProps {
     user: User;
@@ -96,15 +164,15 @@ export interface UserDetailProps {
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
 
-    const getTabFromPath = useCallback((path: string): string => {
+    const getTabFromPath = (path: string): string => {
         const lastSegment = path.split('/').pop() || '';
 
         if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
             return lastSegment;
         }
-        return 'profile';
-    }, []);
 
+        return 'profile';
+    };
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
@@ -174,13 +242,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = _user.status === 'inactive' 
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
-
+        let warningText = 'This user will no longer be able to log in but their posts will be kept.';
+        if (_user.status === 'inactive') {
+            warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
+        }
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
-            prompt: <strong>WARNING:</strong> {warningText},
+            prompt: (
+                <>
+                    <strong>WARNING:</strong> {warningText}
+                </>
+            ),
             okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
@@ -256,7 +328,19 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateForm((_user) => ({..._user, [image]: imageUrl}));
+
+            switch (image) {
+            case 'cover_image':
+                updateForm((_user) => {
+                    return {..._user, cover_image: imageUrl};
+                });
+                break;
+            case 'profile_image':
+                updateForm((_user) => {
+                    return {..._user, profile_image: imageUrl};
+                });
+                break;
+            }
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -267,13 +351,30 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        updateForm((_user) => ({..._user, [image]: ''}));
+        switch (image) {
+        case 'cover_image':
+            updateForm((_user) => {
+                return {..._user, cover_image: ''};
+            });
+            break;
+        case 'profile_image':
+            updateForm((_user) => {
+                return {..._user, profile_image: ''};
+            });
+            break;
+        }
     };
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     let menuItems: MenuItem[] = [];
 
-    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+    const shouldShowOwnerTransfer = isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive';
+    const shouldShowDeleteAndSuspend = formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    );
+
+    if (shouldShowOwnerTransfer) {
         menuItems.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -281,22 +382,21 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     }
 
-    const canSuspendOrDelete = formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    );
-
-    if (canSuspendOrDelete) {
+    if (shouldShowDeleteAndSuspend) {
         const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
         menuItems.push({
             id: 'delete-user',
             label: 'Delete user',
-            onClick: () => confirmDelete(user, {owner: ownerUser})
+            onClick: () => {
+                confirmDelete(user, {owner: ownerUser});
+            }
         }, {
             id: 'suspend-user',
             label: suspendUserLabel,
-            onClick: () => confirmSuspend(formState)
+            onClick: () => {
+                confirmSuspend(formState);
+            }
         });
     }
 
@@ -310,13 +410,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     });
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
@@ -371,8 +475,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         }
                                         unstyled={true}
                                         width='80px'
-                                        onDelete={() => handleImageDelete('profile_image')}
-                                        onUpload={(file: File) => handleImageUpload('profile_image', file)}
+                                        onDelete={() => {
+                                            handleImageDelete('profile_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('profile_image', file);
+                                        }}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
                                     </ImageUpload>
@@ -399,8 +507,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             }
                                         }
                                         unstyled
-                                        onDelete={() => handleImageDelete('cover_image')}
-                                        onUpload={(file: File) => handleImageUpload('cover_image', file)}
+                                        onDelete={() => {
+                                            handleImageDelete('cover_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('cover_image', file);
+                                        }}
                                     >Upload cover image</ImageUpload>
                                     {showMenu && <div className="z-10">
                                         <Menu
@@ -467,6 +579,7 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
 
     const isCurrentUser = currentUser.slug === params?.slug;
+
     const {data: fetchedUserData} = useGetUserBySlug(
         params?.slug || '',
         {enabled: !isCurrentUser && !!params?.slug}

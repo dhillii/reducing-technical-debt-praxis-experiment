@@ -12,7 +12,7 @@ try {
   // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
-    registerCoffeeFileHandlers();
+    setupCoffeeScriptFailureHandlers();
   }
 }
 
@@ -61,49 +61,8 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Expose the task interface.
-grunt.tasks = function(tasks, options, done) {
-  // Update options with passed-in options.
-  option.init(options);
-
-  // Handle version and help flags early.
-  if (handleVersionFlag()) { return; }
-  if (option('help')) {
-    help.display();
-    return;
-  }
-
-  // Initialize runtime state.
-  log.initColors();
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-
-  // Parse task arguments and initialize tasks.
-  var tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
-  task.init(tasks, options);
-
-  verbose.writeln();
-  if (!tasksSpecified) {
-    verbose.writeln('No tasks specified, running default tasks.');
-  }
-  verbose.writeflags(tasks, 'Running tasks');
-
-  // Set up task execution handlers and run.
-  var uncaughtHandler = wrapFatalErrorHandler();
-  process.on('uncaughtException', uncaughtHandler);
-
-  task.options({
-    error: createErrorHandler(),
-    done: createCompletionHandler(uncaughtHandler, done)
-  });
-
-  // Run tasks in order with async support.
-  tasks.forEach(function(name) { task.run(name); });
-  task.start({asyncDone: true});
-};
-
-// Extracted function to register .coffee handlers for early error support.
-function registerCoffeeFileHandlers() {
+// Setup per-extension handlers for unsupported CoffeeScript files.
+function setupCoffeeScriptFailureHandlers() {
   var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
   for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
     (function(ext) {
@@ -117,24 +76,105 @@ function registerCoffeeFileHandlers() {
   }
 }
 
-// Extracted function to handle --version flag logic cleanly.
-function handleVersionFlag() {
-  if (!option('version')) { return false; }
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
+grunt.tasks = function(tasks, options, done) {
+  // Update options with passed-in options.
+  option.init(options);
 
+  // Display the grunt version and quit if the user did --version.
+  if (option('version')) {
+    handleVersionFlag(done);
+    return;
+  }
+
+  // Init colors.
+  log.initColors();
+
+  // Display help and quit if the user did --help.
+  if (option('help')) {
+    help.display();
+    return;
+  }
+
+  // A little header stuff.
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
+  // Determine and output which tasks will be run.
+  var tasksSpecified = tasks && tasks.length > 0;
+  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+
+  // Initialize tasks.
+  task.init(tasks, options);
+
+  verbose.writeln();
+  if (!tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(tasks, 'Running tasks');
+
+  // Handle otherwise unhandleable (probably asynchronous) exceptions.
+  var uncaughtHandler = function(e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
+  process.on('uncaughtException', uncaughtHandler);
+
+  // Report, etc when all tasks have completed.
+  task.options({
+    error: function(e) {
+      fail.warn(e, fail.code.TASK_FAILURE);
+    },
+    done: function() {
+      // Stop handling uncaught exceptions so that we don't leave any
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
+      process.removeListener('uncaughtException', uncaughtHandler);
+
+      // Output a final fail / success report.
+      fail.report();
+
+      if (done) {
+        // Execute "done" function when done (only if passed, of course).
+        done();
+      } else {
+        // Otherwise, explicitly exit.
+        util.exit(0);
+      }
+    }
+  });
+
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
+  tasks.forEach(function(name) { task.run(name); });
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({asyncDone: true});
+};
+
+// Display version information and available tasks/options (--version).
+function handleVersionFlag(done) {
   log.writeln('grunt v' + grunt.version);
 
   if (!option('verbose')) {
-    return true;
+    return;
   }
 
+  // --verbose
   verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+  // Yes, this is a total hack, but we don't want to log all that verbose
+  // task initialization stuff here.
   grunt.log.muted = true;
+  // Initialize task system so that available tasks can be listed.
   grunt.task.init([], {help: true});
+  // Re-enable logging.
   grunt.log.muted = false;
 
+  // Display available tasks (for shell completion, etc).
   var availableTasks = Object.keys(grunt.task._tasks).sort();
   verbose.writeln('Available tasks: ' + availableTasks.join(' '));
 
+  // Display available options (for shell completion, etc).
   var availableOptions = [];
   Object.keys(grunt.cli.optlist).forEach(function(long) {
     var o = grunt.cli.optlist[long];
@@ -142,34 +182,4 @@ function handleVersionFlag() {
     if (o.short) { availableOptions.push('-' + o.short); }
   });
   verbose.writeln('Available options: ' + availableOptions.join(' '));
-
-  return true;
-}
-
-// Extracted error handler factory.
-function createErrorHandler() {
-  return function(e) {
-    fail.warn(e, fail.code.TASK_FAILURE);
-  };
-}
-
-// Extracted completion handler factory.
-function createCompletionHandler(uncaughtHandler, done) {
-  return function() {
-    process.removeListener('uncaughtException', uncaughtHandler);
-    fail.report();
-
-    if (done) {
-      done();
-    } else {
-      util.exit(0);
-    }
-  };
-}
-
-// Extracted uncaught exception handler.
-function wrapFatalErrorHandler() {
-  return function(e) {
-    fail.fatal(e, fail.code.TASK_FAILURE);
-  };
 }

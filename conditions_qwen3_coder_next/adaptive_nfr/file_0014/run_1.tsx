@@ -85,7 +85,8 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
     const isHidden = isAdmin && comment.status === 'hidden';
     const hiddenClass = isHidden ? 'opacity-30' : '';
 
-    const isInEditMode = !!openCommentForms.find(openForm => openForm.id === comment.id && openForm.type === 'edit');
+    const editForm = openCommentForms.find(openForm => openForm.id === comment.id && openForm.type === 'edit');
+    const isInEditMode = !!editForm;
 
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
@@ -123,7 +124,7 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
                 {isInEditMode ? (
                     <>
                         <CommentHeader className={hiddenClass} comment={comment} />
-                        <EditForm comment={comment} openForm={openForm} parent={parent} />
+                        <EditForm comment={comment} openForm={editForm} parent={parent} />
                     </>
                 ) : (
                     <>
@@ -157,10 +158,15 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
         : <BlankAvatar />;
     const hasReplies = comment.replies && comment.replies.length > 0;
 
-    const notPublishedMessage = getUnpublishedMessage(comment.status, t);
+    const notPublishedMessage = comment.status === 'hidden' ?
+        t('This comment has been hidden.') :
+        comment.status === 'deleted' ?
+            t('This comment has been removed.') :
+            '';
 
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
+
     const showMoreButton = isAdmin && comment.status === 'hidden';
 
     return (
@@ -182,8 +188,6 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
         </CommentLayout>
     );
 };
-
-// Helper components
 
 const MemberExpertise: React.FC<{comment: Comment}> = ({comment}) => {
     const {member} = useAppContext();
@@ -235,10 +239,6 @@ const ReplyFormBox: React.FC<ReplyFormBoxProps> = ({comment, openForm}) => {
     );
 };
 
-//
-// -- Published comment components --
-//
-
 const AuthorName: React.FC<{comment: Comment}> = ({comment}) => {
     const {t} = useAppContext();
     const name = getMemberNameFromComment(comment, t);
@@ -253,15 +253,13 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
     const {comments, t, pageUrl} = useAppContext();
     const inReplyToComment = findCommentById(comments, comment.in_reply_to_id);
 
-    const inReplyToSnippet = !inReplyToComment || inReplyToComment.status !== 'published'
-        ? `[${t('removed')}]`
-        : comment.in_reply_to_snippet;
+    const inReplyToSnippet = comment.in_reply_to_snippet ?? `[${t('removed')}]`;
+    const isPublished = inReplyToComment?.status === 'published';
 
-    const linkToReply = inReplyToComment && inReplyToComment.status === 'published';
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';
     const linkClassName = `${className} hover:text-neutral-900/75 dark:hover:text-white/85`;
 
-    if (!linkToReply) {
+    if (!isPublished) {
         return <span className={className} data-testid="comment-in-reply-to">{inReplyToSnippet}</span>;
     }
 
@@ -269,16 +267,6 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
         <a className={linkClassName} data-testid="comment-in-reply-to" href={buildCommentPermalink(pageUrl, comment.in_reply_to_id)} target="_parent">{inReplyToSnippet}</a>
     );
 };
-
-function getUnpublishedMessage(status: string, t: (key: string) => string): string {
-    if (status === 'hidden') {
-        return t('This comment has been hidden.');
-    }
-    if (status === 'deleted') {
-        return t('This comment has been removed.');
-    }
-    return '';
-}
 
 type CommentHeaderProps = {
     comment: Comment;
@@ -401,10 +389,6 @@ const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highli
     );
 };
 
-//
-// -- Layout --
-//
-
 const RepliesLine: React.FC<{hasReplies: boolean}> = ({hasReplies}) => {
     if (!hasReplies) {
         return null;
@@ -435,9 +419,5 @@ const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasRepli
         </div>
     );
 };
-
-//
-// -- Default --
-//
 
 export default AnimatedComment;

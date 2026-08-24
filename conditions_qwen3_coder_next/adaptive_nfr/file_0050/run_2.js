@@ -11,16 +11,8 @@ try {
 } catch (e) {
   // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
   // Print a useful error if we attempt to load a .coffee file.
-  if (require.extensions) {
-    var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
-      require.extensions[FILE_EXTENSIONS[i]] = function() {
-        throw new Error(
-          'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-          'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
-        );
-      };
-    }
+  if (shouldSetCoffeeScriptFallback()) {
+    setCoffeeScriptFallback();
   }
 }
 
@@ -69,26 +61,6 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Predicate: checks if version flag is present
-function isVersionFlagSet() {
-  return option('version');
-}
-
-// Predicate: checks if verbose flag is present
-function isVerboseFlagSet() {
-  return option('verbose');
-}
-
-// Predicate: checks if help flag is present
-function isHelpFlagSet() {
-  return option('help');
-}
-
-// Predicate: checks if tasks array is provided and non-empty
-function hasSpecifiedTasks(tasks) {
-  return tasks && tasks.length > 0;
-}
-
 // Expose the task interface. I've never called this manually, and have no idea
 // how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
@@ -96,33 +68,8 @@ grunt.tasks = function(tasks, options, done) {
   option.init(options);
 
   // Display the grunt version and quit if the user did --version.
-  if (isVersionFlagSet()) {
-    log.writeln('grunt v' + grunt.version);
-
-    if (isVerboseFlagSet()) {
-      verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-      // Yes, this is a total hack, but we don't want to log all that verbose
-      // task initialization stuff here.
-      grunt.log.muted = true;
-      // Initialize task system so that available tasks can be listed.
-      grunt.task.init([], {help: true});
-      // Re-enable logging.
-      grunt.log.muted = false;
-
-      // Display available tasks (for shell completion, etc).
-      var availableTasks = Object.keys(grunt.task._tasks).sort();
-      verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-
-      // Display available options (for shell completion, etc).
-      var availableOptions = [];
-      Object.keys(grunt.cli.optlist).forEach(function(long) {
-        var o = grunt.cli.optlist[long];
-        availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-        if (o.short) { availableOptions.push('-' + o.short); }
-      });
-      verbose.writeln('Available options: ' + availableOptions.join(' '));
-    }
-
+  if (shouldExitOnVersion()) {
+    handleVersionOutput();
     return;
   }
 
@@ -130,7 +77,7 @@ grunt.tasks = function(tasks, options, done) {
   log.initColors();
 
   // Display help and quit if the user did --help.
-  if (isHelpFlagSet()) {
+  if (option('help')) {
     help.display();
     return;
   }
@@ -139,7 +86,7 @@ grunt.tasks = function(tasks, options, done) {
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
   // Determine and output which tasks will be run.
-  var tasksSpecified = hasSpecifiedTasks(tasks);
+  var tasksSpecified = tasks && tasks.length > 0;
   tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.
@@ -189,3 +136,68 @@ grunt.tasks = function(tasks, options, done) {
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
 };
+
+/**
+ * Guard predicate: determines whether CoffeeScript fallback handlers should be set.
+ * @returns {boolean}
+ */
+function shouldSetCoffeeScriptFallback() {
+  return require.extensions != null;
+}
+
+/**
+ * Sets up CoffeeScript file extension handlers that throw errors when CoffeeScript is missing.
+ */
+function setCoffeeScriptFallback() {
+  var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
+  for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
+    require.extensions[FILE_EXTENSIONS[i]] = function() {
+      throw new Error(
+        'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
+        'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+      );
+    };
+  }
+}
+
+/**
+ * Determines whether the process should exit early when version or help flag is present.
+ * @returns {boolean}
+ */
+function shouldExitOnVersion() {
+  return option('version');
+}
+
+/**
+ * Handles version output and optional verbose task enumeration.
+ */
+function handleVersionOutput() {
+  log.writeln('grunt v' + grunt.version);
+
+  if (!option('verbose')) {
+    return;
+  }
+
+  // --verbose
+  verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+
+  // Yes, this is a total hack, but we don't want to log all that verbose
+  // task initialization stuff here.
+  grunt.log.muted = true;
+  // Initialize task system so that available tasks can be listed.
+  grunt.task.init([], {help: true});
+  // Re-enable logging.
+  grunt.log.muted = false;
+
+  // Display available tasks (for shell completion, etc).
+  verbose.writeln('Available tasks: ' + Object.keys(grunt.task._tasks).sort().join(' '));
+
+  // Display available options (for shell completion, etc).
+  var optionStrings = [];
+  Object.keys(grunt.cli.optlist).forEach(function(long) {
+    var o = grunt.cli.optlist[long];
+    optionStrings.push('--' + (o.negate ? 'no-' : '') + long);
+    if (o.short) { optionStrings.push('-' + o.short); }
+  });
+  verbose.writeln('Available options: ' + optionStrings.join(' '));
+}

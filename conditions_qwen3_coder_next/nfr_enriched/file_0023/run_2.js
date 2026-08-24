@@ -39,36 +39,24 @@ const StylesWrapper = () => {
     };
 };
 
-/**
- * Computes the current height of the popup container and signals to consumers.
- */
-function computeAndNotifyContainerHeight() {
-    const container = document.querySelector('.gh-root-frame');
-    if (container) {
-        // Get actual rendered height
-        const height = container.offsetHeight;
-        // Notify parent frame via postMessage could be added here if needed
-        return height;
-    }
-    return null;
-}
-
 class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        this.notifyContainerHeightChange();
-    }
-
-    /**
-     * Notifies the outer iframe about container height update.
-     */
-    notifyContainerHeightChange() {
-        computeAndNotifyContainerHeight();
+        this.sendContainerHeightChangeEvent();
     }
 
     componentDidUpdate() {
-        this.notifyContainerHeightChange();
+        this.sendContainerHeightChangeEvent();
+    }
+
+    /**
+     * Broadcasts container height changes to parent frame for dynamic resizing.
+     * @private
+     */
+    sendContainerHeightChangeEvent() {
+        const height = this.containerRef?.current?.offsetHeight || 0;
+        this.props.onHeightChange?.(height);
     }
 
     handlePopupClose(e) {
@@ -82,7 +70,9 @@ class PopupContent extends React.Component {
 
     render() {
         return (
-            <Search />
+            <div ref={this.containerRef = React.createRef()}>
+                <Search />
+            </div>
         );
     }
 }
@@ -695,7 +685,7 @@ export default class PopupModal extends React.Component {
                     <div
                         onClick = {e => this.handlePopupClose(e)}
                         className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
-                    <PopupContent />
+                    <PopupContent onHeightChange={(height) => this.onHeightChange(height)} />
                 </Frame>
             </div>
         );

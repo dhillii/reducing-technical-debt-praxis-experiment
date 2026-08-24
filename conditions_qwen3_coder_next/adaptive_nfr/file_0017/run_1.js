@@ -250,7 +250,7 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
     );
 }
 
-// Strategy objects for offer message generation
+// Strategy object for offer message generation
 const offerMessageStrategies = {
     free_months: (offer, originalPrice, currency, amountOff) => {
         const months = offer.amount;
@@ -259,37 +259,50 @@ const offerMessageStrategies = {
 
         return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
     },
-
     forever: (offer, originalPrice, currency, amountOff) => {
         return `Enjoy ${amountOff} off forever.`;
     },
-
     once: (offer, originalPrice, currency, amountOff) => {
         return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
     },
-
-    repeating: (offer, originalPrice, currency, amountOff) => {
-        if (offer.duration_in_months === 1) {
-            return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-        }
+    repeating_1: (offer, originalPrice, currency, amountOff) => {
+        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    },
+    repeating_n: (offer, originalPrice, currency, amountOff) => {
         return `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
     }
 };
 
 /**
- * Generates offer message based on offer type and duration
- * @param {Object} offer - The offer object
- * @param {number} originalPrice - Original price formatted as string
- * @param {string} currency - Currency symbol
- * @param {number} amountOff - Amount off formatted as string
- * @returns {string} Offer message
+ * Returns the appropriate offer message based on offer type and duration.
+ * @param {Object} offer - The offer object containing type, duration, cadence, etc.
+ * @param {number} originalPrice - The original price formatted as string.
+ * @param {string} currency - Currency symbol.
+ * @param {number} amountOff - Amount discounted.
+ * @returns {string} The formatted offer message.
  */
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
-    const strategyKey = offer.type === 'free_months' ? 'free_months' : offer.duration;
-    const strategy = offerMessageStrategies[strategyKey];
+    const {type, duration, duration_in_months} = offer;
 
-    if (strategy) {
-        return strategy(offer, originalPrice, currency, amountOff);
+    if (type === 'free_months') {
+        return offerMessageStrategies.free_months(offer, originalPrice, currency, amountOff);
+    }
+
+    if (duration === 'forever') {
+        return offerMessageStrategies.forever(offer, originalPrice, currency, amountOff);
+    }
+
+    if (duration === 'once') {
+        return offerMessageStrategies.once(offer, originalPrice, currency, amountOff);
+    }
+
+    if (duration === 'repeating') {
+        if (duration_in_months === 1) {
+            return offerMessageStrategies.repeating_1(offer, originalPrice, currency, amountOff);
+        }
+        if (duration_in_months > 1) {
+            return offerMessageStrategies.repeating_n(offer, originalPrice, currency, amountOff);
+        }
     }
 
     return '';

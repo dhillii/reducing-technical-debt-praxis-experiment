@@ -33,35 +33,6 @@ export const getOfferDuration = (duration: string): string => {
     return (duration === 'once' ? 'First payment' : duration === 'repeating' ? 'Repeating' : 'Forever');
 };
 
-/**
- * Determines if the given tier is active.
- * @param tier - The tier to check.
- * @returns True if the tier exists and is active, false otherwise.
- */
-const isTierActive = (tier: Tier | undefined): boolean => {
-    return !!tier && tier.active === true;
-};
-
-/**
- * Determines if the given offer matches the active filter criteria.
- * @param offer - The offer to check.
- * @param tier - The tier associated with the offer.
- * @returns True if the offer is active and its tier is active, false otherwise.
- */
-const isOfferActiveUnderActiveTier = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'active' && isTierActive(tier);
-};
-
-/**
- * Determines if the given offer matches the archived filter criteria.
- * @param offer - The offer to check.
- * @param tier - The tier associated with the offer.
- * @returns True if the offer is archived or its tier is inactive, false otherwise.
- */
-const isOfferArchivedOrUnderInactiveTier = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'archived' || !isTierActive(tier);
-};
-
 export const getOfferDiscount = (type: string, amount: number, cadence: string, currency: string, tier: Tier | undefined): {discountColor: string, discountOffer: string, originalPriceWithCurrency: string, updatedPriceWithCurrency: string} => {
     let discountColor = '';
     let discountOffer = '';
@@ -199,6 +170,37 @@ const OffersFilterPopover: React.FC<{
     );
 };
 
+/**
+ * Checks if an offer is active and its tier is active
+ */
+const isOfferActive = (offer: any, tier?: Tier): boolean => {
+    return offer.status === 'active' && tier?.active === true;
+};
+
+/**
+ * Checks if an offer is archived (either explicitly or via archived tier)
+ */
+const isOfferArchived = (offer: any, tier?: Tier): boolean => {
+    return offer.status === 'archived' || tier?.active === false;
+};
+
+/**
+ * Determines if an offer should be included based on the current status filter
+ */
+const matchesStatusFilter = (offer: any, tier?: Tier, statusFilter: 'active' | 'archived' = 'active'): boolean => {
+    if (statusFilter === 'active') {
+        return isOfferActive(offer, tier);
+    }
+    return isOfferArchived(offer, tier);
+};
+
+/**
+ * Returns the appropriate offer tier or null if not found
+ */
+const getOfferTier = (offer: any, allTiers?: Tier[]): Tier | undefined => {
+    return allTiers?.find(tier => tier.id === offer?.tier?.id);
+};
+
 export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
     const modal = useModal();
     const {updateRoute} = useRouting();
@@ -206,12 +208,12 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
     const activeOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isOfferActiveUnderActiveTier(offer, offerTier);
+        const offerTier = getOfferTier(offer, allTiers);
+        return isOfferActive(offer, offerTier);
     });
     const archivedOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isOfferArchivedOrUnderInactiveTier(offer, offerTier);
+        const offerTier = getOfferTier(offer, allTiers);
+        return isOfferArchived(offer, offerTier);
     });
 
     let offersTabs: Tab[] = [
@@ -229,6 +231,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
     const sortDirection = offersSorting?.direction || 'desc';
 
     const handleOfferEdit = (id: string) => {
+        // TODO: implement
         sessionStorage.setItem('editOfferPageSource', 'offersIndex');
         updateRoute(`offers/edit/${id}`);
     };
@@ -248,20 +251,9 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const buildTierForOffer = (offer: any): Tier | undefined => {
-        return allTiers?.find(tier => tier.id === offer?.tier?.id);
-    };
-
     const filteredOffers = sortedOffers.filter((offer) => {
-        const offerTier = buildTierForOffer(offer);
-        if (!offerTier) {
-            return false;
-        }
-
-        if (statusFilter === 'active') {
-            return isOfferActiveUnderActiveTier(offer, offerTier);
-        }
-        return isOfferArchivedOrUnderInactiveTier(offer, offerTier);
+        const offerTier = getOfferTier(offer, allTiers);
+        return matchesStatusFilter(offer, offerTier, statusFilter);
     });
 
     const listLayoutOutput = <div className='overflow-x-auto'>
@@ -274,7 +266,8 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                 <col className='w-[80px]' />
             </colgroup>
             {filteredOffers.map((offer) => {
-                const offerTier = buildTierForOffer(offer);
+                const offerTier = getOfferTier(offer, allTiers);
+
                 if (!offerTier) {
                     return null;
                 }

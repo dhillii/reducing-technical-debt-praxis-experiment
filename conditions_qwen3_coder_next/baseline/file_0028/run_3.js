@@ -542,18 +542,7 @@ export default class KoenigLexicalEditor extends Component {
                         processData: false,
                         contentType: false,
                         dataType: 'text',
-                        xhr: () => {
-                            const xhr = new window.XMLHttpRequest();
-
-                            xhr.upload.addEventListener('progress', (event) => {
-                                if (event.lengthComputable) {
-                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                    updateProgress();
-                                }
-                            }, false);
-
-                            return xhr;
-                        }
+                        xhr: createXhrWithProgress(file, progressTracker, updateProgress)
                     });
 
                     // force tracker progress to 100% in case we didn't get a final event
@@ -623,7 +612,7 @@ export default class KoenigLexicalEditor extends Component {
 
                 for (let i = 0; i < files.length; i += 1) {
                     const file = files[i];
-                    uploadPromises.push(_uploadFile(file, options));
+                    uploadPromises.push(_-uploadFile(file, options));
                 }
 
                 try {
@@ -650,6 +639,21 @@ export default class KoenigLexicalEditor extends Component {
 
             return {progress, isLoading, upload, errors, filesNumber};
         };
+
+        function createXhrWithProgress(file, progressTracker, updateProgress) {
+            return () => {
+                const xhr = new window.XMLHttpRequest();
+
+                xhr.upload.addEventListener('progress', (event) => {
+                    if (event.lengthComputable) {
+                        progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                        updateProgress();
+                    }
+                }, false);
+
+                return xhr;
+            };
+        }
 
         const KGEditorComponent = ({isInitInstance}) => {
             return (

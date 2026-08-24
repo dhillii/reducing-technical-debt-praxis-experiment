@@ -1,12 +1,3 @@
-};
-    }
-
-    async getAutomatedEmailSentEvents(filter, options = {}) {
-        options = {
-            ...options,
-            withRelated: ['member', 'automatedEmail'],
-
-Complete source code:
 const errors = require('@tryghost/errors');
 const nql = require('@tryghost/nql');
 const mingo = require('mingo');
@@ -235,7 +226,7 @@ module.exports = class EventRepository {
         const {data: models, meta} = await this._MemberPaidSubscriptionEvent.findPage(options);
 
         const data = models.map((model) => {
-            const tierName = model.related('stripeSubscription') && model.related('stripeSubscription').related('stripePrice') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product') ? model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product').get('name') : null;
+            const tierName = model.related('stripeSubscription') && model.related('stripeSubscription').related('stripePrice') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product') ? model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product').get('name') : null;
 
             // Prevent toJSON on stripeSubscription (we don't have everything loaded)
             delete model.relations.stripeSubscription;
@@ -522,7 +513,7 @@ module.exports = class EventRepository {
     /**
      * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
      */
-    async getAggregatedClickEvents(filter, options = {}) {
+    async getAggregatedClickEvents(options = {}, filter) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
@@ -895,7 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(filter, options = {}) {
+    async getAutomatedEmailSentEvents(options, filter) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

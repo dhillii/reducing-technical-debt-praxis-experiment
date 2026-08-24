@@ -1,18 +1,18 @@
 'use strict';
 
-var grunt = require('../grunt');
+const grunt = require('../grunt');
 
 // Nodejs libs.
-var path = require('path');
+const path = require('path');
 
 // Set column widths.
-var col1len = 0;
+let col1len = 0;
 exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
 };
 exports.initWidths = function() {
   // Widths for options/tasks table output.
-  var commandWidth = Math.max(col1len + 20, 76);
+  const commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
 };
 

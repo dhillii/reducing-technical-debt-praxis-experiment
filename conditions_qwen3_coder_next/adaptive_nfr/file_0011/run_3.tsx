@@ -37,7 +37,10 @@ export interface GlobalSettingValues {
     headingFont: string
     bodyFont: string
 }
-
+/**
+ * All custom fonts are maintained in the @tryghost/custom-fonts package.
+ * If you need to change a font, you'll need to update the @tryghost/custom-fonts package.
+ */
 const DEFAULT_FONT = 'Theme default';
 
 interface FontSelectOption {
@@ -83,38 +86,44 @@ const capitalizeWords = (str: string): string => str
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-// Strategy object for font class name generation
-const fontClassStrategies: Record<string, (heading: boolean) => string> = {
-    'Cardo': (heading) => clsx('font-cardo', heading && 'font-bold'),
-    'Manrope': (heading) => clsx('font-manrope', heading && 'font-bold'),
-    'Merriweather': (heading) => clsx('font-merriweather', heading && 'font-bold'),
-    'Nunito': (heading) => clsx('font-nunito', heading && 'font-semibold'),
-    'Old Standard TT': (heading) => clsx('font-old-standard-tt', heading && 'font-bold'),
-    'Prata': (heading) => clsx('font-prata', heading && 'font-normal'),
-    'Roboto': (heading) => clsx('font-roboto', heading && 'font-bold'),
-    'Rufina': (heading) => clsx('font-rufina', heading && 'font-bold'),
-    'Tenor Sans': (heading) => clsx('font-tenor-sans', heading && 'font-normal'),
-    'Chakra Petch': (heading) => clsx('font-chakra-petch', heading && 'font-normal'),
-    'Fira Mono': (heading) => clsx('font-fira-mono', heading && 'font-bold'),
-    'Fira Sans': (heading) => clsx('font-fira-sans', heading && 'font-bold'),
-    'IBM Plex Serif': (heading) => clsx('font-ibm-plex-serif', heading && 'font-bold'),
-    'Inter': (heading) => clsx('font-inter', heading && 'font-bold'),
-    'JetBrains Mono': (heading) => clsx('font-jetbrains-mono', heading && 'font-bold'),
-    'Lora': (heading) => clsx('font-lora', heading && 'font-bold'),
-    'Noto Sans': (heading) => clsx('font-noto-sans', heading && 'font-bold'),
-    'Noto Serif': (heading) => clsx('font-noto-serif', heading && 'font-bold'),
-    'Poppins': (heading) => clsx('font-poppins', heading && 'font-bold'),
-    'Space Grotesk': (heading) => clsx('font-space-grotesk', heading && 'font-bold'),
-    'Space Mono': (heading) => clsx('font-space-mono', heading && 'font-bold')
-};
-
 /**
- * Generate Tailwind CSS class name for a given font name and heading type.
- * Uses strategy pattern to avoid complex conditional branching.
+ * Maps font names to their corresponding Tailwind CSS class names.
+ * Uses a lookup table to avoid branching complexity.
  */
-const getFontClassName = (fontName: string, heading: boolean = true): string => {
-    const strategy = fontClassStrategies[fontName];
-    return strategy ? strategy(heading) : '';
+const getFontClassName = (fontName: string, heading: boolean): string => {
+    const fontClassMap: Record<string, {base: string; heading?: string; body?: string}> = {
+        'Cardo': {base: 'font-cardo', heading: 'font-bold'},
+        'Manrope': {base: 'font-manrope', heading: 'font-bold'},
+        'Merriweather': {base: 'font-merriweather', heading: 'font-bold'},
+        'Nunito': {base: 'font-nunito', body: 'font-semibold'},
+        'Old Standard TT': {base: 'font-old-standard-tt', heading: 'font-bold'},
+        'Prata': {base: 'font-prata', heading: 'font-normal'},
+        'Roboto': {base: 'font-roboto', heading: 'font-bold'},
+        'Rufina': {base: 'font-rufina', heading: 'font-bold'},
+        'Tenor Sans': {base: 'font-tenor-sans', body: 'font-normal'},
+        'Chakra Petch': {base: 'font-chakra-petch', body: 'font-normal'},
+        'Fira Mono': {base: 'font-fira-mono', heading: 'font-bold'},
+        'Fira Sans': {base: 'font-fira-sans', heading: 'font-bold'},
+        'IBM Plex Serif': {base: 'font-ibm-plex-serif', heading: 'font-bold'},
+        'Inter': {base: 'font-inter', heading: 'font-bold'},
+        'JetBrains Mono': {base: 'font-jetbrains-mono', heading: 'font-bold'},
+        'Lora': {base: 'font-lora', heading: 'font-bold'},
+        'Noto Sans': {base: 'font-noto-sans', heading: 'font-bold'},
+        'Noto Serif': {base: 'font-noto-serif', heading: 'font-bold'},
+        'Poppins': {base: 'font-poppins', heading: 'font-bold'},
+        'Space Grotesk': {base: 'font-space-grotesk', heading: 'font-bold'},
+        'Space Mono': {base: 'font-space-mono', heading: 'font-bold'}
+    };
+
+    const entry = fontClassMap[fontName];
+    if (!entry) {
+        return '';
+    }
+
+    const baseClass = entry.base;
+    const modifierClass = heading ? entry.heading : entry.body;
+
+    return clsx(baseClass, modifierClass);
 };
 
 const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (key: string, value: SettingValue) => void }> = ({values,updateSetting}) => {
@@ -166,6 +175,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                     testId='accent-color-picker'
                     title={<div>Accent color</div>}
                     value={values.accentColor}
+                    // we debounce this because the color picker fires a lot of events.
                     onChange={value => updateSetting('accent_color', value)}
                 />
                 <div className='flex items-start justify-between'>

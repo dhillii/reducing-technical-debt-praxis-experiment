@@ -92,7 +92,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             onOpenChange?.(false);
             toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
-            onReplyError?.();
+            if (replyTo) {
+                onReplyError?.();
+            }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -113,6 +117,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -130,22 +135,22 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [showAltInput]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                if (!isDisabled && !isImageUploading) {
-                    handlePost();
-                }
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (!isDisabled && !isImageUploading) {
+                handlePost();
             }
-        };
+        }
+    }, [isDisabled, isImageUploading, handlePost]);
 
+    useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
         }
-    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
+    }, [isOpen, props.open, handleKeyDown]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
@@ -278,21 +283,22 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         if (imagePreview) {
             URL.revokeObjectURL(imagePreview);
         }
+
         if (imageInputRef.current) {
             imageInputRef.current.value = '';
         }
     };
 
     const handleOpenChange = (open: boolean) => {
-        if (open) {
-            resetModalState();
-        }
-
         setIsOpen(open);
 
-        if (onOpenChange) {
-            onOpenChange(open);
+        if (open) {
+            resetModalState();
+        } else {
+            setIsSticky(false);
         }
+
+        onOpenChange?.(open);
     };
 
     return (
@@ -348,7 +354,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                 <FormPrimitive.Control asChild>
                                     <input
                                         ref={imageInputRef}
-                                        accept="image/jpeg,image/png,image/webp,image/gif"
+                                        accept="image/jpeg,image/png,image-webp,image/gif"
                                         className='hidden'
                                         type="file"
                                         onChange={handleImageChange}

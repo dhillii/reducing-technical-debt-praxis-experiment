@@ -1,3 +1,13 @@
+// @remove-on-eject-begin
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+// @remove-on-eject-end
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const webpack = require('webpack');
@@ -23,28 +33,60 @@ const ForkTsCheckerWebpackPlugin =
     ? require('react-dev-utils/ForkTsCheckerWarningWebpackPlugin')
     : require('react-dev-utils/ForkTsCheckerWebpackPlugin');
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
+// @remove-on-eject-begin
 const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
+// @remove-on-eject-end
 const createEnvironmentHash = require('./webpack/persistentCache/createEnvironmentHash');
 
+// Source maps are resource heavy and can cause out of memory issue for large source files.
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
+
 const reactRefreshRuntimeEntry = require.resolve('react-refresh/runtime');
-const reactRefreshWebpackPluginRuntimeEntry = require.resolve('@pmmmwh/react-refresh-webpack-plugin');
+const reactRefreshWebpackPluginRuntimeEntry = require.resolve(
+  '@pmmmwh/react-refresh-webpack-plugin'
+);
 const babelRuntimeEntry = require.resolve('babel-preset-react-app');
-const babelRuntimeEntryHelpers = require.resolve('@babel/runtime/helpers/esm/assertThisInitialized', { paths: [babelRuntimeEntry] });
-const babelRuntimeRegenerator = require.resolve('@babel/runtime/regenerator', { paths: [babelRuntimeEntry] });
+const babelRuntimeEntryHelpers = require.resolve(
+  '@babel/runtime/helpers/esm/assertThisInitialized',
+  { paths: [babelRuntimeEntry] }
+);
+const babelRuntimeRegenerator = require.resolve('@babel/runtime/regenerator', {
+  paths: [babelRuntimeEntry],
+});
+
+// Some apps do not need the benefits of saving a web request, so not inlining the chunk
+// makes for a smoother build process.
 const shouldInlineRuntimeChunk = process.env.INLINE_RUNTIME_CHUNK !== 'false';
+
 const emitErrorsAsWarnings = process.env.ESLINT_NO_DEV_ERRORS === 'true';
 const disableESLintPlugin = process.env.DISABLE_ESLINT_PLUGIN === 'true';
-const imageInlineSizeLimit = parseInt(process.env.IMAGE_INLINE_SIZE_LIMIT || '10000');
+
+const imageInlineSizeLimit = parseInt(
+  process.env.IMAGE_INLINE_SIZE_LIMIT || '10000'
+);
+
+// Check if TypeScript is setup
 const useTypeScript = fs.existsSync(paths.appTsConfig);
-const useTailwind = fs.existsSync(path.join(paths.appPath, 'tailwind.config.js'));
+
+// Check if Tailwind config exists
+const useTailwind = fs.existsSync(
+  path.join(paths.appPath, 'tailwind.config.js')
+);
+
+// Get the path to the uncompiled service worker (if it exists).
 const swSrc = paths.swSrc;
+
+// style files regexes
 const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
+
 const hasJsxRuntime = (() => {
-  if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') return false;
+  if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
+    return false;
+  }
+
   try {
     require.resolve('react/jsx-runtime');
     return true;
@@ -53,325 +95,631 @@ const hasJsxRuntime = (() => {
   }
 })();
 
-function createStyleLoaders(cssOptions, preProcessor, isEnvDevelopment, isEnvProduction) {
-  const loaders = [
-    isEnvDevelopment && require.resolve('style-loader'),
-    isEnvProduction && {
-      loader: MiniCssExtractPlugin.loader,
-      options: paths.publicUrlOrPath.startsWith('.') ? { publicPath: '../../' } : {},
-    },
-    {
-      loader: require.resolve('css-loader'),
-      options: cssOptions,
-    },
-    {
-      loader: require.resolve('postcss-loader'),
-      options: {
-        postcssOptions: {
-          ident: 'postcss',
-          config: false,
-          plugins: !useTailwind
-            ? [
-                'postcss-flexbugs-fixes',
-                [
-                  'postcss-preset-env',
-                  {
-                    autoprefixer: { flexbox: 'no-2009' },
-                    stage: 3,
-                  },
-                ],
-                'postcss-normalize',
-              ]
-            : [
-                'tailwindcss',
-                'postcss-flexbugs-fixes',
-                [
-                  'postcss-preset-env',
-                  {
-                    autoprefixer: { flexbox: 'no-2009' },
-                    stage: 3,
-                  },
-                ],
-              ],
-        },
-        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-      },
-    },
-  ].filter(Boolean);
-  if (preProcessor) {
-    loaders.push(
-      {
-        loader: require.resolve('resolve-url-loader'),
-        options: {
-          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-          root: paths.appSrc,
-        },
-      },
-      {
-        loader: require.resolve(preProcessor),
-        options: {
-          sourceMap: true,
-        },
-      }
-    );
-  }
-  return loaders;
-}
-
-function createOptimizationConfig(isEnvProduction, isEnvProductionProfile) {
-  return {
-    minimize: isEnvProduction,
-    minimizer: [
-      new TerserPlugin({
-        terserOptions: {
-          parse: { ecma: 8 },
-          compress: {
-            ecma: 5,
-            warnings: false,
-            comparisons: false,
-            inline: 2,
-          },
-          mangle: { safari10: true },
-          keep_classnames: isEnvProductionProfile,
-          keep_fnames: isEnvProductionProfile,
-          output: {
-            ecma: 5,
-            comments: false,
-            ascii_only: true,
-          },
-        },
-      }),
-      new CssMinimizerPlugin(),
-    ],
-  };
-}
-
-function createResolveConfig(isEnvProductionProfile) {
-  const alias = {
-    'react-native': 'react-native-web',
-    ...(isEnvProductionProfile && {
-      'react-dom$': 'react-dom/profiling',
-      'scheduler/tracing': 'scheduler/tracing-profiling',
-    }),
-    ...modules.webpackAliases,
-  };
-  const extensions = paths.moduleFileExtensions
-    .map(ext => `.${ext}`)
-    .filter(ext => useTypeScript || !ext.includes('ts'));
-
-  return {
-    modules: ['node_modules', paths.appNodeModules].concat(modules.additionalModulePaths || []),
-    extensions,
-    alias,
-    plugins: [
-      new ModuleScopePlugin(paths.appSrc, [
-        paths.appPackageJson,
-        reactRefreshRuntimeEntry,
-        reactRefreshWebpackPluginRuntimeEntry,
-        babelRuntimeEntry,
-        babelRuntimeEntryHelpers,
-        babelRuntimeRegenerator,
-      ]),
-    ],
-  };
-}
-
-function createRulesConfig(isEnvDevelopment, isEnvProduction) {
-  const rules = [
-    shouldUseSourceMap && {
-      enforce: 'pre',
-      exclude: /@babel(?:\/|\\{1,2})runtime/,
-      test: /\.(js|mjs|jsx|ts|tsx|css)$/,
-      loader: require.resolve('source-map-loader'),
-    },
-    {
-      oneOf: [
-        { test: [/\.avif$/], type: 'asset', mimetype: 'image/avif', parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } } },
-        { test: [/\.bmp$/, /\.gif$/, /\.jpe?g$/, /\.png$/], type: 'asset', parser: { dataUrlCondition: { maxSize: imageInlineSizeLimit } } },
-        {
-          test: /\.svg$/,
-          use: [
-            {
-              loader: require.resolve('@svgr/webpack'),
-              options: {
-                prettier: false, svgo: false,
-                svgoConfig: { plugins: [{ removeViewBox: false }] },
-                titleProp: true, ref: true,
-              },
-            },
-            {
-              loader: require.resolve('file-loader'),
-              options: { name: 'static/media/[name].[hash].[ext]' },
-            },
-          ],
-          issuer: { and: [/\.(ts|tsx|js|jsx|md|mdx)$/], },
-        },
-        {
-          test: /\.(js|mjs|jsx|ts|tsx)$/,
-          include: paths.appSrc,
-          loader: require.resolve('babel-loader'),
-          options: {
-            customize: require.resolve('babel-preset-react-app/webpack-overrides'),
-            presets: [[require.resolve('babel-preset-react-app'), { runtime: hasJsxRuntime ? 'automatic' : 'classic' }]],
-            babelrc: false,
-            configFile: false,
-            cacheIdentifier: getCacheIdentifier(isEnvProduction ? 'production' : isEnvDevelopment && 'development', ['babel-plugin-named-asset-import', 'babel-preset-react-app', 'react-dev-utils', 'react-scripts']),
-            plugins: [(isEnvDevelopment && shouldUseReactRefresh && require.resolve('react-refresh/babel'))].filter(Boolean),
-            cacheDirectory: true,
-            cacheCompression: false,
-            compact: isEnvProduction,
-          },
-        },
-        {
-          test: /\.(js|mjs)$/,
-          exclude: /@babel(?:\/|\\{1,2})runtime/,
-          loader: require.resolve('babel-loader'),
-          options: {
-            babelrc: false,
-            configFile: false,
-            compact: false,
-            presets: [[require.resolve('babel-preset-react-app/dependencies'), { helpers: true }]],
-            cacheDirectory: true,
-            cacheCompression: false,
-            cacheIdentifier: getCacheIdentifier(isEnvProduction ? 'production' : isEnvDevelopment && 'development', ['babel-plugin-named-asset-import', 'babel-preset-react-app', 'react-dev-utils', 'react-scripts']),
-            sourceMaps: shouldUseSourceMap,
-            inputSourceMap: shouldUseSourceMap,
-          },
-        },
-        { test: cssRegex, exclude: cssModuleRegex, use: createStyleLoaders({ importLoaders: 1, sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment, modules: { mode: 'icss' } }, null, isEnvDevelopment, isEnvProduction), sideEffects: true },
-        { test: cssModuleRegex, use: createStyleLoaders({ importLoaders: 1, sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment, modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent } }, null, isEnvDevelopment, isEnvProduction) },
-        { test: sassRegex, exclude: sassModuleRegex, use: createStyleLoaders({ importLoaders: 3, sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment, modules: { mode: 'icss' } }, 'sass-loader', isEnvDevelopment, isEnvProduction), sideEffects: true },
-        { test: sassModuleRegex, use: createStyleLoaders({ importLoaders: 3, sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment, modules: { mode: 'local', getLocalIdent: getCSSModuleLocalIdent } }, 'sass-loader', isEnvDevelopment, isEnvProduction) },
-        { exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/], type: 'asset/resource' },
-      ],
-    },
-  ].filter(Boolean);
-  return rules;
-}
-
-function createPluginsConfig(env, isEnvDevelopment, isEnvProduction, shouldUseReactRefresh, useTypeScript) {
-  const plugins = [
-    new HtmlWebpackPlugin(
-      Object.assign(
-        {},
-        { inject: true, template: paths.appHtml },
-        isEnvProduction
-          ? {
-              minify: {
-                removeComments: true,
-                collapseWhitespace: true,
-                removeRedundantAttributes: true,
-                useShortDoctype: true,
-                removeEmptyAttributes: true,
-                removeStyleLinkTypeAttributes: true,
-                keepClosingSlash: true,
-                minifyJS: true,
-                minifyCSS: true,
-                minifyURLs: true,
-              },
-            }
-          : undefined
-      )
-    ),
-    isEnvProduction && shouldInlineRuntimeChunk && new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
-    new InterpolateHtmlPlugin(HtmlWebpackPlugin, env.raw),
-    new ModuleNotFoundPlugin(paths.appPath),
-    new webpack.DefinePlugin(env.stringified),
-    isEnvDevelopment && shouldUseReactRefresh && new ReactRefreshWebpackPlugin({ overlay: false }),
-    isEnvDevelopment && new CaseSensitivePathsPlugin(),
-    isEnvProduction && new MiniCssExtractPlugin({ filename: 'static/css/[name].[contenthash:8].css', chunkFilename: 'static/css/[name].[contenthash:8].chunk.css' }),
-    new WebpackManifestPlugin({
-      fileName: 'asset-manifest.json',
-      publicPath: paths.publicUrlOrPath,
-      generate: (seed, files, entrypoints) => {
-        const manifestFiles = files.reduce((manifest, file) => {
-          manifest[file.name] = file.path;
-          return manifest;
-        }, seed);
-        const entrypointFiles = entrypoints.main.filter(fileName => !fileName.endsWith('.map'));
-        return { files: manifestFiles, entrypoints: entrypointFiles };
-      },
-    }),
-    new webpack.IgnorePlugin({ resourceRegExp: /^\.\/locale$/, contextRegExp: /moment$/ }),
-    isEnvProduction && fs.existsSync(swSrc) && new WorkboxWebpackPlugin.InjectManifest({
-      swSrc,
-      dontCacheBustURLsMatching: /\.[0-9a-f]{8}\./,
-      exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
-      maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-    }),
-    useTypeScript && new ForkTsCheckerWebpackPlugin({
-      async: isEnvDevelopment,
-      typescript: {
-        typescriptPath: resolve.sync('typescript', { basedir: paths.appNodeModules }),
-        configOverwrite: {
-          compilerOptions: {
-            sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
-            skipLibCheck: true,
-            inlineSourceMap: false,
-            declarationMap: false,
-            noEmit: true,
-            incremental: true,
-            tsBuildInfoFile: paths.appTsBuildInfoFile,
-          },
-        },
-        context: paths.appPath,
-        diagnosticOptions: { syntactic: true },
-        mode: 'write-references',
-      },
-      issue: {
-        include: [{ file: '../**/src/**/*.{ts,tsx}' }, { file: '**/src/**/*.{ts,tsx}' }],
-        exclude: [
-          { file: '**/src/**/__tests__/**' },
-          { file: '**/src/**/?(*.){spec|test}.*' },
-          { file: '**/src/setupProxy.*' },
-          { file: '**/src/setupTests.*' },
-        ],
-      },
-      logger: { infrastructure: 'silent' },
-    }),
-    !disableESLintPlugin && new ESLintPlugin({
-      extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
-      formatter: require.resolve('react-dev-utils/eslintFormatter'),
-      eslintPath: require.resolve('eslint'),
-      failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
-      context: paths.appSrc,
-      cache: true,
-      cacheLocation: path.resolve(paths.appNodeModules, '.cache/.eslintcache'),
-      cwd: paths.appPath,
-      resolvePluginsRelativeTo: __dirname,
-      baseConfig: {
-        extends: [require.resolve('eslint-config-react-app/base')],
-        rules: { ...(!hasJsxRuntime && { 'react/react-in-jsx-scope': 'error' }) },
-      },
-    }),
-  ].filter(Boolean);
-  return plugins;
-}
-
+// This is the production and development configuration.
+// It is focused on developer experience, fast rebuilds, and a minimal bundle.
 module.exports = function (webpackEnv) {
   const isEnvDevelopment = webpackEnv === 'development';
   const isEnvProduction = webpackEnv === 'production';
-  const isEnvProductionProfile = isEnvProduction && process.argv.includes('--profile');
+
+  // Variable used for enabling profiling in Production
+  // passed into alias object. Uses a flag if passed into the build command
+  const isEnvProductionProfile =
+    isEnvProduction && process.argv.includes('--profile');
+
+  // We will provide `paths.publicUrlOrPath` to our app
+  // as %PUBLIC_URL% in `index.html` and `process.env.PUBLIC_URL` in JavaScript.
+  // Omit trailing slash as %PUBLIC_URL%/xyz looks better than %PUBLIC_URL%xyz.
+  // Get environment variables to inject into our app.
   const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
+
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
+
+  // common function to get style loaders
+  const getStyleLoaders = (cssOptions, preProcessor) => {
+    const loaders = [
+      isEnvDevelopment && require.resolve('style-loader'),
+      isEnvProduction && {
+        loader: MiniCssExtractPlugin.loader,
+        // css is located in `static/css`, use '../../' to locate index.html folder
+        // in production `paths.publicUrlOrPath` can be a relative path
+        options: paths.publicUrlOrPath.startsWith('.')
+          ? { publicPath: '../../' }
+          : {},
+      },
+      {
+        loader: require.resolve('css-loader'),
+        options: cssOptions,
+      },
+      {
+        // Options for PostCSS as we reference these options twice
+        // Adds vendor prefixing based on your specified browser support in
+        // package.json
+        loader: require.resolve('postcss-loader'),
+        options: {
+          postcssOptions: {
+            // Necessary for external CSS imports to work
+            // https://github.com/facebook/create-react-app/issues/2677
+            ident: 'postcss',
+            config: false,
+            plugins: !useTailwind
+              ? [
+                  'postcss-flexbugs-fixes',
+                  [
+                    'postcss-preset-env',
+                    {
+                      autoprefixer: {
+                        flexbox: 'no-2009',
+                      },
+                      stage: 3,
+                    },
+                  ],
+                  // Adds PostCSS Normalize as the reset css with default options,
+                  // so that it honors browserslist config in package.json
+                  // which in turn let's users customize the target behavior as per their needs.
+                  'postcss-normalize',
+                ]
+              : [
+                  'tailwindcss',
+                  'postcss-flexbugs-fixes',
+                  [
+                    'postcss-preset-env',
+                    {
+                      autoprefixer: {
+                        flexbox: 'no-2009',
+                      },
+                      stage: 3,
+                    },
+                  ],
+                ],
+          },
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+        },
+      },
+    ].filter(Boolean);
+    if (preProcessor) {
+      loaders.push(
+        {
+          loader: require.resolve('resolve-url-loader'),
+          options: {
+            sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+            root: paths.appSrc,
+          },
+        },
+        {
+          loader: require.resolve(preProcessor),
+          options: {
+            sourceMap: true,
+          },
+        }
+      );
+    }
+    return loaders;
+  };
+
+  const getPostcssPlugins = () => {
+    const basePlugins = [
+      'postcss-flexbugs-fixes',
+      [
+        'postcss-preset-env',
+        {
+          autoprefixer: {
+            flexbox: 'no-2009',
+          },
+          stage: 3,
+        },
+      ],
+      'postcss-normalize',
+    ];
+
+    if (useTailwind) {
+      return ['tailwindcss', ...basePlugins];
+    }
+
+    return basePlugins;
+  };
+
+  const getBabelLoaderOptions = (isProduction, isExternal = false) => {
+    const options = {
+      babelrc: false,
+      configFile: false,
+      compact: isProduction,
+      presets: [
+        [
+          require.resolve('babel-preset-react-app'),
+          {
+            runtime: hasJsxRuntime ? 'automatic' : 'classic',
+          },
+        ],
+      ],
+      cacheDirectory: true,
+      cacheCompression: false,
+      // @remove-on-eject-begin
+      cacheIdentifier: getCacheIdentifier(
+        isProduction ? 'production' : isEnvDevelopment && 'development',
+        [
+          'babel-plugin-named-asset-import',
+          'babel-preset-react-app',
+          'react-dev-utils',
+          'react-scripts',
+        ]
+      ),
+      // @remove-on-eject-end
+      plugins: [
+        isEnvDevelopment &&
+          shouldUseReactRefresh &&
+          require.resolve('react-refresh/babel'),
+      ].filter(Boolean),
+    };
+
+    if (isExternal) {
+      options.presets = [
+        [
+          require.resolve('babel-preset-react-app/dependencies'),
+          { helpers: true },
+        ],
+      ];
+      options.compact = false;
+      options.sourceMaps = shouldUseSourceMap;
+      options.inputSourceMap = shouldUseSourceMap;
+    }
+
+    return options;
+  };
+
+  const getCSSRuleConfig = (regex, isModule, preProcessor) => {
+    const cssOptions = {
+      importLoaders: preProcessor ? 3 : 1,
+      sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+      modules: isModule
+        ? {
+            mode: 'local',
+            getLocalIdent: getCSSModuleLocalIdent,
+          }
+        : {
+            mode: 'icss',
+          },
+    };
+
+    return {
+      test: regex,
+      exclude: isModule ? cssModuleRegex : cssRegex,
+      use: getStyleLoaders(cssOptions, preProcessor),
+      sideEffects: true,
+    };
+  };
+
+  const getCSSRules = () => {
+    const rules = [];
+
+    // CSS Modules
+    rules.push({
+      test: cssModuleRegex,
+      use: getStyleLoaders(
+        {
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: {
+            mode: 'local',
+            getLocalIdent: getCSSModuleLocalIdent,
+          },
+        },
+        null
+      ),
+    });
+
+    // SASS
+    rules.push(
+      getCSSRuleConfig(sassRegex, false, 'sass-loader'),
+      getCSSRuleConfig(sassModuleRegex, true, 'sass-loader')
+    );
+
+    return rules;
+  };
+
+  const getAssetRules = () => {
+    const rules = [];
+
+    // SVG
+    rules.push({
+      test: /\.svg$/,
+      use: [
+        {
+          loader: require.resolve('@svgr/webpack'),
+          options: {
+            prettier: false,
+            svgo: false,
+            svgoConfig: {
+              plugins: [{ removeViewBox: false }],
+            },
+            titleProp: true,
+            ref: true,
+          },
+        },
+        {
+          loader: require.resolve('file-loader'),
+          options: {
+            name: 'static/media/[name].[hash].[ext]',
+          },
+        },
+      ],
+      issuer: {
+        and: [/\.(ts|tsx|js|jsx|md|mdx)$/],
+      },
+    });
+
+    // Images
+    rules.push(
+      {
+        test: [/\.avif$/],
+        type: 'asset',
+        mimetype: 'image/avif',
+        parser: {
+          dataUrlCondition: {
+            maxSize: imageInlineSizeLimit,
+          },
+        },
+      },
+      {
+        test: [/\.bmp$/, /\.gif$/, /\.jpe?g$/, /\.png$/],
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: imageInlineSizeLimit,
+          },
+        },
+      }
+    );
+
+    return rules;
+  };
+
+  const getJSRules = () => {
+    const rules = [];
+
+    // Application JS
+    rules.push({
+      test: /\.(js|mjs|jsx|ts|tsx)$/,
+      include: paths.appSrc,
+      loader: require.resolve('babel-loader'),
+      options: getBabelLoaderOptions(isEnvProduction),
+    });
+
+    // External JS
+    rules.push({
+      test: /\.(js|mjs)$/,
+      exclude: /@babel(?:\/|\\{1,2})runtime/,
+      loader: require.resolve('babel-loader'),
+      options: getBabelLoaderOptions(isEnvProduction, true),
+    });
+
+    return rules;
+  };
+
+  const getLoaderRules = () => {
+    const rules = [];
+
+    // Source maps
+    if (shouldUseSourceMap) {
+      rules.push({
+        enforce: 'pre',
+        exclude: /@babel(?:\/|\\{1,2})runtime/,
+        test: /\.(js|mjs|jsx|ts|tsx|css)$/,
+        loader: require.resolve('source-map-loader'),
+      });
+    }
+
+    // Asset rules
+    rules.push(...getAssetRules());
+
+    // JS rules
+    rules.push(...getJSRules());
+
+    // CSS rules
+    rules.push(
+      {
+        test: cssRegex,
+        exclude: cssModuleRegex,
+        use: getStyleLoaders({
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: {
+            mode: 'icss',
+          },
+        }),
+        sideEffects: true,
+      },
+      ...getCSSRules()
+    );
+
+    // File loader for everything else
+    rules.push({
+      exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
+      type: 'asset/resource',
+    });
+
+    return rules;
+  };
+
+  const getOptimizationConfig = () => {
+    const minimizers = [];
+
+    if (isEnvProduction) {
+      minimizers.push(
+        new TerserPlugin({
+          terserOptions: {
+            parse: {
+              ecma: 8,
+            },
+            compress: {
+              ecma: 5,
+              warnings: false,
+              comparisons: false,
+              inline: 2,
+            },
+            mangle: {
+              safari10: true,
+            },
+            keep_classnames: isEnvProductionProfile,
+            keep_fnames: isEnvProductionProfile,
+            output: {
+              ecma: 5,
+              comments: false,
+              ascii_only: true,
+            },
+          },
+        }),
+        new CssMinimizerPlugin()
+      );
+    }
+
+    return {
+      minimize: isEnvProduction,
+      minimizer: minimizers,
+    };
+  };
+
+  const getResolveConfig = () => {
+    return {
+      modules: ['node_modules', paths.appNodeModules].concat(
+        modules.additionalModulePaths || []
+      ),
+      extensions: paths.moduleFileExtensions
+        .map(ext => `.${ext}`)
+        .filter(ext => useTypeScript || !ext.includes('ts')),
+      alias: {
+        'react-native': 'react-native-web',
+        ...(isEnvProductionProfile && {
+          'react-dom$': 'react-dom/profiling',
+          'scheduler/tracing': 'scheduler/tracing-profiling',
+        }),
+        ...(modules.webpackAliases || {}),
+      },
+      plugins: [
+        new ModuleScopePlugin(paths.appSrc, [
+          paths.appPackageJson,
+          reactRefreshRuntimeEntry,
+          reactRefreshWebpackPluginRuntimeEntry,
+          babelRuntimeEntry,
+          babelRuntimeEntryHelpers,
+          babelRuntimeRegenerator,
+        ]),
+      ],
+    };
+  };
+
+  const getPlugins = () => {
+    const plugins = [];
+
+    // HTML plugin
+    plugins.push(
+      new HtmlWebpackPlugin(
+        Object.assign(
+          {},
+          {
+            inject: true,
+            template: paths.appHtml,
+          },
+          isEnvProduction
+            ? {
+                minify: {
+                  removeComments: true,
+                  collapseWhitespace: true,
+                  removeRedundantAttributes: true,
+                  useShortDoctype: true,
+                  removeEmptyAttributes: true,
+                  removeStyleLinkTypeAttributes: true,
+                  keepClosingSlash: true,
+                  minifyJS: true,
+                  minifyCSS: true,
+                  minifyURLs: true,
+                },
+              }
+            : undefined
+        )
+      )
+    );
+
+    // Runtime chunk
+    if (isEnvProduction && shouldInlineRuntimeChunk) {
+      plugins.push(new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]));
+    }
+
+    // Environment variables
+    plugins.push(new InterpolateHtmlPlugin(HtmlWebpackPlugin, env.raw));
+    plugins.push(new ModuleNotFoundPlugin(paths.appPath));
+    plugins.push(new webpack.DefinePlugin(env.stringified));
+
+    // React Refresh
+    if (isEnvDevelopment && shouldUseReactRefresh) {
+      plugins.push(
+        new ReactRefreshWebpackPlugin({
+          overlay: false,
+        })
+      );
+    }
+
+    // Case-sensitive paths
+    if (isEnvDevelopment) {
+      plugins.push(new CaseSensitivePathsPlugin());
+    }
+
+    // CSS extraction
+    if (isEnvProduction) {
+      plugins.push(
+        new MiniCssExtractPlugin({
+          filename: 'static/css/[name].[contenthash:8].css',
+          chunkFilename: 'static/css/[name].[contenthash:8].chunk.css',
+        })
+      );
+    }
+
+    // Manifest
+    plugins.push(
+      new WebpackManifestPlugin({
+        fileName: 'asset-manifest.json',
+        publicPath: paths.publicUrlOrPath,
+        generate: (seed, files, entrypoints) => {
+          const manifestFiles = files.reduce((manifest, file) => {
+            manifest[file.name] = file.path;
+            return manifest;
+          }, seed);
+          const entrypointFiles = entrypoints.main.filter(
+            fileName => !fileName.endsWith('.map')
+          );
+
+          return {
+            files: manifestFiles,
+            entrypoints: entrypointFiles,
+          };
+        },
+      })
+    );
+
+    // Moment.js ignore
+    plugins.push(
+      new webpack.IgnorePlugin({
+        resourceRegExp: /^\.\/locale$/,
+        contextRegExp: /moment$/,
+      })
+    );
+
+    // Service worker
+    if (isEnvProduction && fs.existsSync(swSrc)) {
+      plugins.push(
+        new WorkboxWebpackPlugin.InjectManifest({
+          swSrc,
+          dontCacheBustURLsMatching: /\.[0-9a-f]{8}\./,
+          exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        })
+      );
+    }
+
+    // TypeScript
+    if (useTypeScript) {
+      plugins.push(
+        new ForkTsCheckerWebpackPlugin({
+          async: isEnvDevelopment,
+          typescript: {
+            typescriptPath: resolve.sync('typescript', {
+              basedir: paths.appNodeModules,
+            }),
+            configOverwrite: {
+              compilerOptions: {
+                sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+                skipLibCheck: true,
+                inlineSourceMap: false,
+                declarationMap: false,
+                noEmit: true,
+                incremental: true,
+                tsBuildInfoFile: paths.appTsBuildInfoFile,
+              },
+            },
+            context: paths.appPath,
+            diagnosticOptions: {
+              syntactic: true,
+            },
+            mode: 'write-references',
+          },
+          issue: {
+            include: [
+              { file: '../**/src/**/*.{ts,tsx}' },
+              { file: '**/src/**/*.{ts,tsx}' },
+            ],
+            exclude: [
+              { file: '**/src/**/__tests__/**' },
+              { file: '**/src/**/?(*.){spec|test}.*' },
+              { file: '**/src/setupProxy.*' },
+              { file: '**/src/setupTests.*' },
+            ],
+          },
+          logger: {
+            infrastructure: 'silent',
+          },
+        })
+      );
+    }
+
+    // ESLint
+    if (!disableESLintPlugin) {
+      plugins.push(
+        new ESLintPlugin({
+          extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
+          formatter: require.resolve('react-dev-utils/eslintFormatter'),
+          eslintPath: require.resolve('eslint'),
+          failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
+          context: paths.appSrc,
+          cache: true,
+          cacheLocation: path.resolve(
+            paths.appNodeModules,
+            '.cache/.eslintcache'
+          ),
+          cwd: paths.appPath,
+          resolvePluginsRelativeTo: __dirname,
+          baseConfig: {
+            extends: [require.resolve('eslint-config-react-app/base')],
+            rules: {
+              ...(!hasJsxRuntime && {
+                'react/react-in-jsx-scope': 'error',
+              }),
+            },
+          },
+        })
+      );
+    }
+
+    return plugins;
+  };
 
   return {
     target: ['browserslist'],
     stats: 'errors-warnings',
     mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
     bail: isEnvProduction,
-    devtool: isEnvProduction ? (shouldUseSourceMap ? 'source-map' : false) : isEnvDevelopment && 'cheap-module-source-map',
+    devtool: isEnvProduction
+      ? shouldUseSourceMap
+        ? 'source-map'
+        : false
+      : isEnvDevelopment && 'cheap-module-source-map',
     entry: paths.appIndexJs,
     output: {
       path: paths.appBuild,
       pathinfo: isEnvDevelopment,
-      filename: isEnvProduction ? 'static/js/[name].[contenthash:8].js' : isEnvDevelopment && 'static/js/bundle.js',
-      chunkFilename: isEnvProduction ? 'static/js/[name].[contenthash:8].chunk.js' : isEnvDevelopment && 'static/js/[name].chunk.js',
+      filename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].js'
+        : isEnvDevelopment && 'static/js/bundle.js',
+      chunkFilename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].chunk.js'
+        : isEnvDevelopment && 'static/js/[name].chunk.js',
       assetModuleFilename: 'static/media/[name].[hash][ext]',
       publicPath: paths.publicUrlOrPath,
       devtoolModuleFilenameTemplate: isEnvProduction
-        ? info => path.relative(paths.appSrc, info.absoluteResourcePath).replace(/\\/g, '/')
-        : isEnvDevelopment && (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+        ? info =>
+            path
+              .relative(paths.appSrc, info.absoluteResourcePath)
+              .replace(/\\/g, '/')
+        : isEnvDevelopment &&
+          (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
     },
     cache: {
       type: 'filesystem',
@@ -381,14 +729,21 @@ module.exports = function (webpackEnv) {
       buildDependencies: {
         defaultWebpack: ['webpack/lib/'],
         config: [__filename],
-        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f => fs.existsSync(f)),
+        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+          fs.existsSync(f)
+        ),
       },
     },
-    infrastructureLogging: { level: 'none' },
-    optimization: createOptimizationConfig(isEnvProduction, isEnvProductionProfile),
-    resolve: createResolveConfig(isEnvProductionProfile),
-    module: { strictExportPresence: true, rules: createRulesConfig(isEnvDevelopment, isEnvProduction) },
-    plugins: createPluginsConfig(env, isEnvDevelopment, isEnvProduction, shouldUseReactRefresh, useTypeScript),
+    infrastructureLogging: {
+      level: 'none',
+    },
+    optimization: getOptimizationConfig(),
+    resolve: getResolveConfig(),
+    module: {
+      strictExportPresence: true,
+      rules: getLoaderRules(),
+    },
+    plugins: getPlugins(),
     performance: false,
   };
 };

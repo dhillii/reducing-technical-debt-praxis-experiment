@@ -4,147 +4,82 @@ import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
 /**
- * Helper to safely update a comment's replies array with a new reply
+ * Helper to safely map nested replies within a comment tree while updating a specific reply or comment.
+ * @param {Comment[]} comments - Top-level comments to traverse
+ * @param {string} targetId - ID of the comment or reply to update
+ * @param {(comment: Comment) => Comment} commentMapper - Function to transform matching top-level comment
+ * @param {(reply: Comment) => Comment} replyMapper - Function to transform matching reply
+ * @returns {Comment[]} updated comment list
  */
-function updateCommentReplies(comments: Comment[], parentId: string, newReply: Comment): Comment[] {
-    return comments.map((c) => {
-        if (c.id === parentId) {
-            return {
-                ...c,
-                replies: [...(c.replies || []), newReply],
-                count: {
-                    ...c.count,
-                    replies: (c.count?.replies || 0) + 1
-                }
-            };
-        }
-        return c;
-    });
-}
-
-/**
- * Helper to update a comment or its reply in the comments tree
- */
-function updateCommentOrReply(comments: Comment[], targetId: string, updatedComment: Comment): Comment[] {
+function mapCommentTree(comments: Comment[], targetId: string, commentMapper: (c: Comment) => Comment, replyMapper: (r: Comment) => Comment): Comment[] {
     return comments.map((c) => {
         if (c.id === targetId) {
-            return updatedComment;
+            return commentMapper(c);
         }
 
-        const updatedReplies = c.replies?.map((r) => {
+        const newReplies = c.replies?.map((r) => {
             if (r.id === targetId) {
-                return updatedComment;
+                return replyMapper(r);
             }
             return r;
-        });
+        }) || [];
 
         return {
             ...c,
-            replies: updatedReplies
+            replies: newReplies
         };
     });
 }
 
 /**
- * Helper to update comment status (hidden/shown) in the comments tree
+ * Recursively map comment tree; handles replies within replies.
+ * @param {Comment[]} comments - Top-level comments
+ * @param {string} targetId - ID of the comment or reply to update anywhere in the tree
+ * @param {(node: Comment) => Comment} nodeMapper - Function that handles the update
+ * @returns {Comment[]} updated comment list
  */
-function updateCommentStatus(comments: Comment[], targetId: string, status: 'hidden' | 'published'): Comment[] {
+function mapCommentTreeDeep(comments: Comment[], targetId: string, nodeMapper: (node: Comment) => Comment): Comment[] {
     return comments.map((c) => {
-        const updatedReplies = c.replies?.map((r) => {
-            if (r.id === targetId) {
-                return {...r, status};
-            }
-            return r;
-        });
-
+        const mapped = nodeMapper(c);
         if (c.id === targetId) {
-            return {...c, status, replies: updatedReplies};
+            return mapped;
         }
-
-        return {...c, replies: updatedReplies};
-    });
-}
-
-/**
- * Helper to update like state for a comment or its reply
- */
-function updateLikeState(comments: Comment[], targetId: string, liked: boolean): Comment[] {
-    return comments.map((c) => {
-        const updatedReplies = c.replies?.map((r) => {
-            if (r.id === targetId) {
-                return {
-                    ...r,
-                    liked,
-                    count: {
-                        ...r.count,
-                        likes: liked ? r.count.likes + 1 : r.count.likes - 1
-                    }
-                };
-            }
-            return r;
-        });
-
-        if (c.id === targetId) {
+        if (c.replies?.length) {
             return {
                 ...c,
-                liked,
-                replies: updatedReplies,
-                count: {
-                    ...c.count,
-                    likes: liked ? c.count.likes + 1 : c.count.likes - 1
-                }
+                replies: mapCommentTreeDeep(c.replies, targetId, nodeMapper)
             };
         }
-
-        return {...c, replies: updatedReplies};
+        return mapped;
     });
 }
 
 /**
- * Helper to delete a comment or reply from the comments tree
+ * Find a comment or reply in the comment tree by ID.
  */
-function deleteCommentFromTree(comments: Comment[], targetId: string): {comments: Comment[], commentCountDelta: number} {
-    let commentCountDelta = 0;
-    const updatedComments = comments.map((c) => {
-        if (c.id === targetId) {
-            commentCountDelta = -1;
-            return c.replies?.length ? {...c, status: 'deleted'} : null;
+function findCommentNode(comments: Comment[], id: string): Comment | undefined {
+    for (const c of comments) {
+        if (c.id === id) return c;
+        if (c.replies?.length) {
+            const found = findCommentNode(c.replies, id);
+            if (found) return found;
         }
-
-        const originalRepliesLength = c.replies?.length || 0;
-        const updatedReplies = c.replies?.filter(r => r.id !== targetId);
-        const hasDeletedReply = originalRepliesLength !== updatedReplies?.length;
-
-        if (hasDeletedReply && c.count?.replies) {
-            c.count.replies = c.count.replies - 1;
-        }
-
-        return {...c, replies: updatedReplies};
-    }).filter(Boolean) as Comment[];
-
-    return {comments: updatedComments, commentCountDelta};
+    }
+    return undefined;
 }
 
 /**
- * Helper to update comment with new content
+ * Increment or decrement like counts on comment/reply trees.
  */
-function replaceCommentInTree(comments: Comment[], targetId: string, updatedComment: Comment, parentId?: string): Comment[] {
-    return comments.map((c) => {
-        if (parentId && parentId === c.id) {
-            return {
-                ...c,
-                replies: c.replies?.map((r) => {
-                    if (r.id === targetId) {
-                        return updatedComment;
-                    }
-                    return r;
-                })
-            };
-        } else if (c.id === targetId) {
-            return updatedComment;
+function updateLikeCounts(comment: Comment, liked: boolean): Comment {
+    return {
+        ...comment,
+        liked,
+        count: {
+            ...comment.count,
+            likes: liked ? (comment.count?.likes || 0) + 1 : Math.max(0, (comment.count?.likes || 0) - 1)
         }
-        return c;
-    });
+    };
 }
 
 async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
@@ -202,14 +137,12 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
     const fetchReplies = async (afterReplyId: string | undefined, requestLimit: number) => {
         if (state.admin && state.adminApi && !isReply) {
             return await state.adminApi.replies({commentId: comment.id, afterReplyId, limit: requestLimit, memberUuid: state.member?.uuid});
-        } else {
-            return await api.comments.replies({commentId: comment.id, afterReplyId, limit: requestLimit});
         }
+        return await api.comments.replies({commentId: comment.id, afterReplyId, limit: requestLimit});
     };
 
-    let afterReplyId: string | undefined = comment.replies && comment.replies.length > 0
-        ? comment.replies[comment.replies.length - 1]?.id
-        : undefined;
+    const hasReplies = comment.replies && comment.replies.length > 0;
+    const afterReplyId = hasReplies ? comment.replies[comment.replies.length - 1]?.id : undefined;
 
     let allComments: Comment[] = [];
 
@@ -221,15 +154,15 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
             allComments.push(...data.comments);
             hasMore = !!data.meta.pagination.next;
 
-            if (data.comments && data.comments.length > 0) {
+            if (data.comments?.length > 0) {
                 afterReplyId = data.comments[data.comments.length - 1]?.id;
             } else {
                 hasMore = false;
             }
         }
     } else {
-        const data = await fetchReplies(afterReplyId, limit as number || 100);
-        allComments = data.comments;
+        const res = await fetchReplies(afterReplyId, limit as number || 100);
+        allComments = res.comments;
     }
 
     return {
@@ -237,7 +170,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
             if (c.id === comment.id) {
                 return {
                     ...comment,
-                    replies: [...(comment.replies || []), ...allComments]
+                    replies: [...comment.replies, ...allComments]
                 };
             }
             return c;
@@ -246,8 +179,8 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
 }
 
 async function addComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
-    const data = await api.comments.add({comment});
-    comment = data.comments[0];
+    const res = await api.comments.add({comment});
+    comment = res.comments[0];
 
     return {
         comments: [comment, ...state.comments],
@@ -259,48 +192,72 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
     let comment = reply;
     comment.parent_id = parent.id;
 
-    const data = await api.comments.add({comment});
-    comment = data.comments[0];
+    const res = await api.comments.add({comment});
+    comment = res.comments[0];
 
     return {
-        comments: updateCommentReplies(state.comments, parent.id, comment),
+        comments: state.comments.map((c) => {
+            if (c.id === parent.id) {
+                return {
+                    ...parent,
+                    replies: [...parent.replies, comment],
+                    count: {
+                        ...parent.count,
+                        replies: parent.count.replies + 1
+                    }
+                };
+            }
+            return c;
+        }),
         commentCount: state.commentCount + 1
     };
 }
 
-async function hideComment({state, adminApi, data: {id}}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
+async function hideComment({state, data: comment}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
-        await state.adminApi.hideComment(id);
+        await state.adminApi.hideComment(comment.id);
     }
+
     return {
-        comments: updateCommentStatus(state.comments, id, 'hidden'),
+        comments: mapCommentTreeDeep(
+            state.comments,
+            comment.id,
+            (c) => ({
+                ...c,
+                status: 'hidden'
+            })
+        ),
         commentCount: state.commentCount - 1
     };
 }
 
-async function showComment({state, api, adminApi, data: {id}}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
+async function showComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
-        await state.adminApi.showComment({id});
+        await state.adminApi.showComment({id: comment.id});
     }
 
     let data;
     if (state.admin && state.adminApi) {
-        data = await state.adminApi.read({commentId: id, memberUuid: state.member?.uuid});
+        data = await state.adminApi.read({commentId: comment.id, memberUuid: state.member?.uuid});
     } else {
-        data = await api.comments.read(id);
+        data = await api.comments.read(comment.id);
     }
 
     const updatedComment = data.comments[0];
 
     return {
-        comments: updateCommentOrReply(state.comments, id, updatedComment),
+        comments: mapCommentTreeDeep(state.comments, comment.id, (c) => c.id === comment.id ? updatedComment : c),
         commentCount: state.commentCount + 1
     };
 }
 
-async function updateCommentLikeState({state, data: {id, liked}}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
+async function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
     return {
-        comments: updateLikeState(state.comments, id, liked)
+        comments: mapCommentTreeDeep(
+            state.comments,
+            comment.id,
+            (c) => updateLikeCounts(c, comment.liked)
+        )
     };
 }
 
@@ -327,29 +284,46 @@ async function unlikeComment({api, data: comment, dispatchAction}: {state: Edita
 
 async function reportComment({api, data: comment}: {api: GhostApi, data: {id: string}}) {
     await api.comments.report({comment});
-
     return {};
 }
 
-async function deleteComment({state, api, data: {id}, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+async function deleteComment({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     await api.comments.edit({
-        comment: {
-            id,
-            status: 'deleted'
-        }
+        comment: {id: comment.id, status: 'deleted'}
     });
 
-    const commentToDelete = state.comments.find(c => c.id === id);
-    if (commentToDelete && (!commentToDelete.replies || commentToDelete.replies.length === 0)) {
+    const commentToDelete = findCommentNode(state.comments, comment.id);
+    if (commentToDelete && !commentToDelete.replies?.length) {
         dispatchAction('setOrder', {order: state.order});
         return null;
     }
 
-    const {comments, commentCountDelta} = deleteCommentFromTree(state.comments, id);
+    const updatedComments = state.comments.map((topLevelComment) => {
+        if (topLevelComment.id === comment.id) {
+            return topLevelComment.replies?.length ? { ...topLevelComment, status: 'deleted' } : null;
+        }
+
+        if (!topLevelComment.replies?.length) {
+            return topLevelComment;
+        }
+
+        const beforeCount = topLevelComment.replies.length;
+        const updatedReplies = topLevelComment.replies.filter(r => r.id !== comment.id);
+        const afterCount = updatedReplies.length;
+
+        if (beforeCount !== afterCount && topLevelComment.count?.replies) {
+            topLevelComment.count.replies -= 1;
+        }
+
+        return {
+            ...topLevelComment,
+            replies: updatedReplies
+        };
+    });
 
     return {
-        comments,
-        commentCount: state.commentCount + commentCountDelta
+        comments: updatedComments.filter(Boolean),
+        commentCount: state.commentCount - 1
     };
 }
 
@@ -358,7 +332,17 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     comment = data.comments[0];
 
     return {
-        comments: replaceCommentInTree(state.comments, comment.id, comment, parent?.id)
+        comments: state.comments.map((c) => {
+            if (parent && parent.id === c.id) {
+                return {
+                    ...c,
+                    replies: c.replies.map((r) => (r.id === comment.id ? comment : r))
+                };
+            } else if (c.id === comment.id) {
+                return comment;
+            }
+            return c;
+        })
     };
 }
 
@@ -366,35 +350,25 @@ async function updateMember({data, state, api}: {data: {name: string, expertise:
     const {name, expertise} = data;
     const patchData: {name?: string, expertise?: string} = {};
 
-    const originalName = state?.member?.name;
-
-    if (name && originalName !== name) {
+    if (name && state.member?.name !== name) {
         patchData.name = name;
     }
 
-    const originalExpertise = state?.member?.expertise;
-    if (expertise !== undefined && originalExpertise !== expertise) {
+    if (expertise !== undefined && state.member?.expertise !== expertise) {
         patchData.expertise = expertise;
     }
 
-    if (Object.keys(patchData).length > 0) {
-        try {
-            const member = await api.member.update(patchData);
-            if (!member) {
-                throw new Error('Failed to update member');
-            }
-            return {
-                member,
-                success: true
-            };
-        } catch (err) {
-            return {
-                success: false,
-                error: err
-            };
+    if (Object.keys(patchData).length === 0) return null;
+
+    try {
+        const member = await api.member.update(patchData);
+        if (!member) {
+            throw new Error('Failed to update member');
         }
+        return { member, success: true };
+    } catch (err) {
+        return { success: false, error: err };
     }
-    return null;
 }
 
 function openPopup({data}: {data: Page}) {
@@ -418,7 +392,7 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
 
         if (comment) {
             const newCommentsState = await loadMoreReplies({state, api, data: {comment, limit: 'all'}, isReply: true});
-            otherStateChanges = {...otherStateChanges, ...newCommentsState};
+            otherStateChanges = { ...otherStateChanges, ...newCommentsState };
         }
     }
 
@@ -427,11 +401,10 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
     const openFormIndexForId = openFormsAfterAutoclose.findIndex(form => form.id === newForm.id);
     if (openFormIndexForId > -1) {
         openFormsAfterAutoclose[openFormIndexForId] = newForm;
-
         return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
     } else {
         return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
-    };
+    }
 }
 
 function setHighlightComment({data: commentId}: {data: string | null}) {
@@ -443,10 +416,8 @@ function setHighlightComment({data: commentId}: {data: string | null}) {
 function highlightComment({
     data: {commentId},
     dispatchAction
-
 }: {
     data: { commentId: string | null };
-    state: EditableAppContext;
     dispatchAction: DispatchActionType;
 }) {
     setTimeout(() => {
@@ -458,20 +429,15 @@ function highlightComment({
 }
 
 function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}: {data: {id: string, hasUnsavedChanges: boolean}, state: EditableAppContext}) {
-    const updatedForms = state.openCommentForms.map((f) => {
-        if (f.id === id) {
-            return {...f, hasUnsavedChanges};
-        } else {
-            return {...f};
-        };
-    });
-
+    const updatedForms = state.openCommentForms.map((f) => (
+        f.id === id ? {...f, hasUnsavedChanges} : {...f}
+    ));
     return {openCommentForms: updatedForms};
 }
 
 function closeCommentForm({data: id, state}: {data: string, state: EditableAppContext}) {
     return {openCommentForms: state.openCommentForms.filter(f => f.id !== id)};
-};
+}
 
 function setScrollTarget({data: commentId}: {data: string | null}) {
     return {commentIdToScrollTo: commentId};

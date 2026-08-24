@@ -118,14 +118,14 @@ export async function formSubmitHandler(
             const e = await HumanReadableError.fromApiResponse(magicLinkRes);
             const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
             displayErrorIfElementExists(errorEl, errorMessage);
-            form.classList.add('error');
+            form.classList.add('error'); // Ensure error state is set here
         }
     } catch (err) {
         handleError(err, form, errorEl);
     }
 }
 
-function processIdentityResponse(identity) {
+function createCheckoutSession(siteUrl, requestData, identity, checkoutSuccessUrl, checkoutCancelUrl, metadata) {
     return fetch(`${siteUrl}/members/api/create-stripe-checkout-session/`, {
         method: 'POST',
         headers: {
@@ -146,7 +146,7 @@ function processIdentityResponse(identity) {
     });
 }
 
-function processCheckoutResponse(responseBody) {
+function handleCheckoutRedirect(responseBody) {
     if (responseBody.url) {
         return window.location.assign(responseBody.url);
     }
@@ -199,9 +199,9 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
         }
         return res.text();
     }).then(function (identity) {
-        return processIdentityResponse(siteUrl, requestData, checkoutSuccessUrl, checkoutCancelUrl, metadata);
+        return createCheckoutSession(siteUrl, requestData, identity, checkoutSuccessUrl, checkoutCancelUrl, metadata);
     }).then(function (responseBody) {
-        return processCheckoutResponse(responseBody);
+        return handleCheckoutRedirect(responseBody);
     }).catch(function (err) {
         console.error(err);
         el.addEventListener('click', clickHandler);
@@ -213,7 +213,7 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
     });
 }
 
-function processUpdateIdentity(identity, successUrl, cancelUrl, el, errorEl, siteUrl) {
+function createUpdateSession(siteUrl, identity, successUrl, cancelUrl) {
     return fetch(`${siteUrl}/members/api/create-stripe-update-session/`, {
         method: 'POST',
         headers: {
@@ -232,7 +232,7 @@ function processUpdateIdentity(identity, successUrl, cancelUrl, el, errorEl, sit
     });
 }
 
-function processUpdateCheckout(result, el) {
+function handleUpdateSessionRedirect(result) {
     let stripe = window.Stripe(result.publicKey);
     return stripe.redirectToCheckout({
         sessionId: result.sessionId
@@ -243,37 +243,7 @@ function processUpdateCheckout(result, el) {
     });
 }
 
-function handleUpdateBillingClick(event, el, errorEl, membersSuccess, membersCancel, siteUrl) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-    el.classList.add('loading');
-    fetch(`${siteUrl}/members/api/session`, {
-        credentials: 'same-origin'
-    }).then(function (res) {
-        if (!res.ok) {
-            return null;
-        }
-        return res.text();
-    }).then(function (identity) {
-        return processUpdateIdentity(identity, membersSuccess, membersCancel, el, errorEl, siteUrl);
-    }).then(function (result) {
-        return processUpdateCheckout(result, el);
-    }).catch(function (err) {
-        console.error(err);
-        el.addEventListener('click', clickHandler);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
-    });
-}
-
-function processBillingPortalIdentity(identity, returnUrl, siteUrl) {
+function createBillingPortalSession(siteUrl, identity, returnUrl) {
     return fetch(`${siteUrl}/members/api/create-stripe-billing-portal-session/`, {
         method: 'POST',
         headers: {
@@ -291,165 +261,8 @@ function processBillingPortalIdentity(identity, returnUrl, siteUrl) {
     });
 }
 
-function processBillingPortalResult(result) {
+function handleBillingPortalRedirect(result) {
     return window.location.assign(result.url);
-}
-
-function handleManageBillingClick(event, el, errorEl, returnUrl, siteUrl) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-    el.classList.add('loading');
-    fetch(`${siteUrl}/members/api/session`, {
-        credentials: 'same-origin'
-    }).then(function (res) {
-        if (!res.ok) {
-            return null;
-        }
-        return res.text();
-    }).then(function (identity) {
-        return processBillingPortalIdentity(identity, returnUrl, siteUrl);
-    }).then(function (result) {
-        return processBillingPortalResult(result);
-    }).catch(function (err) {
-        console.error(err);
-        el.addEventListener('click', clickHandler);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
-    });
-}
-
-function handleSignoutClick(event, el, siteUrl, clickHandler) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-    el.classList.remove('error');
-    el.classList.add('loading');
-    fetch(`${siteUrl}/members/api/session`, {
-        method: 'DELETE'
-    }).then(function (res) {
-        if (res.ok) {
-            window.location.replace(siteUrl);
-        } else {
-            el.addEventListener('click', clickHandler);
-            el.classList.remove('loading');
-            el.classList.add('error');
-        }
-    });
-}
-
-function processCancelSubscriptionIdentity(identity, subscriptionId, siteUrl) {
-    return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            identity: identity,
-            smart_cancel: true
-        })
-    });
-}
-
-function handleCancelSubscriptionClick(event, el, errorEl, hasRetentionOffers, subscriptionId, doAction, siteUrl, clickHandler) {
-    event.preventDefault();
-
-    if (hasRetentionOffers) {
-        doAction('openPopup', {
-            page: 'accountPlan',
-            pageData: {
-                subscriptionId,
-                action: 'cancel'
-            }
-        });
-
-        return;
-    }
-
-    el.removeEventListener('click', clickHandler);
-    el.classList.remove('error');
-    el.classList.add('loading');
-
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-
-    return fetch(`${siteUrl}/members/api/session`, {
-        credentials: 'same-origin'
-    }).then(function (res) {
-        if (!res.ok) {
-            return null;
-        }
-
-        return res.text();
-    }).then(function (identity) {
-        return processCancelSubscriptionIdentity(identity, subscriptionId, siteUrl);
-    }).then(function (res) {
-        if (res.ok) {
-            window.location.reload();
-        } else {
-            el.addEventListener('click', clickHandler);
-            el.classList.remove('loading');
-            el.classList.add('error');
-
-            if (errorEl) {
-                errorEl.innerText = t('There was an error cancelling your subscription, please try again.');
-            }
-        }
-    });
-}
-
-function processContinueSubscriptionIdentity(identity, subscriptionId, siteUrl) {
-    return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            identity: identity,
-            cancel_at_period_end: false
-        })
-    });
-}
-
-function handleContinueSubscriptionClick(event, el, errorEl, subscriptionId, siteUrl, clickHandler) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-    el.classList.remove('error');
-    el.classList.add('loading');
-
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-
-    return fetch(`${siteUrl}/members/api/session`, {
-        credentials: 'same-origin'
-    }).then(function (res) {
-        if (!res.ok) {
-            return null;
-        }
-
-        return res.text();
-    }).then(function (identity) {
-        return processContinueSubscriptionIdentity(identity, subscriptionId, siteUrl);
-    }).then(function (res) {
-        if (res.ok) {
-            window.location.reload();
-        } else {
-            el.addEventListener('click', clickHandler);
-            el.classList.remove('loading');
-            el.classList.add('error');
-
-            if (errorEl) {
-                errorEl.innerText = t('There was an error continuing your subscription, please try again.');
-            }
-        }
-    });
 }
 
 export function handleDataAttributes({siteUrl, site = {}, member, offers = [], doAction, captureException} = {}) {
@@ -468,9 +281,9 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-plan]'), function (el) {
         let errorEl = el.querySelector('[data-members-error]');
-        let clickHandler = function (event) {
+        function clickHandler(event) {
             planClickHandler({el, event, errorEl, member, site, siteUrl, clickHandler});
-        };
+        }
         el.addEventListener('click', clickHandler);
     });
 
@@ -489,9 +302,35 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
             cancelUrl = (new URL(membersCancel, window.location.href)).href;
         }
 
-        let clickHandler = function (event) {
-            handleUpdateBillingClick(event, el, errorEl, membersSuccess, membersCancel, siteUrl);
-        };
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+            el.classList.add('loading');
+            fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok) {
+                    return null;
+                }
+                return res.text();
+            }).then(function (identity) {
+                return createUpdateSession(siteUrl, identity, successUrl, cancelUrl);
+            }).then(function (result) {
+                return handleUpdateSessionRedirect(result);
+            }).catch(function (err) {
+                console.error(err);
+                el.addEventListener('click', clickHandler);
+                el.classList.remove('loading');
+                if (errorEl) {
+                    errorEl.innerText = err.message;
+                }
+                el.classList.add('error');
+            });
+        }
         el.addEventListener('click', clickHandler);
     });
 
@@ -504,16 +343,56 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
             returnUrl = (new URL(membersReturn, window.location.href)).href;
         }
 
-        let clickHandler = function (event) {
-            handleManageBillingClick(event, el, errorEl, returnUrl, siteUrl);
-        };
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+            el.classList.add('loading');
+            fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok) {
+                    return null;
+                }
+                return res.text();
+            }).then(function (identity) {
+                return createBillingPortalSession(siteUrl, identity, returnUrl);
+            }).then(function (result) {
+                return handleBillingPortalRedirect(result);
+            }).catch(function (err) {
+                console.error(err);
+                el.addEventListener('click', clickHandler);
+                el.classList.remove('loading');
+                if (errorEl) {
+                    errorEl.innerText = err.message;
+                }
+                el.classList.add('error');
+            });
+        }
         el.addEventListener('click', clickHandler);
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-signout]'), function (el) {
-        let clickHandler = function (event) {
-            handleSignoutClick(event, el, siteUrl, clickHandler);
-        };
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            el.classList.remove('error');
+            el.classList.add('loading');
+            fetch(`${siteUrl}/members/api/session`, {
+                method: 'DELETE'
+            }).then(function (res) {
+                if (res.ok) {
+                    window.location.replace(siteUrl);
+                } else {
+                    el.addEventListener('click', clickHandler);
+                    el.classList.remove('loading');
+                    el.classList.add('error');
+                }
+            });
+        }
         el.addEventListener('click', clickHandler);
     });
 
@@ -521,19 +400,115 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-cancel-subscription]'), function (el) {
         let errorEl = el.parentElement.querySelector('[data-members-error]');
-        let clickHandler = function (event) {
+        function clickHandler(event) {
+            event.preventDefault();
+
             let subscriptionId = el.dataset.membersCancelSubscription;
-            handleCancelSubscriptionClick(event, el, errorEl, hasRetentionOffers, subscriptionId, doAction, siteUrl, clickHandler);
-        };
+
+            // If retention offer is available, open Portal to show the offer
+            if (hasRetentionOffers) {
+                doAction('openPopup', {
+                    page: 'accountPlan',
+                    pageData: {
+                        subscriptionId,
+                        action: 'cancel'
+                    }
+                });
+
+                return;
+            }
+
+            el.removeEventListener('click', clickHandler);
+            el.classList.remove('error');
+            el.classList.add('loading');
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+
+            return fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok) {
+                    return null;
+                }
+
+                return res.text();
+            }).then(function (identity) {
+                return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        identity: identity,
+                        smart_cancel: true
+                    })
+                });
+            }).then(function (res) {
+                if (res.ok) {
+                    window.location.reload();
+                } else {
+                    el.addEventListener('click', clickHandler);
+                    el.classList.remove('loading');
+                    el.classList.add('error');
+
+                    if (errorEl) {
+                        errorEl.innerText = t('There was an error cancelling your subscription, please try again.');
+                    }
+                }
+            });
+        }
         el.addEventListener('click', clickHandler);
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-continue-subscription]'), function (el) {
         let errorEl = el.parentElement.querySelector('[data-members-error]');
-        let clickHandler = function (event) {
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            el.classList.remove('error');
+            el.classList.add('loading');
+
             let subscriptionId = el.dataset.membersContinueSubscription;
-            handleContinueSubscriptionClick(event, el, errorEl, subscriptionId, siteUrl, clickHandler);
-        };
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+
+            return fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok) {
+                    return null;
+                }
+
+                return res.text();
+            }).then(function (identity) {
+                return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        identity: identity,
+                        cancel_at_period_end: false
+                    })
+                });
+            }).then(function (res) {
+                if (res.ok) {
+                    window.location.reload();
+                } else {
+                    el.addEventListener('click', clickHandler);
+                    el.classList.remove('loading');
+                    el.classList.add('error');
+
+                    if (errorEl) {
+                        errorEl.innerText = t('There was an error continuing your subscription, please try again.');
+                    }
+                }
+            });
+        }
         el.addEventListener('click', clickHandler);
     });
 }

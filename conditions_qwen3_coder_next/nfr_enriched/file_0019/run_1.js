@@ -369,6 +369,7 @@ class SignupPage extends React.Component {
         };
 
         this.termsRef = React.createRef();
+        this.finalizeTabOrder = this.finalizeTabOrder.bind(this);
     }
 
     componentDidMount() {
@@ -379,6 +380,7 @@ class SignupPage extends React.Component {
             });
         }
 
+        // Handle the default plan if not set
         this.handleSelectedPlan();
     }
 
@@ -479,7 +481,7 @@ class SignupPage extends React.Component {
     };
 
     onKeyDown(e) {
-        if (e.keyCode === 13) {
+        if (e.keyCode === 13){
             this.handleSignup(e);
         }
     }
@@ -511,7 +513,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
-                tabIndex: 2,
+                tabIndex: -1,
                 errorMessage: errors.email || ''
             },
             {
@@ -535,17 +537,29 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
-                tabIndex: 1,
+                tabIndex: -1,
                 errorMessage: errors.name || ''
             });
         }
-        fields[0].autoFocus = true;
-        if (fieldNames && fieldNames.length > 0) {
-            return fields.filter((f) => {
-                return fieldNames.includes(f.name);
-            });
-        }
-        return fields;
+
+        return this.finalizeTabOrder(fields, fieldNames);
+    }
+
+    finalizeTabOrder(fields, effectiveFieldNames) {
+        const visibleFields = effectiveFieldNames && effectiveFieldNames.length > 0
+            ? fields.filter((f) => {
+                return effectiveFieldNames.includes(f.name);
+            })
+            : fields;
+
+        let tabIndex = 0;
+
+        return visibleFields.map((f) => {
+            return {
+                ...f,
+                tabIndex: f.hidden ? -1 : tabIndex++
+            };
+        });
     }
 
     renderSignupTerms() {
@@ -618,7 +632,7 @@ class SignupPage extends React.Component {
             retry = true;
         }
 
-        const disabled = (action === 'signup:running') ? true : false;
+        const disabled = (action === 'signup:running');
         return (
             <ActionButton
                 style={{width: '100%'}}
@@ -628,7 +642,7 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
-                tabIndex={0}
+                tabIndex={-1}
             />
         );
     }

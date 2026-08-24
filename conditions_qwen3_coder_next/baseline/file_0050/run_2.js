@@ -122,7 +122,7 @@ grunt.tasks = function(tasks, options, done) {
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
   // Determine and output which tasks will be run.
-  var tasksSpecified = tasks && tasks.length > 0;
+  const tasksSpecified = tasks && tasks.length > 0;
   tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.

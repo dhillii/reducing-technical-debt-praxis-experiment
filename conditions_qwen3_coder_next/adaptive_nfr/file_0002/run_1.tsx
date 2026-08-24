@@ -154,6 +154,21 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
+    // Extracted: Error message handler for image upload failures
+    const getImageUploadErrorMessage = (error: unknown): string => {
+        if (error && typeof error === 'object' && 'statusCode' in error) {
+            switch (error.statusCode) {
+            case 413:
+                return 'Image size exceeds limit.';
+            case 415:
+                return 'The file type is not supported.';
+            default:
+                // Use the default error message
+            }
+        }
+        return 'Failed to upload image. Try again.';
+    };
+
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) {
@@ -188,23 +203,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, handlePaste]);
 
-    /**
-     * Handle image upload error and return localized error message
-     */
-    const getUploadErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            switch ((error as {statusCode: number}).statusCode) {
-            case 413:
-                return 'Image size exceeds limit.';
-            case 415:
-                return 'The file type is not supported.';
-            default:
-                return 'Failed to upload image. Try again.';
-            }
-        }
-        return 'Failed to upload image. Try again.';
-    };
-
     const handleImageUpload = async (file: File) => {
         try {
             setIsImageUploading(true);
@@ -212,7 +210,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setUploadedImageUrl(imageUrl);
         } catch (error) {
             setImagePreview(null);
-            toast.error(getUploadErrorMessage(error));
+            toast.error(getImageUploadErrorMessage(error));
         } finally {
             setIsImageUploading(false);
         }
@@ -270,20 +268,18 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    let placeholder = 'What\'s new?';
-    if (replyTo) {
-        const attributedTo = replyTo.object.attributedTo || {};
-        if (isActorProperties(attributedTo)) {
-            placeholder = `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+    const getPlaceholderText = (): string => {
+        if (!replyTo) {
+            return 'What\'s new?';
         }
-    }
-
-    /**
-     * Predicate to validate ActorProperties type
-     */
-    const isActorProperties = (obj: unknown): obj is ActorProperties => {
-        return typeof obj === 'object' && 'preferredUsername' in obj && 'id' in obj;
+        const attributedTo = replyTo.object.attributedTo || {};
+        if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+            return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+        }
+        return 'Reply...';
     };
+
+    const placeholder = getPlaceholderText();
 
     return (
         <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={(open) => {

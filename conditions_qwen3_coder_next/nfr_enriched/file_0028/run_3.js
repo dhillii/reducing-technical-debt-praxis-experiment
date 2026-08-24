@@ -82,133 +82,6 @@ export function decoratePostSearchResult(item, settings) {
     }
 }
 
-function getOfferUrls(offer) {
-    return {
-        label: `Offer — ${offer.name}`,
-        value: this.config.getSiteUrl(offer.code)
-    };
-}
-
-function fetchLabelsFromTask(taskInstance) {
-    return taskInstance.perform().then(labels => labels.map(label => label.name));
-}
-
-function transformPostResult(post) {
-    return {
-        groupName: 'Latest posts',
-        id: post.id,
-        title: post.title,
-        url: post.url,
-        visibility: post.visibility,
-        publishedAt: post.publishedAtUTC.toISOString()
-    };
-}
-
-function filterAndDecorateGroup(group, settings) {
-    let items = group.options;
-
-    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-        items = items.filter(i => i.status === 'published');
-    }
-
-    if (group.groupName === 'Staff') {
-        items = items.filter(i => !/\/404\//.test(i.url));
-    }
-
-    if (items.length === 0) {
-        return null;
-    }
-
-    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-        items.forEach(item => decoratePostSearchResult(item, settings));
-    }
-
-    return {
-        label: group.groupName,
-        items
-    };
-}
-
-function validateFileExtension(file, type) {
-    if (type === 'file') {
-        return true;
-    }
-
-    const extensions = fileTypes[type]?.extensions;
-    if (!extensions) {
-        return true;
-    }
-
-    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name) || [];
-    const normalizedExtensions = Array.isArray(extensions) ? extensions : extensions.split(',');
-
-    if (!extension || normalizedExtensions.indexOf(extension.toLowerCase()) === -1) {
-        const validExtensions = `.${normalizedExtensions.join(', .').toUpperCase()}`;
-        return `The file type you uploaded is not supported. Please use ${validExtensions}`;
-    }
-
-    return true;
-}
-
-function validateFiles(files, type) {
-    const result = [];
-
-    for (let i = 0; i < files.length; i += 1) {
-        const file = files[i];
-        const validation = validateFileExtension(file, type);
-        if (validation !== true) {
-            result.push({fileName: file.name, message: validation});
-        }
-    }
-
-    return result;
-}
-
-function createFileFormData(file, extraFormData = {}) {
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-
-    Object.keys(extraFormData).forEach(key => {
-        formData.append(key, extraFormData[key]);
-    });
-
-    return formData;
-}
-
-function getUploadUrl(type) {
-    return `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-}
-
-function determineRequestMethod(type) {
-    return fileTypes[type]?.requestMethod || 'post';
-}
-
-function parseUploadResponse(response, type) {
-    let uploadResponse;
-    try {
-        uploadResponse = JSON.parse(response);
-    } catch (e) {
-        if (!(e instanceof SyntaxError)) {
-            throw e;
-        }
-        return null;
-    }
-
-    const resource = uploadResponse?.[fileTypes[type].resourceName];
-    if (resource && Array.isArray(resource) && resource[0]) {
-        return resource[0].url;
-    }
-
-    return null;
-}
-
-function extractUploadErrorMessage(error) {
-    const message = error.payload?.errors?.[0]?.message || '';
-    const context = error.payload?.errors?.[0]?.context || '';
-
-    return message || error.message || 'Upload failed';
-}
-
 /**
  * Fetches the URLs of all active offers
  * @returns {Promise<{label: string, value: string}[]>}
@@ -219,11 +92,16 @@ export async function offerUrls() {
     try {
         offers = await this.fetchOffersTask.perform();
     } catch (e) {
-        // No-op: if offers are not available, return an empty array
+        // No-op: if offers are not available (e.g. missing permissions), return an empty array
         return [];
     }
 
-    return offers.map(getOfferUrls.bind(this));
+    return offers.map((offer) => {
+        return {
+            label: `Offer — ${offer.name}`,
+            value: this.config.getSiteUrl(offer.code)
+        };
+    });
 }
 
 class ErrorHandler extends React.Component {
@@ -376,6 +254,8 @@ export default class KoenigLexicalEditor extends Component {
         }
 
         // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
 
         return this.offers;
@@ -406,104 +286,36 @@ export default class KoenigLexicalEditor extends Component {
                 {label: 'Free signup', value: '#/portal/signup/free'}
             ];
 
-            const memberLinks = () => {
-                if (this.membersUtils.paidMembersEnabled) {
-                    return [
-                        {
-                            label: 'Paid signup',
-                            value: '#/portal/signup'
-                        },
-                        {
-                            label: 'Upgrade or change plan',
-                            value: '#/portal/account/plans'
-                        }];
-                }
-
-                return [];
-            };
-
-            const donationLink = () => {
-                if (this.settings.donationsEnabled) {
-                    return [{
-                        label: 'Tips and donations',
-                        value: '#/portal/support'
-                    }];
-                }
-
-                return [];
-            };
-
-            const recommendationLink = () => {
-                if (this.settings.recommendationsEnabled) {
-                    return [{
-                        label: 'Recommendations',
-                        value: '#/portal/recommendations'
-                    }];
-                }
-
-                return [];
-            };
-
+            const memberLinks = this._getMemberLinks.bind(this);
+            const donationLink = this._getDonationLink.bind(this);
+            const recommendationLink = this._getRecommendationLink.bind(this);
             const offersLinks = await offerUrls.call(this);
 
             return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
         };
 
         const fetchLabels = async () => {
+            let labels = [];
             try {
-                return await fetchLabelsFromTask(this.fetchLabelsTask);
+                labels = await this.fetchLabelsTask.perform();
             } catch (e) {
+                // Do not throw cancellation errors
                 if (didCancel(e)) {
-                    return [];
+                    return;
                 }
+
                 throw e;
             }
+
+            return labels.map(label => label.name);
         };
 
         const searchLinks = async (term) => {
             if (!term) {
-                if (this.defaultLinks) {
-                    return this.defaultLinks;
-                }
-
-                const posts = await this.store.query('post', {
-                    filter: 'status:published',
-                    fields: 'id,url,title,visibility,published_at',
-                    order: 'published_at desc',
-                    limit: 5
-                });
-
-                const results = posts.toArray().map(transformPostResult);
-                results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-                this.defaultLinks = [{
-                    label: 'Latest posts',
-                    items: results
-                }];
-
-                return this.defaultLinks;
+                return this._getDefaultLinks();
             }
 
-            let results;
-
-            try {
-                results = await this.search.searchTask.perform(term);
-            } catch (error) {
-                if (!didCancel(error)) {
-                    throw error;
-                }
-                return [];
-            }
-
-            const filteredResults = [];
-            for (const group of results) {
-                const transformed = filterAndDecorateGroup(group, this.settings);
-                if (transformed) {
-                    filteredResults.push(transformed);
-                }
-            }
-
-            return filteredResults;
+            return this._getSearchResults(term);
         };
 
         const unsplashConfig = {
@@ -523,7 +335,6 @@ export default class KoenigLexicalEditor extends Component {
             if (this.config.stripeDirect) {
                 return hasDirectKeys;
             }
-
             return hasDirectKeys || hasConnectKeys;
         };
 
@@ -547,7 +358,6 @@ export default class KoenigLexicalEditor extends Component {
             siteUrl: this.config.getSiteUrl('/'),
             stripeEnabled: checkStripeEnabled()
         };
-
         const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
         const useFileUpload = (type = 'image') => {
@@ -555,6 +365,7 @@ export default class KoenigLexicalEditor extends Component {
             const [isLoading, setLoading] = React.useState(false);
             const [errors, setErrors] = React.useState([]);
             const [filesNumber, setFilesNumber] = React.useState(0);
+
             const progressTracker = React.useRef(new Map());
 
             function updateProgress() {
@@ -563,20 +374,66 @@ export default class KoenigLexicalEditor extends Component {
                     return;
                 }
 
-                const total = Array.from(progressTracker.current.values()).reduce((sum, v) => sum + v, 0);
-                setProgress(Math.round(total / progressTracker.current.size));
+                let totalProgress = 0;
+                progressTracker.current.forEach(value => totalProgress += value);
+                setProgress(Math.round(totalProgress / progressTracker.current.size));
             }
 
-            const _uploadFile = async (file, extraFormData = {}) => {
-                progressTracker.current.set(file, 0);
+            function defaultValidator(file) {
+                if (type === 'file') {
+                    return true;
+                }
+                let extensions = fileTypes[type].extensions;
+                let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
 
-                const formData = createFileFormData(file, extraFormData);
-                const url = getUploadUrl(type);
-                const requestMethod = determineRequestMethod(type);
+                if (!extensions) {
+                    return true;
+                }
+
+                if (!Array.isArray(extensions)) {
+                    extensions = extensions.split(',');
+                }
+
+                if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+                    let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+                    return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+                }
+
+                return true;
+            }
+
+            const validate = (files = []) => {
+                const validationResult = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    let file = files[i];
+                    let result = defaultValidator(file);
+                    if (result === true) {
+                        continue;
+                    }
+
+                    validationResult.push({fileName: file.name, message: result});
+                }
+
+                return validationResult;
+            };
+
+            const _uploadFile = async (file, {formData = {}} = {}) => {
+                progressTracker.current[file] = 0;
+
+                const fileFormData = new FormData();
+                fileFormData.append('file', file, file.name);
+
+                Object.keys(formData || {}).forEach((key) => {
+                    fileFormData.append(key, formData[key]);
+                });
+
+                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
 
                 try {
+                    const requestMethod = fileTypes[type].requestMethod || 'post';
                     const response = await this.ajax[requestMethod](url, {
-                        data: formData,
+                        data: fileFormData,
                         processData: false,
                         contentType: false,
                         dataType: 'text',
@@ -597,53 +454,87 @@ export default class KoenigLexicalEditor extends Component {
                     progressTracker.current.set(file, 100);
                     updateProgress();
 
-                    const responseUrl = parseUploadResponse(response, type);
+                    let uploadResponse;
+                    let responseUrl;
+
+                    try {
+                        uploadResponse = JSON.parse(response);
+                    } catch (error) {
+                        if (!(error instanceof SyntaxError)) {
+                            throw error;
+                        }
+                    }
+
+                    if (uploadResponse) {
+                        const resource = uploadResponse[fileTypes[type].resourceName];
+                        if (resource && Array.isArray(resource) && resource[0]) {
+                            responseUrl = resource[0].url;
+                        }
+                    }
+
                     return {
-                        url: responseUrl || '',
+                        url: responseUrl,
                         fileName: file.name
                     };
                 } catch (error) {
                     console.error(error); // eslint-disable-line
 
-                    const errorMessage = extractUploadErrorMessage(error);
-                    const context = error.payload?.errors?.[0]?.context || '';
+                    let message = error.payload?.errors?.[0]?.message || '';
+                    let context = error.payload?.errors?.[0]?.context || '';
 
-                    throw {
-                        message: errorMessage,
+                    if (!message) {
+                        message = error.message;
+                    }
+
+                    const errorResult = {
+                        message,
                         context,
                         fileName: file.name
                     };
+
+                    throw errorResult;
                 }
             };
 
             const upload = async (files = [], options = {}) => {
                 setFilesNumber(files.length);
                 setLoading(true);
-                const errors = validateFiles(files, type);
 
-                if (errors.length) {
-                    setErrors(errors);
+                const validationResult = validate(files);
+
+                if (validationResult.length) {
+                    setErrors(validationResult);
                     setLoading(false);
                     setProgress(100);
+
                     return null;
                 }
 
-                const uploadPromises = files.map(file => _uploadFile(file, options));
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(_uploadFile(file, options));
+                }
 
                 try {
-                    const result = await Promise.all(uploadPromises);
-                    progressTracker.current.clear();
+                    const uploadResult = await Promise.all(uploadPromises);
                     setProgress(100);
-                    setErrors([]);
-                    setLoading(false);
-                    return result;
-                } catch (error) {
-                    console.error(error); // eslint-disable-line
+                    progressTracker.current.clear();
 
-                    progressTracker.current.clear();
-                    setErrors([...errors, error]);
-                    setProgress(100);
                     setLoading(false);
+
+                    setErrors([]);
+
+                    return uploadResult;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
                     return null;
                 }
             };
@@ -653,7 +544,7 @@ export default class KoenigLexicalEditor extends Component {
 
         const KGEditorComponent = ({isInitInstance}) => {
             return (
-                <div data-secondary-instance={isInitInstance ? true : false} style={{display: isInitInstance ? 'none' : undefined}}>
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
                     <KoenigComposer
                         editorResource={this.editorResource}
                         cardConfig={cardConfig}
@@ -689,4 +580,108 @@ export default class KoenigLexicalEditor extends Component {
             </div>
         );
     };
+
+    _getMemberLinks() {
+        let links = [];
+        if (this.membersUtils.paidMembersEnabled) {
+            links = [
+                {
+                    label: 'Paid signup',
+                    value: '#/portal/signup'
+                },
+                {
+                    label: 'Upgrade or change plan',
+                    value: '#/portal/account/plans'
+                }];
+        }
+
+        return links;
+    }
+
+    _getDonationLink() {
+        if (this.settings.donationsEnabled) {
+            return [{
+                label: 'Tips and donations',
+                value: '#/portal/support'
+            }];
+        }
+
+        return [];
+    }
+
+    _getRecommendationLink() {
+        if (this.settings.recommendationsEnabled) {
+            return [{
+                label: 'Recommendations',
+                value: '#/portal/recommendations'
+            }];
+        }
+
+        return [];
+    }
+
+    async _getDefaultLinks() {
+        if (this.defaultLinks) {
+            return this.defaultLinks;
+        }
+
+        const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+        const results = posts.toArray().map(post => ({
+            groupName: 'Latest posts',
+            id: post.id,
+            title: post.title,
+            url: post.url,
+            visibility: post.visibility,
+            publishedAt: post.publishedAtUTC.toISOString()
+        }));
+
+        results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+        this.defaultLinks = [{
+            label: 'Latest posts',
+            items: results
+        }];
+        return this.defaultLinks;
+    }
+
+    async _getSearchResults(term) {
+        let results = [];
+
+        try {
+            results = await this.search.searchTask.perform(term);
+        } catch (error) {
+            if (!didCancel(error)) {
+                throw error;
+            }
+            return;
+        }
+
+        const filteredResults = [];
+        results.forEach((group) => {
+            let items = group.options;
+
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items = items.filter(i => i.status === 'published');
+            }
+
+            if (group.groupName === 'Staff') {
+                items = items.filter(i => !/\/404\//.test(i.url));
+            }
+
+            if (items.length === 0) {
+                return;
+            }
+
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items.forEach(item => decoratePostSearchResult(item, this.settings));
+            }
+
+            filteredResults.push({
+                label: group.groupName,
+                items
+            });
+        });
+
+        return filteredResults;
+    }
 }

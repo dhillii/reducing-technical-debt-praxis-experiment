@@ -170,10 +170,8 @@ const OffersFilterPopover: React.FC<{
     );
 };
 
-const renderOfferRow = (offer: any, offerTier: Tier | undefined, isTierArchived: boolean, handleOfferEdit: (id: string) => void) => {
-    if (!offerTier) {
-        return null;
-    }
+const renderOfferRow = (offer: any, offerTier: Tier, allTiers: any[]) => {
+    const isTierArchived = offerTier?.active === false;
 
     const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 
@@ -190,6 +188,11 @@ const renderOfferRow = (offer: any, offerTier: Tier | undefined, isTierArchived:
             }
         </tr>
     );
+};
+
+const handleOfferEdit = (id: string) => {
+    sessionStorage.setItem('editOfferPageSource', 'offersIndex');
+    updateRoute(`offers/edit/${id}`);
 };
 
 const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
@@ -220,11 +223,6 @@ const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
 
     const sortOption = offersSorting?.option || 'date-added';
     const sortDirection = offersSorting?.direction || 'desc';
-
-    const handleOfferEdit = (id:string) => {
-        sessionStorage.setItem('editOfferPageSource', 'offersIndex');
-        updateRoute(`offers/edit/${id}`);
-    };
 
     const sortedOffers = signupOffers
         .sort((offer1, offer2) => {
@@ -258,8 +256,12 @@ const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
             </colgroup>
             {filteredOffers.map((offer) => {
                 const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-                const isTierArchived = offerTier?.active === false;
-                return renderOfferRow(offer, offerTier, isTierArchived, handleOfferEdit);
+
+                if (!offerTier) {
+                    return null;
+                }
+
+                return renderOfferRow(offer, offerTier, allTiers);
             })}
         </table>
     </div>;

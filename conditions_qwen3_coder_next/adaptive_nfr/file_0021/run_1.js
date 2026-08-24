@@ -1,50 +1,6 @@
 import {HumanReadableError} from './errors';
 import {transformApiSiteData, transformApiTiersData, getUrlHistory} from './helpers';
 
-/**
- * Extracted helper to handle JSON response parsing with type checking
- * @param {Response} res - The fetch response object
- * @returns {Promise<any>} Parsed JSON or empty object if not JSON
- */
-async function parseJsonResponse(res) {
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    if (contentType.includes('application/json')) {
-        try {
-            return await res.json();
-        } catch (e) {
-            // fall through to response used pre-OTC
-        }
-    }
-    return {};
-}
-
-/**
- * Extracted helper to handle error throwing with HumanReadableError support
- * @param {Response} res - The fetch response object
- * @param {string} fallbackMessage - Fallback error message
- * @returns {never} Throws HumanReadableError or generic Error
- */
-async function throwApiError(res, fallbackMessage) {
-    const humanError = await HumanReadableError.fromApiResponse(res);
-    if (humanError) {
-        throw humanError;
-    }
-    throw new Error(fallbackMessage);
-}
-
-/**
- * Extracted helper to handle successful response processing
- * @param {Response} res - The fetch response object
- * @param {string} successType - Type of success handling ('json' or 'text')
- * @returns {Promise<any>} Parsed response data
- */
-async function handleSuccessResponse(res, successType = 'json') {
-    if (successType === 'text') {
-        return res.text();
-    }
-    return res.json();
-}
-
 function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     const apiPath = 'members/api';
 
@@ -74,6 +30,38 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         };
         return fetch(url, options);
     }
+
+    /**
+     * Extracted helper to handle JSON response parsing with fallback
+     * @param {Response} res
+     * @returns {Promise<any>}
+     */
+    async function parseJsonResponse(res) {
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            try {
+                return await res.json();
+            } catch (e) {
+                // fall through to response used pre-OTC
+            }
+        }
+        return {};
+    }
+
+    /**
+     * Extracted helper to handle error throwing with HumanReadableError fallback
+     * @param {Response} res
+     * @param {string} fallbackMessage
+     * @returns {Promise<never>}
+     */
+    async function throwWithHumanReadableError(res, fallbackMessage) {
+        const humanError = await HumanReadableError.fromApiResponse(res);
+        if (humanError) {
+            throw humanError;
+        }
+        throw new Error(fallbackMessage);
+    }
+
     const api = {};
 
     api.site = {
@@ -183,7 +171,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     api.feedback = {
         async add({uuid, key, postId, score}) {
             let url = endpointFor({type: 'members', resource: 'feedback'});
-            if (uuid && key) {
+            if (uuid && key) { // only necessary if not logged in, and both are required if so
                 url = url + `?uuid=${uuid}&key=${key}`;
             }
             const body = {
@@ -301,10 +289,20 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.text();
             } else {
-                throw await throwApiError(res, 'Failed to start a members session');
+                await throwWithHumanReadableError(res, 'Failed to start a members session');
             }
         },
 
+        /**
+         * @returns {{
+         *     inboxLinks?: {
+         *         desktop: string;
+         *         android: string;
+         *         provider: 'gmail' | 'yahoo' | 'outlook' | 'proton' | 'icloud' | 'hey' | 'aol' | 'mailru';
+         *     };
+         *     otc_ref?: string;
+         * }}
+         */
         async sendMagicLink({email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC}) {
             const url = endpointFor({type: 'members', resource: 'send-magic-link'});
             const body = {
@@ -317,6 +315,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 requestSrc: 'portal',
                 redirect,
                 integrityToken,
+                // we don't actually use a phone #, this is from a hidden field to prevent bot activity
                 honeypot: phonenumber,
                 token,
                 autoRedirect,
@@ -339,7 +338,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return await parseJsonResponse(res);
             } else {
-                throw await throwApiError(res, 'Failed to send magic link email');
+                await throwWithHumanReadableError(res, 'Failed to send magic link email');
             }
         },
 
@@ -364,7 +363,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return await res.json();
             } else {
-                throw await throwApiError(res, 'Failed to verify code');
+                await throwWithHumanReadableError(res, 'Failed to verify code');
             }
         },
 

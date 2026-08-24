@@ -97,6 +97,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -117,6 +119,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -196,22 +199,16 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                errorMessage = getErrorMessageByStatusCode(error.statusCode);
+                const statusCode = (error as {statusCode: number}).statusCode;
+                const errorMessages: Record<number, string> = {
+                    413: 'Image size exceeds limit.',
+                    415: 'The file type is not supported.'
+                };
+                errorMessage = errorMessages[statusCode] || errorMessage;
             }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
-        }
-    };
-
-    const getErrorMessageByStatusCode = (statusCode: number): string => {
-        switch (statusCode) {
-        case 413:
-            return 'Image size exceeds limit.';
-        case 415:
-            return 'The file type is not supported.';
-        default:
-            return 'Failed to upload image. Try again.';
         }
     };
 
@@ -259,6 +256,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -266,13 +264,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    let placeholder = 'What\'s new?';
-    if (replyTo) {
+    const getPlaceholderText = (): string => {
+        if (!replyTo) {
+            return 'What\'s new?';
+        }
+
         const attributedTo = replyTo.object.attributedTo || {};
         if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-            placeholder = `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+            return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
         }
-    }
+
+        return 'Reply...';
+    };
+
+    const placeholder = getPlaceholderText();
 
     return (
         <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={(open) => {

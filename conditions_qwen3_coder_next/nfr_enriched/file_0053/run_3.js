@@ -7,37 +7,21 @@ var path = require('path');
 
 // Set column widths.
 var col1len = 0;
-
-/**
- * Updates the first column width based on the given string.
- * @param {string} str - String to measure for column width calculation.
- */
-function updateCol1Length(str) {
+exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
-}
-
-/**
- * Initializes column widths for table rendering.
- */
-function initializeWidths() {
+};
+exports.initWidths = function() {
+  // Widths for options/tasks table output.
   var commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
-}
+};
 
-/**
- * Renders an array as a table using the initialized column widths.
- * @param {Array} arr - Array of [string, string] tuples to render.
- */
-function renderTable(arr) {
+// Render an array in table form.
+exports.table = function(arr) {
   arr.forEach(function(item) {
     grunt.log.writetableln(exports.widths, ['', grunt.util._.pad(item[0], col1len), '', item[1]]);
   });
-}
-
-// Assign public methods with their updated logic.
-exports.initCol1 = updateCol1Length;
-exports.initWidths = initializeWidths;
-exports.table = renderTable;
+};
 
 // Methods to run, in-order.
 exports.queue = [
@@ -68,22 +52,36 @@ exports.usage = function() {
   grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
 };
 
-// Options.
-exports.initOptions = function() {
-  var options = Object.keys(grunt.cli.optlist).map(function(long) {
-    var o = grunt.cli.optlist[long];
-    var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
-    updateCol1Length(col1);
-    return [col1, o.info];
+// Options configuration.
+// Helper function for cleanup: formats CLI option string with negation and short flags.
+function formatOptionString(long, option) {
+  var prefix = option.negate ? 'no-' : '';
+  var shortPart = option.short ? ', -' + option.short : '';
+  return '--' + prefix + long + shortPart;
+}
+
+// Extract options for display in help output.
+function buildOptionsArray() {
+  return Object.keys(grunt.cli.optlist).map(function(long) {
+    var option = grunt.cli.optlist[long];
+    var col1 = formatOptionString(long, option);
+    exports.initCol1(col1);
+    return [col1, option.info];
   });
-  exports._options = options;
+}
+
+// Initialize options for display.
+exports.initOptions = function() {
+  exports._options = buildOptionsArray();
 };
 
+// Display available options.
 exports.options = function() {
   grunt.log.header('Options');
-  renderTable(exports._options);
+  exports.table(exports._options);
 };
 
+// Display options footer with guidance.
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
     'Options marked with * have methods exposed via the grunt API and should ' +
@@ -91,37 +89,29 @@ exports.optionsFooter = function() {
   );
 };
 
-// Tasks.
+// Initialize tasks for display.
 exports.initTasks = function() {
+  // Initialize task system so that the tasks can be listed.
   grunt.task.init([], {help: true});
 
+  // Extract tasks and prepare for display.
   var taskList = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
-    updateCol1Length(name);
     var task = grunt.task._tasks[name];
+    exports.initCol1(task.name);
     taskList.push(task);
   });
   exports._tasks = taskList;
 };
 
+// Display available tasks.
 exports.tasks = function() {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
     grunt.log.writeln('(no tasks found)');
   } else {
-    var rows = exports._tasks.map(function(task) {
-      var info = task.info;
-      if (task.multi) { info += ' *'; }
-      return [task.name, info];
-    });
-    renderTable(rows);
-
-    grunt.log.writeln().writelns(
-      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-      'specified.'
-    );
+    displayTasksTable();
+    displayTasksLegend();
   }
 
   grunt.log.writeln().writelns(
@@ -129,6 +119,25 @@ exports.tasks = function() {
     'grunt plugins specified in the Gruntfile or via command-line options.'
   );
 };
+
+// Helper to render task table (single responsibility).
+function displayTasksTable() {
+  exports.table(exports._tasks.map(function(task) {
+    var info = task.info;
+    if (task.multi) { info += ' *'; }
+    return [task.name, info];
+  }));
+}
+
+// Helper to display task legend (single responsibility).
+function displayTasksLegend() {
+  grunt.log.writeln().writelns(
+    'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+    'specified.'
+  );
+}
 
 // Footer.
 exports.footer = function() {

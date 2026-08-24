@@ -1,5 +1,302 @@
-let searchQuery = searchParam ? {search: searchParam} : {};
-        return {filter: filters.join('+'), ...searchQuery};
+import BulkAddMembersLabelModal from '../components/members/modals/bulk-add-label';
+import BulkDeleteMembersModal from '../components/members/modals/bulk-delete';
+import BulkRemoveMembersLabelModal from '../components/members/modals/bulk-remove-label';
+import BulkUnsubscribeMembersModal from '../components/members/modals/bulk-unsubscribe';
+import Controller from '@ember/controller';
+import fetch from 'fetch';
+import ghostPaths from 'ghost-admin/utils/ghost-paths';
+import moment from 'moment-timezone';
+import {A} from '@ember/array';
+import {action} from '@ember/object';
+import {didCancel, task, timeout} from 'ember-concurrency';
+import {ghPluralize} from 'ghost-admin/helpers/gh-pluralize';
+import {inject} from 'ghost-admin/decorators/inject';
+import {resetQueryParams} from 'ghost-admin/helpers/reset-query-params';
+import {inject as service} from '@ember/service';
+import {tracked} from '@glimmer/tracking';
+
+const PAID_PARAMS = [{
+    name: 'All members',
+    value: null
+}, {
+    name: 'Free members',
+    value: 'false'
+}, {
+    name: 'Paid members',
+    value: 'true'
+}];
+
+export default class MembersController extends Controller {
+    @service ajax;
+    @service ellaSparse;
+    @service feature;
+    @service ghostPaths;
+    @service membersStats;
+    @service modals;
+    @service router;
+    @service store;
+    @service utils;
+    @service settings;
+
+    @inject config;
+
+    queryParams = [
+        'label',
+        {paidParam: 'paid'},
+        {searchParam: 'search'},
+        {orderParam: 'order'},
+        {filterParam: 'filter'},
+        {postAnalytics: 'post'}
+    ];
+
+    @tracked members = A([]);
+    @tracked searchParam = '';
+    @tracked searchIsFocused = false;
+    @tracked filterParam = null;
+    @tracked softFilterParam = null;
+    @tracked paidParam = null;
+    @tracked label = null;
+    @tracked orderParam = null;
+    @tracked modalLabel = null;
+    @tracked showLabelModal = false;
+    @tracked filters = A([]);
+    @tracked softFilters = A([]);
+    @tracked isExporting = false;
+
+    @tracked _availableLabels = A([]);
+
+    @tracked parseFilterParamCounter = 0;
+
+    /**
+     * Flag used to determine if we should return to the analytics page
+     */
+    @tracked postAnalytics = null;
+
+    get fromAnalytics() {
+        if (!this.postAnalytics) {
+            return null;
+        }
+        return [this.postAnalytics];
+    }
+
+    paidParams = PAID_PARAMS;
+
+    constructor() {
+        super(...arguments);
+        this._availableLabels = this.store.peekAll('label');
+    }
+
+    // Computed properties -----------------------------------------------------
+
+    get listHeader() {
+        let {searchParam, selectedLabel, members} = this;
+
+        if (members.loading) {
+            return 'Loading...';
+        }
+
+        if (searchParam) {
+            return 'Search result';
+        }
+
+        let count = ghPluralize(members.length, 'member');
+
+        if (selectedLabel && selectedLabel.slug) {
+            if (members.length > 1) {
+                return `${count} match current filter`;
+            } else {
+                return `${count} matches current filter`;
+            }
+        }
+
+        return count;
+    }
+
+    get hideSearchBar() {
+        return !this.members.length
+            && !this.searchParam
+            && !this.searchIsFocused;
+    }
+
+    get showingAll() {
+        return !this.searchParam && !this.paidParam && !this.label && !this.filterParam && !this.softFilterParam;
+    }
+
+    get availableOrders() {
+        // don't return anything if email analytics is disabled because
+        // we don't want to show an order dropdown with only a single option
+
+        if (this.feature.get('emailAnalytics')) {
+            return [{
+                name: 'Newest',
+                value: null
+            }, {
+                name: 'Open rate',
+                value: 'email_open_rate'
+            }];
+        }
+
+        return [];
+    }
+
+    get selectedOrder() {
+        return this.availableOrders.find(order => order.value === this.orderParam);
+    }
+
+    get availableLabels() {
+        let labels = this._availableLabels
+            .filter(label => !label.isNew)
+            .filter(label => label.id !== null)
+            .sort((labelA, labelB) => labelA.name.localeCompare(labelB.name, undefined, {ignorePunctuation: true}));
+        let options = labels.toArray();
+
+        options.unshiftObject({name: 'All labels', slug: null});
+
+        return options;
+    }
+
+    get selectedLabel() {
+        let {label, availableLabels} = this;
+        return availableLabels.findBy('slug', label);
+    }
+
+    get labelModalData() {
+        let label = this.modalLabel;
+        let labels = this.availableLabels;
+
+        return {
+            label,
+            labels
+        };
+    }
+
+    get selectedPaidParam() {
+        return this.paidParams.findBy('value', this.paidParam) || {value: '!unknown'};
+    }
+
+    get isFiltered() {
+        return !!(this.label || this.paidParam || this.searchParam || this.filterParam);
+    }
+
+    get availableFilters() {
+        return this.softFilters.length ? this.softFilters : this.filters;
+    }
+
+    get filterColumns() {
+        const columns = this.availableFilters.flatMap((filter) => {
+            if (filter.properties?.getColumns) {
+                return filter.properties?.getColumns(filter).map((c) => {
+                    return {
+                        label: filter.properties.columnLabel, // default value if not provided
+                        ...c,
+                        name: filter.type
+                    };
+                });
+            }
+            if (filter.properties?.columnLabel) {
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
+            }
+            return [];
+        });
+        // Remove duplicates by label
+        const uniqueColumns = columns.filter((c, i) => {
+            return columns.findIndex(c2 => c2.label === c.label) === i;
+        });
+        return uniqueColumns.splice(0, 2); // Maximum 2 columns
+    }
+
+    /*
+     * Due to a limitation with NQL, member bulk deletion is not permitted if any of the following Stripe subscription filters is used:
+     *     - Billing period
+     *     - Stripe subscription status
+     *     - Paid start date
+     *     - Next billing date
+     *     - Subscription started on post/page
+     *     - Offers
+     *
+     * For more context, see:
+     * - https://linear.app/tryghost/issue/ENG-1484
+     * - https://linear.app/tryghost/issue/ENG-1466
+     */
+    get isBulkDeletePermitted() {
+        if (!this.isFiltered) {
+            return false;
+        }
+
+        const stripeFilters = this.filters.filter(f => [
+            'subscriptions.plan_interval',
+            'subscriptions.status',
+            'subscriptions.start_date',
+            'subscriptions.current_period_end',
+            'conversion',
+            'offer_redemptions'
+        ].includes(f.type));
+
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
+    }
+
+    includeTierQuery() {
+        const availableFilters = this.filters.length ? this.filters : this.softFilters;
+        return availableFilters.some((f) => {
+            return f.type === 'tier';
+        });
+    }
+
+    /**
+     * Builds an API query object from current filter state.
+     * @param {Object} [params] - Optional params object to override controller state
+     * @param {Array} [extraFilters=[]] - Additional filters to include
+     * @returns {Object} Query object with filter and optional search properties
+     */
+    getApiQueryObject({params, extraFilters = []} = {}) {
+        let {label, paidParam, searchParam, filterParam} = params ? params : this;
+
+        if (filterParam) {
+            // If the provided filter param is a single filter related to newsletter subscription status
+            // remove the surrounding brackets to prevent https://github.com/TryGhost/NQL/issues/16
+            const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+            const MULTIPLE_GROUPS_RE = /\).*\(/;
+
+            if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+                filterParam = filterParam.slice(1, -1);
+            }
+        }
+
+        let filters = [];
+
+        filters = filters.concat(extraFilters);
+
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+
+        if (paidParam !== null) {
+            if (paidParam === 'true') {
+                filters.push('status:-free');
+            } else {
+                filters.push('status:free');
+            }
+        }
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+
+        let searchQuery = searchParam ? {search: searchParam} : {};
+
+        return {
+            filter: filters.join('+'),
+            ...searchQuery
+        };
     }
 
     // Actions -----------------------------------------------------------------
@@ -244,12 +541,14 @@ let searchQuery = searchParam ? {search: searchParam} : {};
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = Object.assign({
+            query = {
                 include: includes.join(','),
                 order,
                 limit: range.length,
-                page: range.page
-            }, searchQuery, query);
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
 
             return this.store.query('member', query).then((result) => {
                 return {

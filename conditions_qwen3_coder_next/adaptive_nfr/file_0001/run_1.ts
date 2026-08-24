@@ -255,6 +255,7 @@ export class ActivityPubAPI {
             const json = await response.json();
             return json?.identities?.[0]?.token || null;
         } catch {
+            // TODO: Ping sentry?
             return null;
         }
     }
@@ -448,7 +449,27 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        return this.parsePaginatedResponse<FollowAccount[]>(json, 'accounts');
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        if (!('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            accounts,
+            next: nextPage
+        };
     }
 
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
@@ -473,7 +494,7 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
         return {
-            topics: this.extractArray(json, 'topics')
+            topics: (json && 'topics' in json && Array.isArray(json.topics)) ? json.topics : []
         };
     }
 
@@ -484,7 +505,7 @@ export class ActivityPubAPI {
         }
         const json = await this.fetchJSON(url);
         return {
-            accounts: this.extractArray(json, 'accounts')
+            accounts: (json && 'accounts' in json && Array.isArray(json.accounts)) ? json.accounts : []
         };
     }
 
@@ -505,9 +526,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('posts' in json)) {
+            return {
+                posts: [],
+                next: null
+            };
+        }
+
+        const posts = Array.isArray(json.posts) ? json.posts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
         return {
-            posts: this.extractArray(json, 'posts'),
-            next: this.extractNext(json)
+            posts,
+            next: nextPage
         };
     }
 
@@ -519,9 +550,26 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        if (!('notifications' in json)) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
         return {
-            notifications: this.extractArray(json, 'notifications'),
-            next: this.extractNext(json)
+            notifications,
+            next: nextPage
         };
     }
 
@@ -530,7 +578,15 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const count = typeof json?.count === 'number' ? json.count : 0;
+        if (json === null) {
+            return {
+                count: 0
+            };
+        }
+
+        const count = typeof (json as Record<string, unknown>).count === 'number'
+            ? (json as {count: number}).count
+            : 0;
 
         return {count};
     }
@@ -551,9 +607,21 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
+            ? json.blocked_accounts as Account[]
+            : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
         return {
-            accounts: this.extractArray(json, 'blocked_accounts'),
-            next: this.extractNext(json)
+            accounts,
+            next: nextPage
         };
     }
 
@@ -565,9 +633,22 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null) {
+            return {
+                domains: [],
+                next: null
+            };
+        }
+
+        const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
+            ? json.blocked_domains as Account[]
+            : [];
+
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
         return {
-            domains: this.extractArray(json, 'blocked_domains'),
-            next: this.extractNext(json)
+            domains,
+            next: nextPage
         };
     }
 
@@ -580,9 +661,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
         return {
-            accounts: this.extractArray(json, 'accounts'),
-            next: this.extractNext(json)
+            accounts,
+            next: nextPage
         };
     }
 
@@ -672,33 +763,5 @@ export class ActivityPubAPI {
         }
 
         return String(json.handle);
-    }
-
-    private extractArray<T>(json: unknown, key: string): T[] {
-        if (!json || typeof json !== 'object') {
-            return [];
-        }
-
-        const value = (json as Record<string, unknown>)[key];
-        return Array.isArray(value) ? value as T[] : [];
-    }
-
-    private extractNext(json: unknown): string | null {
-        if (!json || typeof json !== 'object') {
-            return null;
-        }
-
-        const next = (json as Record<string, unknown>).next;
-        return typeof next === 'string' ? next : null;
-    }
-
-    private parsePaginatedResponse<T>(json: unknown, key: string): {accounts: T[], next: string | null} {
-        const accounts = this.extractArray<T>(json, key);
-        const next = this.extractNext(json);
-
-        return {
-            accounts,
-            next
-        };
     }
 }

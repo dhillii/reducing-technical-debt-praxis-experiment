@@ -14,12 +14,14 @@ try {
   if (require.extensions) {
     var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
     for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
-      require.extensions[FILE_EXTENSIONS[i]] = function() {
-        throw new Error(
-          'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-          'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
-        );
-      };
+      (function(ext) {
+        require.extensions[ext] = function() {
+          throw new Error(
+            'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
+            'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+          );
+        };
+      })(FILE_EXTENSIONS[i]);
     }
   }
 }
@@ -69,19 +71,38 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Predicate: checks if version flag is present
-function isVersionFlagSet() {
-  return option('version');
+// Check if task execution should be short-circuited for version or help flags
+function shouldExitEarly() {
+  if (option('version')) {
+    handleVersionOutput();
+    return true;
+  }
+  if (option('help')) {
+    help.display();
+    return true;
+  }
+  return false;
 }
 
-// Predicate: checks if help flag is present
-function isHelpFlagSet() {
-  return option('help');
-}
-
-// Predicate: checks if tasks array is provided and non-empty
-function hasSpecifiedTasks(tasks) {
-  return tasks && tasks.length > 0;
+// Handle version output and related verbose behavior
+function handleVersionOutput() {
+  log.writeln('grunt v' + grunt.version);
+  if (!option('verbose')) {
+    return;
+  }
+  verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+  grunt.log.muted = true;
+  grunt.task.init([], {help: true});
+  grunt.log.muted = false;
+  var _tasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln('Available tasks: ' + _tasks.join(' '));
+  var _options = [];
+  Object.keys(grunt.cli.optlist).forEach(function(long) {
+    var o = grunt.cli.optlist[long];
+    _options.push('--' + (o.negate ? 'no-' : '') + long);
+    if (o.short) { _options.push('-' + o.short); }
+  });
+  verbose.writeln('Available options: ' + _options.join(' '));
 }
 
 // Expose the task interface. I've never called this manually, and have no idea
@@ -90,51 +111,19 @@ grunt.tasks = function(tasks, options, done) {
   // Update options with passed-in options.
   option.init(options);
 
-  // Display the grunt version and quit if the user did --version.
-  if (isVersionFlagSet()) {
-    log.writeln('grunt v' + grunt.version);
-
-    if (option('verbose')) {
-      verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-      // Yes, this is a total hack, but we don't want to log all that verbose
-      // task initialization stuff here.
-      grunt.log.muted = true;
-      // Initialize task system so that available tasks can be listed.
-      grunt.task.init([], {help: true});
-      // Re-enable logging.
-      grunt.log.muted = false;
-
-      // Display available tasks (for shell completion, etc).
-      var _tasks = Object.keys(grunt.task._tasks).sort();
-      verbose.writeln('Available tasks: ' + _tasks.join(' '));
-
-      // Display available options (for shell completion, etc).
-      var _options = [];
-      Object.keys(grunt.cli.optlist).forEach(function(long) {
-        var o = grunt.cli.optlist[long];
-        _options.push('--' + (o.negate ? 'no-' : '') + long);
-        if (o.short) { _options.push('-' + o.short); }
-      });
-      verbose.writeln('Available options: ' + _options.join(' '));
-    }
-
+  // Short-circuit if version or help flag is present
+  if (shouldExitEarly()) {
     return;
   }
 
   // Init colors.
   log.initColors();
 
-  // Display help and quit if the user did --help.
-  if (isHelpFlagSet()) {
-    help.display();
-    return;
-  }
-
   // A little header stuff.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
   // Determine and output which tasks will be run.
-  var tasksSpecified = hasSpecifiedTasks(tasks);
+  var tasksSpecified = tasks && tasks.length > 0;
   tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.
@@ -146,39 +135,29 @@ grunt.tasks = function(tasks, options, done) {
   }
   verbose.writeflags(tasks, 'Running tasks');
 
-  // Handle otherwise unhandleable (probably asynchronous) exceptions.
+  // Handle uncaught exceptions.
   var uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
   process.on('uncaughtException', uncaughtHandler);
 
-  // Report, etc when all tasks have completed.
+  // Setup task completion handlers
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function() {
-      // Stop handling uncaught exceptions so that we don't leave any
-      // unwanted process-level side effects behind. There is no need to do
-      // this in the error callback, because fail.warn() will either kill
-      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
-
-      // Output a final fail / success report.
       fail.report();
-
       if (done) {
-        // Execute "done" function when done (only if passed, of course).
         done();
       } else {
-        // Otherwise, explicitly exit.
         util.exit(0);
       }
     }
   });
 
-  // Execute all tasks, in order. Passing each task individually in a forEach
-  // allows the error callback to execute multiple times.
+  // Execute all tasks, in order.
   tasks.forEach(function(name) { task.run(name); });
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026

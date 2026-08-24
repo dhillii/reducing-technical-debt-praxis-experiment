@@ -30,98 +30,82 @@ exports.create = function() {
   return new Task();
 };
 
-/**
- * Throws an exception if the task runner is running or no error handler is defined.
- * Otherwise, calls the error handler directly.
- * @param {*} obj - The object to throw or pass to error handler.
- */
+// If the task runner is running or an error handler is not defined, throw
+// an exception. Otherwise, call the error handler directly.
 Task.prototype._throwIfRunning = function(obj) {
-  if (this._running || !this._options.error) {
+  var shouldThrow = this._running || !this._options.error;
+  if (shouldThrow) {
     throw obj;
-  } else {
-    this._options.error.call({name: null}, obj);
   }
+  this._options.error.call({name: null}, obj);
 };
 
-/**
- * Registers a new task with the given name, optional info, and function.
- * @param {string} name - Task name.
- * @param {string} [info] - Task description.
- * @param {Function|string|string[]} fn - Task function or task alias specification.
- * @returns {Task} Chainable instance.
- */
+// Registration strategies for different task types.
+function registerAliasTask(taskInstance, name, info, args) {
+  var tasks = taskInstance.parseArgs([args]);
+  var fn = taskInstance.run.bind(taskInstance, args);
+  fn.alias = true;
+  if (!info) {
+    info = 'Alias for "' + tasks.join('", "') + '" task' +
+      (tasks.length === 1 ? '' : 's') + '.';
+  }
+  return {name: name, info: info, fn: fn};
+}
+
+function registerCustomTask(name, info, fn) {
+  if (!info) {
+    info = 'Custom task.';
+  }
+  return {name: name, info: info, fn: fn};
+}
+
+// Register a new task.
 Task.prototype.registerTask = function(name, info, fn) {
   if (fn == null) {
     fn = info;
     info = null;
   }
-
   if (typeof fn !== 'function') {
-    var tasks = this.parseArgs([fn]);
-    fn = this.run.bind(this, fn);
-    fn.alias = true;
-    if (!info) {
-      info = 'Alias for "' + tasks.join('", "') + '" task' +
-        (tasks.length === 1 ? '' : 's') + '.';
-    }
-  } else if (!info) {
-    info = 'Custom task.';
+    this._tasks[name] = registerAliasTask(this, name, info, fn);
+  } else {
+    this._tasks[name] = registerCustomTask(name, info, fn);
   }
-
-  this._tasks[name] = {name: name, info: info, fn: fn};
   return this;
 };
 
-/**
- * Checks if the specified task is an alias.
- * @param {string} name - Task name.
- * @returns {boolean} True if task is an alias.
- */
+// Is the specified task an alias?
 Task.prototype.isTaskAlias = function(name) {
   return !!this._tasks[name].fn.alias;
 };
 
-/**
- * Checks if the specified task has been registered.
- * @param {string} name - Task name.
- * @returns {boolean} True if task exists.
- */
+// Has the specified task been registered?
 Task.prototype.exists = function(name) {
   return name in this._tasks;
 };
 
-/**
- * Renames an existing task to a new name.
- * @param {string} oldname - Current task name.
- * @param {string} newname - New task name.
- * @returns {Task} Chainable instance.
- */
+// Rename a task. This might be useful if you want to override the default
+// behavior of a task, while retaining the old name. This is a billion times
+// easier to implement than some kind of in-task "super" functionality.
 Task.prototype.renameTask = function(oldname, newname) {
   if (!this._tasks[oldname]) {
     throw new Error('Cannot rename missing "' + oldname + '" task.');
   }
-
   this._tasks[newname] = this._tasks[oldname];
   this._tasks[newname].name = newname;
   delete this._tasks[oldname];
   return this;
 };
 
-/**
- * Parses arguments into an array.
- * Supports: fn('foo'), fn('foo', 'bar'), fn(['foo', 'bar'])
- * @param {Array} args - Input arguments.
- * @returns {string[]} Parsed arguments array.
- */
+// Argument parsing helper. Supports these signatures:
+//  fn('foo')                 // ['foo']
+//  fn('foo', 'bar', 'baz')   // ['foo', 'bar', 'baz']
+//  fn(['foo', 'bar', 'baz']) // ['foo', 'bar', 'baz']
 Task.prototype.parseArgs = function(args) {
   return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
 };
 
-/**
- * Splits a colon-delimited string into an array, respecting escaped colons.
- * @param {string} str - Input string.
- * @returns {string[]} Parsed parts.
- */
+// Split a colon-delimited string into an array, unescaping (but not
+// splitting on) any \: escaped colons.
 Task.prototype.splitArgs = function(str) {
   if (!str) { return []; }
   str = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
@@ -130,31 +114,22 @@ Task.prototype.splitArgs = function(str) {
   });
 };
 
-/**
- * Determines the actual task and arguments for a given task specification.
- * @param {string} name - Task name with optional arguments.
- * @returns {Object} Task and argument information.
- */
+// Given a task name, determine which actual task will be called, and what
+// arguments will be passed into the task callback.
 Task.prototype._taskPlusArgs = function(name) {
   var parts = this.splitArgs(name);
   var i = parts.length;
   var task;
-
   do {
     task = this._tasks[parts.slice(0, i).join(':')];
   } while (!task && --i > 0);
-
   var args = parts.slice(i);
   var flags = {};
   args.forEach(function(arg) { flags[arg] = true; });
-
   return {task: task, nameArgs: name, args: args, flags: flags};
 };
 
-/**
- * Appends items to the queue at the correct position relative to placeholders/markers.
- * @param {Array} things - Items to push.
- */
+// Append things to queue in the correct spot.
 Task.prototype._push = function(things) {
   var index = this._queue.indexOf(this._placeholder);
   if (index === -1) {
@@ -164,67 +139,52 @@ Task.prototype._push = function(things) {
   }
 };
 
-/**
- * Enqueues one or more tasks.
- * @param {...*} args - Task specifications.
- * @returns {Task} Chainable instance.
- */
+// Enqueue a task.
 Task.prototype.run = function() {
   var things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
   var fails = things.filter(function(thing) { return !thing.task; });
-
   if (fails.length > 0) {
     this._throwIfRunning(new Error('Task "' + fails[0].nameArgs + '" not found.'));
     return this;
   }
-
   this._push(things);
   return this;
 };
 
-/**
- * Adds a marker to the queue for programmatic clearing.
- * @returns {Task} Chainable instance.
- */
+// Add a marker to the queue to facilitate clearing it programmatically.
 Task.prototype.mark = function() {
   this._push(this._marker);
   return this;
 };
 
-/**
- * Executes a task function, handling async behavior and completion.
- * @param {Object} context - Task execution context.
- * @param {Function} fn - Task function to execute.
- * @param {Function} done - Completion callback.
- * @param {boolean} asyncDone - Whether to defer done callback.
- */
+// Determine success/failure state from passed value.
+Task.prototype._determineTaskResult = function(success) {
+  if (success === false) {
+    return {success: false, err: new Error('Task "' + this.current.nameArgs + '" failed.')};
+  }
+  if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
+    return {success: false, err: success};
+  }
+  return {success: true, err: null};
+};
+
+// Run a task function, handling this.async / return value.
 Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
   var async = false;
 
   var complete = function(success) {
-    var err = null;
-    if (success === false) {
-      err = new Error('Task "' + context.nameArgs + '" failed.');
-    } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      err = success;
-      success = false;
-    } else {
-      success = true;
-    }
-
+    var result = this._determineTaskResult(success);
     this.current = {};
-    this._success[context.nameArgs] = success;
-
-    if (!success && this._options.error) {
-      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
+    this._success[context.nameArgs] = result.success;
+    if (!result.success && this._options.error) {
+      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, result.err);
     }
-
     if (asyncDone) {
       process.nextTick(function() {
-        done(err, success);
+        done(result.err, result.success);
       });
     } else {
-      done(err, success);
+      done(result.err, result.success);
     }
   }.bind(this);
 
@@ -247,11 +207,7 @@ Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
   }
 };
 
-/**
- * Starts processing the task queue.
- * @param {Object} [opts] - Options including asyncDone flag.
- * @returns {boolean} False if already running, otherwise undefined.
- */
+// Begin task queue processing. Ie. run all tasks.
 Task.prototype.start = function(opts) {
   if (!opts) { opts = {}; }
   if (this._running) { return false; }
@@ -282,17 +238,14 @@ Task.prototype.start = function(opts) {
     this.runTaskFn(context, function() {
       return thing.task.fn.apply(this, this.args);
     }, nextTask, !!opts.asyncDone);
+
   }.bind(this);
 
   this._running = true;
   nextTask();
 };
 
-/**
- * Clears remaining tasks from the queue.
- * @param {Object} [options] - Options including untilMarker flag.
- * @returns {Task} Chainable instance.
- */
+// Clear remaining tasks from the queue.
 Task.prototype.clearQueue = function(options) {
   if (!options) { options = {}; }
   if (options.untilMarker) {
@@ -303,10 +256,7 @@ Task.prototype.clearQueue = function(options) {
   return this;
 };
 
-/**
- * Ensures all specified tasks have succeeded.
- * @param {...*} args - Task names to check.
- */
+// Test to see if all of the given tasks have succeeded.
 Task.prototype.requires = function() {
   this.parseArgs(arguments).forEach(function(name) {
     var success = this._success[name];
@@ -317,12 +267,11 @@ Task.prototype.requires = function() {
   }.bind(this));
 };
 
-/**
- * Overrides default options with provided values.
- * @param {Object} options - Options to merge.
- */
+// Override default options.
 Task.prototype.options = function(options) {
   Object.keys(options).forEach(function(name) {
     this._options[name] = options[name];
   }.bind(this));
 };
+
+}(typeof exports === 'object' && exports || this));

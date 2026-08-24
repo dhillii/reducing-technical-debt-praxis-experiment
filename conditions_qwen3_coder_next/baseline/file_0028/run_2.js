@@ -121,7 +121,7 @@ class ErrorHandler extends React.Component {
             });
         }
 
-        console.error(error);
+        console.error(error); // eslint-disable-line
     }
 
     render() {
@@ -374,6 +374,7 @@ export default class KoenigLexicalEditor extends Component {
             }
 
             const filteredResults = [];
+
             results.forEach((group) => {
                 let items = group.options;
 
@@ -452,7 +453,7 @@ export default class KoenigLexicalEditor extends Component {
 
             const progressTracker = React.useRef(new Map());
 
-            function updateProgress() {
+            const updateProgress = () => {
                 if (progressTracker.current.size === 0) {
                     setProgress(0);
                     return;
@@ -463,7 +464,7 @@ export default class KoenigLexicalEditor extends Component {
                 progressTracker.current.forEach(value => totalProgress += value);
 
                 setProgress(Math.round(totalProgress / progressTracker.current.size));
-            }
+            };
 
             function defaultValidator(file) {
                 if (type === 'file') {

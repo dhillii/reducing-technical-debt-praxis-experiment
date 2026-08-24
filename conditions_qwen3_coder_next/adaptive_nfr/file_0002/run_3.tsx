@@ -97,6 +97,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -117,6 +119,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -196,17 +199,23 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                const statusCode = (error as {statusCode: number}).statusCode;
-                const errorMessages: Record<number, string> = {
-                    413: 'Image size exceeds limit.',
-                    415: 'The file type is not supported.'
-                };
-                errorMessage = errorMessages[statusCode] || errorMessage;
+                errorMessage = getErrorMessageForStatusCode(error.statusCode);
             }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
         }
+    };
+
+    /**
+     * Returns appropriate error message based on HTTP status code
+     */
+    const getErrorMessageForStatusCode = (statusCode: number): string => {
+        const errorMessages: Record<number, string> = {
+            413: 'Image size exceeds limit.',
+            415: 'The file type is not supported.'
+        };
+        return errorMessages[statusCode] ?? 'Failed to upload image. Try again.';
     };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -253,6 +262,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);

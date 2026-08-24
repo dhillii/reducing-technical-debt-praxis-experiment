@@ -36,6 +36,7 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         return valid ? '' : 'Enter a valid email address';
     },
     url: ({url}) => {
+        // require_tld is automatically true in validator 8+, we set it false here for our default localhost setup
         const valid = !url || validator.isURL(url, {require_tld: false});
         return valid ? '' : 'Enter a valid URL';
     },
@@ -160,18 +161,19 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
+// Extracted helper to determine the active tab from URL path
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+
+    if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
+        return lastSegment;
+    }
+
+    return 'profile';
+};
+
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
-
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-
-        if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
-            return lastSegment;
-        }
-
-        return 'profile';
-    };
 
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
@@ -213,18 +215,23 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
 
+    // Pintura integration
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
             updateRoute('staff');
         } else {
+            // Contributors can't access settings, exit to let the shell handle navigation
             updateRoute({isExternal: true, route: ''});
         }
     }, [currentUser, updateRoute]);
 
-    const handleSuspendUser = async (_user: User) => {
-        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
+    // Helper to suspend or unsuspend user after confirming via modal
+    const handleSuspendToggle = async (targetUser: User) => {
+        const isSuspend = targetUser.status === 'inactive';
+
+        if (isSuspend && targetUser.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -241,27 +248,29 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = _user.status === 'inactive'
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
+        const updatedUserData: User = {
+            ...targetUser,
+            status: isSuspend ? 'active' : 'inactive'
+        };
+        const actionLabel = isSuspend ? 'un-suspend' : 'suspend';
+        const runningLabel = isSuspend ? 'Un-suspending...' : 'Suspending...';
+        const warningText = isSuspend
+            ? 'This user will no longer be able to log in but their posts will be kept.'
+            : 'This user will be able to log in again and will have the same permissions they had previously.';
 
         NiceModal.show(ConfirmationModal, {
-            title: 'Are you sure you want to suspend this user?',
+            title: `Are you sure you want to ${actionLabel} this user?`,
             prompt: <><strong>WARNING:</strong> {warningText}</>,
-            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okLabel: isSuspend ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: runningLabel,
             okColor: 'red',
             onOk: async (modal) => {
-                const updatedUserData = {
-                    ..._user,
-                    status: _user.status === 'inactive' ? 'active' : 'inactive'
-                };
                 try {
                     await updateUser(updatedUserData);
                     setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                        title: `${targetUser.name} ${actionLabel}ed`,
                         type: 'success'
                     });
                 } catch (e) {
@@ -271,13 +280,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleDeleteUser = (_user: User, {owner}: {owner: User}) => {
-        NiceModal.show(ConfirmationModal, {
+    // Helper to confirm and perform user deletion
+    const handleDeleteUser = (_user: User, owner: User) => {
+       NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
                 <>
                     <p className='mb-3'><span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.</p>
-                    <p>To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span></p>
+                    <p>To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{_user.slug}</span></p>
                 </>
             ),
             okLabel: 'Delete user',
@@ -299,6 +309,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
+    // Helper to confirm and perform ownership transfer
     const handleMakeOwner = () => {
         NiceModal.show(ConfirmationModal, {
             title: 'Transfer Ownership',
@@ -320,6 +331,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
+    // Upload image helper with error normalization
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
@@ -334,13 +346,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         } catch (e) {
             const error = e as APIError;
-            if (error.response!.status === 415) {
+            if (error.response?.status === 415) {
                 error.message = 'Unsupported file type';
             }
             handleError(error);
         }
     };
 
+    // Delete image helper
     const handleImageDelete = (image: string) => {
         switch (image) {
         case 'cover_image':
@@ -352,11 +365,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    const getMenuItems = (): MenuItem[] => {
-        const items: MenuItem[] = [];
+    // Build user detail actions menu based on role permissions
+    const buildMenuItems = (): MenuItem[] => {
+        const menuItems: MenuItem[] = [];
 
         if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
+            menuItems.push({
                 id: 'make-owner',
                 label: 'Make owner',
                 onClick: handleMakeOwner
@@ -369,21 +383,18 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         )) {
             const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
-            items.push(
-                {
-                    id: 'delete-user',
-                    label: 'Delete user',
-                    onClick: () => handleDeleteUser(user, {owner: ownerUser})
-                },
-                {
-                    id: 'suspend-user',
-                    label: suspendLabel,
-                    onClick: () => handleSuspendUser(formState)
-                }
-            );
+            menuItems.push({
+                id: 'delete-user',
+                label: 'Delete user',
+                onClick: () => handleDeleteUser(user, ownerUser)
+            }, {
+                id: 'suspend-user',
+                label: suspendLabel,
+                onClick: () => handleSuspendToggle(formState)
+            });
         }
 
-        items.push({
+        menuItems.push({
             id: 'view-user-activity',
             label: 'View user activity',
             onClick: () => {
@@ -392,20 +403,23 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         });
 
-        return items;
+        return menuItems;
     };
 
+    const isMenuEnabled = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const menuItems = buildMenuItems();
+
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
-
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
 
     return (
         <Modal
@@ -496,9 +510,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             handleImageUpload('cover_image', file);
                                         }}
                                     >Upload cover image</ImageUpload>
-                                    {showMenu && <div className="z-10">
+                                    {isMenuEnabled && <div className="z-10">
                                         <Menu
-                                            items={getMenuItems()}
+                                            items={menuItems}
                                             position='end'
                                             trigger={
                                                 <button
@@ -560,13 +574,16 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
 
+    // Skip API call if it's the current user (we already have their data)
     const isCurrentUser = currentUser.slug === params?.slug;
 
+    // Fetch user by slug if it's not the current user
     const {data: fetchedUserData} = useGetUserBySlug(
         params?.slug || '',
         {enabled: !isCurrentUser && !!params?.slug}
     );
 
+    // Use current user data or fetched user data
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
     if (user) {

@@ -128,21 +128,15 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            let canonicalUrl;
             try {
-                canonicalUrl = new URL(this.post.canonicalUrl);
+                const canonicalUrl = new URL(this.post.canonicalUrl);
+                urlParts.push(canonicalUrl.host);
+                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
             } catch (e) {
-                return '';
+                // no-op, invalid URL
             }
-            urlParts.push(canonicalUrl.host);
-            urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
         } else {
-            let blogUrl;
-            try {
-                blogUrl = new URL(this.config.blogUrl);
-            } catch (e) {
-                return '';
-            }
+            const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
             urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
             urlParts.push(this.post.slug);

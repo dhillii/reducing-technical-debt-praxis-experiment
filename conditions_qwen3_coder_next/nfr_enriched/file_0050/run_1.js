@@ -98,7 +98,7 @@ grunt.tasks = function(tasks, options, done) {
   }
   verbose.writeflags(tasks, 'Running tasks');
 
-  // Handle uncaught exceptions during task execution.
+  // Handle otherwise unhandleable (probably asynchronous) exceptions.
   var uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
@@ -111,7 +111,9 @@ grunt.tasks = function(tasks, options, done) {
     },
     done: function() {
       // Stop handling uncaught exceptions so that we don't leave any
-      // unwanted process-level side effects behind.
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
 
       // Output a final fail / success report.
@@ -137,7 +139,7 @@ grunt.tasks = function(tasks, options, done) {
 
 /**
  * Registers fallback handlers for CoffeeScript file extensions.
- * These handlers throw informative errors when .coffee files are loaded without CoffeeScript installed.
+ * These handlers throw descriptive errors when .coffee files are loaded without CoffeeScript installed.
  * @private
  */
 function registerCoffeeScriptFallbackHandlers() {
@@ -153,7 +155,7 @@ function registerCoffeeScriptFallbackHandlers() {
 }
 
 /**
- * Handles the --version flag by printing version info and optionally verbose task listing.
+ * Handles the --version flag by printing version info and optionally available tasks/options in verbose mode.
  * @private
  */
 function handleVersionFlag() {

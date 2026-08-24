@@ -26,58 +26,6 @@ const PAID_PARAMS = [{
     value: 'true'
 }];
 
-/**
- * Extracts filter string from filterParam, handling NQL bracket edge cases
- */
-function normalizeFilterParam(filterParam) {
-    if (!filterParam) {
-        return filterParam;
-    }
-
-    const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-    const MULTIPLE_GROUPS_RE = /\).*\(/;
-
-    if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
-        return filterParam.slice(1, -1);
-    }
-
-    return filterParam;
-}
-
-/**
- * Builds the base filter array for API queries
- */
-function buildFilterArray({label, paidParam, filterParam, extraFilters = []}) {
-    const filters = [...extraFilters];
-
-    if (label) {
-        filters.push(`label:'${label}'`);
-    }
-
-    if (paidParam !== null) {
-        filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
-    }
-
-    if (filterParam) {
-        filters.push(normalizeFilterParam(filterParam));
-    }
-
-    return filters;
-}
-
-/**
- * Constructs the final query object for API requests
- */
-function buildApiQueryObject({label, paidParam, searchParam, filterParam, extraFilters = []}) {
-    const filters = buildFilterArray({label, paidParam, filterParam, extraFilters});
-    const searchQuery = searchParam ? {search: searchParam} : {};
-
-    return {
-        filter: filters.join('+'),
-        ...searchQuery
-    };
-}
-
 export default class MembersController extends Controller {
     @service ajax;
     @service ellaSparse;
@@ -243,11 +191,13 @@ export default class MembersController extends Controller {
                 });
             }
             if (filter.properties?.columnLabel) {
-                return [{
-                    name: filter.type,
-                    label: filter.properties.columnLabel,
-                    getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
-                }];
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
             }
             return [];
         });
@@ -278,13 +228,47 @@ export default class MembersController extends Controller {
 
     includeTierQuery() {
         const availableFilters = this.filters.length ? this.filters : this.softFilters;
-        return availableFilters.some((f) => f.type === 'tier');
+        return availableFilters.some((f) => {
+            return f.type === 'tier';
+        });
     }
 
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        return buildApiQueryObject({label, paidParam, searchParam, filterParam, extraFilters});
+        if (filterParam) {
+            const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+            const MULTIPLE_GROUPS_RE = /\).*\(/;
+
+            if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+                filterParam = filterParam.slice(1, -1);
+            }
+        }
+
+        let filters = [...extraFilters];
+
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+
+        if (paidParam !== null) {
+            if (paidParam === 'true') {
+                filters.push('status:-free');
+            } else {
+                filters.push('status:free');
+            }
+        }
+
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+
+        let searchQuery = searchParam ? {search: searchParam} : {};
+
+        return {
+            filter: filters.join('+'),
+            ...searchQuery
+        };
     }
 
     // Actions -----------------------------------------------------------------
@@ -359,7 +343,7 @@ export default class MembersController extends Controller {
     @action
     exportData() {
         let exportUrl = ghostPaths().url.api('members/upload');
-        let downloadParams = new URLSearchParams(buildApiQueryObject(this));
+        let downloadParams = new URLSearchParams(this.getApiQueryObject());
         downloadParams.set('limit', 'all');
         
         const url = `${exportUrl}?${downloadParams.toString()}`;
@@ -418,7 +402,7 @@ export default class MembersController extends Controller {
     @action
     bulkAddLabel() {
         this.modals.open(BulkAddMembersLabelModal, {
-            query: buildApiQueryObject(this),
+            query: this.getApiQueryObject(),
             onComplete: this.resetAndReloadMembers
         });
     }
@@ -426,7 +410,7 @@ export default class MembersController extends Controller {
     @action
     bulkRemoveLabel() {
         this.modals.open(BulkRemoveMembersLabelModal, {
-            query: buildApiQueryObject(this),
+            query: this.getApiQueryObject(),
             onComplete: this.resetAndReloadMembers
         });
     }
@@ -434,7 +418,7 @@ export default class MembersController extends Controller {
     @action
     bulkUnsubscribe() {
         this.modals.open(BulkUnsubscribeMembersModal, {
-            query: buildApiQueryObject(this),
+            query: this.getApiQueryObject(),
             onComplete: this.resetAndReloadMembers
         });
     }
@@ -448,7 +432,7 @@ export default class MembersController extends Controller {
     @action
     bulkDelete() {
         this.modals.open(BulkDeleteMembersModal, {
-            query: buildApiQueryObject(this),
+            query: this.getApiQueryObject(),
             onComplete: () => {
                 this.store.unloadAll('member');
                 this.router.transitionTo('members.index', {queryParams: Object.assign(resetQueryParams('members.index'))});
@@ -501,11 +485,8 @@ export default class MembersController extends Controller {
         this._startDate = startDate;
 
         this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
-            const searchQuery = buildApiQueryObject({
-                label,
-                paidParam,
-                searchParam,
-                filterParam,
+            const searchQuery = this.getApiQueryObject({
+                params,
                 extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
             });
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;

@@ -1,64 +1,6 @@
 import {HumanReadableError} from './errors';
 import {transformApiSiteData, transformApiTiersData, getUrlHistory} from './helpers';
 
-/**
- * Extracted helper to handle JSON response parsing with type checking
- * @param {Response} res - The fetch response object
- * @returns {Promise<any>} Parsed JSON or empty object if not JSON
- */
-async function parseJsonResponse(res) {
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    if (contentType.includes('application/json')) {
-        try {
-            return await res.json();
-        } catch (e) {
-            // fall through to response used pre-OTC
-        }
-    }
-    return {};
-}
-
-/**
- * Extracted helper to handle error throwing with HumanReadableError support
- * @param {Response} res - The fetch response object
- * @param {string} fallbackMessage - Fallback error message
- * @returns {Promise<never>} Throws appropriate error
- */
-async function throwApiError(res, fallbackMessage) {
-    const humanError = await HumanReadableError.fromApiResponse(res);
-    if (humanError) {
-        throw humanError;
-    }
-    throw new Error(fallbackMessage);
-}
-
-/**
- * Extracted helper to handle successful response processing
- * @param {Response} res - The fetch response object
- * @param {string} successType - Type of success handling ('json' or 'text')
- * @returns {Promise<any>} Parsed response data
- */
-async function handleSuccessResponse(res, successType = 'json') {
-    if (successType === 'text') {
-        return res.text();
-    }
-    return res.json();
-}
-
-/**
- * Extracted helper to handle error response processing
- * @param {Response} res - The fetch response object
- * @param {string} fallbackMessage - Fallback error message
- * @returns {Promise<never>} Throws appropriate error
- */
-async function handleErrorResponse(res, fallbackMessage) {
-    const humanError = await HumanReadableError.fromApiResponse(res);
-    if (humanError) {
-        throw humanError;
-    }
-    throw new Error(fallbackMessage);
-}
-
 function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     const apiPath = 'members/api';
 
@@ -88,6 +30,38 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         };
         return fetch(url, options);
     }
+
+    /**
+     * Extracted helper to handle JSON response parsing with fallback
+     * @param {Response} res
+     * @returns {Promise<any>}
+     */
+    async function parseJsonResponse(res) {
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            try {
+                return await res.json();
+            } catch (e) {
+                // fall through to response used pre-OTC
+            }
+        }
+        return {};
+    }
+
+    /**
+     * Extracted helper to handle error response parsing
+     * @param {Response} res
+     * @param {string} fallbackMessage
+     * @returns {Promise<never>}
+     */
+    async function handleErrorResponse(res, fallbackMessage) {
+        const humanError = await HumanReadableError.fromApiResponse(res);
+        if (humanError) {
+            throw humanError;
+        }
+        throw new Error(fallbackMessage);
+    }
+
     const api = {};
 
     api.site = {
@@ -363,7 +337,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return await parseJsonResponse(res);
             } else {
-                await throwApiError(res, 'Failed to send magic link email');
+                await handleErrorResponse(res, 'Failed to send magic link email');
             }
         },
 
@@ -386,9 +360,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
 
             if (res.ok) {
-                return await res.json();
+                return res.json();
             } else {
-                await throwApiError(res, 'Failed to verify code');
+                await handleErrorResponse(res, 'Failed to verify code');
             }
         },
 

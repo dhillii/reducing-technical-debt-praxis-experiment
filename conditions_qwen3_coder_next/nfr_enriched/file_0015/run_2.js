@@ -531,49 +531,79 @@ async function refreshMemberData({state, api}) {
     return null;
 }
 
-// Separated helper function for updateProfile success flow
-async function handleUpdateProfileSuccess({dataUpdate, emailUpdate, state, data}) {
-    const hasEmailChanged = emailUpdate && emailUpdate.success;
-    const hasDataChanged = dataUpdate && dataUpdate.success;
+/**
+ * Updates member profile (name and email) concurrently.
+ * Handles success/failure cases for each update independently.
+ */
+async function updateProfile({data, state, api}) {
+    const [dataUpdate, emailUpdate] = await Promise.all([
+        updateMemberData({data, state, api}),
+        updateMemberEmail({data, state, api})
+    ]);
 
-    const page = hasEmailChanged || hasDataChanged ? 'accountHome' : undefined;
+    if (dataUpdate && emailUpdate) {
+        return handleBothUpdates({dataUpdate, emailUpdate, state, t});
+    } else if (dataUpdate) {
+        return handleDataOnlyUpdate({dataUpdate, state, t});
+    } else if (emailUpdate) {
+        return handleEmailOnlyUpdate({emailUpdate, state, t});
+    }
 
-    const message = hasEmailChanged
-        ? t('Check your inbox to verify email update')
-        : (hasDataChanged ? t('Account details updated successfully') : t('Check your inbox to verify email update'));
+    return handleNoUpdates(state, t);
+}
 
+/**
+ * Handles case where both name and email updates were attempted.
+ */
+function handleBothUpdates({dataUpdate, emailUpdate, state, t}) {
+    if (emailUpdate.success) {
+        return {
+            action: 'updateProfile:success',
+            ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
+            page: 'accountHome',
+            popupNotification: createPopupNotification({
+                type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
+                message: t('Check your inbox to verify email update')
+            })
+        };
+    }
+
+    const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
     return {
-        action: 'updateProfile:success',
-        ...(hasDataChanged ? {member: dataUpdate.member} : {}),
-        page,
+        action: 'updateProfile:failed',
+        ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
         popupNotification: createPopupNotification({
-            type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-            message
+            type: 'updateProfile:failed', autoHide: true, closeable: true, status: 'error', message, state
         })
     };
 }
 
-// Separated helper function for partial update success
-async function handlePartialUpdateSuccess({type, actionPrefix, success, state, messageSuffix}) {
-    const action = success ? `${actionPrefix}:success` : `${actionPrefix}:failed`;
-    const status = success ? 'success' : 'error';
-    const autoHide = success;
+/**
+ * Handles case where only name update was attempted.
+ */
+function handleDataOnlyUpdate({dataUpdate, state, t}) {
+    const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+    const status = dataUpdate.success ? 'success' : 'error';
+    const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
 
     return {
         action,
+        ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
+        ...(dataUpdate.success ? {page: 'accountHome'} : {}),
         popupNotification: createPopupNotification({
-            type: action, autoHide, closeable: true, status, state,
-            message: t(messageSuffix)
+            type: action, autoHide: dataUpdate.success, closeable: true, status, state, message
         })
     };
 }
 
-// Separated helper function for email-only failure handling
-async function handleEmailUpdateFailure({emailUpdate, state}) {
-    const action = 'updateProfile:failed';
-    const status = 'error';
-
+/**
+ * Handles case where only email update was attempted.
+ */
+function handleEmailOnlyUpdate({emailUpdate, state, t}) {
+    const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+    const status = emailUpdate.success ? 'success' : 'error';
     let message = '';
+
     if (emailUpdate.error) {
         message = chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
     } else {
@@ -582,60 +612,17 @@ async function handleEmailUpdateFailure({emailUpdate, state}) {
 
     return {
         action,
-        page: 'accountHome',
+        ...(emailUpdate.success ? {page: 'accountHome'} : {}),
         popupNotification: createPopupNotification({
-            type: action, autoHide: false, closeable: true, status, state, message
+            type: action, autoHide: emailUpdate.success, closeable: true, status, state, message
         })
     };
 }
 
-async function updateProfile({data, state, api}) {
-    const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
-
-    if (!dataUpdate && !emailUpdate) {
-        return {
-            action: 'updateProfile:success',
-            page: 'accountHome',
-            popupNotification: createPopupNotification({
-                type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-                message: t('Account details updated successfully')
-            })
-        };
-    }
-
-    if (dataUpdate && emailUpdate) {
-        if (emailUpdate.success) {
-            return await handleUpdateProfileSuccess({dataUpdate, emailUpdate, state, data});
-        }
-
-        const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
-        return {
-            action: 'updateProfile:failed',
-            ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
-            popupNotification: createPopupNotification({
-                type: 'updateProfile:failed', autoHide: true, closeable: true, status: 'error', message, state
-            })
-        };
-    }
-
-    if (dataUpdate) {
-        const actionResult = await handlePartialUpdateSuccess({
-            type: 'data',
-            actionPrefix: 'updateProfile',
-            success: dataUpdate.success,
-            state,
-            messageSuffix: dataUpdate.success ? 'Account details updated successfully' : 'Failed to update account details'
-        });
-        return {
-            ...actionResult,
-            ...(dataUpdate.success ? {member: dataUpdate.member, page: 'accountHome'} : {})
-        };
-    }
-
-    if (emailUpdate) {
-        return await handleEmailUpdateFailure({emailUpdate, state});
-    }
-
+/**
+ * Handles case where no updates were needed (e.g., no changes detected).
+ */
+function handleNoUpdates(state, t) {
     return {
         action: 'updateProfile:success',
         page: 'accountHome',

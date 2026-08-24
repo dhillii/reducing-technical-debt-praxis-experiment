@@ -5,7 +5,6 @@ const errors = require('@tryghost/errors');
 const config = require('../../../../../shared/config');
 const tpl = require('@tryghost/tpl');
 const logging = require('@tryghost/logging');
-
 let spam = config.get('spam') || {};
 
 const messages = {
@@ -29,7 +28,6 @@ const messages = {
     webmentionsBlock: 'Too many mention attempts',
     emailPreviewBlock: 'Only 10 test emails can be sent per hour'
 };
-
 let spamPrivateBlock = spam.private_block || {};
 let spamGlobalBlock = spam.global_block || {};
 let spamGlobalReset = spam.global_reset || {};
@@ -77,78 +75,162 @@ const handleStoreError = (err) => {
     err.next(customError);
 };
 
-const createExpressBruteInstance = (store, options, config, configKeys) => {
-    return new (require('express-brute'))(store, extend(options, pick(config, configKeys)));
-};
-
-const getDbInstance = () => {
-    return require('../../../../data/db');
-};
-
-const createKnexStore = () => {
+const createBruteKnexStore = () => {
     const BruteKnex = require('brute-knex');
-    const db = getDbInstance();
+    const db = require('../../../../data/db');
 
-    store = store || new BruteKnex({
+    return new BruteKnex({
         tablename: 'brute',
         createTable: false,
         knex: db.knex
     });
-
-    return store;
 };
 
 const createMemoryStore = () => {
     const ExpressBrute = require('express-brute');
-    memoryStore = memoryStore || new ExpressBrute.MemoryStore();
-    return memoryStore;
+
+    return new ExpressBrute.MemoryStore();
 };
 
-const createFailCallbackForTooManyRequests = (message, context, help, additionalFields) => {
-    return (req, res, next, nextValidRequestDate) => {
-        const err = new errors.TooManyRequestsError({
-            message,
-            context,
-            help,
-            ...additionalFields
-        });
+const createExpressBruteInstance = (store, options) => {
+    const ExpressBrute = require('express-brute');
 
-        if (nextValidRequestDate) {
-            err.message = `${err.message.replace(/try again in [^)]+\)\./, '')} try again in ${moment(nextValidRequestDate).fromNow(true)}.`;
+    return new ExpressBrute(store, options);
+};
+
+const buildFailCallback = (message, context, help, code) => {
+    return (req, res, next, nextValidRequestDate) => {
+        const formattedMessage = nextValidRequestDate
+            ? `${message} ${moment(nextValidRequestDate).fromNow(true)}`
+            : message;
+
+        const errorOptions = {
+            message: formattedMessage,
+            context: context,
+            help: help
+        };
+
+        if (code) {
+            errorOptions.code = code;
         }
 
-        return next(err);
+        return next(new errors.TooManyRequestsError(errorOptions));
     };
 };
 
-const configureGlobalBlockFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many attempts try again in {time}`,
+const buildGlobalBlockFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many attempts try again in`,
         tpl(messages.forgottenPasswordIp.error, {
-            rfa: spamGlobalBlock.freeRetries + 1 || 5,
-            rfp: spamGlobalBlock.lifetime || 60 * 60
+            rfa: spamConfig.freeRetries + 1 || 5,
+            rfp: spamConfig.lifetime || 60 * 60
         }),
         tpl(messages.tooManyAttempts)
     );
 };
 
-const configureGlobalResetFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many attempts try again in {time}`,
+const buildGlobalResetFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many attempts try again in`,
         tpl(messages.forgottenPasswordIp.error, {
-            rfa: spamGlobalReset.freeRetries + 1 || 5,
-            rfp: spamGlobalReset.lifetime || 60 * 60
+            rfa: spamConfig.freeRetries + 1 || 5,
+            rfp: spamConfig.lifetime || 60 * 60
         }),
         tpl(messages.forgottenPasswordIp.context)
     );
 };
 
-const configurePrivateBlogFailCallback = () => {
+const buildWebmentionsBlockFailCallback = () => {
+    return buildFailCallback(
+        messages.webmentionsBlock,
+        undefined,
+        undefined
+    );
+};
+
+const buildEmailPreviewBlockFailCallback = () => {
+    return buildFailCallback(
+        messages.emailPreviewBlock,
+        undefined,
+        undefined
+    );
+};
+
+const buildMembersAuthFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many sign-in attempts try again in`,
+        tpl(messages.tooManySigninAttempts.context),
+        tpl(messages.tooManySigninAttempts.context)
+    );
+};
+
+const buildMembersAuthEnumerationFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many different sign-in attempts, try again in`,
+        tpl(messages.tooManySigninAttempts.context),
+        tpl(messages.tooManySigninAttempts.context)
+    );
+};
+
+const buildOtcVerificationEnumerationFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many verification attempts across multiple codes, try again in`,
+        tpl(messages.tooManyOTCVerificationAttempts.context),
+        tpl(messages.tooManyOTCVerificationAttempts.context),
+        'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
+    );
+};
+
+const buildOtcVerificationFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many attempts for this verification code, try again in`,
+        tpl(messages.tooManyOTCVerificationAttempts.context),
+        tpl(messages.tooManyOTCVerificationAttempts.context),
+        'OTC_CODE_ATTEMPTS_RATE_LIMITED'
+    );
+};
+
+const buildUserLoginFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many login attempts. Please wait`,
+        tpl(messages.tooManySigninAttempts.context),
+        tpl(messages.tooManySigninAttempts.context)
+    );
+};
+
+const buildUserResetFailCallback = (spamConfig) => {
+    return buildFailCallback(
+        `Too many password reset attempts try again in`,
+        tpl(messages.forgottenPasswordEmail.error, {
+            rfa: spamConfig.freeRetries + 1 || 5,
+            rfp: spamConfig.lifetime || 60 * 60
+        }),
+        tpl(messages.forgottenPasswordEmail.context)
+    );
+};
+
+const buildUserVerificationFailCallback = () => {
+    return buildFailCallback(
+        tpl(messages.tooManyAttempts),
+        undefined,
+        undefined
+    );
+};
+
+const buildSendVerificationCodeFailCallback = () => {
+    return buildFailCallback(
+        tpl(messages.tooManyAttempts),
+        undefined,
+        undefined
+    );
+};
+
+const buildPrivateBlogFailCallback = (spamConfig) => {
     return (req, res, next, nextValidRequestDate) => {
         logging.error(new errors.TooManyRequestsError({
             message: tpl(messages.tooManySigninAttempts.error, {
-                rateSigninAttempts: spamPrivateBlock.freeRetries + 1 || 5,
-                rateSigninPeriod: spamPrivateBlock.lifetime || 60 * 60
+                rateSigninAttempts: spamConfig.freeRetries + 1 || 5,
+                rateSigninPeriod: spamConfig.lifetime || 60 * 60
             }),
             context: tpl(messages.tooManySigninAttempts.context)
         }));
@@ -159,92 +241,7 @@ const configurePrivateBlogFailCallback = () => {
     };
 };
 
-const configureMembersAuthFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many sign-in attempts try again in {time}`,
-        tpl(messages.tooManySigninAttempts.context),
-        tpl(messages.tooManySigninAttempts.context)
-    );
-};
-
-const configureMembersAuthEnumerationFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many different sign-in attempts, try again in {time}`,
-        tpl(messages.tooManySigninAttempts.context),
-        tpl(messages.tooManySigninAttempts.context)
-    );
-};
-
-const configureOtcVerificationEnumerationFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many verification attempts across multiple codes, try again in {time}`,
-        tpl(messages.tooManyOTCVerificationAttempts.context),
-        tpl(messages.tooManyOTCVerificationAttempts.context),
-        { code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED' }
-    );
-};
-
-const configureOtcVerificationFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many attempts for this verification code, try again in {time}`,
-        tpl(messages.tooManyOTCVerificationAttempts.context),
-        tpl(messages.tooManyOTCVerificationAttempts.context),
-        { code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED' }
-    );
-};
-
-const configureUserLoginFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many login attempts. Please wait {time} before trying again, or reset your password.`,
-        tpl(messages.tooManySigninAttempts.context),
-        tpl(messages.tooManySigninAttempts.context)
-    );
-};
-
-const configureUserResetFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        `Too many password reset attempts try again in {time}`,
-        tpl(messages.forgottenPasswordEmail.error, {
-            rfa: spamUserReset.freeRetries + 1 || 5,
-            rfp: spamUserReset.lifetime || 60 * 60
-        }),
-        tpl(messages.forgottenPasswordEmail.context)
-    );
-};
-
-const configureUserVerificationFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        tpl(messages.tooManyAttempts),
-        null,
-        null
-    );
-};
-
-const configureSendVerificationCodeFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        tpl(messages.tooManyAttempts),
-        null,
-        null
-    );
-};
-
-const configureWebmentionsBlockFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        messages.webmentionsBlock,
-        null,
-        null
-    );
-};
-
-const configureEmailPreviewBlockFailCallback = () => {
-    return createFailCallbackForTooManyRequests(
-        messages.emailPreviewBlock,
-        null,
-        null
-    );
-};
-
-const configureContentApiKeyFailCallback = () => {
+const buildContentApiKeyFailCallback = () => {
     return (req, res, next) => {
         const err = new errors.TooManyRequestsError({
             message: tpl(messages.tooManyAttempts)
@@ -255,125 +252,235 @@ const configureContentApiKeyFailCallback = () => {
     };
 };
 
-const configureExpressBrute = (configObj, failCallback, attachResetToRequest = false) => {
-    const storeInstance = configObj.memoryStore ? createMemoryStore() : createKnexStore();
+const createGlobalBlockInstance = () => {
+    const store = createBruteKnexStore();
 
-    return createExpressBruteInstance(storeInstance, {
-        attachResetToRequest,
-        failCallback,
-        handleStoreError
-    }, configObj, spamConfigKeys);
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildGlobalBlockFailCallback(spamGlobalBlock),
+        handleStoreError: handleStoreError,
+        ...pick(spamGlobalBlock, spamConfigKeys)
+    });
+};
+
+const createGlobalResetInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildGlobalResetFailCallback(spamGlobalReset),
+        handleStoreError: handleStoreError,
+        ...pick(spamGlobalReset, spamConfigKeys)
+    });
+};
+
+const createWebmentionsBlockInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildWebmentionsBlockFailCallback(),
+        handleStoreError: handleStoreError,
+        ...pick(spamWebmentionsBlock, spamConfigKeys)
+    });
+};
+
+const createEmailPreviewBlockInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildEmailPreviewBlockFailCallback(),
+        handleStoreError: handleStoreError,
+        ...pick(spamEmailPreviewBlock, spamConfigKeys)
+    });
+};
+
+const createMembersAuthInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildMembersAuthFailCallback(spamUserLogin),
+        handleStoreError: handleStoreError,
+        ...pick(spamUserLogin, spamConfigKeys)
+    });
+};
+
+const createMembersAuthEnumerationInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildMembersAuthEnumerationFailCallback(spamMemberLogin),
+        handleStoreError: handleStoreError,
+        ...pick(spamMemberLogin, spamConfigKeys)
+    });
+};
+
+const createOtcVerificationEnumerationInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildOtcVerificationEnumerationFailCallback(spamOtcVerificationEnumeration),
+        handleStoreError: handleStoreError,
+        ...pick(spamOtcVerificationEnumeration, spamConfigKeys)
+    });
+};
+
+const createOtcVerificationInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildOtcVerificationFailCallback(spamOtcVerification),
+        handleStoreError: handleStoreError,
+        ...pick(spamOtcVerification, spamConfigKeys)
+    });
+};
+
+const createUserLoginInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildUserLoginFailCallback(spamUserLogin),
+        handleStoreError: handleStoreError,
+        ...pick(spamUserLogin, spamConfigKeys)
+    });
+};
+
+const createUserResetInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildUserResetFailCallback(spamUserReset),
+        handleStoreError: handleStoreError,
+        ...pick(spamUserReset, spamConfigKeys)
+    });
+};
+
+const createUserVerificationInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildUserVerificationFailCallback(),
+        handleStoreError: handleStoreError,
+        ...pick(spamUserVerification, spamConfigKeys)
+    });
+};
+
+const createSendVerificationCodeInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildSendVerificationCodeFailCallback(),
+        handleStoreError: handleStoreError,
+        ...pick(spamSendVerificationCode, spamConfigKeys)
+    });
+};
+
+const createPrivateBlogInstance = () => {
+    const store = createBruteKnexStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: false,
+        failCallback: buildPrivateBlogFailCallback(spamPrivateBlock),
+        handleStoreError: handleStoreError,
+        ...pick(spamPrivateBlock, spamConfigKeys)
+    });
+};
+
+const createContentApiKeyInstance = () => {
+    const store = createMemoryStore();
+
+    return createExpressBruteInstance(store, {
+        attachResetToRequest: true,
+        failCallback: buildContentApiKeyFailCallback(),
+        handleStoreError: handleStoreError,
+        ...pick(spamContentApiKey, spamConfigKeys)
+    });
 };
 
 const globalBlock = () => {
-    if (!globalBlockInstance) {
-        globalBlockInstance = configureExpressBrute(spamGlobalBlock, configureGlobalBlockFailCallback(), false);
-    }
-
+    globalBlockInstance = globalBlockInstance || createGlobalBlockInstance();
     return globalBlockInstance;
 };
 
 const globalReset = () => {
-    if (!globalResetInstance) {
-        globalResetInstance = configureExpressBrute(spamGlobalReset, configureGlobalResetFailCallback(), false);
-    }
-
+    globalResetInstance = globalResetInstance || createGlobalResetInstance();
     return globalResetInstance;
 };
 
 const webmentionsBlock = () => {
-    if (!webmentionsBlockInstance) {
-        webmentionsBlockInstance = configureExpressBrute(spamWebmentionsBlock, configureWebmentionsBlockFailCallback(), false);
-    }
-
+    webmentionsBlockInstance = webmentionsBlockInstance || createWebmentionsBlockInstance();
     return webmentionsBlockInstance;
 };
 
 const emailPreviewBlock = () => {
-    if (!emailPreviewBlockInstance) {
-        emailPreviewBlockInstance = configureExpressBrute(spamEmailPreviewBlock, configureEmailPreviewBlockFailCallback(), false);
-    }
-
+    emailPreviewBlockInstance = emailPreviewBlockInstance || createEmailPreviewBlockInstance();
     return emailPreviewBlockInstance;
 };
 
 const membersAuth = () => {
     if (!membersAuthInstance) {
-        membersAuthInstance = configureExpressBrute(spamUserLogin, configureMembersAuthFailCallback(), true);
+        membersAuthInstance = createMembersAuthInstance();
     }
-
     return membersAuthInstance;
 };
 
 const membersAuthEnumeration = () => {
     if (!membersAuthEnumerationInstance) {
-        membersAuthEnumerationInstance = configureExpressBrute(spamMemberLogin, configureMembersAuthEnumerationFailCallback(), true);
+        membersAuthEnumerationInstance = createMembersAuthEnumerationInstance();
     }
-
     return membersAuthEnumerationInstance;
 };
 
 const otcVerificationEnumeration = () => {
     if (!otcVerificationEnumerationInstance) {
-        otcVerificationEnumerationInstance = configureExpressBrute(spamOtcVerificationEnumeration, configureOtcVerificationEnumerationFailCallback(), false);
+        otcVerificationEnumerationInstance = createOtcVerificationEnumerationInstance();
     }
-
     return otcVerificationEnumerationInstance;
 };
 
 const otcVerification = () => {
     if (!otcVerificationInstance) {
-        otcVerificationInstance = configureExpressBrute(spamOtcVerification, configureOtcVerificationFailCallback(), false);
+        otcVerificationInstance = createOtcVerificationInstance();
     }
-
     return otcVerificationInstance;
 };
 
 const userLogin = () => {
-    if (!userLoginInstance) {
-        userLoginInstance = configureExpressBrute(spamUserLogin, configureUserLoginFailCallback(), true);
-    }
-
+    userLoginInstance = userLoginInstance || createUserLoginInstance();
     return userLoginInstance;
 };
 
 const userReset = function userReset() {
-    if (!userResetInstance) {
-        userResetInstance = configureExpressBrute(spamUserReset, configureUserResetFailCallback(), true);
-    }
-
+    userResetInstance = userResetInstance || createUserResetInstance();
     return userResetInstance;
 };
 
 const userVerification = function userVerification() {
-    if (!userVerificationInstance) {
-        userVerificationInstance = configureExpressBrute(spamUserVerification, configureUserVerificationFailCallback(), true);
-    }
-
+    userVerificationInstance = userVerificationInstance || createUserVerificationInstance();
     return userVerificationInstance;
 };
 
 const sendVerificationCode = function sendVerificationCode() {
-    if (!sendVerificationCodeInstance) {
-        sendVerificationCodeInstance = configureExpressBrute(spamSendVerificationCode, configureSendVerificationCodeFailCallback(), true);
-    }
-
+    sendVerificationCodeInstance = sendVerificationCodeInstance || createSendVerificationCodeInstance();
     return sendVerificationCodeInstance;
 };
 
 const privateBlog = () => {
-    if (!privateBlogInstance) {
-        privateBlogInstance = configureExpressBrute(spamPrivateBlock, configurePrivateBlogFailCallback(), false);
-    }
-
+    privateBlogInstance = privateBlogInstance || createPrivateBlogInstance();
     return privateBlogInstance;
 };
 
 const contentApiKey = () => {
-    if (!contentApiKeyInstance) {
-        contentApiKeyInstance = configureExpressBrute(spamContentApiKey, configureContentApiKeyFailCallback(), true);
-    }
-
+    contentApiKeyInstance = contentApiKeyInstance || createContentApiKeyInstance();
     return contentApiKeyInstance;
 };
 

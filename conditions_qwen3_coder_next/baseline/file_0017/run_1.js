@@ -445,26 +445,6 @@ const PlansContainer = ({
     );
 };
 
-// Prop types validation for RetentionOfferSection
-RetentionOfferSection.propTypes = {
-    offer: React.PropTypes.shape({
-        type: React.PropTypes.string,
-        amount: React.PropTypes.number,
-        duration: React.PropTypes.string,
-        duration_in_months: React.PropTypes.number,
-        cadence: React.PropTypes.string
-    }).isRequired,
-    product: React.PropTypes.shape({
-        name: React.PropTypes.string
-    }).isRequired,
-    price: React.PropTypes.shape({
-        amount: React.PropTypes.number,
-        currency: React.PropTypes.string
-    }).isRequired,
-    onAcceptOffer: React.PropTypes.func,
-    onDeclineOffer: React.PropTypes.func
-};
-
 export default class AccountPlanPage extends React.Component {
     static contextType = AppContext;
 

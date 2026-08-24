@@ -1,7 +1,211 @@
-okLabel={okProps.label || 'Save'}
+import NiceModal from '@ebay/nice-modal-react';
+import React, {useEffect, useRef} from 'react';
+import TierDetailPreview from './tier-detail-preview';
+import useSettingGroup from '../../../../hooks/use-setting-group';
+import {Button, type ButtonProps,ConfirmationModal, CurrencyField, Form, Heading, Icon, Modal, Select, SortableList, TextField, Toggle, URLTextField, showToast, useSortableIndexedList} from '@tryghost/admin-x-design-system';
+import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
+import {type RoutingModalProps, useRouting} from '@tryghost/admin-x-framework/routing';
+import {type Tier, useAddTier, useBrowseTiers, useEditTier} from '@tryghost/admin-x-framework/api/tiers';
+import {currencies, currencySelectGroups, validateCurrencyAmount} from '../../../../utils/currency';
+import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api/settings';
+
+export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
+    trial_days: string;
+};
+
+/**
+ * Extracted conditional logic to determine modal title based on tier status.
+ */
+const getModalTitle = (tier?: Tier): string => {
+    if (!tier) {
+        return 'New tier';
+    }
+    return tier.active ? 'Edit tier' : 'Edit archived tier';
+};
+
+/**
+ * Extracted conditional logic to determine left button props for tier status toggle.
+ */
+const getLeftButtonProps = (tier?: Tier): ButtonProps => {
+    if (!tier || tier.type === 'free') {
+        return {};
+    }
+
+    if (tier.active) {
+        return {
+            label: 'Archive tier',
+            color: 'red',
+            link: true,
+            onClick: () => confirmTierStatusChange(tier)
+        };
+    }
+    return {
+        label: 'Reactivate tier',
+        color: 'green',
+        link: true,
+        onClick: () => confirmTierStatusChange(tier)
+    };
+};
+
+/**
+ * Centralized tier status change confirmation dialog logic.
+ */
+const confirmTierStatusChange = (tier: Tier) => {
+    const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
+
+    const prompt = tier.active ? <>
+        <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+        <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+    </> : <>
+        <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+        <div>Existing members will remain unchanged.</div>
+    </>;
+
+    const okLabel = tier.active ? 'Archive' : 'Reactivate';
+
+    NiceModal.show(ConfirmationModal, {
+        title: promptTitle,
+        prompt,
+        okLabel,
+        cancelLabel: 'Cancel',
+        okColor: tier.active ? 'red' : 'black',
+        onOk: (confirmModal) => {
+            updateTier({...tier, active: !tier.active});
+            confirmModal?.remove();
+            showToast({
+                type: 'success',
+                title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
+            });
+        }
+    });
+};
+
+const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
+    const isFreeTier = tier?.type === 'free';
+
+    const {updateRoute} = useRouting();
+    const {mutateAsync: updateTier} = useEditTier();
+    const {mutateAsync: createTier} = useAddTier();
+    const {mutateAsync: editSettings} = useEditSettings();
+    const [hasFreeTrial, setHasFreeTrial] = React.useState(!!tier?.trial_days);
+    const handleError = useHandleError();
+    const {localSettings, siteData} = useSettingGroup();
+    const [portalPlansJson] = getSettingValues(localSettings, ['portal_plans']) as string[];
+    const portalPlans = JSON.parse(portalPlansJson?.toString() || '[]') as string[];
+
+    const validators: {[key in keyof Tier]?: () => string | undefined} = {
+        name: () => (formState.name ? undefined : 'Enter a name for the tier'),
+        monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
+        yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
+    };
+
+    const {formState, saveState, updateForm, handleSave, errors, clearError, okProps} = useForm<TierFormState>({
+        initialState: {
+            ...(tier || {}),
+            trial_days: tier?.trial_days?.toString() || '',
+            currency: tier?.currency || currencies[0].isoCode,
+            visibility: tier?.visibility || 'none',
+            welcome_page_url: tier?.welcome_page_url || null
+        },
+        savingDelay: 500,
+        savedDelay: 500,
+        onValidate: () => {
+            const newErrors: ErrorMessages = {};
+
+            Object.entries(validators).forEach(([key, validator]) => {
+                newErrors[key as keyof Tier] = validator?.();
+            });
+
+            return newErrors;
+        },
+        onSave: async () => {
+            const {trial_days: trialDays, currency, ...rest} = formState;
+            const values: Partial<Tier> = rest;
+
+            values.benefits = values.benefits?.filter(benefit => benefit);
+
+            if (!isFreeTier) {
+                values.currency = currency;
+                values.trial_days = parseInt(trialDays);
+            }
+
+            if (tier?.id) {
+                await updateTier({...tier, ...values});
+            } else {
+                await createTier(values);
+            }
+            if (isFreeTier) {
+                // If we changed the visibility, we also need to update Portal settings in some situations
+                // Like the free tier is a special case, and should also be present/absent in portal_plans
+                const visible = formState.visibility === 'public';
+                let save = false;
+
+                if (portalPlans.includes('free') && !visible) {
+                    portalPlans.splice(portalPlans.indexOf('free'), 1);
+                    save = true;
+                }
+
+                if (!portalPlans.includes('free') && visible) {
+                    portalPlans.push('free');
+                    save = true;
+                }
+
+                if (save) {
+                    await editSettings([
+                        {
+                            key: 'portal_plans',
+                            value: JSON.stringify(portalPlans)
+                        }
+                    ]);
+                }
+            }
+        },
+        onSaveError: handleError
+    });
+
+    const benefits = useSortableIndexedList({
+        items: formState.benefits || [],
+        setItems: newBenefits => updateForm(state => ({...state, benefits: newBenefits})),
+        blank: '',
+        canAddNewItem: item => !!item
+    });
+
+    const toggleFreeTrial = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            setHasFreeTrial(true);
+            updateForm(state => ({...state, trial_days: tier?.trial_days ? tier?.trial_days.toString() : '7'}));
+        } else {
+            setHasFreeTrial(false);
+            updateForm(state => ({...state, trial_days: '0'}));
+        }
+    };
+
+    // Only validate amounts when the user changes currency, don't show errors on initial render
+    const didInitialRender = useRef(false);
+    useEffect(() => {
+        if (didInitialRender.current) {
+            validators.monthly_price?.();
+            validators.yearly_price?.();
+        }
+
+        didInitialRender.current = true;
+    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const leftButtonProps = getLeftButtonProps(tier);
+
+    return <Modal
+        afterClose={() => {
+            updateRoute('tiers');
+        }}
+        buttonsDisabled={okProps.disabled}
+        cancelLabel='Close'
+        dirty={saveState === 'unsaved'}
+        leftButtonProps={leftButtonProps}
+        okColor={okProps.color}
+        okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={getTierModalTitle(tier)}
+        title={getModalTitle(tier)}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});
@@ -165,13 +369,26 @@ okLabel={okProps.label || 'Save'}
     </Modal>;
 };
 
-/**
- * Extracted to reduce branching density and improve readability.
- * Returns the appropriate modal title based on tier state.
- */
-function getTierModalTitle(tier?: Tier): string {
-    if (!tier) {
-        return 'New tier';
+const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {data: {tiers, isEnd} = {}, fetchNextPage} = useBrowseTiers();
+
+    let tier: Tier | undefined;
+
+    useEffect(() => {
+        if (params?.id && !tier && !isEnd) {
+            fetchNextPage();
+        }
+    }, [fetchNextPage, isEnd, params?.id, tier]);
+
+    if (params?.id) {
+        tier = tiers?.find(({id}) => id === params?.id);
+
+        if (!tier) {
+            return null;
+        }
     }
-    return tier.active ? 'Edit tier' : 'Edit archived tier';
-}
+
+    return <TierDetailModalContent tier={tier} />;
+};
+
+export default NiceModal.create(TierDetailModal);

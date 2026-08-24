@@ -9,8 +9,8 @@ import {inject as service} from '@ember/service';
 import {tagName} from '@ember-decorators/component';
 import {tracked} from '@glimmer/tracking';
 
-classic;
-tagName('');
+@classic
+@tagName('')
 export default class GhPostSettingsMenu extends Component {
     @service feature;
     @service store;
@@ -311,142 +311,226 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        return this._handleFieldUpdate(
-            'customExcerpt',
-            excerpt,
-            'customExcerpt',
-            'customExcerpt',
-            this.post
-        );
+        let post = this.post;
+        let currentExcerpt = post.get('customExcerpt');
+
+        if (excerpt === currentExcerpt) {
+            return;
+        }
+
+        post.set('customExcerpt', excerpt);
+
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
-        return this._handleFieldUpdate(
-            'codeinjectionHead',
-            code,
-            'codeinjectionHead',
-            'codeinjectionHead',
-            this.post
-        );
+        let post = this.post;
+        let currentCode = post.get('codeinjectionHead');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionHead', code);
+
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
-        return this._handleFieldUpdate(
-            'codeinjectionFoot',
-            code,
-            'codeinjectionFoot',
-            'codeinjectionFoot',
-            this.post
-        );
+        let post = this.post;
+        let currentCode = post.get('codeinjectionFoot');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionFoot', code);
+
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setMetaTitle(metaTitle) {
-        return this._handleFieldUpdate(
-            'metaTitle',
-            metaTitle,
-            'metaTitle',
-            'metaTitle',
-            this.post
-        );
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
+
+        if (currentTitle === metaTitle) {
+            return;
+        }
+
+        post.set('metaTitle', metaTitle);
+
+        return post.validate({property: 'metaTitle'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this._handleFieldUpdate(
-            'metaDescription',
-            metaDescription,
-            'metaDescription',
-            'metaDescription',
-            this.post
-        );
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+
+        if (currentDescription === metaDescription) {
+            return;
+        }
+
+        post.set('metaDescription', metaDescription);
+
+        return post.validate({property: 'metaDescription'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setCanonicalUrl(value) {
-        return this._handleFieldUpdate(
-            'canonicalUrl',
-            value,
-            'canonicalUrl',
-            'canonicalUrl',
-            this.post
-        );
+        let post = this.post;
+        let currentCanonicalUrl = post.canonicalUrl;
+
+        if (currentCanonicalUrl === value) {
+            return;
+        }
+
+        post.set('canonicalUrl', value);
+
+        return post.validate({property: 'canonicalUrl'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setOgTitle(ogTitle) {
-        return this._handleFieldUpdate(
-            'ogTitle',
-            ogTitle,
-            'ogTitle',
-            'ogTitle',
-            this.post
-        );
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+
+        if (currentTitle === ogTitle) {
+            return;
+        }
+
+        post.set('ogTitle', ogTitle);
+
+        return post.validate({property: 'ogTitle'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._handleFieldUpdate(
-            'ogDescription',
-            ogDescription,
-            'ogDescription',
-            'ogDescription',
-            this.post
-        );
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+
+        if (currentDescription === ogDescription) {
+            return;
+        }
+
+        post.set('ogDescription', ogDescription);
+
+        return post.validate({property: 'ogDescription'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._handleFieldUpdate(
-            'twitterTitle',
-            twitterTitle,
-            'twitterTitle',
-            'twitterTitle',
-            this.post
-        );
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+
+        if (currentTitle === twitterTitle) {
+            return;
+        }
+
+        post.set('twitterTitle', twitterTitle);
+
+        return post.validate({property: 'twitterTitle'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._handleFieldUpdate(
-            'twitterDescription',
-            twitterDescription,
-            'twitterDescription',
-            'twitterDescription',
-            this.post
-        );
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+
+        if (currentDescription === twitterDescription) {
+            return;
+        }
+
+        post.set('twitterDescription', twitterDescription);
+
+        return post.validate({property: 'twitterDescription'}).then(() => this._maybeSavePost(post));
     }
 
     @action
     setCoverImage(image) {
-        return this._handleImageUpdate('featureImage', image);
+        this.set('post.featureImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearCoverImage() {
-        return this._handleImageUpdate('featureImage', '');
+        this.set('post.featureImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setOgImage(image) {
-        return this._handleImageUpdate('ogImage', image);
+        this.set('post.ogImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearOgImage() {
-        return this._handleImageUpdate('ogImage', '');
+        this.set('post.ogImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setTwitterImage(image) {
-        return this._handleImageUpdate('twitterImage', image);
+        this.set('post.twitterImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearTwitterImage() {
-        return this._handleImageUpdate('twitterImage', '');
+        this.set('post.twitterImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -506,53 +590,15 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Extract common field update logic for string/text inputs
-     * @param {string} scratchAttr - attribute name for scratch property (e.g., 'metaTitleScratch')
-     * @param {string} rawAttr - attribute name for raw value (e.g., 'metaTitle')
-     * @param {string} validationProperty - property to validate
-     * @param {string} newExtractedValue - new value to set
-     * @param {Post} post - post instance
-     * @returns {Promise<void>|undefined}
+     * Conditionally save post if not new
+     * @param {Post} post
+     * @returns {Promise<void>|void}
      */
-    _handleFieldUpdate(scratchAttr, newExtractedValue, rawAttr, validationProperty, post) {
-        // Get current stored value
-        let currentValue = post.get(rawAttr);
-        let scratchValue = post.get(scratchAttr);
-
-        // If the value entered matches the stored scratch value, do nothing
-        if (scratchValue === newExtractedValue) {
+    _maybeSavePost(post) {
+        if (post.get('isNew')) {
             return;
         }
 
-        // Update scratch property
-        post.set(scratchAttr, newExtractedValue);
-
-        // Validate
-        return post.validate({property: validationProperty}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
-    }
-
-    /**
-     * Extract common image handling logic for setting/clearing images
-     * @param {string} imageAttr - image attribute name (e.g., 'featureImage')
-     * @param {string|null} imageValue - new image value
-     * @returns {Promise<void>|undefined}
-     */
-    _handleImageUpdate(imageAttr, imageValue) {
-        this.set('post.' + imageAttr, imageValue);
-
-        if (this.get('post.isNew')) {
-            return;
-        }
-
-        this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
+        return this.savePostTask.perform();
     }
 }

@@ -12,7 +12,7 @@ try {
   // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
-    registerCoffeeScriptFallbackHandlers();
+    registerCoffeeFileErrorHandler();
   }
 }
 
@@ -61,31 +61,9 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Expose the task interface. I've never called this manually, and have no idea
-// how it will work. But it might.
-grunt.tasks = function(tasks, options, done) {
-  // Update options with passed-in options.
-  option.init(options);
-
-  // Handle --version and --help flags early
-  if (handleVersionFlag()) {
-    return;
-  }
-
-  if (option('help')) {
-    help.display();
-    return;
-  }
-
-  // Initialize task system
-  initializeAndRunTasks(tasks, options, done);
-};
-
-/**
- * Registers fallback handlers for CoffeeScript file extensions.
- * @private
- */
-function registerCoffeeScriptFallbackHandlers() {
+// Register error handlers for CoffeeScript file extensions.
+// Ensures helpful error message when trying to load .coffee without CoffeeScript installed.
+function registerCoffeeFileErrorHandler() {
   var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
   for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
     require.extensions[FILE_EXTENSIONS[i]] = function() {
@@ -97,65 +75,73 @@ function registerCoffeeScriptFallbackHandlers() {
   }
 }
 
-/**
- * Handles the --version flag and outputs version information.
- * @returns {boolean} true if version flag was handled and execution should stop
- * @private
- */
-function handleVersionFlag() {
-  if (!option('version')) {
-    return false;
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
+grunt.tasks = function(tasks, options, done) {
+  // Update options with passed-in options.
+  option.init(options);
+
+  // Handle version flag.
+  if (option('version')) {
+    handleVersionFlag();
+    return;
   }
 
+  // Handle help flag.
+  if (option('help')) {
+    help.display();
+    return;
+  }
+
+  // Run tasks normally.
+  runTasks(tasks, options, done);
+};
+
+// Displays grunt version and optional verbose info, then exits.
+function handleVersionFlag() {
   log.writeln('grunt v' + grunt.version);
 
-  if (!option('verbose')) {
-    return true;
-  }
+  if (!option('verbose')) { return; }
 
-  // --verbose
   verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-
-  // Mute logging during task initialization
   grunt.log.muted = true;
   grunt.task.init([], {help: true});
   grunt.log.muted = false;
 
-  // Display available tasks
-  var availableTasks = Object.keys(grunt.task._tasks).sort();
-  verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-
-  // Display available options
-  var availableOptions = [];
-  Object.keys(grunt.cli.optlist).forEach(function(long) {
-    var o = grunt.cli.optlist[long];
-    availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) { availableOptions.push('-' + o.short); }
-  });
-  verbose.writeln('Available options: ' + availableOptions.join(' '));
-
-  return true;
+  logAvailableTasks();
+  logAvailableOptions();
 }
 
-/**
- * Initializes and runs the specified tasks.
- * @param {string[]} tasks - Array of task names to run
- * @param {Object} options - Task options
- * @param {Function} done - Callback function to execute after tasks complete
- * @private
- */
-function initializeAndRunTasks(tasks, options, done) {
-  // Initialize colors
+// Logs available tasks sorted alphabetically.
+function logAvailableTasks() {
+  var _tasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln('Available tasks: ' + _tasks.join(' '));
+}
+
+// Logs available command-line options (both long and short forms).
+function logAvailableOptions() {
+  var _options = [];
+  Object.keys(grunt.cli.optlist).forEach(function(long) {
+    var o = grunt.cli.optlist[long];
+    _options.push('--' + (o.negate ? 'no-' : '') + long);
+    if (o.short) { _options.push('-' + o.short); }
+  });
+  verbose.writeln('Available options: ' + _options.join(' '));
+}
+
+// Executes the normal task-running flow.
+function runTasks(tasks, options, done) {
+  // Init colors.
   log.initColors();
 
-  // Header info
+  // A little header stuff.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
-  // Determine and output which tasks will be run
+  // Determine and output which tasks will be run.
   var tasksSpecified = tasks && tasks.length > 0;
   tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
-  // Initialize tasks
+  // Initialize tasks.
   task.init(tasks, options);
 
   verbose.writeln();
@@ -164,22 +150,19 @@ function initializeAndRunTasks(tasks, options, done) {
   }
   verbose.writeflags(tasks, 'Running tasks');
 
-  // Handle uncaught exceptions
+  // Handle uncaught exceptions.
   var uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
   process.on('uncaughtException', uncaughtHandler);
 
-  // Configure task completion callbacks
+  // Configure task callbacks.
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function() {
-      // Clean up uncaught exception handler
       process.removeListener('uncaughtException', uncaughtHandler);
-
-      // Output final report
       fail.report();
 
       if (done) {
@@ -190,7 +173,7 @@ function initializeAndRunTasks(tasks, options, done) {
     }
   });
 
-  // Execute all tasks
+  // Execute tasks sequentially.
   tasks.forEach(function(name) { task.run(name); });
   task.start({asyncDone: true});
 }

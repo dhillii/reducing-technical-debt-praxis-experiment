@@ -88,7 +88,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 navigate('/notes');
             }
 
-            closeAndReset();
+            setIsOpen(false);
+            onOpenChange?.(false);
             toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
             if (replyTo) {
@@ -97,29 +98,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate]);
-
-    const closeAndReset = () => {
-        setIsOpen(false);
-        if (onOpenChange) {
-            onOpenChange(false);
-        }
-        resetForm();
-    };
-
-    const resetForm = () => {
-        setContent('');
-        setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    };
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -211,26 +190,25 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setUploadedImageUrl(imageUrl);
         } catch (error) {
             setImagePreview(null);
-            const errorMessage = getUploadErrorMessage(error);
+
+            let errorMessage = 'Failed to upload image. Try again.';
+
+            if (error && typeof error === 'object' && 'statusCode' in error) {
+                switch (error.statusCode) {
+                case 413:
+                    errorMessage = 'Image size exceeds limit.';
+                    break;
+                case 415:
+                    errorMessage = 'The file type is not supported.';
+                    break;
+                default:
+                    // Use the default error message
+                }
+            }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
         }
-    };
-
-    const getUploadErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            const statusCode = (error as {statusCode: number}).statusCode;
-            switch (statusCode) {
-            case 413:
-                return 'Image size exceeds limit.';
-            case 415:
-                return 'The file type is not supported.';
-            default:
-                // Use the default error message
-            }
-        }
-        return 'Failed to upload image. Try again.';
     };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -293,20 +271,27 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }
 
-    const handleOpenChange = (open: boolean) => {
+    const handleDialogOpenChange = (open: boolean) => {
         if (open) {
-            resetForm();
+            setContent('');
+            setImagePreview(null);
+            setUploadedImageUrl(null);
+            setAltText('');
+            setShowAltInput(false);
+            if (imagePreview) {
+                URL.revokeObjectURL(imagePreview);
+            }
+            if (imageInputRef.current) {
+                imageInputRef.current.value = '';
+            }
         }
 
         setIsOpen(open);
-
-        if (onOpenChange) {
-            onOpenChange(open);
-        }
+        onOpenChange?.(open);
     };
 
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
@@ -358,7 +343,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                 <FormPrimitive.Control asChild>
                                     <input
                                         ref={imageInputRef}
-                                        accept="image/jpeg,image/png,image/webp,image/gif"
+                                        accept="image/jpeg,image/png,image-webp,image/gif"
                                         className='hidden'
                                         type="file"
                                         onChange={handleImageChange}

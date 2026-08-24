@@ -13,10 +13,10 @@ var file = module.exports = {};
 file.glob = require('glob');
 file.minimatch = require('minimatch');
 file.findup = require('findup-sync');
-var YAML = require('js-yaml');
-var rimraf = require('rimraf');
-var iconv = require('iconv-lite');
-var mkdirp = require('mkdirp').sync;
+const YAML = require('js-yaml');
+const rimraf = require('rimraf');
+const iconv = require('iconv-lite');
+const mkdirp = require('mkdirp').sync;
 
 // Windows?
 var win32 = process.platform === 'win32';

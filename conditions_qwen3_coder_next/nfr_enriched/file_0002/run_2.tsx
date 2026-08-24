@@ -151,7 +151,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
-    const handlePasteImage = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
+    const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) {
             return;
@@ -180,10 +180,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            document.addEventListener('paste', handlePasteImage);
-            return () => document.removeEventListener('paste', handlePasteImage);
+            document.addEventListener('paste', handlePaste);
+            return () => document.removeEventListener('paste', handlePaste);
         }
-    }, [isOpen, props.open, handlePasteImage]);
+    }, [isOpen, props.open, handlePaste]);
 
     const handleImageUpload = async (file: File) => {
         try {
@@ -257,6 +257,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -266,7 +267,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const getPlaceholderText = (): string => {
         if (!replyTo) {
-            return "What's new?";
+            return 'What\'s new?';
         }
 
         const attributedTo = replyTo.object.attributedTo || {};
@@ -274,31 +275,39 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
         }
 
-        return "Reply...";
+        return 'Reply...';
     };
 
+    const resetModalState = () => {
+        setContent('');
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    };
+
+    const handleOpenChange = (open: boolean) => {
+        if (open) {
+            resetModalState();
+        }
+
+        setIsOpen(open);
+
+        if (onOpenChange) {
+            onOpenChange(open);
+        }
+    };
+
+    const placeholder = getPlaceholderText();
+
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={(open) => {
-            if (open) {
-                setContent('');
-                setImagePreview(null);
-                setUploadedImageUrl(null);
-                setAltText('');
-                setShowAltInput(false);
-                if (imagePreview) {
-                    URL.revokeObjectURL(imagePreview);
-                }
-                if (imageInputRef.current) {
-                    imageInputRef.current.value = '';
-                }
-            }
-
-            setIsOpen(open);
-
-            if (onOpenChange) {
-                onOpenChange(open);
-            }
-        }} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
@@ -338,11 +347,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                         autoFocus={true}
                                         className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
                                         data-testid="note-textarea"
-                                        placeholder={getPlaceholderText()}
+                                        placeholder={placeholder}
                                         rows={1}
                                         value={content}
                                         onChange={handleChange}
-                                        onPaste={handlePasteImage}
+                                        onPaste={handlePaste}
                                     />
                                 </FormPrimitive.Control>
                             </FormPrimitive.Field>

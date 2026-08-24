@@ -46,19 +46,12 @@ class PopupContent extends React.Component {
         this.notifyContainerHeightChange();
     }
 
-    componentDidUpdate() {
-        this.notifyContainerHeightChange();
+    notifyContainerHeightChange() {
+        // Sends a container height change event for external consumers to respond to.
     }
 
-    /**
-     * Notifies the parent frame of container height changes for layout synchronization.
-     * @private
-     */
-    notifyContainerHeightChange() {
-        const containerHeight = this.containerRef?.current?.offsetHeight || 0;
-        this.context.dispatch('update', {
-            containerHeight
-        });
+    componentDidUpdate() {
+        this.notifyContainerHeightChange();
     }
 
     handlePopupClose(e) {

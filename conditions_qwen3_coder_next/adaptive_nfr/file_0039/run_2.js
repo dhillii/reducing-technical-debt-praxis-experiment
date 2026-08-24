@@ -180,7 +180,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 const authorsToSet = [];
 
                 return Promise.all(authors.map((author, index) => {
-                    const query = this._buildUserQuery(author);
+                    const query = this.buildUserQueryForAuthor(author);
 
                     return ghostBookshelf
                         .model('User')
@@ -205,17 +205,16 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * @param {Object} author - Author object with id/slug/email
-         * @returns {Object} - Query object for user lookup
+         * Build query object for user lookup based on author input
+         * @param {Object} author - author object with id/slug/email
+         * @returns {Object} query object
          */
-        _buildUserQuery(author) {
+        buildUserQueryForAuthor(author) {
             if (author.id) {
                 return {id: author.id};
-            }
-            if (author.slug) {
+            } else if (author.slug) {
                 return {slug: author.slug};
-            }
-            if (author.email) {
+            } else if (author.email) {
                 return {email: author.email};
             }
             return {};
@@ -357,11 +356,17 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             }
 
             function isOwner() {
+                let isCorrectOwner = true;
+
                 if (!unsafeAttrs.authors) {
                     return false;
                 }
 
-                return unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
+                if (unsafeAttrs.authors) {
+                    isCorrectOwner = isCorrectOwner && unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
+                }
+
+                return isCorrectOwner;
             }
 
             function isPrimaryAuthor() {
@@ -372,7 +377,6 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
             }
 
-            // Apply permission rules based on role and action
             if (isContributor && isEdit) {
                 hasUserPermission = !isChangingAuthors() && isCoAuthor();
             } else if (isContributor && isAdd) {

@@ -39,24 +39,23 @@ const StylesWrapper = () => {
     };
 };
 
-/**
- * Sends container height change events to the parent frame.
- * This method is a placeholder and currently has no implementation.
- */
-function sendContainerHeightChange() {
-    // Intentionally empty - required for inter-frame communication compatibility
-    // Static analysis expects implementation but none is currently necessary
-}
-
 class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        sendContainerHeightChange();
+        this.sendContainerHeightChangeEvent();
+    }
+
+    /**
+     * Sends a container height change event to the parent frame.
+     * Currently a no-op placeholder for future height communication.
+     */
+    sendContainerHeightChangeEvent() {
+        // Intentionally empty - placeholder for future height communication implementation
     }
 
     componentDidUpdate() {
-        sendContainerHeightChange();
+        this.sendContainerHeightChangeEvent();
     }
 
     handlePopupClose(e) {
@@ -255,6 +254,7 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
 function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
+        // escape regex syntax in search queries
         const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
             highlightRegexText += `|^` + e + `|\\s` + e;

@@ -42,10 +42,6 @@ const getGhostKey = doBlock(() => {
     };
 });
 
-/**
- * Flatten default settings from categories into a single-level object.
- * Each setting is augmented with group and key properties for internal use.
- */
 function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
     const defaultSettingsFlattened = {};
@@ -65,8 +61,8 @@ function parseDefaultSettings() {
         indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
     };
 
-    _.each(defaultSettingsInCategories, (settings, categoryName) => {
-        _.each(settings, (setting, settingName) => {
+    _.each(defaultSettingsInCategories, function each(settings, categoryName) {
+        _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
 
@@ -86,9 +82,6 @@ function parseDefaultSettings() {
     return defaultSettingsFlattened;
 }
 
-/**
- * Retrieve and memoize the parsed default settings.
- */
 function getDefaultSettings() {
     if (!defaultSettings) {
         defaultSettings = parseDefaultSettings();
@@ -97,177 +90,55 @@ function getDefaultSettings() {
     return defaultSettings;
 }
 
-/**
- * Converts value to boolean when appropriate for persistence.
- * Handles string representations ("0", "1", "true", "false").
- */
-function normalizeBooleanValue(attrs) {
-    const settingType = attrs.type;
-    if (settingType !== 'boolean') {
-        return attrs;
-    }
+function createSettingInsertData(setting, columns, date) {
+    const settingValues = {
+        ...setting,
+        id: ObjectID().toHexString(),
+        created_at: date,
+        updated_at: date
+    };
 
-    if (attrs.value === '0' || attrs.value === '1') {
-        attrs.value = !!+attrs.value;
-    }
-
-    if (attrs.value === 'false' || attrs.value === 'true') {
-        attrs.value = JSON.parse(attrs.value);
-    }
-
-    if (_.isBoolean(attrs.value)) {
-        attrs.value = attrs.value.toString();
-    }
-
-    return attrs;
+    return _.pick(settingValues, columns);
 }
 
-/**
- * Prepares attributes for write operations (e.g., URL transformations).
- */
-function prepareAttributesForWrite(attrs) {
-    if (attrs.value && ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
-        attrs.value = urlUtils.toTransformReady(attrs.value);
-    }
+function getSettingInsertData(settingsToInsert, columns) {
+    const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
-    return attrs;
+    return settingsToInsert.map((setting) => {
+        return createSettingInsertData(setting, columns, date);
+    });
 }
 
-/**
- * Parses persisted attributes, reversing transformations applied during format/write.
- */
-function parseAttributes(attrs) {
-    const settingType = attrs.type;
-
-    if (settingType === 'boolean') {
-        if (attrs.value === '0' || attrs.value === '1') {
-            attrs.value = !!+attrs.value;
-        }
-
-        if (attrs.value === 'false' || attrs.value === 'true') {
-            attrs.value = JSON.parse(attrs.value);
-        }
-    }
-
-    if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
-        attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
-    }
-
-    return attrs;
-}
-
-/**
- * Formats model attributes before persistence.
- */
-function formatModelAttributes(attrs) {
-    return normalizeBooleanValue(prepareAttributesForWrite(attrs));
-}
-
-/**
- * Validates a setting value against default validations.
- */
-async function validateSettingValues(model, settingDefault) {
-    const validationErrors = validator.validate(
-        model.get('value'),
-        model.get('key'),
-        settingDefault.validations,
-        'settings'
-    );
-
-    if (validationErrors.length) {
-        throw new errors.ValidationError({message: validationErrors.join('\n')});
-    }
-}
-
-/**
- * Validates LABS setting value: ensures only allowed flag keys exist.
- */
-async function validateLabsSetting(model) {
-    const flags = JSON.parse(model.get('value'));
-    for (const flag in flags) {
-        if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
-            throw new errors.ValidationError({
-                message: `Settings lab value cannot have value other then ${WRITABLE_KEYS_ALLOWLIST.join(', ')}`
-            });
-        }
-    }
-}
-
-/**
- * Validates Stripe plans: enforces non-zero amounts and required fields.
- */
-async function validateStripePlans(model, options) {
-    const plans = JSON.parse(model.get('value'));
-    for (const plan of plans) {
-        if (!options.importing && plan.amount < 100 && plan.name !== 'Complimentary') {
-            throw new errors.ValidationError({
-                message: 'Plans cannot have an amount less than 1'
-            });
-        }
-
-        if (typeof plan.name !== 'string') {
-            throw new errors.ValidationError({
-                message: 'Plan must have a name'
-            });
-        }
-
-        if (typeof plan.currency !== 'string') {
-            throw new errors.ValidationError({
-                message: 'Plan must have a currency'
-            });
-        }
-
-        if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
-            throw new errors.ValidationError({
-                message: 'Plan interval must be one of: year, month, week or day'
-            });
-        }
-    }
-}
-
-/**
- * Validates Stripe secret key format.
- */
-async function validateStripeSecretKey(model, keyField) {
-    const value = model.get('value');
-    if (value === null) {
-        return;
-    }
-
-    const regex = new RegExp(`^${keyField}_(?:test|live)_[\\da-zA-Z]{1,247}$`);
-    if (!regex.test(value)) {
-        throw new errors.ValidationError({
-            message: `${keyField} did not match ${regex.source}`
-        });
-    }
-}
-
-// Update models and handlers
 Settings = ghostBookshelf.Model.extend({
+
     tableName: 'settings',
+
     actionsCollectCRUD: true,
     actionsResourceType: 'setting',
     actionsExtraContext: ['key', 'group'],
 
-    emitChange(event, options) {
+    emitChange: function emitChange(event, options) {
         const eventToTrigger = 'settings' + '.' + event;
         ghostBookshelf.Model.prototype.emitChange.bind(this)(this, eventToTrigger, options);
     },
 
-    onDestroyed(model, options) {
+    onDestroyed: function onDestroyed(model, options) {
         ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
+
         model.emitChange('deleted', options);
         model.emitChange(model._previousAttributes.key + '.' + 'deleted', options);
     },
 
-    onCreated(model, options) {
+    onCreated: function onCreated(model, options) {
         ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
+
         model.emitChange('added', options);
         model.emitChange(model.attributes.key + '.' + 'added', options);
     },
 
-    onUpdated(model, options) {
+    onUpdated: function onUpdated(model, options) {
         ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
+
         model.emitChange('edited', options);
         model.emitChange(model.attributes.key + '.' + 'edited', options);
     },
@@ -284,19 +155,53 @@ Settings = ghostBookshelf.Model.extend({
 
     format() {
         const attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
-        return formatModelAttributes(attrs);
+        const settingType = attrs.type;
+
+        if (settingType === 'boolean') {
+            if (attrs.value === '0' || attrs.value === '1') {
+                attrs.value = !!+attrs.value;
+            }
+
+            if (attrs.value === 'false' || attrs.value === 'true') {
+                attrs.value = JSON.parse(attrs.value);
+            }
+
+            if (_.isBoolean(attrs.value)) {
+                attrs.value = attrs.value.toString();
+            }
+        }
+
+        return attrs;
     },
 
     formatOnWrite(attrs) {
-        return prepareAttributesForWrite(attrs);
+        if (attrs.value && ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
+            attrs.value = urlUtils.toTransformReady(attrs.value);
+        }
+
+        return attrs;
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        return parseAttributes(attrs);
+
+        const settingType = attrs.type;
+        if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
+            attrs.value = !!+attrs.value;
+        }
+
+        if (settingType === 'boolean' && (attrs.value === 'false' || attrs.value === 'true')) {
+            attrs.value = JSON.parse(attrs.value);
+        }
+
+        if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
+            attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
+        }
+
+        return attrs;
     }
 }, {
-    findOne(data, options) {
+    findOne: function (data, options) {
         if (_.isEmpty(data)) {
             options = data;
         }
@@ -308,8 +213,7 @@ Settings = ghostBookshelf.Model.extend({
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
     },
 
-    // eslint-disable-next-line complexity
-    edit(data, unfilteredOptions) {
+    edit: function (data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
@@ -317,7 +221,7 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        const promises = data.map((item) => {
+        const promises = data.map(function (item) {
             if (item.toJSON) {
                 item = item.toJSON();
             }
@@ -331,35 +235,33 @@ Settings = ghostBookshelf.Model.extend({
 
             item = self.filterData(item);
 
-            return Settings.forge({key: item.key}).fetch(options).then((setting) => {
-                if (!setting) {
-                    return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
+            return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
+                if (setting) {
+                    if (options.importing) {
+                        return setting.save(item, options);
+                    } else {
+                        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                            setting.set('value', item.value);
+                        }
+                        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                            setting.set('type', item.type);
+                        }
+
+                        if (setting.hasChanged()) {
+                            return setting.save(null, options);
+                        }
+
+                        return setting;
+                    }
                 }
 
-                if (options.importing) {
-                    return setting.save(item, options);
-                }
-
-                if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-                    setting.set('value', item.value);
-                }
-
-                if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-                    setting.set('type', item.type);
-                }
-
-                if (setting.hasChanged()) {
-                    return setting.save(null, options);
-                }
-
-                return setting;
+                return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
             });
         });
-
         return Promise.all(promises);
     },
 
-    async populateDefaults(unfilteredOptions) {
+    populateDefaults: async function populateDefaults(unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'populateDefaults');
         const self = this;
 
@@ -372,42 +274,37 @@ Settings = ghostBookshelf.Model.extend({
 
         const allSettings = await this.findAll(options);
 
-        const usedKeys = allSettings.models.map(setting => setting.get('key'));
+        const usedKeys = allSettings.models.map(function mapper(setting) {
+            return setting.get('key');
+        });
+
         const settingsToInsert = [];
 
-        _.each(getDefaultSettings(), (defaultSetting, defaultSettingKey) => {
-            if (usedKeys.indexOf(defaultSettingKey) === -1) {
+        _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
+            const isMissingFromDB = usedKeys.indexOf(defaultSettingKey) === -1;
+            if (isMissingFromDB) {
                 defaultSetting.value = defaultSetting.getDefaultValue();
                 settingsToInsert.push(defaultSetting);
             }
         });
 
-        if (settingsToInsert.length === 0) {
-            return allSettings;
+        if (settingsToInsert.length > 0) {
+            const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
+            const columns = Object.keys(columnInfo);
+
+            const settingsDataToInsert = getSettingInsertData(settingsToInsert, columns);
+
+            await ghostBookshelf.knex
+                .batchInsert('settings', settingsDataToInsert);
+
+            return self.findAll(options);
         }
 
-        const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
-        const columns = Object.keys(columnInfo);
-        const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
-
-        const settingsDataToInsert = settingsToInsert.map((setting) => {
-            const settingValues = {
-                ...setting,
-                id: ObjectID().toHexString(),
-                created_at: date,
-                updated_at: date
-            };
-
-            return _.pick(settingValues, columns);
-        });
-
-        await ghostBookshelf.knex.batchInsert('settings', settingsDataToInsert);
-
-        return self.findAll(options);
+        return allSettings;
     },
 
     validators: {
-        async all(model, options) {
+        async all(model) {
             const settingName = model.get('key');
             const settingDefault = getDefaultSettings()[settingName];
 
@@ -415,36 +312,118 @@ Settings = ghostBookshelf.Model.extend({
                 return;
             }
 
-            await validateSettingValues(model, settingDefault);
-        },
+            const validationErrors = validator.validate(
+                model.get('value'),
+                model.get('key'),
+                settingDefault.validations,
+                'settings'
+            );
 
-        async labs(model, options) {
-            await validateLabsSetting(model, options);
+            if (validationErrors.length) {
+                throw new errors.ValidationError({message: validationErrors.join('\n')});
+            }
         },
+        async labs(model) {
+            const flags = JSON.parse(model.get('value'));
 
+            for (const flag in flags) {
+                if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
+                    throw new errors.ValidationError({
+                        message: `Settings lab value cannot have value other then ${WRITABLE_KEYS_ALLOWLIST.join(', ')}`
+                    });
+                }
+            }
+        },
         async stripe_plans(model, options) {
-            await validateStripePlans(model, options);
-        },
+            const plans = JSON.parse(model.get('value'));
+            for (const plan of plans) {
+                if (!options.importing) {
+                    if (plan.amount < 100 && plan.name !== 'Complimentary') {
+                        throw new errors.ValidationError({
+                            message: 'Plans cannot have an amount less than 1'
+                        });
+                    }
+                }
 
-        async stripe_secret_key(model, options) {
-            await validateStripeSecretKey(model, 'sk');
-        },
+                if (typeof plan.name !== 'string') {
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a name'
+                    });
+                }
 
-        async stripe_publishable_key(model, options) {
-            await validateStripeSecretKey(model, 'pk');
-        },
+                if (typeof plan.currency !== 'string') {
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a currency'
+                    });
+                }
 
-        async stripe_connect_secret_key(model, options) {
-            await validateStripeSecretKey(model, 'sk');
+                if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
+                    throw new errors.ValidationError({
+                        message: 'Plan interval must be one of: year, month, week or day'
+                    });
+                }
+            }
         },
+        async stripe_secret_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
 
-        async stripe_connect_publishable_key(model, options) {
-            await validateStripeSecretKey(model, 'pk');
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!secretKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_secret_key did not match ${secretKeyRegex}`
+                });
+            }
+        },
+        async stripe_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!publishableKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+                });
+            }
+        },
+        async stripe_connect_secret_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!secretKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_secret_key did not match ${secretKeyRegex}`
+                });
+            }
+        },
+        async stripe_connect_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!publishableKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+                });
+            }
         }
     }
 });
 
 module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
-    getOrGenerateSiteUuid
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };

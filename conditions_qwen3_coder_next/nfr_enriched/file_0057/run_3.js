@@ -1,3 +1,21 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+'use strict';
+
+// This alternative WebpackDevServer combines the functionality of:
+// https://github.com/webpack/webpack-dev-server/blob/webpack-1/client/index.js
+// https://github.com/webpack/webpack/blob/webpack-1/hot/dev-server.js
+
+// It only supports their simplest configuration (hot updates on same server).
+// It makes some opinionated choices on top, like adding a syntax error overlay
+// that looks similar to our console output. The error overlay is inspired by:
+// https://github.com/glenjamin/webpack-hot-middleware
+
 var stripAnsi = require('strip-ansi');
 var url = require('url');
 var launchEditorEndpoint = require('./launchEditorEndpoint');
@@ -5,14 +23,24 @@ var formatWebpackMessages = require('./formatWebpackMessages');
 var ErrorOverlay = require('react-error-overlay');
 
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
-  const urlParams = new URLSearchParams({
-    fileName: errorLocation.fileName,
-    lineNumber: errorLocation.lineNumber || 1,
-    colNumber: errorLocation.colNumber || 1,
-  });
-  fetch(`${launchEditorEndpoint}?${urlParams.toString()}`);
+  // Keep this sync with errorOverlayMiddleware.js
+  fetch(
+    launchEditorEndpoint +
+      '?fileName=' +
+      window.encodeURIComponent(errorLocation.fileName) +
+      '&lineNumber=' +
+      window.encodeURIComponent(errorLocation.lineNumber || 1) +
+      '&colNumber=' +
+      window.encodeURIComponent(errorLocation.colNumber || 1)
+  );
 });
 
+// We need to keep track of if there has been a runtime error.
+// Essentially, we cannot guarantee application state was not corrupted by the
+// runtime error. To prevent confusing behavior, we forcibly reload the entire
+// application. This is handled below when we are notified of a compile (code
+// change).
+// See https://github.com/facebook/create-react-app/issues/3096
 var hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
   onError: function () {
@@ -23,163 +51,166 @@ ErrorOverlay.startReportingRuntimeErrors({
 
 if (module.hot && typeof module.hot.dispose === 'function') {
   module.hot.dispose(function () {
+    // TODO: why do we need this?
     ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
 
-function createWebSocketConnection() {
-  return new WebSocket(
-    url.format({
-      protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-      hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-      port: process.env.WDS_SOCKET_PORT || window.location.port,
-      pathname: process.env.WDS_SOCKET_PATH || '/ws',
-      slashes: true,
-    })
-  );
-}
+// Connect to WebpackDevServer via a socket.
+const connection = new WebSocket(
+  url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    // Hardcoded in WebpackDevServer
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    slashes: true,
+  })
+);
 
-var connection = createWebSocketConnection();
-
-function logDisconnectMessage() {
+// Unlike WebpackDevServer client, we won't try to reconnect
+// to avoid spamming the console. Disconnect usually happens
+// when developer stops the server.
+connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
       'The development server has disconnected.\nRefresh the page if necessary.'
     );
   }
-}
-
-connection.onclose = function () {
-  logDisconnectMessage();
 };
 
-var isFirstCompilation = true;
-var mostRecentCompilationHash = null;
-var hasCompileErrors = false;
+// Remember some state related to hot module replacement.
+let isFirstCompilation = true;
+let mostRecentCompilationHash = null;
+let hasCompileErrors = false;
 
-function clearOldErrors() {
-  if (hasCompileErrors && typeof console !== 'undefined' && typeof console.clear === 'function') {
-    console.clear();
-  }
-}
-
-function applyHotUpdate(onSuccess) {
-  module.hot.check(true, function (err, updatedModules) {
-    const needForcedReload = err || hadRuntimeError
-      ? false
-      : !updatedModules;
-
-    if (
-      (err || hadRuntimeError) && !canAcceptErrors() ||
-      needForcedReload
-    ) {
-      window.location.reload();
-      return;
+/**
+ * Clears outdated compile errors from the console if any existed.
+ */
+function clearOutdatedErrors() {
+  // Clean up outdated compile errors, if any.
+  if (typeof console !== 'undefined' && typeof console.clear === 'function') {
+    if (hasCompileErrors) {
+      console.clear();
     }
-
-    onSuccess && onSuccess();
-
-    if (isUpdateAvailable()) {
-      applyHotUpdate(onSuccess);
-    }
-  });
+  }
 }
 
-function tryApplyUpdates(onSuccess) {
-  if (!module.hot) {
-    window.location.reload();
-    return;
-  }
-
-  if (!isUpdateAvailable() || !canApplyUpdates()) {
-    return;
-  }
-
-  applyHotUpdate(onSuccess);
-}
-
+/**
+ * Handles successful compilation: clears outdated errors and attempts hot update if applicable.
+ */
 function handleSuccess() {
-  clearOldErrors();
+  clearOutdatedErrors();
 
   const isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
 
+  // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onHotUpdateSuccess() {
+      // Only dismiss it when we're sure it's a hot update.
+      // Otherwise it would flicker right before the reload.
+      tryDismissErrorOverlay();
+    });
   }
 }
 
+/**
+ * Handles compilation with warnings: clears outdated errors, prints warnings, and attempts hot update if applicable.
+ */
 function handleWarnings(warnings) {
-  clearOldErrors();
+  clearOutdatedErrors();
 
   const isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  const formatted = formatWebpackMessages({ warnings, errors: [] });
+  /**
+   * Formats and prints warnings to the console.
+   */
+  function printWarnings() {
+    const formatted = formatWebpackMessages({
+      warnings: warnings,
+      errors: [],
+    });
 
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    formatted.warnings.slice(0, 5).forEach((warning) =>
-      console.warn(stripAnsi(warning))
-    );
-
-    if (formatted.warnings.length > 5) {
-      console.warn(
-        'There were more warnings in other files.\n' +
-          'You can find a complete log in the terminal.'
-      );
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      for (let i = 0; i < formatted.warnings.length; i++) {
+        if (i === 5) {
+          console.warn(
+            'There were more warnings in other files.\n' +
+              'You can find a complete log in the terminal.'
+          );
+          break;
+        }
+        console.warn(stripAnsi(formatted.warnings[i]));
+      }
     }
   }
 
+  printWarnings();
+
+  // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
+      // Only dismiss it when we're sure it's a hot update.
+      // Otherwise it would flicker right before the reload.
+      tryDismissErrorOverlay();
+    });
   }
 }
 
+/**
+ * Handles compilation with errors: clears outdated errors, displays error overlay, logs to console, and marks errors.
+ */
 function handleErrors(errors) {
-  clearOldErrors();
+  clearOutdatedErrors();
 
   isFirstCompilation = false;
   hasCompileErrors = true;
 
-  const formatted = formatWebpackMessages({ errors, warnings: [] });
+  // "Massage" webpack messages.
+  const formatted = formatWebpackMessages({
+    errors: errors,
+    warnings: [],
+  });
 
+  // Only show the first error.
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
+  // Also log them to the console.
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    formatted.errors.forEach((error) => console.error(stripAnsi(error)));
+    for (let i = 0; i < formatted.errors.length; i++) {
+      console.error(stripAnsi(formatted.errors[i]));
+    }
   }
+
+  // Do not attempt to reload now.
+  // We will reload on next success instead.
 }
 
+/**
+ * Dismisses the error overlay if no compile errors exist.
+ */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
+/**
+ * Updates the most recent known compilation hash.
+ */
 function handleAvailableHash(hash) {
+  // Update last known compilation hash.
   mostRecentCompilationHash = hash;
 }
 
-function isUpdateAvailable() {
-  /* globals __webpack_hash__ */
-  return mostRecentCompilationHash !== __webpack_hash__;
-}
-
-function canApplyUpdates() {
-  return module.hot.status() === 'idle';
-}
-
-function canAcceptErrors() {
-  const hasReactRefresh = process.env.FAST_REFRESH;
-  const status = module.hot.status();
-  return hasReactRefresh && !['abort', 'fail'].includes(status);
-}
-
-connection.onmessage = function (e) {
-  const message = JSON.parse(e.data);
-
+/**
+ * Handles incoming messages from the WebSocket server.
+ */
+function handleServerMessage(message) {
   switch (message.type) {
     case 'hash':
       handleAvailableHash(message.data);
@@ -189,6 +220,7 @@ connection.onmessage = function (e) {
       handleSuccess();
       break;
     case 'content-changed':
+      // Triggered when a file from `contentBase` changed.
       window.location.reload();
       break;
     case 'warnings':
@@ -198,5 +230,101 @@ connection.onmessage = function (e) {
       handleErrors(message.data);
       break;
     default:
+    // Do nothing.
   }
+}
+
+// Handle messages from the server.
+connection.onmessage = function (e) {
+  const message = JSON.parse(e.data);
+  handleServerMessage(message);
 };
+
+/**
+ * Determines whether an updated version of the code is available.
+ */
+function isUpdateAvailable() {
+  /* globals __webpack_hash__ */
+  // __webpack_hash__ is the hash of the current compilation.
+  // It's a global variable injected by webpack.
+  return mostRecentCompilationHash !== __webpack_hash__;
+}
+
+/**
+ * Determines whether Webpack can apply updates currently (must be in 'idle' status).
+ */
+function canApplyUpdates() {
+  return module.hot.status() === 'idle';
+}
+
+/**
+ * Determines whether the update can proceed in the presence of errors using React Fast Refresh.
+ * Returns true if Fast Refresh is enabled and the hot module state is not 'abort' or 'fail'.
+ */
+function canAcceptErrors() {
+  // NOTE: This const is injected by Webpack's DefinePlugin, and is a boolean instead of string.
+  const hasReactRefresh = process.env.FAST_REFRESH;
+
+  const status = module.hot.status();
+  // React refresh can handle hot-reloading over errors.
+  // However, when hot-reload status is abort or fail,
+  // it indicates the current update cannot be applied safely,
+  // and thus we should bail out to a forced reload for consistency.
+  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
+}
+
+/**
+ * Attempts to apply hot updates using Webpack’s HMR API. Falls back to full reload if necessary.
+ */
+function tryApplyUpdates(onHotUpdateSuccess) {
+  if (!module.hot) {
+    // HotModuleReplacementPlugin is not in webpack configuration.
+    window.location.reload();
+    return;
+  }
+
+  if (!isUpdateAvailable() || !canApplyUpdates()) {
+    return;
+  }
+
+  /**
+   * Callback for handling result of module.hot.check().
+   */
+  function handleApplyUpdates(err, updatedModules) {
+    const haveErrors = err || hadRuntimeError;
+    // When there is no error but updatedModules is unavailable,
+    // it indicates a critical failure in hot-reloading,
+    // e.g. server is not ready to serve new bundle,
+    // and hence we need to do a forced reload.
+    const needsForcedReload = !err && !updatedModules;
+    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
+      window.location.reload();
+      return;
+    }
+
+    if (typeof onHotUpdateSuccess === 'function') {
+      // Maybe we want to do something.
+      onHotUpdateSuccess();
+    }
+
+    if (isUpdateAvailable()) {
+      // While we were updating, there was a new update! Do it again.
+      tryApplyUpdates();
+    }
+  }
+
+  // https://webpack.github.io/docs/hot-module-replacement.html#check
+  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+
+  // // webpack 2 returns a Promise instead of invoking a callback
+  if (result && result.then) {
+    result.then(
+      function (updatedModules) {
+        handleApplyUpdates(null, updatedModules);
+      },
+      function (err) {
+        handleApplyUpdates(err, null);
+      }
+    );
+  }
+}

@@ -20,6 +20,15 @@ const DISPLAY_OPTIONS = [{
     value: 'paid'
 }];
 
+/**
+ * Builds a CSS selector string for the given class list elements.
+ * @param {DOMTokenList} classList - The class list to transform.
+ * @returns {string} - A concatenated class selector string.
+ */
+function buildClassSelector(classList) {
+    return Array.from(classList).map(className => `.${className}`).join('');
+}
+
 export default class Analytics extends Component {
     @service ajax;
     @service ghostPaths;
@@ -190,7 +199,7 @@ export default class Analytics extends Component {
     @action
     togglePublishFlowModal() {
         this.showPostCount = false;
-            this.openPublishFlowModal();
+        this.openPublishFlowModal();
     }
 
     @action
@@ -243,6 +252,7 @@ export default class Analytics extends Component {
             }
             return this._fetchReferrersStats.perform();
         } catch (e) {
+            // Do not throw cancellation errors
             if (didCancel(e)) {
                 return;
             }
@@ -259,6 +269,7 @@ export default class Analytics extends Component {
 
             return this._fetchLinks.perform();
         } catch (e) {
+            // Do not throw cancellation errors
             if (didCancel(e)) {
                 return;
             }
@@ -297,6 +308,7 @@ export default class Analytics extends Component {
             }
         });
 
+        // Refresh links data
         const linksFilter = `post_id:'${this.post.id}'`;
         let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
         let result = yield this.ajax.request(statsUrl);
@@ -378,58 +390,35 @@ export default class Analytics extends Component {
     @action
     applyClasses(element) {
         if (!this.shouldAnimate ||
-            this.isClassMatch(element, 'sent', this.post.email.emailCount, this.previousSentCount) ||
-            this.isClassMatch(element, 'opened', this.post.email.openedCount, this.previousOpenedCount) ||
-            this.isClassMatch(element, 'clicked', this.post.count.clicks, this.previousClickedCount) ||
-            this.isClassMatch(element, 'feedback', this.totalFeedback, this.previousFeedbackCount) ||
-            this.isClassMatch(element, 'conversions', this.post.count.conversions, this.previousConversionsCount)
+            (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
+            (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
+            (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
+            (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
+            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
         ) {
             return;
         }
 
-        this.runAnimeForElement(element, 'new-number');
-        this.runAnimeForElement(element, 'old-number');
-    }
-
-    isClassMatch(element, className, currentValue, previousValue) {
-        return element.classList.contains(className) && currentValue === previousValue;
-    }
-
-    runAnimeForElement(element, numberClass) {
-        const selector = this.buildAnimeSelector(element, numberClass);
-        const config = this.getAnimeConfig(numberClass);
+        const selector = buildClassSelector(element.classList);
 
         anime({
-            targets: selector,
-            ...config
+            targets: `${selector} .new-number span`,
+            translateY: [10,0],
+            opacity: [0,1],
+            easing: 'easeOutElastic',
+            elasticity: 650,
+            duration: 1000,
+            delay: (el, i) => 100 + 30 * i
         });
-    }
 
-    buildAnimeSelector(element, numberClass) {
-        const classList = Array.from(element.classList);
-        const classSelector = classList.map(cls => `.${cls}`).join('');
-        return `${classSelector} .${numberClass} span`;
-    }
-
-    getAnimeConfig(numberClass) {
-        if (numberClass === 'new-number') {
-            return {
-                translateY: [10, 0],
-                opacity: [0, 1],
-                easing: 'easeOutElastic',
-                elasticity: 650,
-                duration: 1000,
-                delay: (el, i) => 100 + 30 * i
-            };
-        }
-
-        return {
-            translateY: [0, -10],
-            opacity: [1, 0],
+        anime({
+            targets: `${selector} .old-number span`,
+            translateY: [0,-10],
+            opacity: [1,0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
-        };
+        });
     }
 
     get showLinks() {

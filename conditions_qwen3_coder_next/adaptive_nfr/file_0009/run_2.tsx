@@ -99,25 +99,34 @@ export const EmptyState: React.FC<{title?: string, description: string, buttonAc
     </div>
 );
 
-// Predicate functions to reduce cognitive complexity
-const isOfferActive = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'active' && tier?.active === true;
+/**
+ * Checks if an offer tier matches the given tier ID.
+ * @param tier - The tier to check.
+ * @param offerTierId - The offer's tier ID.
+ * @returns True if the IDs match.
+ */
+const tierMatchesOfferId = (tier: Tier | undefined, offerTierId: string | undefined): boolean => {
+    return tier?.id === offerTierId;
 };
 
-const isOfferArchived = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'archived' || (tier && tier.active === false);
+/**
+ * Checks if an offer is active based on its status and tier activity.
+ * @param offer - The offer to check.
+ * @param offerTier - The associated tier for the offer.
+ * @returns True if the offer is active.
+ */
+const isActiveOffer = (offer: any, offerTier: Tier | undefined): boolean => {
+    return offer.status === 'active' && offerTier?.active === true;
 };
 
-const isTierArchived = (tier: Tier | undefined): boolean => {
-    return tier?.active === false;
-};
-
-const isOfferRedemptionLinkEnabled = (offer: any, isTierArchived: boolean): boolean => {
-    return offer.redemption_count > 0 && !isTierArchived;
-};
-
-const isOfferEditable = (offer: any, isTierArchived: boolean): boolean => {
-    return !isTierArchived;
+/**
+ * Checks if an offer is archived based on its status or tier activity.
+ * @param offer - The offer to check.
+ * @param offerTier - The associated tier for the offer.
+ * @returns True if the offer is archived.
+ */
+const isArchivedOffer = (offer: any, offerTier: Tier | undefined): boolean => {
+    return offer.status === 'archived' || (offerTier?.active === false);
 };
 
 export const OffersIndexModal = () => {
@@ -125,15 +134,24 @@ export const OffersIndexModal = () => {
     const {updateRoute} = useRouting();
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
+
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-    const activeOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isOfferActive(offer, offerTier);
-    });
-    const archivedOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isOfferArchived(offer, offerTier);
-    });
+
+    const activeOffers = signupOffers
+        .map((offer) => {
+            const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+            return {offer, offerTier};
+        })
+        .filter(({offer, offerTier}) => isActiveOffer(offer, offerTier))
+        .map(({offer}) => offer);
+
+    const archivedOffers = signupOffers
+        .map((offer) => {
+            const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+            return {offer, offerTier};
+        })
+        .filter(({offer, offerTier}) => isArchivedOffer(offer, offerTier))
+        .map(({offer}) => offer);
 
     let offersTabs: Tab[] = [
         {id: 'active', title: 'Active'},
@@ -180,63 +198,39 @@ export const OffersIndexModal = () => {
                 </tr> :
                 null
             }
-            {sortedOffers.filter((offer) => {
-                const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-                return (selectedTab === 'active' && isOfferActive(offer, offerTier)) ||
-                    (selectedTab === 'archived' && isOfferArchived(offer, offerTier));
-            }).map((offer) => {
-                const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+            {sortedOffers
+                .filter((offer) => {
+                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+                    if (selectedTab === 'active') {
+                        return isActiveOffer(offer, offerTier);
+                    }
+                    return isArchivedOffer(offer, offerTier);
+                })
+                .map((offer) => {
+                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
 
-                if (!offerTier) {
-                    return null;
-                }
+                    if (!offerTier) {
+                        return null;
+                    }
 
-                const isTierArchivedFlag = isTierArchived(offerTier);
+                    const isTierArchived = offerTier.active === false;
 
-                const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
+                    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 
-                return (
-                    <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
-                        <td className={`${isTierArchivedFlag ? 'opacity-50' : ''} p-0`}>
-                            <a className={`block ${isTierArchivedFlag ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`}
-                                onClick={isOfferEditable(offer, isTierArchivedFlag) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}>
-                                <span className='font-semibold'>{offer?.name}</span>
-                                <br />
-                                <span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span>
-                            </a>
-                        </td>
-                        <td className={`${isTierArchivedFlag ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
-                            <a className={`block ${isTierArchivedFlag ? 'cursor-default select-none' : 'cursor-pointer'} p-5`}
-                                onClick={isOfferEditable(offer, isTierArchivedFlag) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}>
-                                <span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span>
-                                <br />
-                                <span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span>
-                            </a>
-                        </td>
-                        <td className={`${isTierArchivedFlag ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
-                            <a className={`block ${isTierArchivedFlag ? 'cursor-default select-none' : 'cursor-pointer'} p-5`}
-                                onClick={isOfferEditable(offer, isTierArchivedFlag) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}>
-                                <span className='font-medium'>{updatedPriceWithCurrency}</span>
-                                {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}
-                            </a>
-                        </td>
-                        <td className={`${isTierArchivedFlag ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}>
-                            <a className={`block ${isTierArchivedFlag ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
-                                href={isOfferRedemptionLinkEnabled(offer, isTierArchivedFlag) ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined}
-                                onClick={offer.redemption_count === 0 ? isOfferEditable(offer, isTierArchivedFlag) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {} : () => {}}>
-                                {offer.redemption_count}
-                            </a>
-                        </td>
-                        <td className={`${isTierArchivedFlag ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
-                            {!isTierArchivedFlag ? <CopyLinkButton offerCode={offer.code} /> : null}
-                        </td>
-                        {isTierArchivedFlag ?
-                            <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>This offer is disabled, because <br /> it is tied to an archived tier.</div> :
-                            null
-                        }
-                    </tr>
-                );
-            })}
+                    return (
+                        <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
+                            <td className={`${isTierArchived ? 'opacity-50' : ''} p-0`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`} onClick={!isTierArchived ? () => handleOfferEdit(offer.id ? offer.id : '') : () => {}}><span className='font-semibold'>{offer.name}</span><br /><span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span></a></td>
+                            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer.id ? offer.id : '') : () => {}}><span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span><br /><span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span></a></td>
+                            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer.id ? offer.id : '') : () => {}}><span className='font-medium'>{updatedPriceWithCurrency}</span> {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}</a></td>
+                            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`} href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined} onClick={offer.redemption_count === 0 ? !isTierArchived ? () => handleOfferEdit(offer.id ? offer.id : '') : () => {} : () => {}}>{offer.redemption_count}</a></td>
+                            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>{!isTierArchived ? <CopyLinkButton offerCode={offer.code} /> : null}</td>
+                            {isTierArchived ?
+                                <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>This offer is disabled, because <br /> it is tied to an archived tier.</div> :
+                                null
+                            }
+                        </tr>
+                    );
+                })}
         </table>
     </div>;
 

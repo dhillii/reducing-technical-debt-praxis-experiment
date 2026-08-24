@@ -34,11 +34,9 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const filledData: {date: string; signups: number; cancellations: number}[] = [];
     const seenKeys = new Set<string>();
 
-    const processMonthly = () => {
-        let currentPeriod = moment(startDate).startOf('month');
-        const endPeriod = moment(endDate).startOf('month');
-
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
+    const processPeriod = (startMoment: moment.Moment, endMoment: moment.Moment, periodIncrement: 'day' | 'week' | 'month') => {
+        const currentPeriod = moment(startMoment);
+        while (currentPeriod.isSameOrBefore(endMoment)) {
             const dateKey = currentPeriod.format('YYYY-MM-DD');
             if (!seenKeys.has(dateKey)) {
                 seenKeys.add(dateKey);
@@ -46,54 +44,23 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
                 if (existingData) {
                     filledData.push(existingData);
                 } else {
-                    filledData.push({date: dateKey, signups: 0, cancellations: 0});
+                    filledData.push({
+                        date: dateKey,
+                        signups: 0,
+                        cancellations: 0
+                    });
                 }
             }
-            currentPeriod.add(1, 'month');
-        }
-    };
-
-    const processWeekly = () => {
-        let currentPeriod = moment(startDate).startOf('week');
-        const endPeriod = moment(endDate).startOf('week');
-
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
-            const dateKey = currentPeriod.format('YYYY-MM-DD');
-            if (!seenKeys.has(dateKey)) {
-                seenKeys.add(dateKey);
-                const existingData = dataMap.get(dateKey);
-                if (existingData) {
-                    filledData.push(existingData);
-                } else {
-                    filledData.push({date: dateKey, signups: 0, cancellations: 0});
-                }
-            }
-            currentPeriod.add(1, 'week');
-        }
-    };
-
-    const processDaily = () => {
-        let currentDate = moment(startDate);
-        const endMoment = moment(endDate);
-
-        while (currentDate.isSameOrBefore(endMoment)) {
-            const dateKey = currentDate.format('YYYY-MM-DD');
-            const existingData = dataMap.get(dateKey);
-            if (existingData) {
-                filledData.push(existingData);
-            } else {
-                filledData.push({date: dateKey, signups: 0, cancellations: 0});
-            }
-            currentDate.add(1, 'day');
+            currentPeriod.add(1, periodIncrement);
         }
     };
 
     if (strategy === 'monthly') {
-        processMonthly();
+        processPeriod(moment(startDate).startOf('month'), moment(endDate).startOf('month'), 'month');
     } else if (strategy === 'weekly') {
-        processWeekly();
+        processPeriod(moment(startDate).startOf('week'), moment(endDate).startOf('week'), 'week');
     } else {
-        processDaily();
+        processPeriod(moment(startDate), moment(endDate), 'day');
     }
 
     return filledData;
@@ -133,6 +100,116 @@ const getDefaultResolution = (range: number): ResolutionOption => {
     }
 };
 
+const processSubscriptionData = (data: {date: string; signups: number; cancellations: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly' | 'none', selectedResolution: ResolutionOption) => {
+    if (range === 1) {
+        const today = moment().format('YYYY-MM-DD');
+        const todayData = data.find(item => item.date === today);
+        return [{
+            date: formatDisplayDateWithRange(today, range),
+            rawDate: today,
+            new: todayData?.signups || 0,
+            cancelled: -(todayData?.cancellations || 0)
+        }];
+    }
+
+    const signupsData = sanitizeChartData(data, range, 'signups', 'sum', aggregationStrategy);
+    const cancellationsData = sanitizeChartData(data, range, 'cancellations', 'sum', aggregationStrategy);
+    const cancellationsMap = new Map(cancellationsData.map(c => [c.date, c]));
+
+    const combinedData = signupsData.map(item => ({
+        date: item.date,
+        signups: item.signups || 0,
+        cancellations: cancellationsMap.get(item.date)?.cancellations || 0
+    }));
+
+    const combinedDatesSet = new Set(combinedData.map(item => item.date));
+    cancellationsData.forEach((cancelItem) => {
+        if (!combinedDatesSet.has(cancelItem.date)) {
+            combinedData.push({
+                date: cancelItem.date,
+                signups: 0,
+                cancellations: cancelItem.cancellations || 0
+            });
+        }
+    });
+
+    combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
+
+    return filledData.map((item) => {
+        let effectiveRange = range;
+        if (selectedResolution === 'weekly' && range < 91) {
+            effectiveRange = 91;
+        } else if (selectedResolution === 'monthly' && range < 365) {
+            effectiveRange = 365;
+        }
+
+        return {
+            date: formatDisplayDateWithRange(item.date, effectiveRange),
+            rawDate: item.date,
+            new: item.signups || 0,
+            cancelled: -(item.cancellations || 0)
+        };
+    });
+};
+
+const processMemberData = (data: {date: string; paid_subscribed?: number; paid_canceled?: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly' | 'none', selectedResolution: ResolutionOption) => {
+    if (!data || data.length === 0) {
+        return [];
+    }
+
+    if (range === 1) {
+        const today = moment().format('YYYY-MM-DD');
+        const todayData = data.find(item => item.date === today);
+        return [{
+            date: formatDisplayDateWithRange(today, range),
+            rawDate: today,
+            new: todayData?.paid_subscribed || 0,
+            cancelled: -(todayData?.paid_canceled || 0)
+        }];
+    }
+
+    const subscribedData = sanitizeChartData(data, range, 'paid_subscribed', 'sum', aggregationStrategy);
+    const canceledData = sanitizeChartData(data, range, 'paid_canceled', 'sum', aggregationStrategy);
+    const canceledMap = new Map(canceledData.map(c => [c.date, c]));
+
+    const combinedData = subscribedData.map(item => ({
+        date: item.date,
+        paid_subscribed: item.paid_subscribed || 0,
+        paid_canceled: canceledMap.get(item.date)?.paid_canceled || 0
+    }));
+
+    const combinedDatesSet = new Set(combinedData.map(item => item.date));
+    canceledData.forEach((cancelItem) => {
+        if (!combinedDatesSet.has(cancelItem.date)) {
+            combinedData.push({
+                date: cancelItem.date,
+                paid_subscribed: 0,
+                paid_canceled: cancelItem.paid_canceled || 0
+            });
+        }
+    });
+
+    combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const filledData = fillMissingDataPoints(combinedData as {date: string; signups: number; cancellations: number}[], range, aggregationStrategy);
+
+    return filledData.map((item) => {
+        let effectiveRange = range;
+        if (selectedResolution === 'weekly' && range < 91) {
+            effectiveRange = 91;
+        } else if (selectedResolution === 'monthly' && range < 365) {
+            effectiveRange = 365;
+        }
+
+        return {
+            date: formatDisplayDateWithRange(item.date, effectiveRange),
+            rawDate: item.date,
+            new: item.signups || 0,
+            cancelled: -(item.cancellations || 0)
+        };
+    });
+};
+
 const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     subscriptionData,
     memberData,
@@ -158,126 +235,11 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
         }
     }, [selectedResolution]);
 
-    const processSubscriptionData = () => {
-        if (!subscriptionData || subscriptionData.length === 0) {
-            return [];
-        }
-
-        if (range === 1) {
-            const today = moment().format('YYYY-MM-DD');
-            const todayData = subscriptionData.find(item => item.date === today);
-
-            return [{
-                date: formatDisplayDateWithRange(today, range),
-                rawDate: today,
-                new: todayData?.signups || 0,
-                cancelled: -(todayData?.cancellations || 0)
-            }];
-        }
-
-        const signupsData = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
-        const cancellationsData = sanitizeChartData(subscriptionData, range, 'cancellations', 'sum', aggregationStrategy);
-
-        const cancellationsMap = new Map(cancellationsData.map(c => [c.date, c]));
-        const combinedData = signupsData.map(item => ({
-            date: item.date,
-            signups: item.signups || 0,
-            cancellations: cancellationsMap.get(item.date)?.cancellations || 0
-        }));
-
-        const combinedDatesSet = new Set(combinedData.map(item => item.date));
-        cancellationsData.forEach((cancelItem) => {
-            if (!combinedDatesSet.has(cancelItem.date)) {
-                combinedData.push({
-                    date: cancelItem.date,
-                    signups: 0,
-                    cancellations: cancelItem.cancellations || 0
-                });
-            }
-        });
-
-        combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
-
-        return filledData.map((item) => {
-            let effectiveRange = range;
-            if (selectedResolution === 'weekly' && range < 91) {
-                effectiveRange = 91;
-            } else if (selectedResolution === 'monthly' && range < 365) {
-                effectiveRange = 365;
-            }
-
-            return {
-                date: formatDisplayDateWithRange(item.date, effectiveRange),
-                rawDate: item.date,
-                new: item.signups || 0,
-                cancelled: -(item.cancellations || 0)
-            };
-        });
-    };
-
-    const processMemberData = () => {
-        if (!memberData || memberData.length === 0) {
-            return [];
-        }
-
-        if (range === 1) {
-            const today = moment().format('YYYY-MM-DD');
-            const todayData = memberData.find(item => item.date === today);
-
-            return [{
-                date: formatDisplayDateWithRange(today, range),
-                rawDate: today,
-                new: todayData?.paid_subscribed || 0,
-                cancelled: -(todayData?.paid_canceled || 0)
-            }];
-        }
-
-        const subscribedData = sanitizeChartData(memberData, range, 'paid_subscribed', 'sum', aggregationStrategy);
-        const canceledData = sanitizeChartData(memberData, range, 'paid_canceled', 'sum', aggregationStrategy);
-
-        const canceledMap = new Map(canceledData.map(c => [c.date, c]));
-        const combinedData = subscribedData.map(item => ({
-            date: item.date,
-            paid_subscribed: item.paid_subscribed || 0,
-            paid_canceled: canceledMap.get(item.date)?.paid_canceled || 0
-        }));
-
-        const combinedDatesSet = new Set(combinedData.map(item => item.date));
-        canceledData.forEach((cancelItem) => {
-            if (!combinedDatesSet.has(cancelItem.date)) {
-                combinedData.push({
-                    date: cancelItem.date,
-                    paid_subscribed: 0,
-                    paid_canceled: cancelItem.paid_canceled || 0
-                });
-            }
-        });
-
-        combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        return combinedData.map((item) => {
-            let effectiveRange = range;
-            if (selectedResolution === 'weekly' && range < 91) {
-                effectiveRange = 91;
-            } else if (selectedResolution === 'monthly' && range < 365) {
-                effectiveRange = 365;
-            }
-
-            return {
-                date: formatDisplayDateWithRange(item.date, effectiveRange),
-                rawDate: item.date,
-                new: item.paid_subscribed || 0,
-                cancelled: -(item.paid_canceled || 0)
-            };
-        });
-    };
-
     const paidChangeChartData = useMemo(() => {
         if (subscriptionData && subscriptionData.length > 0) {
-            return processSubscriptionData();
+            return processSubscriptionData(subscriptionData, range, aggregationStrategy, selectedResolution);
         } else {
-            return processMemberData();
+            return processMemberData(memberData || [], range, aggregationStrategy, selectedResolution);
         }
     }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 

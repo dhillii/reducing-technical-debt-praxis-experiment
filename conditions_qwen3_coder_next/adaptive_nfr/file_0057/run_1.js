@@ -1,3 +1,14 @@
+'use strict';
+
+// This alternative WebpackDevServer combines the functionality of:
+// https://github.com/webpack/webpack-dev-server/blob/webpack-1/client/index.js
+// https://github.com/webpack/webpack/blob/webpack-1/hot/dev-server.js
+
+// It only supports their simplest configuration (hot updates on same server).
+// It makes some opinionated choices on top, like adding a syntax error overlay
+// that looks similar to our console output. The error overlay is inspired by:
+// https://github.com/glenjamin/webpack-hot-middleware
+
 var stripAnsi = require('strip-ansi');
 var url = require('url');
 var launchEditorEndpoint = require('./launchEditorEndpoint');
@@ -66,10 +77,8 @@ var isFirstCompilation = true;
 var mostRecentCompilationHash = null;
 var hasCompileErrors = false;
 
-/**
- * Clears outdated compilation errors from console.
- */
 function clearOutdatedErrors() {
+  // Clean up outdated compile errors, if any.
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
     if (hasCompileErrors) {
       console.clear();
@@ -85,8 +94,13 @@ function handleSuccess() {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
+  // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onHotUpdateSuccess() {
+      // Only dismiss it when we're sure it's a hot update.
+      // Otherwise it would flicker right before the reload.
+      tryDismissErrorOverlay();
+    });
   }
 }
 
@@ -99,6 +113,7 @@ function handleWarnings(warnings) {
   hasCompileErrors = false;
 
   function printWarnings() {
+    // Print warnings to the console.
     var formatted = formatWebpackMessages({
       warnings: warnings,
       errors: [],
@@ -120,8 +135,13 @@ function handleWarnings(warnings) {
 
   printWarnings();
 
+  // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
+      // Only dismiss it when we're sure it's a hot update.
+      // Otherwise it would flicker right before the reload.
+      tryDismissErrorOverlay();
+    });
   }
 }
 
@@ -132,18 +152,24 @@ function handleErrors(errors) {
   isFirstCompilation = false;
   hasCompileErrors = true;
 
+  // "Massage" webpack messages.
   var formatted = formatWebpackMessages({
     errors: errors,
     warnings: [],
   });
 
+  // Only show the first error.
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
+  // Also log them to the console.
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
     for (var i = 0; i < formatted.errors.length; i++) {
       console.error(stripAnsi(formatted.errors[i]));
     }
   }
+
+  // Do not attempt to reload now.
+  // We will reload on next success instead.
 }
 
 function tryDismissErrorOverlay() {
@@ -152,59 +178,102 @@ function tryDismissErrorOverlay() {
   }
 }
 
+// There is a newer version of the code available.
 function handleAvailableHash(hash) {
+  // Update last known compilation hash.
   mostRecentCompilationHash = hash;
 }
 
-/**
- * Handler map for WebSocket message types.
- */
-var messageHandlers = {
-  hash: handleAvailableHash,
-  'still-ok': handleSuccess,
-  ok: handleSuccess,
-  'content-changed': function contentChangedHandler() {
-    window.location.reload();
-  },
-  warnings: handleWarnings,
-  errors: handleErrors,
-};
+// Message handlers by type
+function createMessageHandlerMap() {
+  /**
+   * Handles 'hash' message type
+   * @param {Object} data - Message data containing hash
+   */
+  function handleHash(data) {
+    handleAvailableHash(data);
+  }
 
-/**
- * Dispatches incoming WebSocket message to its handler based on message type.
- * @param {Object} message - Parsed JSON message object.
- */
-function handleWebSocketMessage(message) {
-  var handler = messageHandlers[message.type];
+  /**
+   * Handles 'still-ok' and 'ok' message types
+   */
+  function handleOk() {
+    handleSuccess();
+  }
+
+  /**
+   * Handles 'content-changed' message type
+   */
+  function handleContentChanged() {
+    window.location.reload();
+  }
+
+  /**
+   * Handles 'warnings' message type
+   * @param {Array} data - Array of warning messages
+   */
+  function handleWarnings(data) {
+    handleWarnings(data);
+  }
+
+  /**
+   * Handles 'errors' message type
+   * @param {Array} data - Array of error messages
+   */
+  function handleErrors(data) {
+    handleErrors(data);
+  }
+
+  return {
+    hash: handleHash,
+    'still-ok': handleOk,
+    ok: handleOk,
+    'content-changed': handleContentChanged,
+    warnings: handleWarnings,
+    errors: handleErrors,
+  };
+}
+
+// Handle messages from the server.
+connection.onmessage = function (e) {
+  var message = JSON.parse(e.data);
+  var handlers = createMessageHandlerMap();
+  var handler = handlers[message.type];
+
   if (handler) {
     handler(message.data);
   }
-}
-
-connection.onmessage = function (e) {
-  var message = JSON.parse(e.data);
-  handleWebSocketMessage(message);
 };
 
+// Is there a newer version of this code available?
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
+  // __webpack_hash__ is the hash of the current compilation.
+  // It's a global variable injected by webpack.
   return mostRecentCompilationHash !== __webpack_hash__;
 }
 
+// webpack disallows updates in other states.
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
 function canAcceptErrors() {
+  // NOTE: This const is injected by Webpack's DefinePlugin, and is a boolean instead of string.
   const hasReactRefresh = process.env.FAST_REFRESH;
 
   const status = module.hot.status();
-
-  return hasReactRefresh && !['abort', 'fail'].includes(status);
+  // React refresh can handle hot-reloading over errors.
+  // However, when hot-reload status is abort or fail,
+  // it indicates the current update cannot be applied safely,
+  // and thus we should bail out to a forced reload for consistency.
+  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
+// Attempt to update code on the fly, fall back to a hard reload.
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
+    // HotModuleReplacementPlugin is not in webpack configuration.
     window.location.reload();
     return;
   }
@@ -215,31 +284,39 @@ function tryApplyUpdates(onHotUpdateSuccess) {
 
   function handleApplyUpdates(err, updatedModules) {
     const haveErrors = err || hadRuntimeError;
+    // When there is no error but updatedModules is unavailable,
+    // it indicates a critical failure in hot-reloading,
+    // e.g. server is not ready to serve new bundle,
+    // and hence we need to do a forced reload.
     const needsForcedReload = !err && !updatedModules;
-
     if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
       window.location.reload();
       return;
     }
 
     if (typeof onHotUpdateSuccess === 'function') {
+      // Maybe we want to do something.
       onHotUpdateSuccess();
     }
 
     if (isUpdateAvailable()) {
-      tryApplyUpdates(onHotUpdateSuccess);
+      // While we were updating, there was a new update! Do it again.
+      tryApplyUpdates();
     }
   }
 
-  var result = module.hot.check(true, handleApplyUpdates);
+  // https://webpack.github.io/docs/hot-module-replacement.html#check
+  var result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
 
+  // // webpack 2 returns a Promise instead of invoking a callback
   if (result && result.then) {
-    result
-      .then(function (updatedModules) {
+    result.then(
+      function (updatedModules) {
         handleApplyUpdates(null, updatedModules);
-      })
-      .catch(function (err) {
+      },
+      function (err) {
         handleApplyUpdates(err, null);
-      });
+      }
+    );
   }
 }

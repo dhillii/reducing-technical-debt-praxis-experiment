@@ -1,3 +1,14 @@
+'use strict';
+
+// This alternative WebpackDevServer combines the functionality of:
+// https://github.com/webpack/webpack-dev-server/blob/webpack-1/client/index.js
+// https://github.com/webpack/webpack/blob/webpack-1/hot/dev-server.js
+
+// It only supports their simplest configuration (hot updates on same server).
+// It makes some opinionated choices on top, like adding a syntax error overlay
+// that looks similar to our console output. The error overlay is inspired by:
+// https://github.com/glenjamin/webpack-hot-middleware
+
 var stripAnsi = require('strip-ansi');
 var url = require('url');
 var launchEditorEndpoint = require('./launchEditorEndpoint');
@@ -39,7 +50,7 @@ if (module.hot && typeof module.hot.dispose === 'function') {
 }
 
 // Connect to WebpackDevServer via a socket.
-const connection = new WebSocket(
+var connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
@@ -62,9 +73,9 @@ connection.onclose = function () {
 };
 
 // Remember some state related to hot module replacement.
-let isFirstCompilation = true;
-let mostRecentCompilationHash = null;
-let hasCompileErrors = false;
+var isFirstCompilation = true;
+var mostRecentCompilationHash = null;
+var hasCompileErrors = false;
 
 function clearOutdatedErrors() {
   // Clean up outdated compile errors, if any.
@@ -79,7 +90,7 @@ function clearOutdatedErrors() {
 function handleSuccess() {
   clearOutdatedErrors();
 
-  const isHotUpdate = !isFirstCompilation;
+  var isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
 
@@ -97,19 +108,19 @@ function handleSuccess() {
 function handleWarnings(warnings) {
   clearOutdatedErrors();
 
-  const isHotUpdate = !isFirstCompilation;
+  var isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
 
   function printWarnings() {
     // Print warnings to the console.
-    const formatted = formatWebpackMessages({
+    var formatted = formatWebpackMessages({
       warnings: warnings,
       errors: [],
     });
 
     if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-      for (let i = 0; i < formatted.warnings.length; i++) {
+      for (var i = 0; i < formatted.warnings.length; i++) {
         if (i === 5) {
           console.warn(
             'There were more warnings in other files.\n' +
@@ -142,7 +153,7 @@ function handleErrors(errors) {
   hasCompileErrors = true;
 
   // "Massage" webpack messages.
-  const formatted = formatWebpackMessages({
+  var formatted = formatWebpackMessages({
     errors: errors,
     warnings: [],
   });
@@ -152,7 +163,7 @@ function handleErrors(errors) {
 
   // Also log them to the console.
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (let i = 0; i < formatted.errors.length; i++) {
+    for (var i = 0; i < formatted.errors.length; i++) {
       console.error(stripAnsi(formatted.errors[i]));
     }
   }
@@ -173,33 +184,64 @@ function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
-// Message type handlers
-const messageHandlers = {
-  hash: handleAvailableHash,
-  'still-ok': handleSuccess,
-  ok: handleSuccess,
-  'content-changed': function () {
-    // Triggered when a file from `contentBase` changed.
+// Message handlers by type
+function createMessageHandlerMap() {
+  /**
+   * Handles 'hash' message type
+   * @param {Object} data - Message data containing hash
+   */
+  function handleHash(data) {
+    handleAvailableHash(data);
+  }
+
+  /**
+   * Handles 'still-ok' and 'ok' message types
+   */
+  function handleOk() {
+    handleSuccess();
+  }
+
+  /**
+   * Handles 'content-changed' message type
+   */
+  function handleContentChanged() {
     window.location.reload();
-  },
-  warnings: handleWarnings,
-  errors: handleErrors,
-};
+  }
+
+  /**
+   * Handles 'warnings' message type
+   * @param {Array} data - Array of warning messages
+   */
+  function handleWarnings(data) {
+    handleWarnings(data);
+  }
+
+  /**
+   * Handles 'errors' message type
+   * @param {Array} data - Array of error messages
+   */
+  function handleErrors(data) {
+    handleErrors(data);
+  }
+
+  return {
+    hash: handleHash,
+    'still-ok': handleOk,
+    ok: handleOk,
+    'content-changed': handleContentChanged,
+    warnings: handleWarnings,
+    errors: handleErrors,
+  };
+}
 
 // Handle messages from the server.
 connection.onmessage = function (e) {
-  const message = JSON.parse(e.data);
-  const handler = messageHandlers[message.type];
+  var message = JSON.parse(e.data);
+  var handlers = createMessageHandlerMap();
+  var handler = handlers[message.type];
+
   if (handler) {
-    // If handler is a function, call it. Otherwise assume it's a simple action handler.
-    // For hash/warnings/errors types that require data, handlers must accepts data parameter.
-    if (message.type === 'hash') {
-      handler(message.data);
-    } else if (['warnings', 'errors'].includes(message.type)) {
-      handler(message.data);
-    } else {
-      handler();
-    }
+    handler(message.data);
   }
 };
 
@@ -264,7 +306,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   }
 
   // https://webpack.github.io/docs/hot-module-replacement.html#check
-  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+  var result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
 
   // // webpack 2 returns a Promise instead of invoking a callback
   if (result && result.then) {

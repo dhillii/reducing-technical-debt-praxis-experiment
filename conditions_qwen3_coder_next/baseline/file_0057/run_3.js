@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 'use strict';
 
 // This alternative WebpackDevServer combines the functionality of:
@@ -50,7 +57,7 @@ if (module.hot && typeof module.hot.dispose === 'function') {
 }
 
 // Connect to WebpackDevServer via a socket.
-const connection = new WebSocket(
+var connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,

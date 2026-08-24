@@ -1,3 +1,14 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const child_process = require('child_process');
 const os = require('os');
 const chalk = require('chalk');
 const shellQuote = require('shell-quote');
@@ -274,6 +285,50 @@ function printInstructions(fileName, errorMessage) {
 }
 
 let _childProcess = null;
+
+function isEditorInvalid(editor) {
+  return !editor || editor.toLowerCase() === 'none';
+}
+
+function configureWslPath(fileName) {
+  if (
+    process.platform === 'linux' &&
+    fileName.startsWith('/mnt/') &&
+    /Microsoft/i.test(os.release())
+  ) {
+    // Assume WSL / "Bash on Ubuntu on Windows" is being used, and
+    // that the file exists on the Windows file system.
+    // `os.release()` is "4.4.0-43-Microsoft" in the current release
+    // build of WSL, see: https://github.com/Microsoft/BashOnWindows/issues/423#issuecomment-221627364
+    // When a Windows editor is specified, interop functionality can
+    // handle the path translation, but only if a relative path is used.
+    fileName = path.relative('', fileName);
+  }
+  return fileName;
+}
+
+function validateFileNameForWindows(fileName) {
+  if (
+    process.platform === 'win32' &&
+    !WINDOWS_FILE_NAME_WHITELIST.test(fileName.trim())
+  ) {
+    console.log();
+    console.log(
+      chalk.red('Could not open ' + path.basename(fileName) + ' in the editor.')
+    );
+    console.log();
+    console.log(
+      'When running on Windows, file names are checked against a whitelist ' +
+        'to protect against remote code execution attacks. File names may ' +
+        'consist only of alphanumeric characters (all languages), periods, ' +
+        'dashes, slashes, and underscores.'
+    );
+    console.log();
+    return true;
+  }
+  return false;
+}
+
 function launchEditor(fileName, lineNumber, colNumber) {
   if (!fs.existsSync(fileName)) {
     return;
@@ -294,62 +349,31 @@ function launchEditor(fileName, lineNumber, colNumber) {
 
   let [editor, ...args] = guessEditor();
 
-  if (!editor) {
+  if (isEditorInvalid(editor)) {
     printInstructions(fileName, null);
     return;
   }
 
-  if (editor.toLowerCase() === 'none') {
-    return;
-  }
+  fileName = configureWslPath(fileName);
 
-  if (
-    process.platform === 'linux' &&
-    fileName.startsWith('/mnt/') &&
-    /Microsoft/i.test(os.release())
-  ) {
-    // Assume WSL / "Bash on Ubuntu on Windows" is being used, and
-    // that the file exists on the Windows file system.
-    // `os.release()` is "4.4.0-43-Microsoft" in the current release
-    // build of WSL, see: https://github.com/Microsoft/BashOnWindows/issues/423#issuecomment-221627364
-    // When a Windows editor is specified, interop functionality can
-    // handle the path translation, but only if a relative path is used.
-    fileName = path.relative('', fileName);
-  }
-
-  // cmd.exe on Windows is vulnerable to RCE attacks given a file name of the
-  // form "C:\Users\myusername\Downloads\& curl 172.21.93.52". Use a whitelist
-  // to validate user-provided file names. This doesn't cover the entire range
-  // of valid file names but should cover almost all of them in practice.
-  if (
-    process.platform === 'win32' &&
-    !WINDOWS_FILE_NAME_WHITELIST.test(fileName.trim())
-  ) {
-    console.log();
-    console.log(
-      chalk.red('Could not open ' + path.basename(fileName) + ' in the editor.')
-    );
-    console.log();
-    console.log(
-      'When running on Windows, file names are checked against a whitelist ' +
-        'to protect against remote code execution attacks. File names may ' +
-        'consist only of alphanumeric characters (all languages), periods, ' +
-        'dashes, slashes, and underscores.'
-    );
-    console.log();
+  if (validateFileNameForWindows(fileName)) {
     return;
   }
 
   let workspace = null;
-  args = args.concat(
-    getArgumentsForLineNumber(
-      editor,
-      fileName,
-      lineNumber,
-      colNumber,
-      workspace
-    )
-  );
+  if (lineNumber) {
+    args = args.concat(
+      getArgumentsForLineNumber(
+        editor,
+        fileName,
+        lineNumber,
+        colNumber,
+        workspace
+      )
+    );
+  } else {
+    args.push(fileName);
+  }
 
   if (_childProcess && isTerminalEditor(editor)) {
     // There's an existing editor process already and it's attached

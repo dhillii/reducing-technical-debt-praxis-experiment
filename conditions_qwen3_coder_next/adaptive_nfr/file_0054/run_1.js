@@ -46,9 +46,10 @@ Task.prototype.registerTask = function(name, info, fn) {
     fn = info;
     info = null;
   }
-
+  
+  var tasks;
   if (typeof fn !== 'function') {
-    var tasks = this.parseArgs([fn]);
+    tasks = this.parseArgs([fn]);
     fn = this.run.bind(this, fn);
     fn.alias = true;
     if (!info) {
@@ -58,7 +59,7 @@ Task.prototype.registerTask = function(name, info, fn) {
   } else if (!info) {
     info = 'Custom task.';
   }
-
+  
   this._tasks[name] = {name: name, info: info, fn: fn};
   return this;
 };
@@ -89,8 +90,7 @@ Task.prototype.parseArgs = function(args) {
   return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
 };
 
-// Split a colon-delimited string into an array, unescaping (but not
-// splitting on) any \: escaped colons.
+// Split a colon-delimited string into an array.
 Task.prototype.splitArgs = function(str) {
   if (!str) { return []; }
   str = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
@@ -108,11 +108,11 @@ Task.prototype._taskPlusArgs = function(name) {
   do {
     task = this._tasks[parts.slice(0, i).join(':')];
   } while (!task && --i > 0);
-
+  
   var args = parts.slice(i);
   var flags = {};
   args.forEach(function(arg) { flags[arg] = true; });
-
+  
   return {task: task, nameArgs: name, args: args, flags: flags};
 };
 
@@ -138,21 +138,10 @@ Task.prototype.run = function() {
   return this;
 };
 
-// Add a marker to the queue to facilitate clearing it programmatically.
+// Add a marker to the queue.
 Task.prototype.mark = function() {
   this._push(this._marker);
   return this;
-};
-
-// Helper: determine task completion status from success argument
-Task.prototype._getCompletionResult = function(success) {
-  if (success === false) {
-    return { success: false, error: new Error('Task "' + this.current.nameArgs + '" failed.') };
-  } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-    return { success: false, error: success };
-  } else {
-    return { success: true, error: null };
-  }
 };
 
 // Run a task function, handling this.async / return value.
@@ -160,18 +149,29 @@ Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
   var async = false;
 
   var complete = function(success) {
-    var result = this._getCompletionResult(success);
-    this.current = {};
-    this._success[context.nameArgs] = result.success;
-    if (!result.success && this._options.error) {
-      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, result.error);
+    var err = null;
+    if (success === false) {
+      err = new Error('Task "' + context.nameArgs + '" failed.');
+    } else if (success instanceof Error || Object.prototype.toString.call(success) === '[object Error]') {
+      err = success;
+      success = false;
+    } else {
+      success = true;
     }
+    
+    this.current = {};
+    this._success[context.nameArgs] = success;
+    
+    if (!success && this._options.error) {
+      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
+    }
+    
     if (asyncDone) {
       process.nextTick(function() {
-        done(result.error, result.success);
+        done(err, success);
       });
     } else {
-      done(result.error, result.success);
+      done(err, success);
     }
   }.bind(this);
 
@@ -204,7 +204,7 @@ Task.prototype.start = function(opts) {
     do {
       thing = this._queue.shift();
     } while (thing === this._placeholder || thing === this._marker);
-
+    
     if (!thing) {
       this._running = false;
       if (this._options.done) {
@@ -212,7 +212,7 @@ Task.prototype.start = function(opts) {
       }
       return;
     }
-
+    
     this._queue.unshift(this._placeholder);
 
     var context = {
@@ -225,7 +225,6 @@ Task.prototype.start = function(opts) {
     this.runTaskFn(context, function() {
       return thing.task.fn.apply(this, this.args);
     }, nextTask, !!opts.asyncDone);
-
   }.bind(this);
 
   this._running = true;

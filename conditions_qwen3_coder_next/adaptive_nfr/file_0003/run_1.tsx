@@ -37,84 +37,68 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-type BackgroundColorStrategy = {
-    getBackgroundColor: () => string;
-    getTextColor: () => string;
-    getGradient: (accentColor?: string) => string;
-    getDotsPatternColor: (accentColor?: string) => string;
+// Strategy objects for backgroundColor-dependent styling
+const backgroundColorStrategies = {
+    light: {
+        cardBackground: '#fff',
+        textColor: '#15171a',
+        bannerGradientStart: '#ffffff',
+        bannerGradientEnd: '#ffffff',
+        dotsColor: 'rgba(255, 255, 255, 0.2)',
+        gradient: (accentColor?: string) => `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
+        dotsPatternColor: (accentColor?: string) => hexToRgba('#15171a', 0.025),
+        handleColor: '#15171a',
+        handleBorderColor: (accentColor?: string) => hexToRgba(accentColor || '#15171a', 0.2),
+        handleBackground: (accentColor?: string) => `linear-gradient(to top right, ${hexToRgba(accentColor || '#15171a', 0.04)}, ${hexToRgba(accentColor || '#15171a', 0.16)})`,
+        buttonColor: '#15171a',
+        buttonHoverColor: '#15171a'
+    },
+    dark: {
+        cardBackground: '#15171a',
+        textColor: '#fff',
+        bannerGradientStart: '#15171a',
+        bannerGradientEnd: '#15171a',
+        dotsColor: 'rgba(255, 255, 255, 0.2)',
+        gradient: (accentColor?: string) => `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
+        dotsPatternColor: (accentColor?: string) => hexToRgba('#15171a', 0.23),
+        handleColor: '#fff',
+        handleBorderColor: (accentColor?: string) => hexToRgba(accentColor || '#15171a', 0.7),
+        handleBackground: (accentColor?: string) => `linear-gradient(to top right, ${hexToRgba(accentColor || '#15171a', 0.12)}, ${hexToRgba(accentColor || '#15171a', 0.48)})`,
+        buttonColor: '#fff',
+        buttonHoverColor: '#fff'
+    },
+    accent: {
+        cardBackground: (accentColor?: string) => accentColor || '#15171a',
+        textColor: '#fff',
+        bannerGradientStart: (accentColor?: string) => accentColor || '#15171a',
+        bannerGradientEnd: (accentColor?: string) => accentColor || '#15171a',
+        dotsColor: (accentColor?: string) => hexToRgba(accentColor || '#15171a', 0.2),
+        gradient: (accentColor?: string) => `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`,
+        dotsPatternColor: (accentColor?: string) => 'rgba(0, 0, 0, 0.02)',
+        handleColor: '#fff',
+        handleBorderColor: (accentColor?: string) => hexToRgba(accentColor || '#15171a', 0.7),
+        handleBackground: (accentColor?: string) => `linear-gradient(to top right, ${hexToRgba(accentColor || '#15171a', 0.12)}, ${hexToRgba(accentColor || '#15171a', 0.48)})`,
+        buttonColor: '#fff',
+        buttonHoverColor: '#fff'
+    }
 };
 
-class LightBackgroundColorStrategy implements BackgroundColorStrategy {
-    getBackgroundColor(): string {
-        return '#fff';
-    }
+// Extracted helper functions to reduce cognitive complexity
+const getBannerImageSrc = (isScreenshot: boolean, bannerDataUrl: string | null, bannerImageUrl?: string, coverImage?: string) => {
+    return isScreenshot && bannerDataUrl ? bannerDataUrl : (bannerImageUrl || coverImage);
+};
 
-    getTextColor(): string {
-        return '#15171a';
-    }
+const getAvatarImageSrc = (isScreenshot: boolean, avatarDataUrl: string | null, avatarUrl?: string, publicationIcon?: string) => {
+    return isScreenshot && avatarDataUrl ? avatarDataUrl : (avatarUrl || publicationIcon);
+};
 
-    getGradient(): string {
-        return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
-    }
-
-    getDotsPatternColor(): string {
-        return hexToRgba('#15171a', 0.025);
-    }
-}
-
-class DarkBackgroundColorStrategy implements BackgroundColorStrategy {
-    getBackgroundColor(): string {
-        return '#15171a';
-    }
-
-    getTextColor(): string {
-        return '#fff';
-    }
-
-    getGradient(): string {
-        return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
-    }
-
-    getDotsPatternColor(): string {
-        return hexToRgba('#15171a', 0.23);
-    }
-}
-
-class AccentBackgroundColorStrategy implements BackgroundColorStrategy {
-    private readonly accentColor: string;
-
-    constructor(accentColor: string) {
-        this.accentColor = accentColor;
-    }
-
-    getBackgroundColor(): string {
-        return this.accentColor;
-    }
-
-    getTextColor(): string {
-        return '#fff';
-    }
-
-    getGradient(): string {
-        return `linear-gradient(to bottom left, ${hexToRgba(this.accentColor, 0.08)}, ${hexToRgba(this.accentColor, 0.06)})`;
-    }
-
-    getDotsPatternColor(): string {
-        return 'rgba(0, 0, 0, 0.02)';
-    }
-}
-
-const createBackgroundColorStrategy = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): BackgroundColorStrategy => {
-    switch (backgroundColor) {
-    case 'light':
-        return new LightBackgroundColorStrategy();
-    case 'dark':
-        return new DarkBackgroundColorStrategy();
-    case 'accent':
-        return new AccentBackgroundColorStrategy(accentColor || '#15171a');
-    default:
-        return new LightBackgroundColorStrategy();
-    }
+const getHandleStyle = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
+    const strategy = backgroundColorStrategies[backgroundColor];
+    return {
+        color: strategy.handleColor,
+        borderColor: strategy.handleBorderColor(accentColor),
+        background: accentColor ? strategy.handleBackground(accentColor) : undefined
+    };
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -158,21 +142,18 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
         }
     };
 
-    const strategy = createBackgroundColorStrategy(backgroundColor, accentColor);
-
-    const cardBackgroundColor = strategy.getBackgroundColor();
-    const textColor = strategy.getTextColor();
+    const strategy = backgroundColorStrategies[backgroundColor];
+    const cardBackgroundColor = strategy.cardBackground;
+    const textColor = strategy.textColor;
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
-
     const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
-    const cardHeight = 'h-[422px]';
 
-    const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
-    const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
+    const bannerImageSrc = getBannerImageSrc(isScreenshot, bannerDataUrl, account?.bannerImageUrl, coverImage);
+    const avatarImageSrc = getAvatarImageSrc(isScreenshot, avatarDataUrl, account?.avatarUrl, publicationIcon);
 
     return (
-        <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
+        <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} h-[422px] rounded-[32px] ${borderClass}`} style={{backgroundColor: cardBackgroundColor}}>
             <div className='relative h-48 p-2'>
                 {bannerImageSrc ?
                     <img
@@ -181,8 +162,8 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         referrerPolicy='no-referrer'
                         src={bannerImageSrc}
                     /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})`}}>
-                        <DotsPattern className='absolute' style={{color: backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)', top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
+                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? strategy.bannerGradientStart(accentColor) : strategy.bannerGradientStart, 1)}, ${hexToRgba(backgroundColor === 'accent' ? strategy.bannerGradientEnd(accentColor) : strategy.bannerGradientEnd, 0.5)})`}}>
+                        <DotsPattern className='absolute' style={{color: backgroundColor === 'accent' ? strategy.dotsColor(accentColor) : strategy.dotsColor, top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
                     </div>
                 }
                 {avatarImageSrc &&
@@ -207,18 +188,14 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
                 <div
                     className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
-                    style={{
-                        color: backgroundColor !== 'light' ? '#fff' : accentColor,
-                        borderColor: accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined,
-                        background: accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined
-                    }}
+                    style={getHandleStyle(backgroundColor, accentColor)}
                 >
                     <div className='mb-0.5'>
                         {account?.handle}
                         {!isScreenshot && account?.handle && (
                             <Button
                                 className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
-                                style={{color: backgroundColor !== 'light' ? '#fff' : accentColor}}
+                                style={{color: strategy.buttonColor}}
                                 title='Copy handle'
                                 variant='link'
                                 onClick={handleCopy}
@@ -285,7 +262,15 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         };
     }, [convertImagesToDataUrls]);
 
-    const strategy = createBackgroundColorStrategy(backgroundColor, accentColor);
+    const getGradient = () => {
+        const strategy = backgroundColorStrategies[backgroundColor];
+        return strategy.gradient(accentColor);
+    };
+
+    const getDotsPatternColor = () => {
+        const strategy = backgroundColorStrategies[backgroundColor];
+        return strategy.dotsPatternColor(accentColor);
+    };
 
     const handleCopy = async () => {
         if (!profileCardRef.current || isProcessing) {
@@ -440,9 +425,9 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: strategy.getDotsPatternColor()}} />
+                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
-                    <div className='absolute inset-0' style={{background: strategy.getGradient()}} />
+                    <div className='absolute inset-0' style={{background: getGradient()}} />
                 </div>
 
                 {/* Hidden clone for screenshots */}
@@ -468,12 +453,12 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: strategy.getDotsPatternColor()}} />
+                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
                     <div
                         className='absolute left-0 top-0 size-full'
                         style={{
-                            background: strategy.getGradient()
+                            background: getGradient()
                         }}
                     />
                     <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />

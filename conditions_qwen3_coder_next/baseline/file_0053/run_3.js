@@ -1,18 +1,18 @@
 'use strict';
 
-var grunt = require('../grunt');
+const grunt = require('../grunt');
 
 // Nodejs libs.
-var path = require('path');
+const path = require('path');
 
 // Set column widths.
-var col1len = 0;
+let col1len = 0;
 exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
 };
 exports.initWidths = function() {
   // Widths for options/tasks table output.
-  var commandWidth = Math.max(col1len + 20, 76);
+  const commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
 };
 
@@ -56,8 +56,8 @@ exports.usage = function() {
 exports.initOptions = function() {
   // Build 2-column array for table view.
   exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
-    var o = grunt.cli.optlist[long];
-    var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
+    const o = grunt.cli.optlist[long];
+    const col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
     exports.initCol1(col1);
     return [col1, o.info];
   });
@@ -84,7 +84,7 @@ exports.initTasks = function() {
   exports._tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
-    var task = grunt.task._tasks[name];
+    const task = grunt.task._tasks[name];
     exports._tasks.push(task);
   });
 };
@@ -95,7 +95,7 @@ exports.tasks = function() {
     grunt.log.writeln('(no tasks found)');
   } else {
     exports.table(exports._tasks.map(function(task) {
-      var info = task.info;
+      const info = task.info;
       if (task.multi) { info += ' *'; }
       return [task.name, info];
     }));

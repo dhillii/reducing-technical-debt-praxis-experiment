@@ -1,12 +1,25 @@
+// # Ghost Head Helper
+// Usage: `{{ghost_head}}`
+//
+// Outputs scripts and other assets at the top of a Ghost theme
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
+
 const logging = require('@tryghost/logging');
 const _ = require('lodash');
 const debug = require('@tryghost/debug')('ghost_head');
 const templateStyles = require('./tpl/styles');
 const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
+
+/**
+ * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
+ */
+
+const {get: getMetaData, getAssetUrl} = metaData;
 
 function writeMetaTag(property, content, type) {
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
@@ -20,12 +33,15 @@ function finaliseStructuredData(meta) {
         if (property === 'article:tag') {
             _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
-                    head.push(writeMetaTag(property, escapeExpression(keyword)));
+                    keyword = escapeExpression(keyword);
+                    head.push(writeMetaTag(property,
+                        escapeExpression(keyword)));
                 }
             });
             head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property, escapeExpression(content)));
+            head.push(writeMetaTag(property,
+                escapeExpression(content)));
         }
     });
 
@@ -33,12 +49,14 @@ function finaliseStructuredData(meta) {
 }
 
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
     }
     let membersHelper = '';
     if (!excludeList.has('portal')) {
         const {scriptUrl} = getFrontendAppConfig('portal');
+
         const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
         const attributes = {
             i18n: true,
@@ -57,7 +75,9 @@ function getMembersHelper(data, frontendKey, excludeList) {
         membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
     }
     if (settingsCache.get('paid_members_enabled')) {
+        // disable fraud detection for e2e tests to reduce waiting time
         const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+
         membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
     }
     return membersHelper;
@@ -78,7 +98,9 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getAnnouncementBarHelper(data) {
@@ -112,7 +134,9 @@ function getAnnouncementBarHelper(data) {
     }
 
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getWebmentionDiscoveryLink() {
@@ -133,10 +157,13 @@ function getTinybirdTrackerScript(dataRoot) {
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
+
     const env = config.get('env');
+
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
     const localEnabled = localConfig?.enabled ?? false;
+
     const endpoint = localEnabled ? localConfig.endpoint : statsConfig.endpoint;
     const token = localEnabled ? localConfig.token : statsConfig.token;
     const datasource = localEnabled ? localConfig.datasource : statsConfig.datasource;
@@ -152,15 +179,13 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function addMetadata(head, meta, context, excludeList) {
+function addMetadataToHead(head, meta, context, excludeList, safeVersion, favicon, iconType) {
     if (!excludeList.has('metadata')) {
         if (meta.metaDescription && meta.metaDescription.length > 0) {
             head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
         }
 
         if (settingsCache.get('icon')) {
-            const favicon = blogIcon.getIconUrl();
-            const iconType = blogIcon.getIconType(favicon);
             head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
         }
 
@@ -170,23 +195,21 @@ function addMetadata(head, meta, context, excludeList) {
             head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
             head.push(writeMetaTag('referrer', 'same-origin', 'name'));
         } else {
-            const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+            head.push(writeMetaTag('referrer', config.get('referrerPolicy') || 'no-referrer-when-downgrade', 'name'));
         }
     }
 
     if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+        head.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
     }
 
     if (meta.nextUrl) {
-        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+        head.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
     }
-}
 
-function addStructuredData(head, meta, context, excludeList) {
     const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-
     if (!_.includes(context, 'paged') && useStructuredData) {
         if (!excludeList.has('social_data')) {
             head.push('');
@@ -195,45 +218,42 @@ function addStructuredData(head, meta, context, excludeList) {
         }
 
         if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
+            head.push('<script type="application/ld+json">\n' +
+                JSON.stringify(meta.schema, null, '    ') +
+                '\n    </script>\n');
         }
     }
+
+    head.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
 }
 
-function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
+function addHelperScriptsToHead(head, options, frontendKey, excludeList, dataRoot) {
+    head.push(getMembersHelper(options.data, frontendKey, excludeList));
+    if (!excludeList.has('search')) {
+        head.push(getSearchHelper(frontendKey));
+    }
+    if (!excludeList.has('announcement')) {
+        head.push(getAnnouncementBarHelper(options.data));
+    }
+    try {
+        head.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
     }
 
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
-    }
-
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
-    }
-}
-
-function addCustomFonts(head, options, settingsCache) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        const fontSelection = {};
-        if (headingFont) {
-            fontSelection.heading = headingFont;
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
         }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
         }
-        const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
     }
-}
 
-function addAnalyticsAndTracking(head, dataRoot, excludeList) {
     if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
         head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
     }
@@ -250,34 +270,38 @@ function addAnalyticsAndTracking(head, dataRoot, excludeList) {
     }
 }
 
-function addStylesAndScripts(head, options, frontendKey, excludeList) {
-    head.push(getMembersHelper(options.data, frontendKey, excludeList));
-
-    if (!excludeList.has('search')) {
-        head.push(getSearchHelper(frontendKey));
+function addCodeInjectionsAndFontsToHead(head, dataRoot, globalCodeinjection, postCodeInjection, tagCodeInjection, options) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
     }
 
-    if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(options.data));
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
     }
 
-    try {
-        head.push(getWebmentionDiscoveryLink());
-    } catch (err) {
-        logging.warn(err);
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
     }
 
-    if (!excludeList.has('card_assets')) {
-        if (cardAssets.hasFile('js')) {
-            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+
+        if (headingFont) {
+            fontSelection.heading = headingFont;
         }
-        if (cardAssets.hasFile('css')) {
-            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
         }
+        const customCSS = generateCustomFontCss(fontSelection);
+        head.push(new SafeString(customCSS));
     }
 }
 
-function addAccentColor(head, options) {
+function addAccentColorAndFinalizeHead(head, options, dataRoot) {
     if (options.data.site.accent_color) {
         const accentColor = escapeExpression(options.data.site.accent_color);
         const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
@@ -291,9 +315,9 @@ function addAccentColor(head, options) {
     }
 }
 
-module.exports = async function ghost_head(options) {
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
-
     if (options.data.root.statusCode >= 500) {
         return;
     }
@@ -306,6 +330,8 @@ module.exports = async function ghost_head(options) {
     const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
     const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
 
     debug('preparation complete, begin fetch');
 
@@ -315,16 +341,13 @@ module.exports = async function ghost_head(options) {
 
         debug('end fetch');
 
-        head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
-        head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
+        if (context) {
+            addMetadataToHead(head, meta, context, excludeList, safeVersion, favicon, iconType);
+        }
 
-        addMetadata(head, meta, context, excludeList);
-        addStructuredData(head, meta, context, excludeList);
-        addStylesAndScripts(head, options, frontendKey, excludeList);
-        addAnalyticsAndTracking(head, dataRoot, excludeList);
-        addAccentColor(head, options);
-        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
-        addCustomFonts(head, options, settingsCache);
+        addHelperScriptsToHead(head, options, frontendKey, excludeList, dataRoot);
+        addCodeInjectionsAndFontsToHead(head, dataRoot, globalCodeinjection, postCodeInjection, tagCodeInjection, options);
+        addAccentColorAndFinalizeHead(head, options, dataRoot);
 
         debug('end');
         return new SafeString(head.join('\n    ').trim());

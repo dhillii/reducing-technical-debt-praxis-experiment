@@ -36,6 +36,7 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         return valid ? '' : 'Enter a valid email address';
     },
     url: ({url}) => {
+        // require_tld is automatically true in validator 8+, we set it false here for our default localhost setup
         const valid = !url || validator.isURL(url, {require_tld: false});
         return valid ? '' : 'Enter a valid URL';
     },
@@ -160,6 +161,28 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
+interface ImageFieldConfig {
+    cover_image?: string;
+    profile_image?: string;
+}
+
+interface ImageAction {
+    (user: User): User;
+}
+
+interface ImageActionMap {
+    [key: string]: ImageAction;
+}
+
+/**
+ * Helper to reduce duplication in image upload/delete handlers.
+ * Maps field names to update functions.
+ */
+const buildImageActionMap = (imageUrl: string = ''): ImageActionMap => ({
+    cover_image: (user) => ({...user, cover_image: imageUrl}),
+    profile_image: (user) => ({...user, profile_image: imageUrl})
+});
+
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
 
@@ -212,6 +235,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
 
+    // Pintura integration
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
@@ -240,13 +264,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = _user.status === 'inactive'
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
-
+        let warningText = 'This user will no longer be able to log in but their posts will be kept.';
+        if (_user.status === 'inactive') {
+            warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
+        }
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
-            prompt: <><strong>WARNING:</strong> {warningText}</>,
+            prompt: (
+                <>
+                    <strong>WARNING:</strong> {warningText}
+                </>
+            ),
             okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
@@ -322,17 +350,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
+            const actionMap = buildImageActionMap(imageUrl);
+            const action = actionMap[image];
 
-            const imageFieldMap: Record<string, keyof User> = {
-                cover_image: 'cover_image',
-                profile_image: 'profile_image'
-            };
-
-            const field = imageFieldMap[image];
-            if (field) {
-                updateForm((_user) => {
-                    return {..._user, [field]: imageUrl};
-                });
+            if (action) {
+                updateForm(action);
             }
         } catch (e) {
             const error = e as APIError;
@@ -344,23 +366,24 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        const imageFieldMap: Record<string, keyof User> = {
-            cover_image: 'cover_image',
-            profile_image: 'profile_image'
-        };
+        const actionMap = buildImageActionMap('');
+        const action = actionMap[image];
 
-        const field = imageFieldMap[image];
-        if (field) {
-            updateForm((_user) => {
-                return {..._user, [field]: ''};
-            });
+        if (action) {
+            updateForm(action);
         }
     };
 
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    let menuItems: MenuItem[] = [];
+    const isOwnerAndAdmin = isOwnerUser(currentUser) && isAdminUser(formState);
+    const isEditableByEditor = isEditorUser(currentUser) && isAuthorOrContributor(user);
+    const showMenu = hasAdminAccess(currentUser) || isEditableByEditor;
 
-    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+    const isCurrentUser Profile = formState.id !== currentUser.id;
+    const canDeleteOrSuspend = (hasAdminAccess(currentUser) && !isOwnerUser(user)) || isEditableByEditor;
+
+    const menuItems: MenuItem[] = [];
+
+    if (isOwnerAndAdmin && formState.status !== 'inactive') {
         menuItems.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -368,11 +391,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     }
 
-    if (formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    )) {
-        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+    if (isCurrentUser Profile && canDeleteOrSuspend) {
+        const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
         menuItems.push({
             id: 'delete-user',
@@ -382,7 +402,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }, {
             id: 'suspend-user',
-            label: suspendUserLabel,
+            label: suspendLabel,
             onClick: () => {
                 confirmSuspend(formState);
             }

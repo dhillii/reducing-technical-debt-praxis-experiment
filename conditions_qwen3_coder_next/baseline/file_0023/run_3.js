@@ -47,9 +47,9 @@ class PopupContent extends React.Component {
     }
 
     sendContainerHeightChangeEvent() {
-        const container = document.querySelector('.gh-root-frame');
-        if (container) {
-            this.props.onHeightChange?.(container.offsetHeight);
+        const {height} = this.context;
+        if (typeof height !== 'undefined') {
+            this.context.dispatch('update', {height});
         }
     }
 
@@ -136,7 +136,7 @@ function SearchClearIcon() {
         );
     }
     return (
-        <button alt='Clear' className='-mb-[1px]' onClick={() => {
+        <button alt='Clear' className='-mb-[1px}' onClick={() => {
             dispatch('update', {
                 searchValue: ''
             });
@@ -681,7 +681,7 @@ export default class PopupModal extends React.Component {
                     <div
                         onClick = {e => this.handlePopupClose(e)}
                         className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
-                    <PopupContent onHeightChange={(height) => this.onHeightChange(height)} />
+                    <PopupContent />
                 </Frame>
             </div>
         );

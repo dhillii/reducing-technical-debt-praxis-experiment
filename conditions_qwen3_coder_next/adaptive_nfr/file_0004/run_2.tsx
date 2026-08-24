@@ -1,7 +1,7 @@
 import {useModal} from '@ebay/nice-modal-react';
 import clsx from 'clsx';
 import React, {useEffect, useState, forwardRef} from 'react';
-import useGlobalDirtyState from '../../hooks/use-global-dirty-state';
+useGlobalDirtyState from '../../hooks/use-global-dirty-state';
 import {confirmIfDirty} from '../../utils/modals';
 import Button, {ButtonColor, ButtonProps} from '../button';
 import ButtonGroup from '../button-group';
@@ -11,6 +11,7 @@ import StickyFooter from '../sticky-footer';
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'full' | 'bleed';
 
 export interface ModalProps {
+
     /**
      * Possible values are: `sm`, `md`, `lg`, `xl, `full`, `bleed`. Yu can also use any number to set an arbitrary width.
      */
@@ -51,71 +52,119 @@ export interface ModalProps {
 
 export const topLevelBackdropClasses = 'bg-[rgba(98,109,121,0.2)] backdrop-blur-[3px]';
 
-/**
- * Strategy for modal size configuration
- */
-interface ModalSizeStrategy {
-    modalClasses: string;
-    backdropClasses: string;
-    paddingClasses: string;
-    headerClasses: string;
+interface ModalSizeConfig {
+    maxWidth?: string;
+    padding: string;
+    headerOffset: string;
+    backdropPadding?: string;
 }
 
-/**
- * Extracts modal size configuration based on size value
- */
-const getSizeStrategy = (size: ModalSize): ModalSizeStrategy => {
-    const strategies: Record<ModalSize, ModalSizeStrategy> = {
-        sm: {
-            modalClasses: 'max-w-[480px]',
-            backdropClasses: 'p-4 md:p-[8vmin]',
-            paddingClasses: 'p-8',
-            headerClasses: '-inset-x-8'
-        },
-        md: {
-            modalClasses: 'max-w-[720px]',
-            backdropClasses: 'p-4 md:p-[8vmin]',
-            paddingClasses: 'p-8',
-            headerClasses: '-inset-x-8'
-        },
-        lg: {
-            modalClasses: 'max-w-[1020px]',
-            backdropClasses: 'p-4 md:p-[4vmin]',
-            paddingClasses: 'p-7',
-            headerClasses: '-inset-x-8'
-        },
-        xl: {
-            modalClasses: 'max-w-[1240px]0',
-            backdropClasses: 'p-4 md:p-[3vmin]',
-            paddingClasses: 'p-10',
-            headerClasses: '-inset-x-10 -top-10'
-        },
-        full: {
-            modalClasses: 'h-full',
-            backdropClasses: 'p-4 md:p-[3vmin]',
-            paddingClasses: 'p-10',
-            headerClasses: '-inset-x-10'
-        },
-        bleed: {
-            modalClasses: 'h-full',
-            backdropClasses: '',
-            paddingClasses: 'p-10',
-            headerClasses: '-inset-x-10'
-        }
-    };
-
-    return strategies[size];
+// Replace Conditional with Polymorphism: Strategy lookup for modal sizes
+const modalSizeConfigs: Record<ModalSize, ModalSizeConfig> = {
+    sm: {
+        maxWidth: '480px',
+        padding: 'p-8',
+        headerOffset: '-inset-x-8',
+        backdropPadding: 'p-4 md:p-[8vmin]'
+    },
+    md: {
+        maxWidth: '720px',
+        padding: 'p-8',
+        headerOffset: '-inset-x-8',
+        backdropPadding: 'p-4 md:p-[8vmin]'
+    },
+    lg: {
+        maxWidth: '1020px',
+        padding: 'p-7',
+        headerOffset: '-inset-x-8',
+        backdropPadding: 'p-4 md:p-[4vmin]'
+    },
+    xl: {
+        maxWidth: '1240px',
+        padding: 'p-10',
+        headerOffset: '-inset-x-10 -top-10',
+        backdropPadding: 'p-4 md:p-[3vmin]'
+    },
+    full: {
+        maxWidth: undefined,
+        padding: 'p-10',
+        headerOffset: '-inset-x-10',
+        backdropPadding: 'p-4 md:p-[3vmin]'
+    },
+    bleed: {
+        maxWidth: undefined,
+        padding: 'p-10',
+        headerOffset: '-inset-x-10',
+        backdropPadding: undefined
+    }
 };
 
 /**
- * Extracts default size strategy for fallback
+ * Extracted to decompose size switch statement
+ * Returns size configuration with fallback handling for unknown sizes
  */
-const getDefaultSizeStrategy = (): ModalSizeStrategy => ({
-    modalClasses: '',
-    backdropClasses: 'p-4 md:p-[8vmin]',
-    paddingClasses: 'p-8',
-    headerClasses: '-inset-x-8'
-});
+function getSizeConfig(size: ModalSize): ModalSizeConfig {
+    return modalSizeConfigs[size] ?? {
+        maxWidth: undefined,
+        padding: 'p-8',
+        headerOffset: '-inset-x-8',
+        backdropPadding: 'p-4 md:p-[8vmin]'
+    };
+}
+
+/**
+ * Extracted to decompose padding logic
+ */
+function getPaddingClasses(padding: boolean, config: ModalSizeConfig): string {
+    if (!padding) {
+        return 'p-0';
+    }
+    return config.padding;
+}
+
+/**
+ * Extracted to decompose header offset logic
+ */
+function getHeaderOffsetClasses(headerOffset: string, stickyHeader: boolean, paddingClasses: string): string {
+    return clsx(
+        headerOffset,
+        stickyHeader && 'sticky top-0 z-[300] -mb-4 bg-white !pb-4 dark:bg-black'
+    );
+}
+
+/**
+ * Extracted to decompose modal title/header rendering logic
+ */
+function renderHeader(header: boolean | undefined, title?: string, topRightContent?: 'close' | React.ReactNode, hideXOnMobile?: boolean, onEscape?: () => void, paddingClasses?: string) {
+    if (!header) {
+        return null;
+    }
+
+    const headerClassBase = clsx(
+        topRightContent && topRightContent !== 'close' && 'flex items-center justify-between gap-5'
+    );
+    const hasXClose = !topRightContent || topRightContent === 'close';
+    const headerContent = (
+        <>
+            {title && <Heading level={3}>{title}</Heading>}
+            {hasXClose && (
+                <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
+                    <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={onEscape} />
+                </div>
+            )}
+        </>
+    );
+
+    return (
+        <header className={clsx(headerClassBase, paddingClasses, 'pb-0')}>
+            {topRightContent && topRightContent !== 'close' ? (
+                <div className={clsx('flex items-center justify-between gap-5', paddingClasses)}>{headerContent}{topRightContent}</div>
+            ) : (
+                headerContent
+            )}
+        </header>
+    );
+}
 
 const Modal = forwardRef<HTMLElement, ModalProps>(({
     size = 'md',
@@ -162,15 +211,18 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     useEffect(() => {
         const handleEscapeKey = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
+                // Don't close modal if user is in Koenig's link input (which handles ESC itself)
                 const activeEl = document.activeElement;
                 if (activeEl?.hasAttribute('data-kg-link-input')) {
                     return;
                 }
 
+                // Fix for Safari - if an element in the modal is focused, closing it will jump to
+                // the bottom of the page because Safari tries to focus the "next" element in the DOM
                 if (document.activeElement && document.activeElement instanceof HTMLElement) {
                     document.activeElement.blur();
                 }
-
+                // Close the modal on the next tick so that the blur registers
                 setTimeout(() => {
                     if (onCancel) {
                         onCancel();
@@ -182,17 +234,21 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                     }
                 });
 
+                // Prevent the event from bubbling up to the window level
                 event.stopPropagation();
             }
         };
 
         document.addEventListener('keydown', handleEscapeKey);
 
+        // Clean up the event listener when the modal is closed
         return () => {
             document.removeEventListener('keydown', handleEscapeKey);
         };
     }, [modal, dirty, afterClose, onCancel]);
 
+    // The animation classes apply a transform to the modal, which breaks anything inside using position:fixed
+    // We should remove the class as soon as the animation is finished
     useEffect(() => {
         const timeout = setTimeout(() => {
             setAnimationFinished(true);
@@ -231,7 +287,9 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                 key: 'cancel-modal',
                 label: cancelLabel,
                 color: 'outline',
-                onClick: onCancel || removeModal,
+                onClick: (onCancel ? onCancel : () => {
+                    removeModal();
+                }),
                 disabled: buttonsDisabled
             });
         }
@@ -249,7 +307,9 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     }
 
-    const sizeStrategy = getSizeStrategy(size) || getDefaultSizeStrategy();
+    const sizeConfig = getSizeConfig(size);
+    const paddingClasses = getPaddingClasses(padding, sizeConfig);
+    const headerOffset = getHeaderOffsetClasses(sizeConfig.headerOffset, stickyHeader, paddingClasses);
 
     let modalClasses = clsx(
         'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black',
@@ -264,38 +324,22 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         scrolling ? 'overflow-y-auto' : 'overflow-y-hidden'
     );
 
+    if (sizeConfig.maxWidth) {
+        modalClasses = clsx(modalClasses, `max-w-[${sizeConfig.maxWidth}]`);
+    }
+
     let backdropClasses = clsx(
         'fixed inset-0 z-[1000] h-[100dvh] w-[100dvw]',
-        allowBackgroundInteraction && 'pointer-events-none'
+        allowBackgroundInteraction && 'pointer-events-none',
+        sizeConfig.backdropPadding
     );
 
-    let paddingClasses = sizeStrategy.paddingClasses;
-    let headerClasses = clsx(
-        (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5'
+    let contentClasses = clsx(
+        paddingClasses,
+        'py-0'
     );
 
-    if (stickyHeader) {
-        headerClasses = clsx(
-            headerClasses,
-            'sticky top-0 z-[300] -mb-4 bg-white !pb-4 dark:bg-black'
-        );
-    }
-
-    if (size !== 'bleed') {
-        modalClasses = clsx(modalClasses, sizeStrategy.modalClasses);
-        backdropClasses = clsx(backdropClasses, sizeStrategy.backdropClasses);
-    }
-
-    headerClasses = clsx(headerClasses, sizeStrategy.headerClasses);
-
-    if (!padding) {
-        paddingClasses = 'p-0';
-    }
-
-    headerClasses = clsx(headerClasses, paddingClasses, 'pb-0');
-
-    const contentClasses = clsx(paddingClasses, 'py-0');
-
+    // Set bottom padding for backdrop when the menu is on
     backdropClasses = clsx(
         backdropClasses,
         'max-[800px]:!pb-20'
@@ -306,8 +350,10 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         'flex w-full items-center justify-between'
     );
 
-    const hasFullHeight = size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number';
-    const contentClassesWithGrow = clsx(contentClasses, hasFullHeight && 'grow');
+    contentClasses = clsx(
+        contentClasses,
+        ((size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number') && 'grow')
+    );
 
     const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
         if (e.target === e.currentTarget && backDropClick) {
@@ -315,13 +361,16 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     };
 
-    const modalStyles: {width?: string; height?: string; maxWidth?: string; maxHeight?: string;} = {};
+    const modalStyles:{width?: string; height?: string; maxWidth?: string; maxHeight?: string;} = {};
 
     if (typeof width === 'number') {
         modalStyles.width = '100%';
         modalStyles.maxWidth = width + 'px';
     } else if (width === 'full') {
-        modalClasses = clsx(modalClasses, 'w-full');
+        modalClasses = clsx(
+            modalClasses,
+            'w-full'
+        );
     } else if (width === 'toSidebar') {
         modalClasses = clsx(
             modalClasses,
@@ -333,14 +382,17 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         modalStyles.height = '100%';
         modalStyles.maxHeight = height + 'px';
     } else if (height === 'full') {
-        modalClasses = clsx(modalClasses, 'h-full');
+        modalClasses = clsx(
+            modalClasses,
+            'h-full'
+        );
     }
 
-    let footerContent: React.ReactNode;
+    let footerContent;
     if (footer) {
         footerContent = footer;
     } else if (footer === false) {
-        // No footer, but content padding handled via contentClasses
+        contentClasses += ' pb-0 ';
     } else {
         footerContent = (
             <div className={footerClasses}>
@@ -375,19 +427,8 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                 modalClasses,
                 allowBackgroundInteraction && 'pointer-events-auto'
             )} data-testid={testId} style={modalStyles}>
-                {header === false ? '' : (!topRightContent || topRightContent === 'close' ?
-                    (<header className={headerClasses}>
-                        {title && <Heading level={3}>{title}</Heading>}
-                        <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-                            <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={removeModal} />
-                        </div>
-                    </header>)
-                    :
-                    (<header className={headerClasses}>
-                        {title && <Heading level={3}>{title}</Heading>}
-                        {topRightContent}
-                    </header>))}
-                <div className={contentClassesWithGrow}>
+                {renderHeader(header, title, topRightContent, hideXOnMobile, removeModal, headerOffset)}
+                <div className={contentClasses}>
                     {children}
                 </div>
                 {footerContent}

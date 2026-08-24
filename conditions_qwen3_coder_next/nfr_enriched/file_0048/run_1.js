@@ -264,7 +264,7 @@ module.exports = class Tier {
             benefits
         });
 
-        if (isTierNew(data.id)) {
+        if (isIdNew(data.id)) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -293,11 +293,11 @@ function resolveTierId(id) {
 }
 
 /**
- * Determines if the tier is new based on presence of ID.
+ * Determines whether the provided ID indicates a new tier.
  * @param {any} id
  * @returns {boolean}
  */
-function isTierNew(id) {
+function isIdNew(id) {
     return !id;
 }
 

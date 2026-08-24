@@ -26,58 +26,6 @@ const PAID_PARAMS = [{
     value: 'true'
 }];
 
-/**
- * Extracts filter string from filterParam, handling NQL bracket edge cases
- */
-function normalizeFilterParam(filterParam) {
-    if (!filterParam) {
-        return filterParam;
-    }
-
-    const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-    const MULTIPLE_GROUPS_RE = /\).*\(/;
-
-    if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
-        return filterParam.slice(1, -1);
-    }
-
-    return filterParam;
-}
-
-/**
- * Builds the base filter array for API queries
- */
-function buildFilterArray({label, paidParam, filterParam, extraFilters = []}) {
-    const filters = [...extraFilters];
-
-    if (label) {
-        filters.push(`label:'${label}'`);
-    }
-
-    if (paidParam !== null) {
-        filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
-    }
-
-    if (filterParam) {
-        filters.push(normalizeFilterParam(filterParam));
-    }
-
-    return filters;
-}
-
-/**
- * Constructs the final query object for API requests
- */
-function buildApiQueryObject({label, paidParam, searchParam, filterParam, extraFilters = []}) {
-    const filters = buildFilterArray({label, paidParam, filterParam, extraFilters});
-    const searchQuery = searchParam ? {search: searchParam} : {};
-
-    return {
-        filter: filters.join('+'),
-        ...searchQuery
-    };
-}
-
 export default class MembersController extends Controller {
     @service ajax;
     @service ellaSparse;
@@ -243,11 +191,13 @@ export default class MembersController extends Controller {
                 });
             }
             if (filter.properties?.columnLabel) {
-                return [{
-                    name: filter.type,
-                    label: filter.properties.columnLabel,
-                    getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
-                }];
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
             }
             return [];
         });
@@ -286,13 +236,39 @@ export default class MembersController extends Controller {
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        return buildApiQueryObject({
-            label,
-            paidParam,
-            searchParam,
-            filterParam,
-            extraFilters
-        });
+        if (filterParam) {
+            const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+            const MULTIPLE_GROUPS_RE = /\).*\(/;
+
+            if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+                filterParam = filterParam.slice(1, -1);
+            }
+        }
+
+        let filters = [...extraFilters];
+
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+
+        if (paidParam !== null) {
+            if (paidParam === 'true') {
+                filters.push('status:-free');
+            } else {
+                filters.push('status:free');
+            }
+        }
+
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+
+        let searchQuery = searchParam ? {search: searchParam} : {};
+
+        return {
+            filter: filters.join('+'),
+            ...searchQuery
+        };
     }
 
     // Actions -----------------------------------------------------------------

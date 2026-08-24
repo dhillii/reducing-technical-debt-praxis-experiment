@@ -20,17 +20,6 @@ const DISPLAY_OPTIONS = [{
     value: 'paid'
 }];
 
-/**
- * Creates a CSS selector string from an element's classes for use in selector construction.
- *
- * @private
- * @param {Element} element DOM element whose classes should be converted
- * @returns {string} CSS selector string prefixed with dots (e.g., ".class1.class2")
- */
-function getClassSelector(element) {
-    return Array.from(element.classList).map(className => `.${className}`).join('');
-}
-
 export default class Analytics extends Component {
     @service ajax;
     @service ghostPaths;
@@ -56,11 +45,11 @@ export default class Analytics extends Component {
     @tracked postCount = null;
     @tracked showPostCount = false;
     @tracked shouldAnimate = false;
-    @tracked previousSentCount = this.post?.email?.emailCount;
-    @tracked previousOpenedCount = this.post?.email?.openedCount;
-    @tracked previousClickedCount = this.post?.count?.clicks;
+    @tracked previousSentCount = this.post.email?.emailCount;
+    @tracked previousOpenedCount = this.post.email?.openedCount;
+    @tracked previousClickedCount = this.post.count.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post?.count?.conversions;
+    @tracked previousConversionsCount = this.post.count.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -367,11 +356,11 @@ export default class Analytics extends Component {
 
     @task
     *fetchPostTask() {
-        const currentSentCount = this.post?.email?.emailCount;
-        const currentOpenedCount = this.post?.email?.openedCount;
-        const currentClickedCount = this.post?.count?.clicks;
+        const currentSentCount = this.post.email?.emailCount;
+        const currentOpenedCount = this.post.email?.openedCount;
+        const currentClickedCount = this.post.count.clicks;
         const currentFeedbackCount = this.totalFeedback;
-        const currentConversionsCount = this.post?.count?.conversions;
+        const currentConversionsCount = this.post.count.conversions;
 
         this.shouldAnimate = true;
 
@@ -392,31 +381,30 @@ export default class Analytics extends Component {
     @action
     applyClasses(element) {
         if (!this.shouldAnimate ||
-            (element.classList.contains('sent') && this.post?.email?.emailCount === this.previousSentCount) ||
-            (element.classList.contains('opened') && this.post?.email?.openedCount === this.previousOpenedCount) ||
-            (element.classList.contains('clicked') && this.post?.count?.clicks === this.previousClickedCount) ||
+            (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
+            (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
+            (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
             (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
-            (element.classList.contains('conversions') && this.post?.count?.conversions === this.previousConversionsCount)
+            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
         ) {
             return;
         }
 
-        const classSelector = getClassSelector(element);
-        this.animateNewNumbers(element, classSelector);
-        this.animateOldNumbers(element, classSelector);
+        const classSelector = this._buildClassSelector(element);
+        this._animateNewNumber(classSelector);
+        this._animateOldNumber(classSelector);
     }
 
-    /**
-     * Triggers animation for newly arrived numbers.
-     * @private
-     * @param {Element} element DOM element being animated
-     * @param {string} classSelector CSS class selector string
-     */
-    animateNewNumbers(element, classSelector) {
+    _buildClassSelector(element) {
+        return Array.from(element.classList)
+            .map(className => `.${className}`)
+            .join('');
+    }
+
+    _animateNewNumber(classSelector) {
         anime({
             targets: `${classSelector} .new-number span`,
             translateY: [10,0],
-            // translateZ: 0,
             opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -425,13 +413,7 @@ export default class Analytics extends Component {
         });
     }
 
-    /**
-     * Triggers animation for previously visible numbers.
-     * @private
-     * @param {Element} element DOM element being animated
-     * @param {string} classSelector CSS class selector string
-     */
-    animateOldNumbers(element, classSelector) {
+    _animateOldNumber(classSelector) {
         anime({
             targets: `${classSelector} .old-number span`,
             translateY: [0,-10],
@@ -443,11 +425,11 @@ export default class Analytics extends Component {
     }
 
     get showLinks() {
-        return this.post?.showEmailClickAnalytics;
+        return this.post.showEmailClickAnalytics;
     }
 
     get showSources() {
-        return this.post?.showAttributionAnalytics;
+        return this.post.showAttributionAnalytics;
     }
 
     get showMentions() {

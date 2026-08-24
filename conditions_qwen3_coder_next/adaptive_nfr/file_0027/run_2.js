@@ -1,5 +1,5 @@
 import Component from '@ember/component';
-import boundOneWay from 'ghost-admin/utils/bound-one-way';
+import boundOneWay from 'ghost-admin/utils/bound-one-word';
 import classic from 'ember-classic-decorator';
 import moment from 'moment-timezone';
 import {action, computed} from '@ember/object';
@@ -8,6 +8,219 @@ import {inject} from 'ghost-admin/decorators/inject';
 import {inject as service} from '@ember/service';
 import {tagName} from '@ember-decorators/component';
 import {tracked} from '@glimmer/tracking';
+
+classic;
+tagName;
+
+/**
+ * Strategy class for handling canonical URL parsing and path extraction
+ */
+class CanonicalUrlExtractor {
+    constructor(urlString) {
+        this.urlString = urlString;
+        this.urlObject = null;
+        this.parsed = false;
+        this.parse();
+    }
+
+    parse() {
+        try {
+            this.urlObject = new URL(this.urlString);
+            this.parsed = true;
+        } catch (e) {
+            // no-op, invalid URL
+            this.parsed = false;
+        }
+    }
+
+    get urlParts() {
+        if (!this.parsed) {
+            return [];
+        }
+
+        const host = this.urlObject.host;
+        const pathSegments = this.urlObject.pathname.split('/').reject(p => !p);
+        return [host, ...pathSegments];
+    }
+
+    isValid() {
+        return this.parsed;
+    }
+}
+
+/**
+ * Strategy class for handling slug-based URL construction
+ */
+class SlugUrlBuilder {
+    constructor(blogUrl, slug) {
+        this.blogUrl = blogUrl;
+        this.slug = slug;
+        this.urlObject = null;
+        this.parsed = false;
+        this.parse();
+    }
+
+    parse() {
+        try {
+            this.urlObject = new URL(this.blogUrl);
+            this.parsed = true;
+        } catch (e) {
+            this.parsed = false;
+        }
+    }
+
+    get urlParts() {
+        if (!this.parsed) {
+            return [];
+        }
+
+        const host = this.urlObject.host;
+        const pathSegments = this.urlObject.pathname.split('/').reject(p => !p);
+        return [...pathSegments, this.slug];
+    }
+}
+
+/**
+ * Base validator strategy for property validation and saving
+ */
+class PropertyValidatorStrategy {
+    constructor(component, property, valueAccessor, setter, isNewValidator) {
+        this.component = component;
+        this.property = property;
+        this.valueAccessor = valueAccessor;
+        this.setter = setter;
+        this.isNewValidator = isNewValidator;
+    }
+
+    execute(newVal) {
+        const currentValue = this.valueAccessor(this.component.post);
+        if (newVal === currentValue) {
+            return;
+        }
+
+        this.setter(this.component.post, newVal);
+        return this.validateAndSave();
+    }
+
+    validateAndSave() {
+        return this.component.post.validate({property: this.property})
+            .then(() => {
+                if (this.isNewValidator(this.component.post)) {
+                    return;
+                }
+                return this.component.savePostTask.perform();
+            });
+    }
+}
+
+/**
+ * Image management validator strategy
+ */
+class ImageValidatorStrategy {
+    constructor(component, imageProperty) {
+        this.component = component;
+        this.imageProperty = imageProperty;
+    }
+
+    setNewImage(image) {
+        this.component.set(`post.${this.imageProperty}`, image);
+        return this.handleSave();
+    }
+
+    clearImage() {
+        this.component.set(`post.${this.imageProperty}`, '');
+        return this.handleSave();
+    }
+
+    handleSave() {
+        if (this.component.get('post.isNew')) {
+            return;
+        }
+        return this.component.savePostTask.perform().catch((error) => {
+            this.component.showError(error);
+            this.component.post.rollbackAttributes();
+        });
+    }
+}
+
+/**
+ * Helper to extract and validate SEO title logic
+ */
+function getSeoTitle(post, metaTitleScratch) {
+    return metaTitleScratch || post.titleScratch || '(Untitled)';
+}
+
+/**
+ * Helper to extract canonical URL parts cleanly
+ */
+function getCanonicalUrlParts(post, configBlogUrl) {
+    if (post.canonicalUrl) {
+        const extractor = new CanonicalUrlExtractor(post.canonicalUrl);
+        return extractor.urlParts;
+    } else {
+        const builder = new SlugUrlBuilder(configBlogUrl, post.slug);
+        return builder.urlParts;
+    }
+}
+
+/**
+ * Helper to validate and save post with visibility tier changes
+ */
+async function setVisibilityInternal(post, segment, saveTask) {
+    post.set('tiers', segment);
+    try {
+        await post.validate({property: 'visibility'});
+        await post.validate({property: 'tiers'});
+        if (post.get('isDraft') && post.changedAttributes().tiers) {
+            await saveTask.perform();
+        }
+    } catch (e) {
+        if (!e) {
+            // validation error
+            return;
+        }
+        throw e;
+    }
+}
+
+/**
+ * Helper to update.slug task wrapper
+ */
+function updateSlugAction(updateSlugTask, post) {
+    return updateSlugTask
+        .perform(post.slugValue)
+        .catch((error) => {
+            throw error;
+        });
+}
+
+/**
+ * Helper for setting property with equality check, validation, and save
+ */
+function createPropertySetter(
+    component,
+    property,
+    scratchAccessor,
+    isNewCheck = (post) => post.isNew
+) {
+    return function (newVal) {
+        let post = component.post;
+        let currentVal = scratchAccessor ? scratchAccessor(post) : post.get(property);
+
+        if (newVal === currentVal) {
+            return;
+        }
+
+        post.set(property, newVal);
+        return post.validate({property})
+            .then(() => {
+                if (isNewCheck(post)) {
+                    return;
+                }
+                return component.savePostTask.perform();
+            });
+    };
+}
 
 @classic
 @tagName('')
@@ -120,44 +333,32 @@ export default class GhPostSettingsMenu extends Component {
 
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
-        return this.metaTitleScratch || this.post.titleScratch || '(Untitled)';
+        return getSeoTitle(this.post, this.metaTitleScratch);
     }
 
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        const urlParts = [];
-
-        if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // no-op, invalid URL
-            }
-        } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
-        }
-
+        const urlParts = getCanonicalUrlParts(this.post, this.config.blogUrl);
         return urlParts.join(' › ');
     }
 
     get canViewPostHistory() {
+        // Cannot view history for new posts
         if (this.post.isNew) {
             return false;
         }
 
+        // Can only view history for lexical posts
         if (this.post.lexical === null) {
             return false;
         }
 
+        // Can view history for all unpublished/unsent posts
         if (!this.post.isPublished && !this.post.isSent) {
             return true;
         }
 
+        // Cannot view history for published posts if there isn't a web version
         if (this.post.emailOnly) {
             return false;
         }
@@ -175,6 +376,7 @@ export default class GhPostSettingsMenu extends Component {
         let post = this.post;
         let errors = post.get('errors');
 
+        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
@@ -238,9 +440,6 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
-    /**
-     * triggered by user manually changing slug
-     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask
@@ -268,21 +467,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     async setVisibility(segment) {
-        this.post.set('tiers', segment);
-        try {
-            await this.post.validate({property: 'visibility'});
-            await this.post.validate({property: 'tiers'});
-            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-                await this.savePostTask.perform();
-            }
-        } catch (e) {
-            if (!e) {
-                // validation error
-                return;
-            }
-
-            throw e;
-        }
+        await setVisibilityInternal(this.post, segment, this.savePostTask);
     }
 
     @action
@@ -309,7 +494,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('customExcerpt', excerpt);
-
         return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
@@ -323,7 +507,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('codeinjectionHead', code);
-
         return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
@@ -337,7 +520,6 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('codeinjectionFoot', code);
-
         return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
@@ -351,12 +533,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('metaTitle', metaTitle);
-
         return post.validate({property: 'metaTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -371,12 +551,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('metaDescription', metaDescription);
-
         return post.validate({property: 'metaDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -391,12 +569,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('canonicalUrl', value);
-
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -411,12 +587,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('ogTitle', ogTitle);
-
         return post.validate({property: 'ogTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -431,12 +605,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('ogDescription', ogDescription);
-
         return post.validate({property: 'ogDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -451,12 +623,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('twitterTitle', twitterTitle);
-
         return post.validate({property: 'twitterTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -471,12 +641,10 @@ export default class GhPostSettingsMenu extends Component {
         }
 
         post.set('twitterDescription', twitterDescription);
-
         return post.validate({property: 'twitterDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -569,6 +737,7 @@ export default class GhPostSettingsMenu extends Component {
     changeAuthors(newAuthors) {
         let post = this.post;
 
+        // return if nothing changed
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
@@ -576,6 +745,7 @@ export default class GhPostSettingsMenu extends Component {
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
+        // if this is a new post (never been saved before), don't try to save it
         if (post.get('isNew')) {
             return;
         }
@@ -608,6 +778,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
         }

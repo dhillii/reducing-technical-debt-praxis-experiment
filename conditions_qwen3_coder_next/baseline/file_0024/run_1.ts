@@ -61,65 +61,35 @@ const calculateTotals = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem
         const first = memberData[0];
         const firstTotal = first.free + first.paid + first.comped;
 
-        const setMemberChangeData = (change: number, type: keyof typeof directions, numerator: number, denominator: number) => {
-            const percentChange = ((numerator - denominator) / denominator) * 100;
-            percentChanges[type] = formatPercentage(percentChange / 100);
-            directions[type] = percentChange > 0 ? 'up' : percentChange < 0 ? 'down' : 'same';
-        };
-
         if (firstTotal > 0) {
-            setMemberChangeData(totalMembers, 'total', totalMembers, firstTotal);
+            const totalChange = ((totalMembers - firstTotal) / firstTotal) * 100;
+            percentChanges.total = formatPercentage(totalChange / 100);
+            directions.total = totalChange > 0 ? 'up' : totalChange < 0 ? 'down' : 'same';
         }
 
         if (first.free > 0) {
-            setMemberChangeData(latest.free, 'free', latest.free, first.free);
+            const freeChange = ((latest.free - first.free) / first.free) * 100;
+            percentChanges.free = formatPercentage(freeChange / 100);
+            directions.free = freeChange > 0 ? 'up' : freeChange < 0 ? 'down' : 'same';
         }
 
         const firstPaidTotal = first.paid + first.comped;
         const latestPaidTotal = latest.paid + latest.comped;
-
+        
         if (firstPaidTotal > 0) {
-            setMemberChangeData(latestPaidTotal, 'paid', latestPaidTotal, firstPaidTotal);
+            const paidChange = ((latestPaidTotal - firstPaidTotal) / firstPaidTotal) * 100;
+            percentChanges.paid = formatPercentage(paidChange / 100);
+            directions.paid = paidChange > 0 ? 'up' : paidChange < 0 ? 'down' : 'same';
         }
     }
 
     if (mrrData.length > 1) {
-        // Find the first ACTUAL data point within the selected date range (not synthetic boundary points)
-        const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
-        const firstActualPoint = mrrData.find(point => moment(point.date).isSameOrAfter(actualStartDate));
-
-        // Check if this is a "from beginning" range (like YTD) vs a recent range
-        const isFromBeginningRange = moment(dateFrom).isSame(moment().startOf('year'), 'day') ||
-                                    moment(dateFrom).year() < moment().year();
-
-        let firstMrr = 0;
-
-        if (firstActualPoint) {
-            // Check if the first actual point is exactly at the start date
-            if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
-                firstMrr = firstActualPoint.mrr;
-            } else {
-                // First actual point is later than start date
-                if (isFromBeginningRange) {
-                    // For YTD/beginning ranges, assume started from 0
-                    firstMrr = 0;
-                } else {
-                    // For recent ranges, use the most recent MRR before the range
-                    // This should be the same as current MRR (flat line scenario)
-                    firstMrr = totalMrr;
-                }
-            }
-        } else if (isFromBeginningRange) {
-            // No data points in range, and it's a from-beginning range
-            firstMrr = 0;
-        } else {
-            // No data points in recent range, carry forward current MRR
-            firstMrr = totalMrr;
-        }
-
-        if (firstMrr >= 0) { // Allow 0 as a valid starting point
+        // Get first MRR data point in range
+        const firstMrr = getFirstMrrInRange(mrrData, dateFrom);
+        
+        if (firstMrr >= 0) {
             const mrrChange = firstMrr === 0
-                ? (totalMrr > 0 ? 100 : 0) // If starting from 0, any positive value is 100% increase
+                ? (totalMrr > 0 ? 100 : 0)
                 : ((totalMrr - firstMrr) / firstMrr) * 100;
 
             percentChanges.mrr = formatPercentage(mrrChange / 100);
@@ -135,6 +105,32 @@ const calculateTotals = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem
         percentChanges,
         directions
     };
+};
+
+// Helper function to determine first MRR value in range
+const getFirstMrrInRange = (mrrData: MrrHistoryItem[], dateFrom: string): number => {
+    const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
+    const firstActualPoint = mrrData.find(point => moment(point.date).isSameOrAfter(actualStartDate));
+    const isFromBeginningRange = moment(dateFrom).isSame(moment().startOf('year'), 'day') ||
+                                moment(dateFrom).year() < moment().year();
+
+    if (firstActualPoint) {
+        if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
+            return firstActualPoint.mrr;
+        } else {
+            if (isFromBeginningRange) {
+                return 0;
+            } else {
+                return mrrData[mrrData.length - 1]?.mrr ?? 0;
+            }
+        }
+    } else {
+        if (isFromBeginningRange) {
+            return 0;
+        } else {
+            return mrrData[mrrData.length - 1]?.mrr ?? 0;
+        }
+    }
 };
 
 // Format chart data
@@ -184,7 +180,7 @@ const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem
             paid_subscribed: paidSubscribed,
             paid_canceled: paidCanceled,
             formattedValue: formatNumber(value),
-            label: 'Total members' // Consider if label needs update based on data type?
+            label: 'Total members'
         };
     });
 };
@@ -231,12 +227,12 @@ export const useGrowthStats = (range: number) => {
             const yesterdayData = rawData[rawData.length - 2]; // Yesterday's EOD counts
             const todayData = rawData[rawData.length - 1]; // Today's EOD counts
             
-            const startOfToday = moment(dateFrom).format('YYYY-MM-DD'); // 6/26
-            const startOfTomorrow = moment(dateFrom).add(1, 'day').format('YYYY-MM-DD'); // 6/27
+            const startOfToday = moment(dateFrom).format('YYYY-MM-DD');
+            const startOfTomorrow = moment(dateFrom).add(1, 'day').format('YYYY-MM-DD');
             
             // Create two data points:
-            // 1. Yesterday's EOD count attributed to start of today (6/26)
-            // 2. Today's EOD count attributed to start of tomorrow (6/27)
+            // 1. Yesterday's EOD count attributed to start of today
+            // 2. Today's EOD count attributed to start of tomorrow
             const startPoint = {
                 ...yesterdayData,
                 date: startOfToday
@@ -261,10 +257,15 @@ export const useGrowthStats = (range: number) => {
         if (mrrHistoryResponse?.stats && mrrHistoryResponse?.meta?.totals) {
             // Select the currency with the highest total MRR value (same logic as Dashboard)
             const totals = mrrHistoryResponse.meta.totals;
-            const currentMax = totals.reduce((max, total) => total.mrr > max.mrr ? total : max, totals[0]) || null;
-
+            let currentMax = totals[0];
             if (!currentMax) {
                 return {mrrData: [], selectedCurrency: 'usd'};
+            }
+
+            for (const total of totals) {
+                if (total.mrr > currentMax.mrr) {
+                    currentMax = total;
+                }
             }
 
             const useCurrency = currentMax.currency;

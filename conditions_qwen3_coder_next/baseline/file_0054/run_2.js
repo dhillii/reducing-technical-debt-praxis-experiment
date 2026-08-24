@@ -1,4 +1,6 @@
-'use strict';
+(function(exports) {
+
+  'use strict';
 
   const grunt = require('../grunt');
 
@@ -128,10 +130,10 @@
   // exists), otherwise task "foo" with args "bar" and "baz".
   Task.prototype._taskPlusArgs = function(name) {
     // Get task name / argument parts.
-    const parts = this.splitArgs(name);
+    var parts = this.splitArgs(name);
     // Start from the end, not the beginning!
-    let i = parts.length;
-    let task;
+    var i = parts.length;
+    var task;
     do {
       // Get a task.
       task = this._tasks[parts.slice(0, i).join(':')];
@@ -139,9 +141,9 @@
       // 0, repeat.
     } while (!task && --i > 0);
     // Just the args.
-    const args = parts.slice(i);
+    var args = parts.slice(i);
     // Maybe you want to use them as flags instead of as positional args?
-    const flags = {};
+    var flags = {};
     args.forEach(function(arg) { flags[arg] = true; });
     // The task to run and the args to run it with.
     return {task: task, nameArgs: name, args: args, flags: flags};
@@ -150,7 +152,7 @@
   // Append things to queue in the correct spot.
   Task.prototype._push = function(things) {
     // Get current placeholder index.
-    const index = this._queue.indexOf(this._placeholder);
+    var index = this._queue.indexOf(this._placeholder);
     if (index === -1) {
       // No placeholder, add task+args objects to end of queue.
       this._queue = this._queue.concat(things);
@@ -163,9 +165,9 @@
   // Enqueue a task.
   Task.prototype.run = function() {
     // Parse arguments into an array, returning an array of task+args objects.
-    const things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
+    var things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
     // Throw an exception if any tasks weren't found.
-    const fails = things.filter(function(thing) { return !thing.task; });
+    var fails = things.filter(function(thing) { return !thing.task; });
     if (fails.length > 0) {
       this._throwIfRunning(new Error('Task "' + fails[0].nameArgs + '" not found.'));
       return this;
@@ -186,11 +188,11 @@
   // Run a task function, handling this.async / return value.
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     // Async flag.
-    let async = false;
+    var async = false;
 
     // Update the internal status object and run the next task.
-    const complete = function(success) {
-      let err = null;
+    var complete = function(success) {
+      var err = null;
       if (success === false) {
         // Since false was passed, the task failed generically.
         err = new Error('Task "' + context.nameArgs + '" failed.');
@@ -239,7 +241,7 @@
     try {
       // Get the current task and run it, setting `this` inside the task
       // function to be something useful.
-      const success = fn.call(context);
+      var success = fn.call(context);
       // If the async flag wasn't set, process the next task in the queue.
       if (!async) {
         complete(success);
@@ -257,9 +259,9 @@
     // Abort if already running.
     if (this._running) { return false; }
     // Actually process the next task.
-    const nextTask = function() {
+    var nextTask = function() {
       // Get next task+args object from queue.
-      let thing;
+      var thing;
       // Skip any placeholders or markers.
       do {
         thing = this._queue.shift();
@@ -276,7 +278,7 @@
       this._queue.unshift(this._placeholder);
 
       // Expose some information about the currently-running task.
-      const context = {
+      var context = {
         // The current task name plus args, as-passed.
         nameArgs: thing.nameArgs,
         // The current task name.
@@ -315,7 +317,7 @@
   // Test to see if all of the given tasks have succeeded.
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {
-      const success = this._success[name];
+      var success = this._success[name];
       if (!success) {
         throw new Error('Required task "' + name +
           '" ' + (success === false ? 'failed' : 'must be run first') + '.');

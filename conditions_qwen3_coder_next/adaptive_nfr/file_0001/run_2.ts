@@ -241,6 +241,53 @@ export const isApiError = (error: unknown): error is ApiError => {
     );
 };
 
+/**
+ * Extracts error details from JSON response if available.
+ * Preserves default error message if JSON parsing fails or no message is present.
+ */
+function parseErrorResponse(json: unknown, defaultError: ApiError): ApiError {
+    const errorMessage = typeof json === 'object' && json !== null
+        ? ('message' in json ? (json as {message: string}).message : null)
+            ?? ('error' in json ? (json as {error: string}).error : null)
+        : null;
+
+    const error = {
+        message: errorMessage ?? defaultError.message,
+        statusCode: defaultError.statusCode,
+        code: typeof json === 'object' && json !== null && 'code' in json
+            ? (json as {code: string}).code
+            : undefined
+    };
+
+    if (!isApiError(error)) {
+        throw {
+            message: 'Unexpected error format received',
+            statusCode: 0,
+            code: 'INTERNAL_ERROR'
+        };
+    }
+
+    return error;
+}
+
+/**
+ * Throws an error object with structured data.
+ * Used as a centralized error throwpoint.
+ */
+function throwApiError(error: ApiError): never {
+    throw error;
+}
+
+/**
+ * Creates and throws an upload error.
+ */
+function throwUploadError(statusCode: number): never {
+    throwApiError({
+        message: 'Upload failed',
+        statusCode
+    });
+}
+
 export class ActivityPubAPI {
     constructor(
         private readonly apiUrl: URL,
@@ -255,6 +302,7 @@ export class ActivityPubAPI {
             const json = await response.json();
             return json?.identities?.[0]?.token || null;
         } catch {
+            // TODO: Ping sentry?
             return null;
         }
     }
@@ -279,27 +327,19 @@ export class ActivityPubAPI {
         }
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Something went wrong, please try again.',
-                statusCode: response.status
-            };
-
             try {
                 const json = await response.json();
-                const errorMessage = json.message || json.error;
-
-                if (errorMessage) {
-                    error.message = errorMessage;
-                }
-
-                if (json.code) {
-                    error.code = json.code;
-                }
+                const defaultError: ApiError = {
+                    message: 'Something went wrong, please try again.',
+                    statusCode: response.status
+                };
+                throwApiError(parseErrorResponse(json, defaultError));
             } catch {
-                // Leave the default message
+                throwApiError({
+                    message: 'Something went wrong, please try again.',
+                    statusCode: response.status
+                });
             }
-
-            throw error;
         }
 
         return await response.json();
@@ -448,7 +488,20 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        return this.parsePaginatedResponse<FollowAccount[]>(json, 'accounts');
+        if (json === null || !('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
+        return {
+            accounts,
+            next: nextPage
+        };
     }
 
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
@@ -473,7 +526,7 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
         return {
-            topics: this.extractArray(json, 'topics')
+            topics: (json && 'topics' in json && Array.isArray(json.topics)) ? json.topics : []
         };
     }
 
@@ -484,7 +537,7 @@ export class ActivityPubAPI {
         }
         const json = await this.fetchJSON(url);
         return {
-            accounts: this.extractArray(json, 'accounts')
+            accounts: (json && 'accounts' in json && Array.isArray(json.accounts)) ? json.accounts : []
         };
     }
 
@@ -505,9 +558,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('posts' in json)) {
+            return {
+                posts: [],
+                next: null
+            };
+        }
+
+        const posts = Array.isArray(json.posts) ? json.posts : [];
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
         return {
-            posts: this.extractArray(json, 'posts'),
-            next: this.extractNext(json)
+            posts,
+            next: nextPage
         };
     }
 
@@ -519,9 +582,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('notifications' in json)) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
         return {
-            notifications: this.extractArray(json, 'notifications'),
-            next: this.extractNext(json)
+            notifications,
+            next: nextPage
         };
     }
 
@@ -530,7 +603,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const count = typeof (json as Record<string, unknown>)?.count === 'number'
+        if (json === null) {
+            return {
+                count: 0
+            };
+        }
+
+        const count = typeof (json as Record<string, unknown>).count === 'number'
             ? (json as {count: number}).count
             : 0;
 
@@ -553,9 +632,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('blocked_accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.blocked_accounts) ? json.blocked_accounts as Account[] : [];
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
         return {
-            accounts: this.extractArray(json, 'blocked_accounts'),
-            next: this.extractNext(json)
+            accounts,
+            next: nextPage
         };
     }
 
@@ -567,9 +656,20 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('blocked_domains' in json)) {
+            return {
+                domains: [],
+                next: null
+            };
+        }
+
+        const domains = Array.isArray(json.blocked_domains) ? json.blocked_domains as Account[] : [];
+
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
         return {
-            domains: this.extractArray(json, 'blocked_domains'),
-            next: this.extractNext(json)
+            domains,
+            next: nextPage
         };
     }
 
@@ -582,9 +682,19 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
+        if (json === null || !('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = typeof json.next === 'string' ? json.next : null;
+
         return {
-            accounts: this.extractArray(json, 'accounts'),
-            next: this.extractNext(json)
+            accounts,
+            next: nextPage
         };
     }
 
@@ -642,10 +752,7 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            throw {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
+            throwUploadError(response.status);
         }
 
         const json = await response.json();
@@ -669,48 +776,10 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url, 'POST');
 
-        if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
+        if (json === null || typeof json.handle !== 'string') {
             return '';
         }
 
         return String(json.handle);
-    }
-
-    /**
-     * Extracts an array from a JSON response object by key.
-     * Returns an empty array if the key is missing or not an array.
-     */
-    private extractArray<T>(json: unknown, key: string): T[] {
-        if (!json || typeof json !== 'object') {
-            return [];
-        }
-
-        const value = (json as Record<string, unknown>)[key];
-        return Array.isArray(value) ? value as T[] : [];
-    }
-
-    /**
-     * Extracts the next pagination token from a JSON response object.
-     */
-    private extractNext(json: unknown): string | null {
-        if (!json || typeof json !== 'object') {
-            return null;
-        }
-
-        const value = (json as Record<string, unknown>).next;
-        return typeof value === 'string' ? value : null;
-    }
-
-    /**
-     * Parses a paginated response with accounts and next token.
-     */
-    private parsePaginatedResponse<T extends Array<unknown>>(json: unknown, key: string): {accounts: T, next: string | null} {
-        const accounts = this.extractArray<T[number]>(json, key);
-        const next = this.extractNext(json);
-
-        return {
-            accounts: accounts as T,
-            next
-        };
     }
 }

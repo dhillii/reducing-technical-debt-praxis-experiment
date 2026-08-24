@@ -279,22 +279,20 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
     return '';
 }
 
-// Extracted helper to compute offer display data
-function getOfferDisplayData({offer, price}) {
+// Extracted helper to format retention offer display data
+function formatRetentionOfferData({offer, price}) {
     const originalPrice = formatNumber(price.amount / 100);
     const currency = getCurrencySymbol(price.currency);
     const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
     const amountOff = getOfferOffAmount({offer});
     const discountText = offer.type === 'free_months' ? `${amountOff} free` : `${amountOff} off`;
-    const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
 
     return {
         originalPrice,
         currency,
         discountedPrice,
         amountOff,
-        discountText,
-        offerMessage
+        discountText
     };
 }
 
@@ -307,10 +305,12 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
         currency,
         discountedPrice,
         amountOff,
-        discountText,
-        offerMessage
-    } = getOfferDisplayData({offer, price});
+        discountText
+    } = formatRetentionOfferData({offer, price});
 
+    const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
+
+    // TODO: Add i18n once copy is finalized
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
             <p className="gh-portal-text-center">

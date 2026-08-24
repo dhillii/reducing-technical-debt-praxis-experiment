@@ -1,3 +1,20 @@
+const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
+const {escapeExpression, SafeString} = require('../services/handlebars');
+const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+const {cardAssets} = require('../services/assets-minification');
+
+const logging = require('@tryghost/logging');
+const _ = require('lodash');
+const debug = require('@tryghost/debug')('ghost_head');
+const templateStyles = require('./tpl/styles');
+const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
+
+/**
+ * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
+ */
+
+const {get: getMetaData, getAssetUrl} = metaData;
+
 function writeMetaTag(property, content, type) {
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
     return '<meta ' + type + '="' + property + '" content="' + content + '">';
@@ -26,6 +43,7 @@ function finaliseStructuredData(meta) {
 }
 
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
     }
@@ -52,6 +70,7 @@ function getMembersHelper(data, frontendKey, excludeList) {
     }
     if (settingsCache.get('paid_members_enabled')) {
         const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+
         membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
     }
     return membersHelper;
@@ -72,7 +91,9 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getAnnouncementBarHelper(data) {
@@ -106,7 +127,9 @@ function getAnnouncementBarHelper(data) {
     }
 
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getWebmentionDiscoveryLink() {
@@ -127,8 +150,8 @@ function getTinybirdTrackerScript(dataRoot) {
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
-    const env = config.get('env');
 
+    const env = config.get('env');
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
     const localEnabled = localConfig?.enabled ?? false;
@@ -148,68 +171,96 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function addMetadata(head, meta, context, excludeList, safeVersion) {
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-        }
+function getFontSelection(data, settingsCache) {
+    const isSitePreview = data?.site?._preview ?? false;
 
-        if (settingsCache.get('icon')) {
-            const favicon = blogIcon.getIconUrl();
-            const iconType = blogIcon.getIconType(favicon);
-            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-        }
+    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
 
-        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+    // Return early if neither font is valid
+    if (!((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont)))) {
+        return null;
     }
 
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    /** @type FontSelection */
+    const fontSelection = {};
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
     }
 
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-    }
-
-    if (_.includes(context, 'preview')) {
-        return;
-    }
-
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    if (!_.includes(context, 'paged') && useStructuredData) {
-        if (!excludeList.has('social_data')) {
-            head.push('');
-            head.push.apply(head, finaliseStructuredData(meta));
-            head.push('');
-        }
-
-        if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
-        }
-    }
+    const customCSS = generateCustomFontCss(fontSelection);
+    return new SafeString(customCSS);
 }
 
-function addBaseTags(head, meta, safeVersion) {
-    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
-    head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
+function addMetaInformation(head, meta, context, excludeList, safeVersion, favicon, iconType) {
+    if (context) {
+        if (!excludeList.has('metadata')) {
+            if (meta.metaDescription && meta.metaDescription.length > 0) {
+                head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+            }
+
+            if (settingsCache.get('icon')) {
+                head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+            }
+
+            head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+            if (_.includes(context, 'preview')) {
+                head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+                head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+            } else {
+                head.push(writeMetaTag('referrer', config.get('referrerPolicy') || 'no-referrer-when-downgrade', 'name'));
+            }
+        }
+
+        if (meta.previousUrl) {
+            head.push('<link rel="prev" href="' +
+                escapeExpression(meta.previousUrl) + '">');
+        }
+
+        if (meta.nextUrl) {
+            head.push('<link rel="next" href="' +
+                escapeExpression(meta.nextUrl) + '">');
+        }
+
+        const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+        if (!_.includes(context, 'paged') && useStructuredData) {
+            if (!excludeList.has('social_data')) {
+                head.push('');
+                head.push.apply(head, finaliseStructuredData(meta));
+                head.push('');
+            }
+
+            if (!excludeList.has('schema') && meta.schema) {
+                head.push('<script type="application/ld+json">\n' +
+                    JSON.stringify(meta.schema, null, '    ') +
+                    '\n    </script>\n');
+            }
+        }
+    }
+
+    head.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
 }
 
-function addHelperScripts(head, options, frontendKey, excludeList, dataRoot) {
-    head.push(getMembersHelper(options.data, frontendKey, excludeList));
+function addHelperScripts(head, dataRoot, frontendKey, excludeList) {
+    head.push(getMembersHelper(dataRoot, frontendKey, excludeList));
+
     if (!excludeList.has('search')) {
         head.push(getSearchHelper(frontendKey));
     }
+
     if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(options.data));
+        head.push(getAnnouncementBarHelper(dataRoot));
     }
+
     try {
         head.push(getWebmentionDiscoveryLink());
     } catch (err) {
@@ -240,8 +291,8 @@ function addHelperScripts(head, options, frontendKey, excludeList, dataRoot) {
         }
     }
 
-    if (options.data.site.accent_color) {
-        const accentColor = escapeExpression(options.data.site.accent_color);
+    if (dataRoot.site?.accent_color) {
+        const accentColor = escapeExpression(dataRoot.site.accent_color);
         const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
         const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
 
@@ -257,39 +308,19 @@ function addCodeInjections(head, postCodeInjection, tagCodeInjection, globalCode
     if (!_.isEmpty(globalCodeinjection)) {
         head.push(globalCodeinjection);
     }
+
     if (!_.isEmpty(postCodeInjection)) {
         head.push(postCodeInjection);
     }
+
     if (!_.isEmpty(tagCodeInjection)) {
         head.push(tagCodeInjection);
     }
 }
 
-function addCustomFonts(head, options, settingsCache) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
-        const fontSelection = {};
-
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-        const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
-    }
-}
-
-module.exports = async function ghost_head(options) {
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
-
     if (options.data.root.statusCode >= 500) {
         return;
     }
@@ -302,6 +333,8 @@ module.exports = async function ghost_head(options) {
     const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
     const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
 
     debug('preparation complete, begin fetch');
 
@@ -311,14 +344,14 @@ module.exports = async function ghost_head(options) {
 
         debug('end fetch');
 
-        if (context) {
-            addMetadata(head, meta, context, excludeList, safeVersion);
-        }
-
-        addBaseTags(head, meta, safeVersion);
-        addHelperScripts(head, options, frontendKey, excludeList, dataRoot);
+        addMetaInformation(head, meta, context, excludeList, safeVersion, favicon, iconType);
+        addHelperScripts(head, dataRoot, frontendKey, excludeList);
         addCodeInjections(head, postCodeInjection, tagCodeInjection, globalCodeinjection);
-        addCustomFonts(head, options, settingsCache);
+
+        const customFontCSS = getFontSelection(options.data, settingsCache);
+        if (customFontCSS) {
+            head.push(customFontCSS);
+        }
 
         debug('end');
         return new SafeString(head.join('\n    ').trim());

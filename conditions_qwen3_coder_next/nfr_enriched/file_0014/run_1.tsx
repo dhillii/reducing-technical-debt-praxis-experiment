@@ -123,7 +123,7 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
                 {isInEditMode ? (
                     <>
                         <CommentHeader className={hiddenClass} comment={comment} />
-                        <EditForm comment={comment} openForm={openCommentForms.find(f => f.id === comment.id && f.type === 'edit')} parent={parent} />
+                        <EditForm comment={comment} openForm={openForm} parent={parent} />
                     </>
                 ) : (
                     <>
@@ -165,6 +165,7 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
 
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
+
     const showMoreButton = isAdmin && comment.status === 'hidden';
 
     return (
@@ -211,7 +212,6 @@ const EditedInfo: React.FC<{comment: Comment}> = ({comment}) => {
         </span>
     );
 };
-
 const RepliesContainer: React.FC<RepliesProps & {className?: string}> = ({comment, className = ''}) => {
     const hasReplies = comment.replies && comment.replies.length > 0;
 
@@ -253,8 +253,9 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
     const inReplyToComment = findCommentById(comments, comment.in_reply_to_id);
 
     const inReplyToSnippet = comment.in_reply_to_snippet ?? `[${t('removed')}]`;
-    const linkToReply = inReplyToComment?.status === 'published';
+    const isPublished = inReplyToComment?.status === 'published';
 
+    const linkToReply = isPublished;
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';
     const linkClassName = `${className} hover:text-neutral-900/75 dark:hover:text-white/85`;
 
@@ -275,6 +276,7 @@ type CommentHeaderProps = {
 const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) => {
     const {member, t, pageUrl} = useAppContext();
     const createdAtRelative = useRelativeTime(comment.created_at);
+    const memberExpertise = member && comment.member && comment.member.uuid === member.uuid ? member.expertise : comment?.member?.expertise;
     const isReplyToReply = comment.in_reply_to_id && comment.in_reply_to_snippet;
 
     const timestampElement = (
@@ -290,7 +292,7 @@ const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) 
 
     return (
         <>
-            <div className={`mt-0.5 flex flex-wrap items-start sm:flex-row ${member && comment.member?.uuid === member.uuid ? 'flex-col' : 'flex-row'} ${isReplyToReply ? 'mb-0.5' : 'mb-2'} ${className}`}>
+            <div className={`mt-0.5 flex flex-wrap items-start sm:flex-row ${memberExpertise ? 'flex-col' : 'flex-row'} ${isReplyToReply ? 'mb-0.5' : 'mb-2'} ${className}`}>
                 <AuthorName comment={comment} />
                 <div className="flex items-baseline pr-4 font-sans text-base leading-snug text-neutral-900/50 sm:text-sm dark:text-white/60">
                     <span>

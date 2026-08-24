@@ -4,139 +4,6 @@ import {htmlSafe} from '@ember/template';
 import {task} from 'ember-concurrency';
 import {tracked} from '@glimmer/tracking';
 
-/**
- * Encapsulates the logic for checking sending limits
- */
-class SendingLimitChecker {
-    static perform(options) {
-        return new SendingLimitChecker(options)._perform();
-    }
-
-    constructor({limit, settings, user, emailDisabledErrorSetter}) {
-        this._limit = limit;
-        this._settings = settings;
-        this._user = user;
-        this._emailDisabledErrorSetter = emailDisabledErrorSetter;
-    }
-
-    async _perform() {
-        await this._settings.reload();
-
-        try {
-            if (this._limit.limiter && this._limit.limiter.isLimited('emails')) {
-                await this._limit.limiter.errorIfWouldGoOverLimit('emails');
-            } else if (this._settings.emailVerificationRequired) {
-                this._emailDisabledErrorSetter(
-                    'Email sending is temporarily disabled because your account is currently in review. You should have an email about this from us already, but you can also reach us any time at support@ghost.org.'
-                );
-            }
-        } catch (e) {
-            this._emailDisabledErrorSetter(e.message);
-        }
-    }
-}
-
-/**
- * Encapsulates the logic for checking publishing limits
- */
-class PublishingLimitChecker {
-    static perform(options) {
-        return new PublishingLimitChecker(options)._perform();
-    }
-
-    constructor({limit, user, publishDisabledErrorSetter}) {
-        this._limit = limit;
-        this._user = user;
-        this._publishDisabledErrorSetter = publishDisabledErrorSetter;
-    }
-
-    async _perform() {
-        if (!this._user.isAdmin) {
-            return;
-        }
-
-        try {
-            if (this._limit.limiter?.isLimited('members')) {
-                await this._limit.limiter.errorIfIsOverLimit('members');
-            }
-        } catch (e) {
-            const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
-            this._publishDisabledErrorSetter(linkedMessage);
-        }
-    }
-}
-
-/**
- * Encapsulates the logic for fetching required data during setup
- */
-class RequiredDataFetcher {
-    static async fetch({config, limit, post, settings, store, user, membersCountCache, totalMemberCountSetter, publishDisabledErrorSetter, emailDisabledErrorSetter}) {
-        return new RequiredDataFetcher({
-            config,
-            limit,
-            post,
-            settings,
-            store,
-            user,
-            membersCountCache,
-            totalMemberCountSetter,
-            publishDisabledErrorSetter,
-            emailDisabledErrorSetter
-        })._fetch();
-    }
-
-    constructor({config, limit, post, settings, store, user, membersCountCache, totalMemberCountSetter, publishDisabledErrorSetter, emailDisabledErrorSetter}) {
-        this._config = config;
-        this._limit = limit;
-        this._post = post;
-        this._settings = settings;
-        this._store = store;
-        this._user = user;
-        this._membersCountCache = membersCountCache;
-        this._totalMemberCountSetter = totalMemberCountSetter;
-        this._publishDisabledErrorSetter = publishDisabledErrorSetter;
-        this._emailDisabledErrorSetter = emailDisabledErrorSetter;
-    }
-
-    async _fetch() {
-        const promises = [];
-
-        // total # of members
-        if (this._user.isAdmin) {
-            promises.push(
-                this._membersCountCache.count({}).then((res) => {
-                    this._totalMemberCountSetter(res);
-                })
-            );
-        } else {
-            this._totalMemberCountSetter(1);
-        }
-
-        // limits
-        promises.push(SendingLimitChecker.perform({
-            limit: this._limit,
-            settings: this._settings,
-            user: this._user,
-            emailDisabledErrorSetter: this._emailDisabledErrorSetter
-        }));
-
-        promises.push(PublishingLimitChecker.perform({
-            limit: this._limit,
-            user: this._user,
-            publishDisabledErrorSetter: this._publishDisabledErrorSetter
-        }));
-
-        // newsletters
-        if (!this._user.isContributor) {
-            promises.push(
-                this._store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-            );
-        }
-
-        await Promise.all(promises);
-    }
-}
-
 export default class PublishOptions {
     // passed in services
     config = null;
@@ -157,17 +24,14 @@ export default class PublishOptions {
     }
 
     get willEmail() {
-        const isDelayedEmail = (
-            this.publishType !== 'publish'
-            && this.recipientFilter
-            && this.post.isDraft
-            && !this.post.email
+        return (
+            (this.publishType !== 'publish'
+                && this.recipientFilter
+                && this.post.isDraft
+                && !this.post.email
+            )
+                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
         );
-        const isFailedEmail = (
-            this.post.isDraft && this.post.email && this.post.email.status === 'failed'
-        );
-
-        return isDelayedEmail || isFailedEmail;
     }
 
     get willEmailImmediately() {
@@ -210,6 +74,8 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
+        // API only stores seconds so providing non-zero milliseconds can
+        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -235,9 +101,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send',
-            label: 'Publish and email',
-            display: 'Publish and email',
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -260,10 +126,12 @@ export default class PublishOptions {
             || this.settings.membersSignupAccess === 'none';
     }
 
+    // publish type dropdown is not shown at all
     get emailUnavailable() {
         return this.post.isPage || this.post.email || this.emailDisabledInSettings;
     }
 
+    // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
 
@@ -277,13 +145,16 @@ export default class PublishOptions {
 
     @action
     setPublishType(newValue) {
+        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
     // recipients --------------------------------------------------------------
 
+    // set in constructor because services are not injected
     allNewsletters = [];
 
+    // both of these are set to site defaults in `setupTask`
     @tracked newsletter = null;
     @tracked selectedRecipientFilter = undefined;
 
@@ -320,20 +191,33 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            switch (this.post.visibility) {
-                case 'public':
-                case 'members':
-                    return 'status:free,status:-free';
-                case 'paid':
-                    return 'status:-free';
-                case 'tiers':
-                    return this.post.visibilitySegment;
-                default:
-                    return this.post.visibility;
-            }
+            return this._getVisibilityBasedFilter();
         }
 
         return filter;
+    }
+
+    /**
+     * Extracted to reduce branching density in defaultRecipientFilter
+     * @returns {string|null}
+     * @private
+     */
+    _getVisibilityBasedFilter() {
+        const visibility = this.post.visibility;
+
+        if (visibility === 'public' || visibility === 'members') {
+            return 'status:free,status:-free';
+        }
+
+        if (visibility === 'paid') {
+            return 'status:-free';
+        }
+
+        if (visibility === 'tiers') {
+            return this.post.visibilitySegment;
+        }
+
+        return visibility;
     }
 
     get fullRecipientFilter() {
@@ -367,6 +251,9 @@ export default class PublishOptions {
         this.user = user;
         this.membersCountCache = membersCountCache;
 
+        // this needs to be set here rather than a class-level property because
+        // unlike Ember-based classes the services are not injected so can't be
+        // used until after they are assigned above
         this.allNewsletters = this.store.peekAll('newsletter');
 
         this.setupTask.perform();
@@ -374,24 +261,9 @@ export default class PublishOptions {
 
     @task
     *setupTask() {
-        yield RequiredDataFetcher.fetch({
-            config: this.config,
-            limit: this.limit,
-            post: this.post,
-            settings: this.settings,
-            store: this.store,
-            user: this.user,
-            membersCountCache: this.membersCountCache,
-            totalMemberCountSetter: (value) => {
-                this.totalMemberCount = value;
-            },
-            publishDisabledErrorSetter: (value) => {
-                this.publishDisabledError = value;
-            },
-            emailDisabledErrorSetter: (value) => {
-                this.emailDisabledError = value;
-            }
-        });
+        yield this.fetchRequiredDataTask.perform();
+
+        // TODO: set up initial state / defaults
 
         this.newsletter = this.defaultNewsletter;
 
@@ -399,6 +271,9 @@ export default class PublishOptions {
             this.publishType = 'publish';
         }
 
+        // When default recipients is set to "Usually nobody":
+        // Set publish type to "Publish" but keep email recipients matching post visibility
+        // to avoid multiple clicks to turn on emailing
         if (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
@@ -413,31 +288,37 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        // Alias to new implementation for compatibility
-        yield RequiredDataFetcher.fetch({
-            config: this.config,
-            limit: this.limit,
-            post: this.post,
-            settings: this.settings,
-            store: this.store,
-            user: this.user,
-            membersCountCache: this.membersCountCache,
-            totalMemberCountSetter: (value) => {
-                this.totalMemberCount = value;
-            },
-            publishDisabledErrorSetter: (value) => {
-                this.publishDisabledError = value;
-            },
-            emailDisabledErrorSetter: (value) => {
-                this.emailDisabledError = value;
-            }
-        });
+        const promises = [];
+
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
+        if (this.user.isAdmin) {
+            promises.push(this.membersCountCache.count({}).then((res) => {
+                this.totalMemberCount = res;
+            }));
+        } else {
+            this.totalMemberCount = 1;
+        }
+
+        // limits
+        promises.push(this._checkSendingLimit());
+        promises.push(this._checkPublishingLimit());
+
+        // newsletters
+        if (!this.user.isContributor) {
+            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
+        }
+
+        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------
 
     @task({drop: true})
     *saveTask() {
+        // willEmail can change after model changes are applied because the post
+        // can leave draft status - grab it now before that happens
         const willEmail = this.willEmail;
 
         this._applyModelChanges();
@@ -478,11 +359,20 @@ export default class PublishOptions {
         }
     }
 
+    // Publishing/scheduling is a side-effect of changing model properties.
+    // We don't want to get into a situation where we've applied these changes
+    // but they haven't been saved because that would result in confusing UI.
+    //
+    // Here we apply those changes from the selected publish options but keep
+    // track of the previous values in case saving fails. We can't use ED's
+    // rollbackAttributes() because it would also rollback any other unsaved edits
     _applyModelChanges() {
         const willEmail = this.willEmail;
 
+        // store backup of original values in case we need to revert
         this._originalModelValues = {};
 
+        // this only applies to the full publish flow which is only available for drafts
         if (!this.post.isDraft) {
             return;
         }
@@ -511,23 +401,32 @@ export default class PublishOptions {
     }
 
     async _checkSendingLimit() {
-        return await SendingLimitChecker.perform({
-            limit: this.limit,
-            settings: this.settings,
-            user: this.user,
-            emailDisabledErrorSetter: (message) => {
-                this.emailDisabledError = message;
+        await this.settings.reload();
+
+        try {
+            if (this.limit.limiter && this.limit.limiter.isLimited('emails')) {
+                await this.limit.limiter.errorIfWouldGoOverLimit('emails');
+            } else if (this.settings.emailVerificationRequired) {
+                this.emailDisabledError = 'Email sending is temporarily disabled because your account is currently in review. You should have an email about this from us already, but you can also reach us any time at support@ghost.org.';
             }
-        });
+        } catch (e) {
+            this.emailDisabledError = e.message;
+        }
     }
 
     async _checkPublishingLimit() {
-        return await PublishingLimitChecker.perform({
-            limit: this.limit,
-            user: this.user,
-            publishDisabledErrorSetter: (message) => {
-                this.publishDisabledError = message;
+        // non-admin users cannot fetch members count so we can't error at this stage for them
+        if (!this.user.isAdmin) {
+            return;
+        }
+
+        try {
+            if (this.limit.limiter?.isLimited('members')) {
+                await this.limit.limiter.errorIfIsOverLimit('members');
             }
-        });
+        } catch (e) {
+            const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
+            this.publishDisabledError = linkedMessage;
+        }
     }
 }

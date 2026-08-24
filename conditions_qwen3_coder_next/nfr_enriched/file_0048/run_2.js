@@ -74,11 +74,8 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
-        }
+        const statusEvent = this.#getStatusChangeEvent(newStatus);
+        this.events.push(statusEvent);
         this.#status = newStatus;
     }
 
@@ -149,17 +146,14 @@ module.exports = class Tier {
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
-            });
-        }
-
+        this.#validatePricingUpdate(currency, monthlyPrice, yearlyPrice);
         const newCurrency = validateCurrency(currency, this.#type);
         const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
         const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+        if (newCurrency === this.#currency &&
+            newMonthlyPrice === this.#monthlyPrice &&
+            newYearlyPrice === this.#yearlyPrice) {
             return;
         }
 
@@ -170,6 +164,21 @@ module.exports = class Tier {
         this.events.push(TierPriceChangeEvent.create({
             tier: this
         }));
+    }
+
+    #validatePricingUpdate(currency, monthlyPrice, yearlyPrice) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+    }
+
+    #getStatusChangeEvent(newStatus) {
+        if (newStatus === 'active') {
+            return TierActivatedEvent.create({tier: this});
+        }
+        return TierArchivedEvent.create({tier: this});
     }
 
     /** @type {Date} */
@@ -230,66 +239,56 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = resolveTierId(data.id);
-        const name = validateName(data.name);
-        const slug = validateSlug(data.slug);
-        const description = validateDescription(data.description);
-        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
-        const currency = validateCurrency(data.currency || null, type);
-        const trialDays = validateTrialDays(data.trialDays || 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
-        const createdAt = validateCreatedAt(data.createdAt);
-        const updatedAt = validateUpdatedAt(data.updatedAt);
-        const benefits = validateBenefits(data.benefits);
-
-        const tier = new Tier({
-            id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
-            status,
-            visibility,
-            type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
-        });
-
+        const id = ensureId(data.id);
+        const tierData = buildTierData(data);
+        const tier = new Tier(tierData);
+        
         if (!data.id) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
-
+        
         return tier;
     }
 };
 
-/**
- * Resolves and validates the tier ID, creating a new ObjectID if needed.
- * @param {any} id
- * @returns {ObjectID}
- */
-function resolveTierId(id) {
-    if (!id) {
+function ensureId(value) {
+    if (!value) {
         return new ObjectID();
     }
-    if (typeof id === 'string') {
-        return ObjectID.createFromHexString(id);
+    if (typeof value === 'string') {
+        return ObjectID.createFromHexString(value);
     }
-    if (id instanceof ObjectID) {
-        return id;
+    if (value instanceof ObjectID) {
+        return value;
     }
     throw new ValidationError({
         message: 'Invalid ID provided for Tier'
     });
+}
+
+/**
+ * @param {any} data
+ * @returns {Object}
+ */
+function buildTierData(data) {
+    const type = data.type || 'paid';
+    return {
+        id: data.id || new ObjectID(),
+        slug: validateSlug(data.slug),
+        name: validateName(data.name),
+        description: validateDescription(data.description),
+        welcome_page_url: validateWelcomePageURL(data.welcomePageURL),
+        status: validateStatus(data.status || 'active'),
+        visibility: validateVisibility(data.visibility || 'public'),
+        type: type,
+        trial_days: validateTrialDays(data.trialDays || 0, type),
+        currency: validateCurrency(data.currency || null, type),
+        monthly_price: validateMonthlyPrice(data.monthlyPrice || null, type),
+        yearly_price: validateYearlyPrice(data.yearlyPrice || null, type),
+        created_at: validateCreatedAt(data.createdAt),
+        updated_at: validateUpdatedAt(data.updatedAt),
+        benefits: validateBenefits(data.benefits)
+    };
 }
 
 function validateSlug(value) {

@@ -36,6 +36,7 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         return valid ? '' : 'Enter a valid email address';
     },
     url: ({url}) => {
+        // require_tld is automatically true in validator 8+, we set it false here for our default localhost setup
         const valid = !url || validator.isURL(url, {require_tld: false});
         return valid ? '' : 'Enter a valid URL';
     },
@@ -213,6 +214,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
 
+    // Pintura integration
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
@@ -223,7 +225,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleSuspendUser = async (_user: User) => {
+    /**
+     * Handles user suspension/unsuspension with host limit checks and confirmation.
+     * Returns early on limit error; handles status toggle on confirm.
+     */
+    const confirmSuspend = async (_user: User) => {
         if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
@@ -247,7 +253,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
-            prompt: <><strong>WARNING:</strong> {warningText}</>,
+            prompt: <strong>WARNING:</strong> {warningText},
             okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
@@ -271,7 +277,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleDeleteUser = (_user: User, {owner}: {owner: User}) => {
+    /**
+     * Confirm and handle user deletion, assigning posts to the blog owner.
+     */
+    const confirmDelete = (_user: User, owner: User) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
@@ -299,7 +308,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleMakeOwner = () => {
+    /**
+     * Confirm and execute transfer of blog ownership to selected user.
+     */
+    const confirmMakeOwner = () => {
         NiceModal.show(ConfirmationModal, {
             title: 'Transfer Ownership',
             prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
@@ -320,65 +332,74 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
+    /**
+     * Upload image (cover or profile) and update form with resulting URL.
+     */
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-
-            switch (image) {
-            case 'cover_image':
-                updateForm((_user) => ({..._user, cover_image: imageUrl}));
-                break;
-            case 'profile_image':
-                updateForm((_user) => ({..._user, profile_image: imageUrl}));
-                break;
-            }
+            updateForm((prevUser) => ({
+                ...prevUser,
+                [image]: imageUrl
+            }));
         } catch (e) {
             const error = e as APIError;
-            if (error.response!.status === 415) {
+            if (error.response?.status === 415) {
                 error.message = 'Unsupported file type';
             }
             handleError(error);
         }
     };
 
+    /**
+     * Clear specified image field (cover or profile) from the user form.
+     */
     const handleImageDelete = (image: string) => {
-        switch (image) {
-        case 'cover_image':
-            updateForm((_user) => ({..._user, cover_image: ''}));
-            break;
-        case 'profile_image':
-            updateForm((_user) => ({..._user, profile_image: ''}));
-            break;
-        }
+        updateForm((prevUser) => ({
+            ...prevUser,
+            [image]: ''
+        }));
     };
 
+    /**
+     * Determine whether to show the action menu for this user.
+     * Based on current user permissions and target user role/status.
+     */
+    const shouldShowMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+
+    /**
+     * Generate the list of menu items based on user permissions and current state.
+     * Returns array of clickable menu actions.
+     */
     const getMenuItems = (): MenuItem[] => {
         const items: MenuItem[] = [];
 
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        if (isOwnerUser(currentUser) &&
+            isAdminUser(formState) &&
+            formState.status !== 'inactive'
+        ) {
             items.push({
                 id: 'make-owner',
                 label: 'Make owner',
-                onClick: handleMakeOwner
+                onClick: confirmMakeOwner
             });
         }
 
-        if (formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        )) {
+        if (formState.id !== currentUser.id &&
+            ((hasAdminAccess(currentUser) && !isOwnerUser(user)) || (isEditorUser(currentUser) && isAuthorOrContributor(user)))
+        ) {
             const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
             items.push(
                 {
                     id: 'delete-user',
                     label: 'Delete user',
-                    onClick: () => handleDeleteUser(user, {owner: ownerUser})
+                    onClick: () => confirmDelete(user, ownerUser)
                 },
                 {
                     id: 'suspend-user',
                     label: suspendLabel,
-                    onClick: () => handleSuspendUser(formState)
+                    onClick: () => confirmSuspend(formState)
                 }
             );
         }
@@ -396,6 +417,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
@@ -405,7 +427,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
 
     return (
         <Modal
@@ -457,12 +480,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         }
                                         unstyled={true}
                                         width='80px'
-                                        onDelete={() => {
-                                            handleImageDelete('profile_image');
-                                        }}
-                                        onUpload={(file: File) => {
-                                            handleImageUpload('profile_image', file);
-                                        }}
+                                        onDelete={() => handleImageDelete('profile_image')}
+                                        onUpload={(file: File) => handleImageUpload('profile_image', file)}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
                                     </ImageUpload>
@@ -470,10 +489,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 <div className='flex flex-nowrap items-start gap-3'>
                                     <ImageUpload
                                         buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
-                                        deleteButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
                                         deleteButtonContent='Delete cover image'
-                                        editButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
-                                        fileUploadClassName='rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
                                         id='cover-image'
                                         imageClassName='hidden'
                                         imageURL={formState.cover_image || ''}
@@ -489,14 +508,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             }
                                         }
                                         unstyled
-                                        onDelete={() => {
-                                            handleImageDelete('cover_image');
-                                        }}
-                                        onUpload={(file: File) => {
-                                            handleImageUpload('cover_image', file);
-                                        }}
+                                        onDelete={() => handleImageDelete('cover_image')}
+                                        onUpload={(file: File) => handleImageUpload('cover_image', file)}
                                     >Upload cover image</ImageUpload>
-                                    {showMenu && <div className="z-10">
+                                    {shouldShowMenu && <div className="z-10">
                                         <Menu
                                             items={getMenuItems()}
                                             position='end'

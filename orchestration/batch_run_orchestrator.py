@@ -90,6 +90,12 @@ _LOCAL_COMPUTED_COLUMNS = [
 # additional condition-specific intervention.
 LOCATION_CONTEXT_LINES = 3
 
+# A completion shorter than this fraction of the original source is assumed
+# to be a partial/snippet response rather than a full-file refactor, unless
+# the source itself is trivially small.
+_PARTIAL_OUTPUT_MIN_RATIO = 0.5
+_PARTIAL_OUTPUT_MIN_SOURCE_CHARS = 200
+
 
 def _validate_namespace(namespace: str) -> str:
     """Return a filesystem-safe namespace used to isolate an experiment."""
@@ -551,6 +557,29 @@ class BatchRunOrchestrator:
                 logger.warning(f"Could not resolve source file for {record_id}: {e}")
                 continue
 
+            # Detect partial output: some models return only the changed
+            # function/snippet instead of the full file. Treat a drastically
+            # shorter response as a retryable failure rather than accepting it.
+            try:
+                original_len = len(source_file.read_text(encoding="utf-8"))
+            except Exception:
+                original_len = 0
+            if original_len > _PARTIAL_OUTPUT_MIN_SOURCE_CHARS and len(code) < original_len * _PARTIAL_OUTPUT_MIN_RATIO:
+                self.state_manager.schedule_run_retry(
+                    record_id,
+                    stage="CODE_GENERATION",
+                    error_type="PartialOutput",
+                    message=(
+                        f"Response ({len(code)} chars) is far shorter than the source file "
+                        f"({original_len} chars); likely a partial/snippet response."
+                    ),
+                )
+                logger.warning(
+                    f"Result {record_id} looked like a partial file ({len(code)} vs "
+                    f"{original_len} source chars) and was returned to PENDING for retry."
+                )
+                continue
+
             # Write generated code file (provider/model-specific conditions_root)
             try:
                 self.repo_manager.write_code_file(
@@ -819,7 +848,11 @@ class BatchRunOrchestrator:
         """Build a prompt with uniform issue-localization context and full source code."""
         _no_fence_reminder = (
             "Return ONLY the raw refactored source code with no markdown fences, "
-            "no code-fence markers, and no explanations."
+            "no code-fence markers, and no explanations. "
+            "Your response MUST be the COMPLETE file from the first line to the last "
+            "(all imports, unrelated functions, and unchanged code included), with only "
+            "the necessary parts modified. Never return just the changed function or a "
+            "partial excerpt."
         )
         location_context = self._build_location_context(source_code, sonar_line)
         source_section = f"Complete source code:\n{source_code}"
@@ -840,7 +873,9 @@ class BatchRunOrchestrator:
         _no_fence = (
             "Return ONLY the raw refactored source code. "
             "Do NOT wrap the code in markdown code fences (no ```javascript, no ```, etc.). "
-            "Do NOT include any explanation, commentary, or preamble."
+            "Do NOT include any explanation, commentary, or preamble. "
+            "Always return the ENTIRE file, unchanged parts included \u2014 never return only "
+            "the modified function, snippet, or diff."
         )
         prompts = {
             "baseline": (

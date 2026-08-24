@@ -65,21 +65,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
-    const handlePostNote = useCallback(async (trimmedContent: string) => {
-        await noteMutation.mutateAsync({content: trimmedContent, imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
-        navigate('/notes');
-    }, [noteMutation, uploadedImageUrl, altText, navigate]);
-
-    const handlePostReply = useCallback(async (trimmedContent: string) => {
-        await replyMutation.mutateAsync({
-            inReplyTo: replyTo?.object.id,
-            content: trimmedContent,
-            imageUrl: uploadedImageUrl || undefined,
-            altText: altText || undefined
-        });
-        onReply?.();
-    }, [replyMutation, uploadedImageUrl, altText, replyTo, onReply]);
-
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
 
@@ -91,13 +76,22 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setIsPosting(true);
 
             if (replyTo) {
-                await handlePostReply(trimmedContent);
+                await replyMutation.mutateAsync({
+                    inReplyTo: replyTo.object.id,
+                    content: trimmedContent,
+                    imageUrl: uploadedImageUrl || undefined,
+                    altText: altText || undefined
+                });
+                onReply?.();
             } else {
-                await handlePostNote(trimmedContent);
+                await noteMutation.mutateAsync({content: trimmedContent, imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
+                navigate('/notes');
             }
 
             setIsOpen(false);
-            onOpenChange?.(false);
+            if (onOpenChange) {
+                onOpenChange(false);
+            }
             toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
             if (replyTo) {
@@ -106,7 +100,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, handlePostNote, handlePostReply, setIsOpen, onOpenChange, onReplyError, onReply]);
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -157,7 +151,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
-    const handlePasteImage = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
+    const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) {
             return;
@@ -186,10 +180,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            document.addEventListener('paste', handlePasteImage);
-            return () => document.removeEventListener('paste', handlePasteImage);
+            document.addEventListener('paste', handlePaste);
+            return () => document.removeEventListener('paste', handlePaste);
         }
-    }, [isOpen, props.open, handlePasteImage]);
+    }, [isOpen, props.open, handlePaste]);
 
     const handleImageUpload = async (file: File) => {
         try {
@@ -209,6 +203,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 case 415:
                     errorMessage = 'The file type is not supported.';
                     break;
+                default:
+                    // Use the default error message
                 }
             }
             toast.error(errorMessage);
@@ -220,33 +216,31 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
 
-        if (!files || files.length === 0) {
-            return;
+        if (files && files.length > 0) {
+            const file = files[0];
+
+            if (file.size > MAX_FILE_SIZE) {
+                toast.error(FILE_SIZE_ERROR_MESSAGE);
+                e.target.value = '';
+                return;
+            }
+
+            const previewUrl = URL.createObjectURL(file);
+            setImagePreview(previewUrl);
+
+            await handleImageUpload(file);
         }
-
-        const file = files[0];
-
-        if (file.size > MAX_FILE_SIZE) {
-            toast.error(FILE_SIZE_ERROR_MESSAGE);
-            e.target.value = '';
-            return;
-        }
-
-        const previewUrl = URL.createObjectURL(file);
-        setImagePreview(previewUrl);
-
-        await handleImageUpload(file);
     };
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
         setImagePreview(null);
         setUploadedImageUrl(null);
         setAltText('');
         setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
 
         if (imageInputRef.current) {
             imageInputRef.current.value = '';
@@ -263,6 +257,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -270,18 +265,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const getPlaceholderText = useCallback(() => {
-        let placeholder = 'What\'s new?';
-        if (replyTo) {
-            const attributedTo = replyTo.object.attributedTo || {};
-            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-                placeholder = `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-            }
+    const getPlaceholderText = (): string => {
+        if (!replyTo) {
+            return 'What\'s new?';
         }
-        return placeholder;
-    }, [replyTo]);
 
-    const resetForm = useCallback(() => {
+        const attributedTo = replyTo.object.attributedTo || {};
+        if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+            return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+        }
+
+        return 'Reply...';
+    };
+
+    const resetModalState = () => {
         setContent('');
         setImagePreview(null);
         setUploadedImageUrl(null);
@@ -290,18 +287,25 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         if (imagePreview) {
             URL.revokeObjectURL(imagePreview);
         }
+
         if (imageInputRef.current) {
             imageInputRef.current.value = '';
         }
-    }, [imagePreview]);
+    };
 
-    const handleOpenChange = useCallback((open: boolean) => {
+    const handleOpenChange = (open: boolean) => {
         if (open) {
-            resetForm();
+            resetModalState();
         }
+
         setIsOpen(open);
-        onOpenChange?.(open);
-    }, [onOpenChange, resetForm]);
+
+        if (onOpenChange) {
+            onOpenChange(open);
+        }
+    };
+
+    const placeholder = getPlaceholderText();
 
     return (
         <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
@@ -344,11 +348,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                         autoFocus={true}
                                         className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
                                         data-testid="note-textarea"
-                                        placeholder={getPlaceholderText()}
+                                        placeholder={placeholder}
                                         rows={1}
                                         value={content}
                                         onChange={handleChange}
-                                        onPaste={handlePasteImage}
+                                        onPaste={handlePaste}
                                     />
                                 </FormPrimitive.Control>
                             </FormPrimitive.Field>

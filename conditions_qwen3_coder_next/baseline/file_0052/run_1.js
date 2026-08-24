@@ -1,28 +1,28 @@
 'use strict';
 
-var grunt = require('../grunt');
+const grunt = require('../grunt');
 
 // Nodejs libs.
 const fs = require('fs');
 const path = require('path');
 
 // The module to be exported.
-var file = module.exports = {};
+const file = module.exports = {};
 
 // External libs.
 file.glob = require('glob');
 file.minimatch = require('minimatch');
 file.findup = require('findup-sync');
-var YAML = require('js-yaml');
-var rimraf = require('rimraf');
-var iconv = require('iconv-lite');
-var mkdirp = require('mkdirp').sync;
+const YAML = require('js-yaml');
+const rimraf = require('rimraf');
+const iconv = require('iconv-lite');
+const mkdirp = require('mkdirp').sync;
 
 // Windows?
-var win32 = process.platform === 'win32';
+const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
-var unixifyPath = function(filepath) {
+const unixifyPath = function(filepath) {
   if (win32) {
     return filepath.replace(/\\/g, '/');
   } else {
@@ -32,7 +32,7 @@ var unixifyPath = function(filepath) {
 
 // Change the current base path (ie, CWD) to the specified path.
 file.setBase = function() {
-  var dirpath = path.join.apply(path, arguments);
+  const dirpath = path.join.apply(path, arguments);
   process.chdir(dirpath);
 };
 
@@ -40,15 +40,15 @@ file.setBase = function() {
 // callback, excluding and uniquing files in the result set.
 var processPatterns = function(patterns, fn) {
   // Filepaths to return.
-  var result = [];
+  const result = [];
   // Iterate over flattened patterns array.
   grunt.util._.flattenDeep(patterns).forEach(function(pattern) {
     // If the first character is ! it should be omitted
-    var exclusion = pattern.indexOf('!') === 0;
+    const exclusion = pattern.indexOf('!') === 0;
     // If the pattern is an exclusion, remove the !
     if (exclusion) { pattern = pattern.slice(1); }
     // Find all matching files for this pattern.
-    var matches = fn(pattern);
+    const matches = fn(pattern);
     if (exclusion) {
       // If an exclusion, remove matching files.
       result = grunt.util._.difference(result, matches);
@@ -89,17 +89,17 @@ file.isMatch = function() {
 
 // Return an array of all file paths that match the given wildcard patterns.
 file.expand = function() {
-  var args = grunt.util.toArray(arguments);
+  const args = grunt.util.toArray(arguments);
   // If the first argument is an options object, save those options to pass
   // into the file.glob.sync method.
-  var options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
+  const options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
   // Use the first argument if it's an Array, otherwise convert the arguments
   // object to an array and use that.
-  var patterns = Array.isArray(args[0]) ? args[0] : args;
+  const patterns = Array.isArray(args[0]) ? args[0] : args;
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0) { return []; }
   // Return all matching filepaths.
-  var matches = processPatterns(patterns, function(pattern) {
+  const matches = processPatterns(patterns, function(pattern) {
     // Find all matching files for this pattern.
     return file.glob.sync(pattern, options);
   });
@@ -123,11 +123,11 @@ file.expand = function() {
   return matches;
 };
 
-var pathSeparatorRe = /[\/\\]/g;
+const pathSeparatorRe = /[\/\\]/g;
 
 // The "ext" option refers to either everything after the first dot (default)
 // or everything after the last dot.
-var extDotRe = {
+const extDotRe = {
   first: /(\.[^\/]*)?$/,
   last: /(\.[^\/\.]*)?$/,
 };
@@ -140,11 +140,11 @@ file.expandMapping = function(patterns, destBase, options) {
       return path.join(destBase || '', destPath);
     }
   });
-  var files = [];
-  var fileByDest = {};
+  const files = [];
+  const fileByDest = {};
   // Find all files matching pattern, using passed-in options.
   file.expand(options, patterns).forEach(function(src) {
-    var destPath = src;
+    let destPath = src;
     // Flatten?
     if (options.flatten) {
       destPath = path.basename(destPath);
@@ -154,7 +154,7 @@ file.expandMapping = function(patterns, destBase, options) {
       destPath = destPath.replace(extDotRe[options.extDot], options.ext);
     }
     // Generate destination filename.
-    var dest = options.rename(destBase, destPath, options);
+    const dest = options.rename(destBase, destPath, options);
     // Prepend cwd to src path if necessary.
     if (options.cwd) { src = path.join(options.cwd, src); }
     // Normalize filepaths to be unix-style.
@@ -189,9 +189,9 @@ file.mkdir = function(dirpath, mode) {
 
 // Recurse into a directory, executing callback for each file.
 file.recurse = function recurse(rootdir, callback, subdir) {
-  var abspath = subdir ? path.join(rootdir, subdir) : rootdir;
+  const abspath = subdir ? path.join(rootdir, subdir) : rootdir;
   fs.readdirSync(abspath).forEach(function(filename) {
-    var filepath = path.join(abspath, filename);
+    const filepath = path.join(abspath, filename);
     if (fs.statSync(filepath).isDirectory()) {
       recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
     } else {
@@ -208,7 +208,7 @@ file.preserveBOM = false;
 // Read a file, return its contents.
 file.read = function(filepath, options) {
   if (!options) { options = {}; }
-  var contents;
+  let contents;
   grunt.verbose.write('Reading ' + filepath + '...');
   try {
     contents = fs.readFileSync(String(filepath));
@@ -227,8 +227,8 @@ file.read = function(filepath, options) {
 
 // Read a file, parse its contents, return an object.
 file.readJSON = function(filepath, options) {
-  var src = file.read(filepath, options);
-  var result;
+  const src = file.read(filepath, options);
+  let result;
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
     result = JSON.parse(src);
@@ -245,8 +245,8 @@ file.readYAML = function(filepath, options, yamlOptions) {
   if (!options) { options = {}; }
   if (!yamlOptions) { yamlOptions = {}; }
 
-  var src = file.read(filepath, options);
-  var result;
+  const src = file.read(filepath, options);
+  let result;
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
     // use the recommended way of reading YAML files
@@ -267,7 +267,7 @@ file.readYAML = function(filepath, options, yamlOptions) {
 // Write a file.
 file.write = function(filepath, contents, options) {
   if (!options) { options = {}; }
-  var nowrite = grunt.option('no-write');
+  const nowrite = grunt.option('no-write');
   grunt.verbose.write((nowrite ? 'Not actually writing ' : 'Writing ') + filepath + '...');
   // Create path, if necessary.
   file.mkdir(path.dirname(filepath));
@@ -312,13 +312,13 @@ file._copy = function(srcpath, destpath, options) {
   if (!options) { options = {}; }
   // If a process function was specified, and noProcess isn't true or doesn't
   // match the srcpath, process the file's source.
-  var process = options.process && options.noProcess !== true &&
+  const process = options.process && options.noProcess !== true &&
     !(options.noProcess && file.isMatch(options.noProcess, srcpath));
   // If the file will be processed, use the encoding as-specified. Otherwise,
   // use an encoding of null to force the file to be read/written as a Buffer.
-  var readWriteOptions = process ? options : {encoding: null};
+  const readWriteOptions = process ? options : {encoding: null};
   // Actually read the file.
-  var contents = file.read(srcpath, readWriteOptions);
+  const contents = file.read(srcpath, readWriteOptions);
   if (process) {
     grunt.verbose.write('Processing source...');
     try {
@@ -341,7 +341,7 @@ file._copy = function(srcpath, destpath, options) {
 file.delete = function(filepath, options) {
   filepath = String(filepath);
 
-  var nowrite = grunt.option('no-write');
+  const nowrite = grunt.option('no-write');
   if (!options) {
     options = {force: grunt.option('force') || false};
   }
@@ -382,13 +382,13 @@ file.delete = function(filepath, options) {
 
 // True if the file path exists.
 file.exists = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   return fs.existsSync(filepath);
 };
 
 // True if the file is a symbolic link.
 file.isLink = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   try {
     return fs.lstatSync(filepath).isSymbolicLink();
   } catch (e) {
@@ -402,26 +402,26 @@ file.isLink = function() {
 
 // True if the path is a directory.
 file.isDir = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   return file.exists(filepath) && fs.statSync(filepath).isDirectory();
 };
 
 // True if the path is a file.
 file.isFile = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   return file.exists(filepath) && fs.statSync(filepath).isFile();
 };
 
 // Is a given file path absolute?
 file.isPathAbsolute = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   return path.isAbsolute(filepath);
 };
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
   first = path.resolve(first);
-  for (var i = 1; i < arguments.length; i++) {
+  for (let i = 1; i < arguments.length; i++) {
     if (first !== path.resolve(arguments[i])) { return false; }
   }
   return true;
@@ -431,8 +431,8 @@ file.arePathsEquivalent = function(first) {
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
   ancestor = path.resolve(ancestor);
-  var relative;
-  for (var i = 1; i < arguments.length; i++) {
+  let relative;
+  for (let i = 1; i < arguments.length; i++) {
     relative = path.relative(path.resolve(arguments[i]), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
@@ -441,7 +441,7 @@ file.doesPathContain = function(ancestor) {
 
 // Test to see if a filepath is the CWD.
 file.isPathCwd = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   try {
     return file.arePathsEquivalent(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
   } catch (e) {
@@ -451,7 +451,7 @@ file.isPathCwd = function() {
 
 // Test to see if a filepath is contained within the CWD.
 file.isPathInCwd = function() {
-  var filepath = path.join.apply(path, arguments);
+  const filepath = path.join.apply(path, arguments);
   try {
     return file.doesPathContain(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
   } catch (e) {

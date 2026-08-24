@@ -1,22 +1,3 @@
-const getDeviceLabel = (device: string): string => {
-    if (device === 'mobile-ios') {
-        return 'iOS';
-    }
-    if (device === 'mobile-android') {
-        return 'Android';
-    }
-    if (device === 'desktop') {
-        return 'Desktop';
-    }
-    if (device === 'bot') {
-        return 'Bot';
-    }
-    if (device === 'unknown') {
-        return 'Unknown';
-    }
-    return device;
-};
-
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -47,6 +28,29 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
         {visits.toLocaleString()}
     </span>
 );
+
+/**
+ * Determines the display label for device type values
+ * Maps raw device identifiers to user-friendly strings
+ */
+const getDeviceLabel = (value: string): string => {
+    if (value === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (value === 'mobile-android') {
+        return 'Android';
+    }
+    if (value === 'desktop') {
+        return 'Desktop';
+    }
+    if (value === 'bot') {
+        return 'Bot';
+    }
+    if (value === 'unknown') {
+        return 'Unknown';
+    }
+    return value;
+};
 
 // Configuration for each filter field type
 interface FilterFieldDefinition {

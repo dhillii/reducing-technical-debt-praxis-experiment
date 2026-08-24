@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 'use strict';
 
 // This alternative WebpackDevServer combines the functionality of:
@@ -77,10 +84,8 @@ var isFirstCompilation = true;
 var mostRecentCompilationHash = null;
 var hasCompileErrors = false;
 
-/**
- * Clear outdated compile errors from the console if present.
- */
 function clearOutdatedErrors() {
+  // Clean up outdated compile errors, if any.
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
     if (hasCompileErrors) {
       console.clear();
@@ -174,9 +179,6 @@ function handleErrors(errors) {
   // We will reload on next success instead.
 }
 
-/**
- * Dismiss the error overlay only when no compile errors exist.
- */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
@@ -189,44 +191,39 @@ function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
+// Function to handle message dispatch based on message type
 /**
- * Message handlers mapping table.
- * Each handler captures message.type-specific logic.
+ * Handles a message received from WebpackDevServer based on its type.
+ * @param {Object} message -The parsed message object with a `type` property.
  */
-var messageHandlers = {
-  hash: function handleHash(message) {
-    handleAvailableHash(message.data);
-  },
-
-  'still-ok': function handleStillOk() {
-    handleSuccess();
-  },
-
-  ok: function handleOk() {
-    handleSuccess();
-  },
-
-  'content-changed': function handleContentChanged() {
-    // Triggered when a file from `contentBase` changed.
-    window.location.reload();
-  },
-
-  warnings: function handleWarningsMessage(message) {
-    handleWarnings(message.data);
-  },
-
-  errors: function handleErrorsMessage(message) {
-    handleErrors(message.data);
-  },
-};
+function handleMessage(message) {
+  switch (message.type) {
+    case 'hash':
+      handleAvailableHash(message.data);
+      break;
+    case 'still-ok':
+    case 'ok':
+      handleSuccess();
+      break;
+    case 'content-changed':
+      // Triggered when a file from `contentBase` changed.
+      window.location.reload();
+      break;
+    case 'warnings':
+      handleWarnings(message.data);
+      break;
+    case 'errors':
+      handleErrors(message.data);
+      break;
+    default:
+      // Do nothing for unrecognized message types.
+  }
+}
 
 // Handle messages from the server.
 connection.onmessage = function (e) {
   var message = JSON.parse(e.data);
-  var handler = messageHandlers[message.type];
-  if (handler) {
-    handler(message);
-  }
+  handleMessage(message);
 };
 
 // Is there a newer version of this code available?
@@ -242,11 +239,8 @@ function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
-/**
- * Determine whether the application can accept hot updates even with errors.
- */
 function canAcceptErrors() {
-  // NOTE: This const is injected by Webpack's DefinePlugin, and is a boolean instead of string.
+  // NOTE: This var is injected by Webpack's DefinePlugin, and is a boolean instead of string.
   const hasReactRefresh = process.env.FAST_REFRESH;
 
   const status = module.hot.status();
@@ -295,7 +289,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   // https://webpack.github.io/docs/hot-module-replacement.html#check
   var result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
 
-  // // webpack 2 returns a Promise instead of invoking a callback
+  // webpack 2 returns a Promise instead of invoking a callback
   if (result && result.then) {
     result.then(
       function (updatedModules) {

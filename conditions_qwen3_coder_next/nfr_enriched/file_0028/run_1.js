@@ -40,9 +40,6 @@ export const fileTypes = {
     }
 };
 
-/**
- * Renders a lock icon SVG component
- */
 function LockIcon({...props}) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" {...props}>
@@ -53,9 +50,6 @@ function LockIcon({...props}) {
     );
 }
 
-/**
- * Renders a dollar sign icon SVG component
- */
 function DollarIcon({...props}) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24" {...props}>
@@ -69,12 +63,6 @@ function DollarIcon({...props}) {
     );
 }
 
-/**
- * Decorates a post search result with metadata such as formatted date and visibility indicator
- * @param {Object} item - The post item to decorate
- * @param {Object} settings - Site settings
- * @returns {void}
- */
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
 
@@ -95,7 +83,7 @@ export function decoratePostSearchResult(item, settings) {
 }
 
 /**
- * Fetches active signup offers and returns formatted URLs for use in autocompletes
+ * Fetches the URLs of all active offers
  * @returns {Promise<{label: string, value: string}[]>}
  */
 export async function offerUrls() {
@@ -113,9 +101,6 @@ export async function offerUrls() {
     }));
 }
 
-/**
- * React component for error boundary handling in Lexical editor
- */
 class ErrorHandler extends React.Component {
     state = {
         hasError: false
@@ -148,121 +133,194 @@ class ErrorHandler extends React.Component {
     }
 }
 
-/**
- * Parsed resource wrapper component
- */
 const KoenigComposer = ({editorResource, ...props}) => {
     const {KoenigComposer: _KoenigComposer} = editorResource.read();
     return <_KoenigComposer {...props} />;
 };
 
-/**
- * Parsed editor component
- */
 const KoenigEditor = ({editorResource, ...props}) => {
     const {KoenigEditor: _KoenigEditor} = editorResource.read();
     return <_KoenigEditor {...props} />;
 };
 
-/**
- * Word count plugin wrapper
- */
 const WordCountPlugin = ({editorResource, ...props}) => {
     const {WordCountPlugin: _WordCountPlugin} = editorResource.read();
     return <_WordCountPlugin {...props} />;
 };
 
-/**
- * TK count plugin wrapper
- */
 const TKCountPlugin = ({editorResource, ...props}) => {
     const {TKCountPlugin: _TKCountPlugin} = editorResource.read();
     return <_TKCountPlugin {...props} />;
 };
 
-/**
- * Helper to extract and normalize import URL for JS assets
- */
-function normalizeImportUrl(possibleRelativeUrl, adminRootPath) {
-    if (!possibleRelativeUrl) {
-        return null;
+function getMemberLinks(membersUtils) {
+    if (!membersUtils.paidMembersEnabled) {
+        return [];
     }
 
-    if (possibleRelativeUrl.startsWith('/')) {
-        return window.location.origin + adminRootPath.replace(/\/$/, '') + possibleRelativeUrl;
-    }
-
-    return possibleRelativeUrl;
+    return [
+        {
+            label: 'Paid signup',
+            value: '#/portal/signup'
+        },
+        {
+            label: 'Upgrade or change plan',
+            value: '#/portal/account/plans'
+        }
+    ];
 }
 
-/**
- * Helper to perform file type validation based on extension
- */
-function validateFileByExtension(file, type) {
+function getDonationLink(donationsEnabled) {
+    if (!donationsEnabled) {
+        return [];
+    }
+
+    return [{
+        label: 'Tips and donations',
+        value: '#/portal/support'
+    }];
+}
+
+function getRecommendationLink(recommendationsEnabled) {
+    if (!recommendationsEnabled) {
+        return [];
+    }
+
+    return [{
+        label: 'Recommendations',
+        value: '#/portal/recommendations'
+    }];
+}
+
+function getLatestPostsLinks(store, settings) {
+    return async () => {
+        const posts = await store.query('post', {
+            filter: 'status:published',
+            fields: 'id,url,title,visibility,published_at',
+            order: 'published_at desc',
+            limit: 5
+        });
+
+        const results = posts.toArray().map(post => ({
+            groupName: 'Latest posts',
+            id: post.id,
+            title: post.title,
+            url: post.url,
+            visibility: post.visibility,
+            publishedAt: post.publishedAtUTC.toISOString()
+        }));
+
+        results.forEach(item => decoratePostSearchResult(item, settings));
+
+        return [{
+            label: 'Latest posts',
+            items: results
+        }];
+    };
+}
+
+function filterSearchResults(results, settings) {
+    const filteredResults = [];
+
+    results.forEach((group) => {
+        let items = group.options;
+
+        if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+            items = items.filter(i => i.status === 'published');
+        }
+
+        if (group.groupName === 'Staff') {
+            items = items.filter(i => !/\/404\//.test(i.url));
+        }
+
+        if (items.length === 0) {
+            return;
+        }
+
+        if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+            items.forEach(item => decoratePostSearchResult(item, settings));
+        }
+
+        filteredResults.push({
+            label: group.groupName,
+            items
+        });
+    });
+
+    return filteredResults;
+}
+
+function validateFileExtension(file, type) {
     if (type === 'file') {
         return true;
     }
 
-    const extensions = fileTypes[type]?.extensions;
+    const extensions = fileTypes[type].extensions;
+    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
 
     if (!extensions) {
         return true;
     }
 
-    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
-    const extensionList = Array.isArray(extensions) ? extensions : extensions.split(',');
+    const normalizedExtensions = Array.isArray(extensions) ? extensions : extensions.split(',');
 
-    if (!extension || extensionList.indexOf(extension.toLowerCase()) === -1) {
-        const validExtensions = `.${extensionList.join(', .').toUpperCase()}`;
+    if (!extension || normalizedExtensions.indexOf(extension.toLowerCase()) === -1) {
+        const validExtensions = `.${normalizedExtensions.join(', .').toUpperCase()}`;
         return `The file type you uploaded is not supported. Please use ${validExtensions}`;
     }
 
     return true;
 }
 
-/**
- * Helper to validate multiple files against extension rules
- */
 function validateFiles(files, type) {
-    const results = [];
+    const validationResult = [];
 
-    for (const file of files) {
-        const result = validateFileByExtension(file, type);
+    for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const result = validateFileExtension(file, type);
+
         if (result !== true) {
-            results.push({fileName: file.name, message: result});
+            validationResult.push({fileName: file.name, message: result});
         }
     }
 
-    return results;
+    return validationResult;
 }
 
-/**
- * Helper to map file upload responses to normalized objects
- */
-function processUploadResponse(response, type) {
-    let resource;
+function buildUploadFormData(file, formData = {}) {
+    const fileFormData = new FormData();
+    fileFormData.append('file', file, file.name);
+
+    Object.keys(formData).forEach((key) => {
+        fileFormData.append(key, formData[key]);
+    });
+
+    return fileFormData;
+}
+
+function extractResponseUrl(response, type) {
+    let uploadResponse;
+    let responseUrl;
 
     try {
-        resource = JSON.parse(response);
-    } catch (e) {
-        if (e instanceof SyntaxError) {
-            return null;
+        uploadResponse = JSON.parse(response);
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
         }
-        throw e;
     }
 
-    const data = resource?.[fileTypes[type]?.resourceName];
-    if (!Array.isArray(data) || !data.length) {
-        return null;
+    if (uploadResponse) {
+        const resource = uploadResponse[fileTypes[type].resourceName];
+        if (resource && Array.isArray(resource) && resource[0]) {
+            responseUrl = resource[0].url;
+        }
     }
 
-    return data[0].url;
+    return responseUrl;
 }
 
-/**
- * Helper to extract error details from API response
- */
-function extractUploadErrorDetails(error) {
+function buildUploadError(error, fileName) {
     let message = error.payload?.errors?.[0]?.message || '';
     let context = error.payload?.errors?.[0]?.context || '';
 
@@ -270,12 +328,209 @@ function extractUploadErrorDetails(error) {
         message = error.message;
     }
 
-    return {message, context};
+    return {
+        message,
+        context,
+        fileName
+    };
 }
 
-/**
- * Main editor component
- */
+function createProgressTracker() {
+    const tracker = React.useRef(new Map());
+
+    function updateProgress() {
+        if (tracker.current.size === 0) {
+            return 0;
+        }
+
+        let totalProgress = 0;
+        tracker.current.forEach(value => totalProgress += value);
+
+        return Math.round(totalProgress / tracker.current.size);
+    }
+
+    return {tracker, updateProgress};
+}
+
+function createFileUploadHook(type, ghostPaths, ajax, store, settings, membersUtils, config, session) {
+    const {tracker, updateProgress} = createProgressTracker();
+
+    const fetchAutocompleteLinks = async () => {
+        const defaults = [
+            {label: 'Homepage', value: window.location.origin + '/'},
+            {label: 'Free signup', value: '#/portal/signup/free'}
+        ];
+
+        const memberLinks = getMemberLinks(membersUtils);
+        const donationLink = getDonationLink(settings.donationsEnabled);
+        const recommendationLink = getRecommendationLink(settings.recommendationsEnabled);
+        const offersLinks = await offerUrls.call({config, store, fetchOffersTask: {perform: () => store.query('offer', {filter: 'status:active+redemption_type:signup'})}});
+
+        return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
+    };
+
+    const fetchEmbed = async (url, {type: embedType}) => {
+        const oembedEndpoint = ghostPaths.url.api('oembed');
+        return ajax.request(oembedEndpoint, {data: {url, type: embedType}});
+    };
+
+    const fetchLabels = async () => {
+        try {
+            const labels = await store.query('label', {limit: 'all', fields: 'id, name'});
+            return labels.map(label => label.name);
+        } catch (e) {
+            if (didCancel(e)) {
+                return [];
+            }
+            throw e;
+        }
+    };
+
+    const searchLinks = async (term) => {
+        if (!term) {
+            const latestPostsLinks = getLatestPostsLinks(store, settings);
+            return latestPostsLinks();
+        }
+
+        try {
+            const results = await settings.search?.searchTask?.perform(term) || [];
+            return filterSearchResults(results, settings);
+        } catch (error) {
+            if (!didCancel(error)) {
+                throw error;
+            }
+            return [];
+        }
+    };
+
+    const checkStripeEnabled = () => {
+        const hasDirectKeys = !!(settings.stripeSecretKey && settings.stripePublishableKey);
+        const hasConnectKeys = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
+
+        if (config.stripeDirect) {
+            return hasDirectKeys;
+        }
+        return hasDirectKeys || hasConnectKeys;
+    };
+
+    const defaultCardConfig = {
+        unsplash: settings.unsplash ? {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        } : null,
+        tenor: config.tenor?.googleApiKey ? config.tenor : null,
+        fetchAutocompleteLinks,
+        fetchEmbed,
+        fetchLabels,
+        renderLabels: !session.user.isContributor,
+        feature: {
+            transistor: config.transistor
+        },
+        deprecated: {
+            headerV1: true
+        },
+        membersEnabled: settings.membersSignupAccess === 'all',
+        searchLinks,
+        siteTitle: settings.title,
+        siteDescription: settings.description,
+        siteUrl: config.getSiteUrl('/'),
+        stripeEnabled: checkStripeEnabled()
+    };
+
+    const useFileUpload = () => {
+        const [progress, setProgress] = React.useState(0);
+        const [isLoading, setLoading] = React.useState(false);
+        const [errors, setErrors] = React.useState([]);
+        const [filesNumber, setFilesNumber] = React.useState(0);
+
+        const _uploadFile = async (file, {formData = {}} = {}) => {
+            tracker.current.set(file, 0);
+
+            const fileFormData = buildUploadFormData(file, formData);
+            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+            try {
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+                const response = await ajax[requestMethod](url, {
+                    data: fileFormData,
+                    processData: false,
+                    contentType: false,
+                    dataType: 'text',
+                    xhr: () => {
+                        const xhr = new window.XMLHttpRequest();
+
+                        xhr.upload.addEventListener('progress', (event) => {
+                            if (event.lengthComputable) {
+                                tracker.current.set(file, (event.loaded / event.total) * 100);
+                                setProgress(updateProgress());
+                            }
+                        }, false);
+
+                        return xhr;
+                    }
+                });
+
+                tracker.current.set(file, 100);
+                setProgress(updateProgress());
+
+                const responseUrl = extractResponseUrl(response, type);
+
+                return {
+                    url: responseUrl,
+                    fileName: file.name
+                };
+            } catch (error) {
+                console.error(error); // eslint-disable-line
+
+                const errorResult = buildUploadError(error, file.name);
+                throw errorResult;
+            }
+        };
+
+        const upload = async (files = [], options = {}) => {
+            setFilesNumber(files.length);
+            setLoading(true);
+
+            const validationResult = validateFiles(files, type);
+
+            if (validationResult.length) {
+                setErrors(validationResult);
+                setLoading(false);
+                setProgress(100);
+                return null;
+            }
+
+            const uploadPromises = files.map(file => _uploadFile(file, options));
+
+            try {
+                const uploadResult = await Promise.all(uploadPromises);
+                setProgress(100);
+                tracker.current.clear();
+                setLoading(false);
+                setErrors([]);
+                return uploadResult;
+            } catch (error) {
+                console.error(error); // eslint-disable-line no-console
+
+                setErrors([...errors, error]);
+                setLoading(false);
+                setProgress(100);
+                tracker.current.clear();
+                return null;
+            }
+        };
+
+        return {progress, isLoading, upload, errors, filesNumber};
+    };
+
+    return {defaultCardConfig, useFileUpload};
+}
+
 export default class KoenigLexicalEditor extends Component {
     @service ajax;
     @service feature;
@@ -315,15 +570,36 @@ export default class KoenigLexicalEditor extends Component {
         if (!jsUrl || !cssUrl) {
             return null;
         }
-        return {jsUrl, cssUrl};
+        return {
+            jsUrl,
+            cssUrl
+        };
     }
 
     getImageEditorJSUrl() {
-        return normalizeImportUrl(this.pinturaJsUrl, this.ghostPaths.adminRoot);
+        let importUrl = this.pinturaJsUrl;
+
+        if (!importUrl) {
+            return null;
+        }
+
+        if (importUrl.startsWith('/')) {
+            importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
+        }
+        return importUrl;
     }
 
     getImageEditorCSSUrl() {
-        return normalizeImportUrl(this.pinturaCSSUrl, this.ghostPaths.adminRoot);
+        let cssImportUrl = this.pinturaCSSUrl;
+
+        if (!cssImportUrl) {
+            return null;
+        }
+
+        if (cssImportUrl.startsWith('/')) {
+            cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
+        }
+        return cssImportUrl;
     }
 
     @action
@@ -363,307 +639,21 @@ export default class KoenigLexicalEditor extends Component {
     }
 
     ReactComponent = (props) => {
-        const fetchEmbed = async (url, {type}) => {
-            const oembedEndpoint = this.ghostPaths.url.api('oembed');
-            const response = await this.ajax.request(oembedEndpoint, {
-                data: {url, type}
-            });
-            return response;
-        };
+        const {type = 'image'} = props.fileUploader || {};
+        const {defaultCardConfig, useFileUpload} = createFileUploadHook(
+            type,
+            this.ghostPaths,
+            this.ajax,
+            this.store,
+            this.settings,
+            this.membersUtils,
+            this.config,
+            this.session
+        );
 
-        const fetchKeywords = async () => {
-            return [
-                {label: 'Homepage', value: window.location.origin + '/'},
-                {label: 'Free signup', value: '#/portal/signup/free'}
-            ];
-        };
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
-        const fetchMemberLinks = () => {
-            if (!this.membersUtils.paidMembersEnabled) {
-                return [];
-            }
-
-            return [
-                {label: 'Paid signup', value: '#/portal/signup'},
-                {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-            ];
-        };
-
-        const fetchDonationLink = () => {
-            if (!this.settings.donationsEnabled) {
-                return [];
-            }
-
-            return [{label: 'Tips and donations', value: '#/portal/support'}];
-        };
-
-        const fetchRecommendationLink = () => {
-            if (!this.settings.recommendationsEnabled) {
-                return [];
-            }
-
-            return [{label: 'Recommendations', value: '#/portal/recommendations'}];
-        };
-
-        const fetchAutocompleteLinks = async () => {
-            const defaults = await fetchKeywords();
-            const memberLinks = fetchMemberLinks();
-            const donationLink = fetchDonationLink();
-            const recommendationLink = fetchRecommendationLink();
-            const offers = await offerUrls.call(this);
-
-            return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offers];
-        };
-
-        const fetchLabels = async () => {
-            let labels = [];
-            try {
-                labels = await this.fetchLabelsTask.perform();
-            } catch (e) {
-                if (didCancel(e)) {
-                    return;
-                }
-                throw e;
-            }
-
-            return labels.map(label => label.name);
-        };
-
-        const fetchDefaultLinks = async () => {
-            const posts = await this.store.query('post', {
-                filter: 'status:published',
-                fields: 'id,url,title,visibility,published_at',
-                order: 'published_at desc',
-                limit: 5
-            });
-
-            const results = posts.toArray().map(post => ({
-                groupName: 'Latest posts',
-                id: post.id,
-                title: post.title,
-                url: post.url,
-                visibility: post.visibility,
-                publishedAt: post.publishedAtUTC.toISOString()
-            }));
-
-            results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-            this.defaultLinks = [{
-                label: 'Latest posts',
-                items: results
-            }];
-
-            return this.defaultLinks;
-        };
-
-        const searchLinks = async (term) => {
-            if (!term) {
-                if (this.defaultLinks) {
-                    return this.defaultLinks;
-                }
-
-                return fetchDefaultLinks();
-            }
-
-            let results = [];
-
-            try {
-                results = await this.search.searchTask.perform(term);
-            } catch (error) {
-                if (!didCancel(error)) {
-                    throw error;
-                }
-                return;
-            }
-
-            const processedResults = [];
-
-            for (const group of results) {
-                let items = group.options.filter(item => {
-                    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                        return item.status === 'published';
-                    }
-                    if (group.groupName === 'Staff') {
-                        return !/\/404\//.test(item.url);
-                    }
-                    return true;
-                });
-
-                if (!items.length) {
-                    continue;
-                }
-
-                if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                    items.forEach(item => decoratePostSearchResult(item, this.settings));
-                }
-
-                processedResults.push({
-                    label: group.groupName,
-                    items
-                });
-            }
-
-            return processedResults;
-        };
-
-        const unsplashConfig = {
-            defaultHeaders: {
-                Authorization: 'Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980',
-                'Accept-Version': 'v1',
-                'Content-Type': 'application/json',
-                'App-Pragma': 'no-cache',
-                'X-Unsplash-Cache': true
-            }
-        };
-
-        const checkStripeEnabled = () => {
-            const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
-            const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
-
-            if (this.config.stripeDirect) {
-                return hasDirectKeys;
-            }
-
-            return hasDirectKeys || hasConnectKeys;
-        };
-
-        const defaultCardConfig = {
-            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
-            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
-            fetchAutocompleteLinks,
-            fetchEmbed,
-            fetchLabels,
-            renderLabels: !this.session.user.isContributor,
-            feature: {
-                transistor: this.feature.transistor
-            },
-            deprecated: {
-                headerV1: true
-            },
-            membersEnabled: this.settings.membersSignupAccess === 'all',
-            searchLinks,
-            siteTitle: this.settings.title,
-            siteDescription: this.settings.description,
-            siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: checkStripeEnabled()
-        };
-
-        const cardConfig = {
-            ...defaultCardConfig,
-            ...props.cardConfig,
-            pinturaConfig: this.pinturaConfig
-        };
-
-        const useFileUpload = (type = 'image') => {
-            const [progress, setProgress] = React.useState(0);
-            const [isLoading, setLoading] = React.useState(false);
-            const [errors, setErrors] = React.useState([]);
-            const [filesNumber, setFilesNumber] = React.useState(0);
-            const progressTracker = React.useRef(new Map());
-
-            const updateProgress = () => {
-                if (progressTracker.current.size === 0) {
-                    setProgress(0);
-                    return;
-                }
-
-                const total = Array.from(progressTracker.current.values()).reduce((acc, val) => acc + val, 0);
-                setProgress(Math.round(total / progressTracker.current.size));
-            };
-
-            const validate = (files) => validateFiles(files, type);
-
-            const _uploadFile = async (file, options = {}) => {
-                progressTracker.current.set(file, 0);
-                const formData = new FormData();
-                formData.append('file', file, file.name);
-
-                Object.entries(options.formData || {}).forEach(([key, value]) => {
-                    formData.append(key, value);
-                });
-
-                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-                const method = fileTypes[type].requestMethod || 'post';
-
-                try {
-                    const response = await this.ajax[method](url, {
-                        data: formData,
-                        processData: false,
-                        contentType: false,
-                        dataType: 'text',
-                        xhr: () => {
-                            const xhr = new window.XMLHttpRequest();
-
-                            xhr.upload.addEventListener('progress', (event) => {
-                                if (event.lengthComputable) {
-                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                    updateProgress();
-                                }
-                            }, false);
-
-                            return xhr;
-                        }
-                    });
-
-                    progressTracker.current.set(file, 100);
-                    updateProgress();
-
-                    const responseUrl = processUploadResponse(response, type);
-
-                    return {
-                        url: responseUrl,
-                        fileName: file.name
-                    };
-                } catch (error) {
-                    console.error(error); // eslint-disable-line
-                    const {message, context} = extractUploadErrorDetails(error);
-
-                    throw {
-                        message,
-                        context,
-                        fileName: file.name
-                    };
-                }
-            };
-
-            const upload = async (files = [], options = {}) => {
-                setFilesNumber(files.length);
-                setLoading(true);
-
-                const validationResult = validate(files);
-
-                if (validationResult.length) {
-                    setErrors(validationResult);
-                    setLoading(false);
-                    setProgress(100);
-                    return null;
-                }
-
-                const uploadPromises = files.map(file => _uploadFile(file, options));
-
-                try {
-                    const results = await Promise.all(uploadPromises);
-                    progressTracker.current.clear();
-                    setProgress(100);
-                    setLoading(false);
-                    setErrors([]);
-                    return results;
-                } catch (error) {
-                    console.error(error); // eslint-disable-line
-
-                    setErrors([...errors, error]);
-                    setLoading(false);
-                    setProgress(100);
-                    progressTracker.current.clear();
-
-                    return null;
-                }
-            };
-
-            return {progress, isLoading, upload, errors, filesNumber};
-        };
-
-        const KGEditorComponent = ({isInitInstance = false}) => {
+        const KGEditorComponent = ({isInitInstance}) => {
             return (
                 <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
                     <KoenigComposer

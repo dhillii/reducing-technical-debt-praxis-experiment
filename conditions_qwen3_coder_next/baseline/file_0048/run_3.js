@@ -74,7 +74,11 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        this.#dispatchStatusChange(newStatus);
+        if (newStatus === 'active') {
+            this.events.push(TierActivatedEvent.create({tier: this}));
+        } else {
+            this.events.push(TierArchivedEvent.create({tier: this}));
+        }
         this.#status = newStatus;
     }
 
@@ -111,6 +115,9 @@ module.exports = class Tier {
         this.#currency = validateCurrency(value, this.#type);
     }
 
+    /**
+     * @param {'month'|'year'} cadence
+     */
     getPrice(cadence) {
         if (cadence === 'month') {
             return this.monthlyPrice;
@@ -118,7 +125,9 @@ module.exports = class Tier {
         if (cadence === 'year') {
             return this.yearlyPrice;
         }
-        throw new ValidationError({message: 'Invalid cadence'});
+        throw new ValidationError({
+            message: 'Invalid cadence'
+        });
     }
 
     /** @type {number|null} */
@@ -158,7 +167,9 @@ module.exports = class Tier {
         this.#monthlyPrice = newMonthlyPrice;
         this.#yearlyPrice = newYearlyPrice;
 
-        this.events.push(TierPriceChangeEvent.create({tier: this}));
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
     }
 
     /** @type {Date} */
@@ -229,55 +240,46 @@ module.exports = class Tier {
         } else if (data.id instanceof ObjectID) {
             id = data.id;
         } else {
-            throw new ValidationError({message: 'Invalid ID provided for Tier'});
+            throw new ValidationError({
+                message: 'Invalid ID provided for Tier'
+            });
         }
 
-        let name = validateName(data.name);
-        let slug = validateSlug(data.slug);
-        let description = validateDescription(data.description);
-        let welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        let status = validateStatus(data.status || 'active');
-        let visibility = validateVisibility(data.visibility || 'public');
-        let type = validateType(data.type || 'paid');
-        let currency = validateCurrency(data.currency || null, type);
-        let trialDays = validateTrialDays(data.trialDays || 0, type);
-        let monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
-        let createdAt = validateCreatedAt(data.createdAt);
-        let updatedAt = validateUpdatedAt(data.updatedAt);
-        let benefits = validateBenefits(data.benefits);
+        const type = validateType(data.type || 'paid');
+        const status = validateStatus(data.status || 'active');
+        const visibility = validateVisibility(data.visibility || 'public');
 
         const tier = new Tier({
             id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
+            slug: validateSlug(data.slug),
+            name: validateName(data.name),
+            description: validateDescription(data.description),
+            welcome_page_url: validateWelcomePageURL(data.welcomePageURL),
             status,
             visibility,
             type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
+            trial_days: validateTrialDays(data.trialDays || 0, type),
+            currency: validateCurrency(data.currency || null, type),
+            monthly_price: validateMonthlyPrice(data.monthlyPrice || null, type),
+            yearly_price: validateYearlyPrice(data.yearlyPrice || null , type),
+            created_at: validateCreatedAt(data.createdAt),
+            updated_at: validateUpdatedAt(data.updatedAt),
+            benefits: validateBenefits(data.benefits)
         });
 
         if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
-        return tier;
-    }
-
-    #dispatchStatusChange(newStatus) {
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
+        if (tier.status !== status) {
+            tier.status = status;
         }
+
+        if (tier.visibility !== visibility) {
+            tier.visibility = visibility;
+        }
+
+        return tier;
     }
 };
 

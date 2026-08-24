@@ -3,148 +3,185 @@ import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
-function updateCommentInState({state, commentId, updateFn}: {
-    state: EditableAppContext;
-    commentId: string;
-    updateFn: (comment: Comment) => Partial<Comment> | null;
-}): Partial<EditableAppContext> {
-    return {
-        comments: state.comments.map((c) => {
-            if (c.id === commentId) {
-                const updated = updateFn(c);
-                return updated ?? c;
-            }
+/**
+ * Helper to safely map over comments and update nested replies
+ * Applies a transformation function to matching comments and their replies
+ */
+function updateCommentTree(
+    comments: Comment[],
+    commentId: string,
+    parentCommentId: string | undefined,
+    updateComment: (c: Comment) => Comment,
+    updateReply: (r: Comment) => Comment
+): Comment[] {
+    return comments.map((c) => {
+        if (c.id === commentId) {
+            return updateComment(c);
+        }
 
-            const updatedReplies = c.replies?.map((r) => {
-                if (r.id === commentId) {
-                    return updateFn(r) ?? r;
-                }
-                return r;
-            }) ?? [];
-
-            const hasUpdatedReplies = updatedReplies.length !== c.replies?.length ||
-                updatedReplies.some((r, i) => r !== c.replies?.[i]);
-
+        if (parentCommentId && c.id === parentCommentId) {
             return {
                 ...c,
-                replies: hasUpdatedReplies ? updatedReplies : c.replies
+                replies: c.replies.map((r) => {
+                    if (r.id === commentId) {
+                        return updateReply(r);
+                    }
+                    return r;
+                })
             };
-        })
-    };
+        }
+
+        return c;
+    });
 }
 
-function updateParentAndChildComments({state, parentId, commentId, updateParent, updateChild}: {
-    state: EditableAppContext;
-    parentId: string;
-    commentId: string;
-    updateParent: (parent: Comment) => Partial<Comment>;
-    updateChild: (child: Comment) => Partial<Comment>;
-}): Partial<EditableAppContext> {
+/**
+ * Helper to update comment count and replies when adding a reply
+ */
+function addReplyToState(
+    state: EditableAppContext,
+    reply: Comment,
+    parent: Comment
+): Partial<EditableAppContext> {
     return {
         comments: state.comments.map((c) => {
-            if (c.id === parentId) {
-                const updatedParent = updateParent(c);
+            if (c.id === parent.id) {
                 return {
-                    ...updatedParent,
-                    replies: c.replies.map((r) => {
-                        if (r.id === commentId) {
-                            return updateChild(r);
-                        }
-                        return r;
-                    })
-                };
-            }
-            return c;
-        })
-    };
-}
-
-// Replace helper functions for comment status updates
-function updateStatusInComments({state, commentId, status}: {
-    state: EditableAppContext;
-    commentId: string;
-    status: string;
-}): Partial<EditableAppContext> {
-    return {
-        comments: state.comments.map((c) => {
-            const replies = c.replies?.map((r) => {
-                if (r.id === commentId) {
-                    return {
-                        ...r,
-                        status
-                    };
-                }
-                return r;
-            }) ?? [];
-
-            if (c.id === commentId) {
-                return {
-                    ...c,
-                    status,
-                    replies
-                };
-            }
-
-            return {
-                ...c,
-                replies
-            };
-        })
-    };
-}
-
-function updateLikeInComments({state, commentId, liked}: {
-    state: EditableAppContext;
-    commentId: string;
-    liked: boolean;
-}): Partial<EditableAppContext> {
-    return {
-        comments: state.comments.map((c) => {
-            const replies = c.replies?.map((r) => {
-                if (r.id === commentId) {
-                    return {
-                        ...r,
-                        liked,
-                        count: {
-                            ...r.count,
-                            likes: liked ? r.count.likes + 1 : r.count.likes - 1
-                        }
-                    };
-                }
-                return r;
-            }) ?? [];
-
-            if (c.id === commentId) {
-                return {
-                    ...c,
-                    liked,
-                    replies,
+                    ...parent,
+                    replies: [...parent.replies, reply],
                     count: {
-                        ...c.count,
-                        likes: liked ? c.count.likes + 1 : c.count.likes - 1
+                        ...parent.count,
+                        replies: parent.count.replies + 1
                     }
                 };
             }
-
-            return {
-                ...c,
-                replies
-            };
-        })
+            return c;
+        }),
+        commentCount: state.commentCount + 1
     };
 }
 
-function filterAndDecrementReplyCount({state, commentId}: {
-    state: EditableAppContext;
-    commentId: string;
-}): Partial<EditableAppContext> {
-    const updatedComments = state.comments.map((topLevelComment) => {
-        if (topLevelComment.id === commentId) {
-            return null;
+/**
+ * Helper to update comment tree when hiding a comment
+ */
+function hideCommentInTree(comments: Comment[], commentId: string): Comment[] {
+    return comments.map((c) => {
+        const replies = c.replies.map((r) => {
+            if (r.id === commentId) {
+                return {
+                    ...r,
+                    status: 'hidden'
+                };
+            }
+            return r;
+        });
+
+        if (c.id === commentId) {
+            return {
+                ...c,
+                status: 'hidden',
+                replies
+            };
         }
 
-        const originalLength = topLevelComment.replies?.length ?? 0;
-        const updatedReplies = topLevelComment.replies?.filter(reply => reply.id !== commentId) ?? [];
+        return {
+            ...c,
+            replies
+        };
+    });
+}
+
+/**
+ * Helper to update comment tree when showing a comment
+ */
+function showCommentInTree(
+    comments: Comment[],
+    commentId: string,
+    updatedComment: Comment
+): Comment[] {
+    return comments.map((c) => {
+        const replies = c.replies.map((r) => {
+            if (r.id === commentId) {
+                return updatedComment;
+            }
+            return r;
+        });
+
+        if (c.id === commentId) {
+            return updatedComment;
+        }
+
+        return {
+            ...c,
+            replies
+        };
+    });
+}
+
+/**
+ * Helper to update like state in comment tree
+ */
+function updateLikeStateInTree(
+    comments: Comment[],
+    commentId: string,
+    liked: boolean
+): Comment[] {
+    return comments.map((c) => {
+        const replies = c.replies.map((r) => {
+            if (r.id === commentId) {
+                return {
+                    ...r,
+                    liked,
+                    count: {
+                        ...r.count,
+                        likes: liked ? r.count.likes + 1 : r.count.likes - 1
+                    }
+                };
+            }
+            return r;
+        });
+
+        if (c.id === commentId) {
+            return {
+                ...c,
+                liked,
+                replies,
+                count: {
+                    ...c.count,
+                    likes: liked ? c.count.likes + 1 : c.count.likes - 1
+                }
+            };
+        }
+
+        return {
+            ...c,
+            replies
+        };
+    });
+}
+
+/**
+ * Helper to update comment tree when deleting a comment
+ */
+function deleteCommentInTree(
+    comments: Comment[],
+    commentId: string,
+    commentCount: number
+): {comments: Comment[], commentCount: number} {
+    const updatedComments = comments.map((topLevelComment) => {
+        if (topLevelComment.id === commentId) {
+            if (topLevelComment.replies.length > 0) {
+                return {
+                    ...topLevelComment,
+                    status: 'deleted'
+                };
+            } else {
+                return null;
+            }
+        }
+
+        const originalLength = topLevelComment.replies.length;
+        const updatedReplies = topLevelComment.replies.filter(reply => reply.id !== commentId);
         const hasDeletedReply = originalLength !== updatedReplies.length;
 
         const updatedTopLevelComment = {
@@ -153,18 +190,15 @@ function filterAndDecrementReplyCount({state, commentId}: {
         };
 
         if (hasDeletedReply && topLevelComment.count?.replies) {
-            updatedTopLevelComment.count = {
-                ...topLevelComment.count,
-                replies: topLevelComment.count.replies - 1
-            };
+            topLevelComment.count.replies = topLevelComment.count.replies - 1;
         }
 
         return updatedTopLevelComment;
-    });
+    }).filter(Boolean) as Comment[];
 
     return {
-        comments: updatedComments.filter(Boolean),
-        commentCount: state.commentCount - 1
+        comments: updatedComments,
+        commentCount: commentCount - 1
     };
 }
 
@@ -183,6 +217,7 @@ async function loadMoreComments({state, api, options, order}: {state: EditableAp
     const updatedComments = [...state.comments, ...data.comments];
     const dedupedComments = updatedComments.filter((comment, index, self) => self.findIndex(c => c.id === comment.id) === index);
 
+    // Note: we store the comments from new to old, and show them in reverse order
     return {
         comments: dedupedComments,
         pagination: data.meta.pagination
@@ -213,9 +248,9 @@ async function setOrder({state, data: {order}, options, api, dispatchAction}: {s
             commentsIsLoading: false
         };
     } catch (error) {
-        console.error('Failed to set order:', error);
+        console.error('Failed to set order:', error); // eslint-disable-line no-console
         state.commentsIsLoading = false;
-        throw error;
+        throw error; // Rethrow the error to allow upstream handling
     }
 }
 
@@ -253,6 +288,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
         allComments = data.comments;
     }
 
+    // Note: we store the comments from new to old, and show them in reverse order
     return {
         comments: state.comments.map((c) => {
             if (c.id === comment.id) {
@@ -283,29 +319,17 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
     const data = await api.comments.add({comment});
     comment = data.comments[0];
 
-    return {
-        comments: state.comments.map((c) => {
-            if (c.id === parent.id) {
-                return {
-                    ...parent,
-                    replies: [...parent.replies, comment],
-                    count: {
-                        ...parent.count,
-                        replies: parent.count.replies + 1
-                    }
-                };
-            }
-            return c;
-        }),
-        commentCount: state.commentCount + 1
-    };
+    return addReplyToState(state, comment, parent);
 }
 
 async function hideComment({state, data: comment}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
         await state.adminApi.hideComment(comment.id);
     }
-    return updateStatusInComments({state, commentId: comment.id, status: 'hidden'});
+    return {
+        comments: hideCommentInTree(state.comments, comment.id),
+        commentCount: state.commentCount - 1
+    };
 }
 
 async function showComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
@@ -322,11 +346,16 @@ async function showComment({state, api, data: comment}: {state: EditableAppConte
 
     const updatedComment = data.comments[0];
 
-    return updateCommentInState({state, commentId: comment.id, updateFn: () => updatedComment});
+    return {
+        comments: showCommentInTree(state.comments, comment.id, updatedComment),
+        commentCount: state.commentCount + 1
+    };
 }
 
 async function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
-    return updateLikeInComments({state, commentId: comment.id, liked: comment.liked});
+    return {
+        comments: updateLikeStateInTree(state.comments, comment.id, comment.liked)
+    };
 }
 
 async function likeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
@@ -370,7 +399,7 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
         return null;
     }
 
-    return filterAndDecrementReplyCount({state, commentId: comment.id});
+    return deleteCommentInTree(state.comments, comment.id, state.commentCount);
 }
 
 async function editComment({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
@@ -379,25 +408,15 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     });
     comment = data.comments[0];
 
-    if (parent && parent.id) {
-        return updateParentAndChildComments({
-            state,
-            parentId: parent.id,
-            commentId: comment.id,
-            updateParent: (parentComment: Comment) => ({
-                ...parentComment,
-                replies: parentComment.replies.map((r) => {
-                    if (r.id === comment.id) {
-                        return comment;
-                    }
-                    return r;
-                })
-            }),
-            updateChild: () => comment
-        });
-    }
-
-    return updateCommentInState({state, commentId: comment.id, updateFn: () => comment});
+    return {
+        comments: updateCommentTree(
+            state.comments,
+            comment.id,
+            parent?.id,
+            () => comment,
+            () => comment
+        )
+    };
 }
 
 async function updateMember({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {

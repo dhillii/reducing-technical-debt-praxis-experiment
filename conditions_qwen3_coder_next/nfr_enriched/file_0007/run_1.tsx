@@ -36,6 +36,7 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         return valid ? '' : 'Enter a valid email address';
     },
     url: ({url}) => {
+        // require_tld is automatically true in validator 8+, we set it false here for our default localhost setup
         const valid = !url || validator.isURL(url, {require_tld: false});
         return valid ? '' : 'Enter a valid URL';
     },
@@ -165,11 +166,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
     const getTabFromPath = (path: string): string => {
         const lastSegment = path.split('/').pop() || '';
-
         if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
             return lastSegment;
         }
-
         return 'profile';
     };
 
@@ -223,7 +222,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleSuspendUser = async (_user: User) => {
+    const confirmSuspend = async (_user: User) => {
         if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
@@ -241,13 +240,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = _user.status === 'inactive'
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
-
+        let warningText = 'This user will no longer be able to log in but their posts will be kept.';
+        if (_user.status === 'inactive') {
+            warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
+        }
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
-            prompt: <><strong>WARNING:</strong> {warningText}</>,
+            prompt: (
+                <>
+                    <strong>WARNING:</strong> {warningText}
+                </>
+            ),
             okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
@@ -271,7 +274,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleDeleteUser = (_user: User, {owner}: {owner: User}) => {
+    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
@@ -299,7 +302,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const handleMakeOwner = () => {
+    const confirmMakeOwner = () => {
         NiceModal.show(ConfirmationModal, {
             title: 'Transfer Ownership',
             prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
@@ -326,10 +329,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
             switch (image) {
             case 'cover_image':
-                updateForm((_user) => ({..._user, cover_image: imageUrl}));
+                updateForm((_user) => {
+                    return {..._user, cover_image: imageUrl};
+                });
                 break;
             case 'profile_image':
-                updateForm((_user) => ({..._user, profile_image: imageUrl}));
+                updateForm((_user) => {
+                    return {..._user, profile_image: imageUrl};
+                });
                 break;
             }
         } catch (e) {
@@ -344,22 +351,26 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageDelete = (image: string) => {
         switch (image) {
         case 'cover_image':
-            updateForm((_user) => ({..._user, cover_image: ''}));
+            updateForm((_user) => {
+                return {..._user, cover_image: ''};
+            });
             break;
         case 'profile_image':
-            updateForm((_user) => ({..._user, profile_image: ''}));
+            updateForm((_user) => {
+                return {..._user, profile_image: ''};
+            });
             break;
         }
     };
 
-    const getMenuItems = (): MenuItem[] => {
+    const buildMenuItems = (): MenuItem[] => {
         const items: MenuItem[] = [];
 
         if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
             items.push({
                 id: 'make-owner',
                 label: 'Make owner',
-                onClick: handleMakeOwner
+                onClick: confirmMakeOwner
             });
         }
 
@@ -373,12 +384,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 {
                     id: 'delete-user',
                     label: 'Delete user',
-                    onClick: () => handleDeleteUser(user, {owner: ownerUser})
+                    onClick: () => confirmDelete(user, {owner: ownerUser})
                 },
                 {
                     id: 'suspend-user',
                     label: suspendLabel,
-                    onClick: () => handleSuspendUser(formState)
+                    onClick: () => confirmSuspend(formState)
                 }
             );
         }
@@ -395,17 +406,24 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         return items;
     };
 
+    const menuItems = buildMenuItems();
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
-
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
 
     return (
         <Modal
@@ -470,10 +488,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 <div className='flex flex-nowrap items-start gap-3'>
                                     <ImageUpload
                                         buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
-                                        deleteButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
                                         deleteButtonContent='Delete cover image'
-                                        editButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
-                                        fileUploadClassName='rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
                                         id='cover-image'
                                         imageClassName='hidden'
                                         imageURL={formState.cover_image || ''}
@@ -498,7 +516,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                     >Upload cover image</ImageUpload>
                                     {showMenu && <div className="z-10">
                                         <Menu
-                                            items={getMenuItems()}
+                                            items={menuItems}
                                             position='end'
                                             trigger={
                                                 <button

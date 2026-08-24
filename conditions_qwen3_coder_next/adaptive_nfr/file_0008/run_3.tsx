@@ -101,6 +101,38 @@ export const EmptyState: React.FC<{title?: string, description: string, buttonAc
     </div>
 );
 
+/**
+ * Returns true if the tier is associated with the offer and active.
+ */
+const hasActiveTier = (offer: any, allTiers?: Tier[]) => {
+    const offerTier = allTiers?.find((tier) => tier.id === offer?.tier?.id);
+    return Boolean(offerTier && offerTier.active);
+};
+
+/**
+ * Returns true if the offer and its tier are both active.
+ */
+const isOfferAndTierActive = (offer: any, allTiers?: Tier[]) => {
+    return offer.status === 'active' && hasActiveTier(offer, allTiers);
+};
+
+/**
+ * Returns true if the offer is archived or related to an archived tier.
+ */
+const isOfferOrTierArchived = (offer: any, allTiers?: Tier[]) => {
+    return offer.status === 'archived' || !hasActiveTier(offer, allTiers);
+};
+
+/**
+ * Returns true if the offer matches the status filter.
+ */
+const offerMatchesStatusFilter = (offer: any, statusFilter: 'active' | 'archived', allTiers?: Tier[]) => {
+    if (statusFilter === 'active') {
+        return isOfferAndTierActive(offer, allTiers);
+    }
+    return isOfferOrTierArchived(offer, allTiers);
+};
+
 const OffersFilterPopover: React.FC<{
     statusFilter: 'active' | 'archived';
     setStatusFilter: (status: 'active' | 'archived') => void;
@@ -170,73 +202,14 @@ const OffersFilterPopover: React.FC<{
     );
 };
 
-/**
- * Filters offers to active status when both offer and tier are active.
- */
-const isActiveAndEligible = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'active' && tier?.active === true;
-};
-
-/**
- * Filters offers to archived status when offer is archived or tier is inactive.
- */
-const isArchivedOrInactive = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'archived' || (tier?.active === false);
-};
-
-/**
- * Checks if an offer's pricing is eligible (non-negative).
- */
-const isOfferPricingValid = (offer: any): boolean => {
-    return offer.amount >= 0;
-};
-
-/**
- * Checks if an offer tier is active.
- */
-const isTierValid = (tier?: Tier): boolean => {
-    return !!tier?.active;
-};
-
-/**
- * Checks if an offer belongs to a specific status filter.
- */
-const matchesStatusFilter = (offer: any, tier: Tier | undefined, statusFilter: 'active' | 'archived'): boolean => {
-    if (statusFilter === 'active') {
-        return isActiveAndEligible(offer, tier);
-    }
-    return isArchivedOrInactive(offer, tier);
-};
-
-/**
- * Determines if an offer row should be displayed based on tier and status eligibility.
- */
-const isOfferRowVisible = (offer: any, tier?: Tier, statusFilter?: 'active' | 'archived'): boolean => {
-    if (!tier) {
-        return false;
-    }
-
-    if (statusFilter && !matchesStatusFilter(offer, tier, statusFilter)) {
-        return false;
-    }
-
-    return true;
-};
-
 export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
     const modal = useModal();
     const {updateRoute} = useRouting();
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-    const activeOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isActiveAndEligible(offer, offerTier);
-    });
-    const archivedOffers = signupOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isArchivedOrInactive(offer, offerTier);
-    });
+    const activeOffers = signupOffers.filter((offer) => isOfferAndTierActive(offer, allTiers));
+    const archivedOffers = signupOffers.filter((offer) => isOfferOrTierArchived(offer, allTiers));
 
     let offersTabs: Tab[] = [
         {id: 'signup', title: 'Signup'},
@@ -252,7 +225,8 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
     const sortOption = offersSorting?.option || 'date-added';
     const sortDirection = offersSorting?.direction || 'desc';
 
-    const handleOfferEdit = (id: string) => {
+    const handleOfferEdit = (id:string) => {
+        // TODO: implement
         sessionStorage.setItem('editOfferPageSource', 'offersIndex');
         updateRoute(`offers/edit/${id}`);
     };
@@ -272,10 +246,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const filteredOffers = sortedOffers.filter((offer) => {
-        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return isOfferRowVisible(offer, offerTier, statusFilter);
-    });
+    const filteredOffers = sortedOffers.filter((offer) => offerMatchesStatusFilter(offer, statusFilter, allTiers));
 
     const listLayoutOutput = <div className='overflow-x-auto'>
         <table className='m-0 w-full table-fixed'>
@@ -287,13 +258,13 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                 <col className='w-[80px]' />
             </colgroup>
             {filteredOffers.map((offer) => {
-                const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+                const offerTier = allTiers?.find((tier) => tier.id === offer?.tier?.id);
 
-                if (!isOfferRowVisible(offer, offerTier)) {
+                if (!offerTier) {
                     return null;
                 }
 
-                const isTierArchived = offerTier?.active === false;
+                const isTierArchived = offerTier.active === false;
 
                 const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 

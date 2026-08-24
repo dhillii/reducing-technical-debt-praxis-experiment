@@ -250,8 +250,7 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
     );
 }
 
-// Formats the offer message for retention offers based on offer type and cadence
-// Returns a formatted string describing the offer impact to the user
+// Extracted helper to compute offer message based on offer type and duration
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
     if (offer.type === 'free_months') {
         const months = offer.amount;
@@ -280,9 +279,8 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
     return '';
 }
 
-// Extracted.offerDetailsHandler
-// Returns a well-formed object with parsed offer details for UI consumption
-function getRetentionOfferDetails({offer, price, product}) {
+// Extracted helper to compute offer display data
+function computeOfferDisplayData({offer, price}) {
     const originalPrice = formatNumber(price.amount / 100);
     const currency = getCurrencySymbol(price.currency);
     const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
@@ -300,13 +298,20 @@ function getRetentionOfferDetails({offer, price, product}) {
     };
 }
 
-// Retention offer UI section shown before cancellation confirmation
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
     const isAcceptingOffer = action === 'applyOffer:running';
-    
-    const details = getRetentionOfferDetails({offer, price, product});
 
+    const {
+        originalPrice,
+        currency,
+        discountedPrice,
+        amountOff,
+        discountText,
+        offerMessage
+    } = computeOfferDisplayData({offer, price});
+
+    // TODO: Add i18n once copy is finalized
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
             <p className="gh-portal-text-center">
@@ -316,7 +321,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
             <div className="gh-portal-offer-bar">
                 <div className="gh-portal-offer-title">
                     <h4>{product.name} - {offer.cadence === 'month' ? 'Monthly' : 'Yearly'}</h4>
-                    <h5 className="gh-portal-discount-label">{details.discountText}</h5>
+                    <h5 className="gh-portal-discount-label">{discountText}</h5>
                 </div>
 
                 <div className="gh-portal-offer-details">
@@ -324,17 +329,17 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
                         {!(offer.type === 'free_months') && (
                             <>
                                 <div className="gh-portal-product-price">
-                                    <span className="currency-sign">{details.currency}</span>
-                                    <span className="amount">{details.discountedPrice}</span>
+                                    <span className="currency-sign">{currency}</span>
+                                    <span className="amount">{discountedPrice}</span>
                                 </div>
                                 <div className="gh-portal-offer-oldprice">
-                                    {details.currency}{details.originalPrice}
+                                    {currency}{originalPrice}
                                 </div>
                             </>
                         )}
                     </div>
                     <p className="footnote">
-                        {details.offerMessage}
+                        {offerMessage}
                     </p>
                 </div>
 

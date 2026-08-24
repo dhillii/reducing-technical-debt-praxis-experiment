@@ -277,8 +277,7 @@ class BatchSendingService {
                     const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
                     const membersToProcess = Math.min(members.length, BATCH_SIZE);
 
-                    const shouldSplitBatch = remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
-                    if (shouldSplitBatch) {
+                    if (remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess) {
                         // Split batch: some via custom domain, rest via fallback
                         totalCount += await this.#createBatchWithRetry({
                             email,

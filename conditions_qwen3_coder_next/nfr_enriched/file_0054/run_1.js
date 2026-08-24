@@ -14,12 +14,16 @@ function Task() {
   this._success = {};
 }
 
+// Expose the constructor function.
 exports.Task = Task;
 
+// Create a new Task instance.
 exports.create = function() {
   return new Task();
 };
 
+// If the task runner is running or an error handler is not defined, throw
+// an exception. Otherwise, call the error handler directly.
 Task.prototype._throwIfRunning = function(obj) {
   if (this._running || !this._options.error) {
     throw obj;
@@ -28,41 +32,51 @@ Task.prototype._throwIfRunning = function(obj) {
   }
 };
 
+// Register a new task.
 Task.prototype.registerTask = function(name, info, fn) {
   if (fn == null) {
     fn = info;
     info = null;
   }
 
-  var tasks;
   if (typeof fn !== 'function') {
-    tasks = this.parseArgs([fn]);
-    fn = this.run.bind(this, fn);
-    fn.alias = true;
-    if (!info) {
-      info = this._generateAliasInfo(tasks);
-    }
-  } else if (!info) {
-    info = 'Custom task.';
+    return this._registerAliasTask(name, info, fn);
   }
 
+  return this._registerCustomTask(name, info, fn);
+};
+
+// Registers an alias task (when task fn is not a function)
+Task.prototype._registerAliasTask = function(name, info, taskList) {
+  var tasks = this.parseArgs([taskList]);
+  var fn = this.run.bind(this, taskList);
+  fn.alias = true;
+  info = info || 'Alias for "' + tasks.join('", "') + '" task' +
+    (tasks.length === 1 ? '' : 's') + '.';
   this._tasks[name] = {name: name, info: info, fn: fn};
   return this;
 };
 
-Task.prototype._generateAliasInfo = function(tasks) {
-  return 'Alias for "' + tasks.join('", "') + '" task' +
-    (tasks.length === 1 ? '' : 's') + '.';
+// Registers a custom task (when task fn is a function)
+Task.prototype._registerCustomTask = function(name, info, fn) {
+  if (!info) {
+    info = 'Custom task.';
+  }
+  this._tasks[name] = {name: name, info: info, fn: fn};
+  return this;
 };
 
+// Is the specified task an alias?
 Task.prototype.isTaskAlias = function(name) {
   return !!this._tasks[name].fn.alias;
 };
 
+// Has the specified task been registered?
 Task.prototype.exists = function(name) {
   return name in this._tasks;
 };
 
+// Rename a task
 Task.prototype.renameTask = function(oldname, newname) {
   if (!this._tasks[oldname]) {
     throw new Error('Cannot rename missing "' + oldname + '" task.');
@@ -73,24 +87,27 @@ Task.prototype.renameTask = function(oldname, newname) {
   return this;
 };
 
+// Argument parsing helper.
 Task.prototype.parseArgs = function(args) {
   return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
 };
 
+// Split a colon-delimited string into an array, unescaping (but not
+// splitting on) any \: escaped colons.
 Task.prototype.splitArgs = function(str) {
-  if (!str) {
-    return [];
-  }
+  if (!str) { return []; }
   str = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
   return str.split(':').map(function(s) {
     return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
   });
 };
 
+// Determines which task to run and what arguments to pass based on task name.
 Task.prototype._taskPlusArgs = function(name) {
   var parts = this.splitArgs(name);
   var i = parts.length;
   var task;
+
   do {
     task = this._tasks[parts.slice(0, i).join(':')];
   } while (!task && --i > 0);
@@ -102,6 +119,7 @@ Task.prototype._taskPlusArgs = function(name) {
   return {task: task, nameArgs: name, args: args, flags: flags};
 };
 
+// Append things to queue in the correct spot.
 Task.prototype._push = function(things) {
   var index = this._queue.indexOf(this._placeholder);
   if (index === -1) {
@@ -111,25 +129,44 @@ Task.prototype._push = function(things) {
   }
 };
 
+// Enqueue a task.
 Task.prototype.run = function() {
   var things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
   var fails = things.filter(function(thing) { return !thing.task; });
+
   if (fails.length > 0) {
     this._throwIfRunning(new Error('Task "' + fails[0].nameArgs + '" not found.'));
     return this;
   }
+
   this._push(things);
   return this;
 };
 
+// Add a marker to the queue to facilitate clearing it programmatically.
 Task.prototype.mark = function() {
   this._push(this._marker);
   return this;
 };
 
+// Run a task function, handling this.async / return value.
 Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
   var async = false;
-  var complete = this._createCompleteHandler(context, done, asyncDone);
+
+  var complete = function(success) {
+    var err = this._determineErrorFromSuccess(success, context.nameArgs);
+    this._resetCurrent();
+    this._recordTaskResult(context.nameArgs, err === null);
+    this._handleTaskFailure(err, context);
+
+    if (asyncDone) {
+      process.nextTick(function() {
+        done(err, err === null);
+      });
+    } else {
+      done(err, err === null);
+    }
+  }.bind(this);
 
   context.async = function() {
     async = true;
@@ -150,42 +187,40 @@ Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
   }
 };
 
-Task.prototype._createCompleteHandler = function(context, done, asyncDone) {
-  return function(success) {
-    var err = null;
-    if (success === false) {
-      err = new Error('Task "' + context.nameArgs + '" failed.');
-    } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      err = success;
-      success = false;
-    } else {
-      success = true;
-    }
-
-    this.current = {};
-    this._success[context.nameArgs] = success;
-
-    if (!success && this._options.error) {
-      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
-    }
-
-    if (asyncDone) {
-      process.nextTick(function() {
-        done(err, success);
-      });
-    } else {
-      done(err, success);
-    }
-  }.bind(this);
+// Helper to determine error from success value
+Task.prototype._determineErrorFromSuccess = function(success, nameArgs) {
+  if (success === false) {
+    return new Error('Task "' + nameArgs + '" failed.');
+  } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
+    return success;
+  }
+  return null;
 };
 
+// Reset current task context
+Task.prototype._resetCurrent = function() {
+  this.current = {};
+};
+
+// Record task success status
+Task.prototype._recordTaskResult = function(nameArgs, success) {
+  this._success[nameArgs] = success;
+};
+
+// Handle task failure by calling error handler if configured
+Task.prototype._handleTaskFailure = function(err, context) {
+  if (err === null) {
+    return;
+  }
+  if (this._options.error) {
+    this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
+  }
+};
+
+// Begin task queue processing.
 Task.prototype.start = function(opts) {
-  if (!opts) {
-    opts = {};
-  }
-  if (this._running) {
-    return false;
-  }
+  opts = opts || {};
+  if (this._running) { return false; }
 
   var nextTask = function() {
     var thing;
@@ -202,52 +237,53 @@ Task.prototype.start = function(opts) {
     }
 
     this._queue.unshift(this._placeholder);
-    var context = this._createTaskContext(thing);
+
+    var context = {
+      nameArgs: thing.nameArgs,
+      name: thing.task.name,
+      args: thing.args,
+      flags: thing.flags
+    };
 
     this.runTaskFn(context, function() {
       return thing.task.fn.apply(this, this.args);
     }, nextTask, !!opts.asyncDone);
-
   }.bind(this);
 
   this._running = true;
   nextTask();
 };
 
-Task.prototype._createTaskContext = function(thing) {
-  return {
-    nameArgs: thing.nameArgs,
-    name: thing.task.name,
-    args: thing.args,
-    flags: thing.flags
-  };
-};
-
+// Clear remaining tasks from the queue.
 Task.prototype.clearQueue = function(options) {
-  if (!options) {
-    options = {};
-  }
+  options = options || {};
   if (options.untilMarker) {
-    this._queue.splice(0, this._queue.indexOf(this._marker) + 1);
+    var markerIndex = this._queue.indexOf(this._marker);
+    if (markerIndex !== -1) {
+      this._queue.splice(0, markerIndex + 1);
+    }
   } else {
     this._queue = [];
   }
   return this;
 };
 
+// Test to see if all of the given tasks have succeeded.
 Task.prototype.requires = function() {
-  var names = this.parseArgs(arguments);
-  names.forEach(function(name) {
+  this.parseArgs(arguments).forEach(function(name) {
     var success = this._success[name];
     if (!success) {
-      throw new Error('Required task "' + name +
-        '" ' + (success === false ? 'failed' : 'must be run first') + '.');
+      var status = success === false ? 'failed' : 'must be run first';
+      throw new Error('Required task "' + name + '" ' + status + '.');
     }
   }.bind(this));
 };
 
+// Override default options.
 Task.prototype.options = function(options) {
   Object.keys(options).forEach(function(name) {
     this._options[name] = options[name];
   }.bind(this));
 };
+
+}(typeof exports === 'object' && exports || this));

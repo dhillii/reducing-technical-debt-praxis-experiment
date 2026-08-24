@@ -20,36 +20,25 @@ const DISPLAY_OPTIONS = [{
     value: 'paid'
 }];
 
-/**
- * Strategy objects for applying animations based on element state.
- * Each strategy knows how to determine if animation should run and how to animate classes.
- */
-const AnimationStrategies = {
-    sent: {
-        shouldAnimate: (context) => context.shouldAnimate && context.post.email.emailCount !== context.previousSentCount,
-        selectorGenerator: (classList) => AnimationStrategies._generateSelector(classList, 'sent')
-    },
-    opened: {
-        shouldAnimate: (context) => context.shouldAnimate && context.post.email.openedCount !== context.previousOpenedCount,
-        selectorGenerator: (classList) => AnimationStrategies._generateSelector(classList, 'opened')
-    },
-    clicked: {
-        shouldAnimate: (context) => context.shouldAnimate && context.post.count.clicks !== context.previousClickedCount,
-        selectorGenerator: (classList) => AnimationStrategies._generateSelector(classList, 'clicked')
-    },
-    feedback: {
-        shouldAnimate: (context) => context.shouldAnimate && context.totalFeedback !== context.previousFeedbackCount,
-        selectorGenerator: (classList) => AnimationStrategies._generateSelector(classList, 'feedback')
-    },
-    conversions: {
-        shouldAnimate: (context) => context.shouldAnimate && context.post.count.conversions !== context.previousConversionsCount,
-        selectorGenerator: (classList) => AnimationStrategies._generateSelector(classList, 'conversions')
-    },
-    _generateSelector(classList, animationType) {
-        const classString = Array.from(classList).map(className => `.${className}`).join('');
-        return `${classString} .new-number span`;
+// Predicate helpers for applyClasses conditionals
+function isAnimatedAndHasChanged(element, post, previous, current, className) {
+    return !element.classList.contains(className) ||
+        current !== previous;
+}
+
+function shouldAnimateElement(element, post, previousSentCount, previousOpenedCount, previousClickedCount, previousFeedbackCount, previousConversionsCount) {
+    if (!post) {
+        return false;
     }
-};
+
+    const sent = element.classList.contains('sent') && post.email?.emailCount === previousSentCount;
+    const opened = element.classList.contains('opened') && post.email?.openedCount === previousOpenedCount;
+    const clicked = element.classList.contains('clicked') && post.count?.clicks === previousClickedCount;
+    const feedback = element.classList.contains('feedback') && (post.count?.positive_feedback + post.count?.negative_feedback) === previousFeedbackCount;
+    const conversions = element.classList.contains('conversions') && post.count?.conversions === previousConversionsCount;
+
+    return !(sent || opened || clicked || feedback || conversions);
+}
 
 export default class Analytics extends Component {
     @service ajax;
@@ -76,11 +65,11 @@ export default class Analytics extends Component {
     @tracked postCount = null;
     @tracked showPostCount = false;
     @tracked shouldAnimate = false;
-    @tracked previousSentCount = this.post.email?.emailCount;
-    @tracked previousOpenedCount = this.post.email?.openedCount;
-    @tracked previousClickedCount = this.post.count.clicks;
+    @tracked previousSentCount = this.post?.email?.emailCount;
+    @tracked previousOpenedCount = this.post?.email?.openedCount;
+    @tracked previousClickedCount = this.post?.count?.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post.count.conversions;
+    @tracked previousConversionsCount = this.post?.count?.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -157,23 +146,23 @@ export default class Analytics extends Component {
     }
 
     get hasPaidConversionData() {
-        return this.sources.some(sourceData => sourceData.paidConversions > 0);
+        return this.sources?.some(sourceData => sourceData.paidConversions > 0) ?? false;
     }
 
     get hasFreeSignups() {
-        return this.sources.some(sourceData => sourceData.signups > 0);
+        return this.sources?.some(sourceData => sourceData.signups > 0) ?? false;
     }
 
     get totalFeedback() {
-        return this.post.count.positive_feedback + this.post.count.negative_feedback;
+        return this.post?.count?.positive_feedback + this.post?.count?.negative_feedback ?? 0;
     }
 
     get feedbackChartData() {
-        const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
+        const values = [this.post?.count?.positive_feedback ?? 0, this.post?.count?.negative_feedback ?? 0];
         const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
-            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
+            {filterParam: '(feedback.post_id:\'' + this.post?.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post?.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -232,7 +221,7 @@ export default class Analytics extends Component {
     }
 
     updateLinkData(linksData) {
-        let cleanedLinks = linksData.map((link) => {
+        let cleanedLinks = linksData?.map((link) => {
             return {
                 ...link,
                 link: {
@@ -242,7 +231,7 @@ export default class Analytics extends Component {
                     title: this.utils.cleanTrackedUrl(link.link.to, true)
                 }
             };
-        });
+        }) ?? [];
 
         const linksByTitle = cleanedLinks.reduce((acc, link) => {
             if (!acc[link.link.title]) {
@@ -345,13 +334,13 @@ export default class Analytics extends Component {
     *_fetchReferrersStats() {
         let statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
         let result = yield this.ajax.request(statsUrl);
-        this.sources = result.stats.map((stat) => {
+        this.sources = result.stats?.map((stat) => {
             return {
                 source: stat.source ?? 'Direct',
                 signups: stat.signups,
                 paidConversions: stat.paid_conversions
             };
-        });
+        }) ?? [];
     }
 
     @task
@@ -377,9 +366,9 @@ export default class Analytics extends Component {
 
     @task
     *fetchPostCountTask() {
-        if (!this.post.emailOnly) {
+        if (!this.post?.emailOnly) {
             const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
-            let count = result.meta.pagination.total;
+            let count = result.meta?.pagination?.total ?? 0;
 
             this.postCount = count;
         }
@@ -387,11 +376,11 @@ export default class Analytics extends Component {
 
     @task
     *fetchPostTask() {
-        const currentSentCount = this.post.email?.emailCount;
-        const currentOpenedCount = this.post.email?.openedCount;
-        const currentClickedCount = this.post.count.clicks;
-        const currentFeedbackCount = this.totalFeedback;
-        const currentConversionsCount = this.post.count.conversions;
+        const currentSentCount = this.post?.email?.emailCount ?? 0;
+        const currentOpenedCount = this.post?.email?.openedCount ?? 0;
+        const currentClickedCount = this.post?.count?.clicks ?? 0;
+        const currentFeedbackCount = this.totalFeedback ?? 0;
+        const currentConversionsCount = this.post?.count?.conversions ?? 0;
 
         this.shouldAnimate = true;
 
@@ -409,31 +398,31 @@ export default class Analytics extends Component {
         return true;
     }
 
-    /**
-     * Applies animations to the element based on its class state.
-     * Uses strategy objects to determine which animation to run.
-     *
-     * @param {HTMLElement} element - The DOM element to animate
-     * @private
-     */
     @action
     applyClasses(element) {
-        const classes = Array.from(element.classList);
-        const animationType = classes.find(cls => ['sent', 'opened', 'clicked', 'feedback', 'conversions'].includes(cls));
-        
-        if (!animationType) {
+        if (!this.shouldAnimate) {
             return;
         }
 
-        const strategy = AnimationStrategies[animationType];
-        if (!strategy || !strategy.shouldAnimate(this)) {
+        if (!shouldAnimateElement(
+            element,
+            this.post,
+            this.previousSentCount,
+            this.previousOpenedCount,
+            this.previousClickedCount,
+            this.previousFeedbackCount,
+            this.previousConversionsCount
+        )) {
             return;
         }
 
-        const selector = strategy.selectorGenerator(classes);
+        const classSelector = Array.from(element.classList)
+            .filter(className => className !== 'animate')
+            .map(className => `.${className}`)
+            .join('');
 
         anime({
-            targets: selector,
+            targets: `${classSelector} .new-number span`,
             translateY: [10,0],
             opacity: [0,1],
             easing: 'easeOutElastic',
@@ -443,7 +432,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${selector.replace('new-number', 'old-number')}`,
+            targets: `${classSelector} .old-number span`,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',
@@ -453,18 +442,18 @@ export default class Analytics extends Component {
     }
 
     get showLinks() {
-        return this.post.showEmailClickAnalytics;
+        return this.post?.showEmailClickAnalytics ?? false;
     }
 
     get showSources() {
-        return this.post.showAttributionAnalytics;
+        return this.post?.showAttributionAnalytics ?? false;
     }
 
     get showMentions() {
-        return this.feature.get('webmentions');
+        return this.feature?.get('webmentions') ?? false;
     }
 
     get isLoaded() {
-        return this.links !== null && this.souces !== null && this.mentions !== null;
+        return this.links !== null && this.sources !== null && this.mentions !== null;
     }
 }

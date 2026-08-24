@@ -355,13 +355,9 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
 }
 `;
 
-/**
- * Extracted helper to determine appropriate tabIndex value for submit button
- * Avoids hardcoded positive integers per S6841
- * @returns {number} tabIndex value (-1 for non-interactive, 0 for sequential)
- */
+// Extracted helper to determine appropriate tabindex value for submit button
 function getSubmitButtonTabIndex() {
-    return -1;
+    return 0;
 }
 
 class SignupPage extends React.Component {
@@ -388,6 +384,7 @@ class SignupPage extends React.Component {
             });
         }
 
+        // Handle the default plan if not set
         this.handleSelectedPlan();
     }
 
@@ -431,6 +428,7 @@ class SignupPage extends React.Component {
             const {name, email, plan, phonenumber, token, errors} = this.state;
             const hasFormErrors = (errors && Object.values(errors).filter(d => !!d).length > 0);
 
+            // Only scroll checkbox into view if it's the only error
             const otherErrors = {...errors};
             delete otherErrors.checkbox;
             const hasOnlyCheckboxError = errors?.checkbox && Object.values(otherErrors).every(error => !error);
@@ -478,6 +476,7 @@ class SignupPage extends React.Component {
 
     handleSelectPlan = (e, priceId) => {
         e && e.preventDefault();
+        // Hack: React checkbox gets out of sync with dom state with instant update
         this.timeoutId = setTimeout(() => {
             this.setState(() => {
                 return {
@@ -488,7 +487,8 @@ class SignupPage extends React.Component {
     };
 
     onKeyDown(e) {
-        if (e.keyCode === 13) {
+        // Handles submit on Enter press
+        if (e.keyCode === 13){
             this.handleSignup(e);
         }
     }
@@ -527,6 +527,7 @@ class SignupPage extends React.Component {
                 type: 'text',
                 value: state.phonenumber,
                 placeholder: t('+1 (123) 456-7890'),
+                // Doesn't need translation, hidden field
                 label: t('Phone number'),
                 name: 'phonenumber',
                 required: false,
@@ -536,6 +537,7 @@ class SignupPage extends React.Component {
             }
         ];
 
+        /** Show Name field if portal option is set*/
         if (portalName) {
             fields.unshift({
                 type: 'text',
@@ -600,10 +602,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders the submit button with appropriate state and tabIndex
-     * @returns {React.ReactNode|null} Button element or null
-     */
     renderSubmitButton() {
         const {action, site, brandColor, pageQuery} = this.context;
 
@@ -652,6 +650,7 @@ class SignupPage extends React.Component {
         const errors = this.state.errors || {};
         const priceErrors = {};
 
+        // If we have at least one error, set an error message for the current selected plan
         if (Object.keys(errors).length > 0 && this.state.plan) {
             priceErrors[this.state.plan] = t('Please fill in required fields');
         }
@@ -718,14 +717,17 @@ class SignupPage extends React.Component {
             );
         }
 
+        // Invite-only site: block signups, offer to sign in
         if (isInviteOnly({site})) {
             return this.renderInviteOnlyMessage();
         }
 
+        // Paid-members-only site: block free signups, offer to sign in
         if (isPaidMembersOnly({site}) && pageQuery === 'free') {
             return this.renderPaidMembersOnlyMessage();
         }
 
+        // Signup is not allowed or no prices are available: block signup with the relevant message, offer signin when available
         if (!isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery})) {
             if (!isSigninAllowed({site})) {
                 return this.renderMembersDisabledMessage();

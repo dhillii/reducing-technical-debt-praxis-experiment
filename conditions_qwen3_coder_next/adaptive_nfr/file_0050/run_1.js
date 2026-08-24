@@ -12,16 +12,24 @@ try {
   // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
-    var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
-      require.extensions[FILE_EXTENSIONS[i]] = function() {
-        throw new Error(
-          'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-          'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
-        );
-      };
-    }
+    populateCoffeeScriptExtensions();
   }
+}
+
+function populateCoffeeScriptExtensions() {
+  var FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
+  for (var i = 0; i < FILE_EXTENSIONS.length; i++) {
+    defineUnsupportedCoffeeScriptExtension(FILE_EXTENSIONS[i]);
+  }
+}
+
+function defineUnsupportedCoffeeScriptExtension(extension) {
+  require.extensions[extension] = function() {
+    throw new Error(
+      'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
+      'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+    );
+  };
 }
 
 // The module to be exported.
@@ -69,26 +77,6 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Predicate function: checks if version flag is set
-function isVersionFlagSet() {
-  return option('version');
-}
-
-// Predicate function: checks if verbose flag is set
-function isVerboseFlagSet() {
-  return option('verbose');
-}
-
-// Predicate function: checks if help flag is set
-function isHelpFlagSet() {
-  return option('help');
-}
-
-// Predicate function: checks if no tasks were specified
-function isNoTasksSpecified(tasksSpecified) {
-  return !tasksSpecified;
-}
-
 // Expose the task interface. I've never called this manually, and have no idea
 // how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
@@ -96,33 +84,8 @@ grunt.tasks = function(tasks, options, done) {
   option.init(options);
 
   // Display the grunt version and quit if the user did --version.
-  if (isVersionFlagSet()) {
-    log.writeln('grunt v' + grunt.version);
-
-    if (isVerboseFlagSet()) {
-      verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-      // Yes, this is a total hack, but we don't want to log all that verbose
-      // task initialization stuff here.
-      grunt.log.muted = true;
-      // Initialize task system so that available tasks can be listed.
-      grunt.task.init([], {help: true});
-      // Re-enable logging.
-      grunt.log.muted = false;
-
-      // Display available tasks (for shell completion, etc).
-      var availableTasks = Object.keys(grunt.task._tasks).sort();
-      verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-
-      // Display available options (for shell completion, etc).
-      var availableOptions = [];
-      Object.keys(grunt.cli.optlist).forEach(function(long) {
-        var o = grunt.cli.optlist[long];
-        availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-        if (o.short) { availableOptions.push('-' + o.short); }
-      });
-      verbose.writeln('Available options: ' + availableOptions.join(' '));
-    }
-
+  if (option('version')) {
+    handleVersionFlag();
     return;
   }
 
@@ -130,7 +93,7 @@ grunt.tasks = function(tasks, options, done) {
   log.initColors();
 
   // Display help and quit if the user did --help.
-  if (isHelpFlagSet()) {
+  if (option('help')) {
     help.display();
     return;
   }
@@ -146,7 +109,7 @@ grunt.tasks = function(tasks, options, done) {
   task.init(tasks, options);
 
   verbose.writeln();
-  if (isNoTasksSpecified(tasksSpecified)) {
+  if (!tasksSpecified) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
   verbose.writeflags(tasks, 'Running tasks');
@@ -189,3 +152,41 @@ grunt.tasks = function(tasks, options, done) {
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
 };
+
+/**
+ * Handles the --version flag by printing version and exit-related info.
+ * @returns {void}
+ */
+function handleVersionFlag() {
+  log.writeln('grunt v' + grunt.version);
+
+  if (!option('verbose')) {
+    return;
+  }
+
+  // --verbose
+  verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+
+  // Yes, this is a total hack, but we don't want to log all that verbose
+  // task initialization stuff here.
+  grunt.log.muted = true;
+
+  // Initialize task system so that available tasks can be listed.
+  grunt.task.init([], {help: true});
+
+  // Re-enable logging.
+  grunt.log.muted = false;
+
+  // Display available tasks (for shell completion, etc).
+  var _tasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln('Available tasks: ' + _tasks.join(' '));
+
+  // Display available options (for shell completion, etc).
+  var _options = [];
+  Object.keys(grunt.cli.optlist).forEach(function(long) {
+    var o = grunt.cli.optlist[long];
+    _options.push('--' + (o.negate ? 'no-' : '') + long);
+    if (o.short) { _options.push('-' + o.short); }
+  });
+  verbose.writeln('Available options: ' + _options.join(' '));
+}

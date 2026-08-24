@@ -30,13 +30,6 @@ type ProfileCardProps = {
     accentColor?: string
 }
 
-type BackgroundColorStrategy = {
-    getBackgroundColor: () => string;
-    getTextColor: () => string;
-    getGradient: (accentColor?: string) => string;
-    getDotsPatternColor: (accentColor?: string) => string;
-};
-
 const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -44,72 +37,36 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-// Strategy classes for background color handling
-class LightBackgroundColorStrategy implements BackgroundColorStrategy {
-    getBackgroundColor(): string {
-        return '#fff';
-    }
+// Strategy objects for background and text color logic
+const backgroundColorStrategies: Record<string, () => string> = {
+    light: () => '#fff',
+    dark: () => '#15171a',
+    accent: (accentColor: string) => accentColor || '#15171a'
+};
 
-    getTextColor(): string {
-        return '#15171a';
-    }
+const textColorStrategies: Record<string, () => string> = {
+    light: () => '#15171a',
+    dark: () => '#fff',
+    accent: () => '#fff'
+};
 
-    getGradient(): string {
-        return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
-    }
+// Strategy objects for gradient and dots pattern color logic
+const gradientStrategies: Record<string, (accentColor?: string) => string> = {
+    light: () => `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
+    dark: () => `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
+    accent: (accentColor) => `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
+};
 
-    getDotsPatternColor(): string {
-        return hexToRgba('#15171a', 0.025);
-    }
-}
+const dotsPatternColorStrategies: Record<string, (accentColor?: string) => string> = {
+    light: () => hexToRgba('#15171a', 0.025),
+    dark: () => hexToRgba('#15171a', 0.23),
+    accent: () => 'rgba(0, 0, 0, 0.02)'
+};
 
-class DarkBackgroundColorStrategy implements BackgroundColorStrategy {
-    getBackgroundColor(): string {
-        return '#15171a';
-    }
-
-    getTextColor(): string {
-        return '#fff';
-    }
-
-    getGradient(accentColor?: string): string {
-        return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
-    }
-
-    getDotsPatternColor(): string {
-        return hexToRgba('#15171a', 0.23);
-    }
-}
-
-class AccentBackgroundColorStrategy implements BackgroundColorStrategy {
-    getBackgroundColor(accentColor?: string): string {
-        return accentColor || '#15171a';
-    }
-
-    getTextColor(): string {
-        return '#fff';
-    }
-
-    getGradient(accentColor?: string): string {
-        return `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`;
-    }
-
-    getDotsPatternColor(): string {
-        return 'rgba(0, 0, 0, 0.02)';
-    }
-}
-
-const getBackgroundColorStrategy = (backgroundColor: 'light' | 'dark' | 'accent'): BackgroundColorStrategy => {
-    switch (backgroundColor) {
-        case 'light':
-            return new LightBackgroundColorStrategy();
-        case 'dark':
-            return new DarkBackgroundColorStrategy();
-        case 'accent':
-            return new AccentBackgroundColorStrategy();
-        default:
-            return new LightBackgroundColorStrategy();
-    }
+// Helper to safely execute strategy with fallback
+const executeStrategy = <T>(strategies: Record<string, (...args: any[]) => T>, key: string, fallbackKey: string, ...args: any[]): T => {
+    const strategy = strategies[key] || strategies[fallbackKey];
+    return strategy(...args);
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -153,10 +110,11 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
         }
     };
 
-    const strategy = getBackgroundColorStrategy(backgroundColor);
+    const getBackgroundColor = () => executeStrategy(backgroundColorStrategies, backgroundColor, 'light', accentColor);
+    const getTextColor = () => executeStrategy(textColorStrategies, backgroundColor, 'light');
 
-    const cardBackgroundColor = strategy.getBackgroundColor();
-    const textColor = strategy.getTextColor();
+    const cardBackgroundColor = getBackgroundColor();
+    const textColor = getTextColor();
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
 
@@ -280,7 +238,8 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         };
     }, [convertImagesToDataUrls]);
 
-    const strategy = getBackgroundColorStrategy(backgroundColor);
+    const getGradient = () => executeStrategy(gradientStrategies, backgroundColor, 'light', accentColor);
+    const getDotsPatternColor = () => executeStrategy(dotsPatternColorStrategies, backgroundColor, 'light', accentColor);
 
     const handleCopy = async () => {
         if (!profileCardRef.current || isProcessing) {
@@ -435,9 +394,9 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: strategy.getDotsPatternColor(accentColor)}} />
+                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
-                    <div className='absolute inset-0' style={{background: strategy.getGradient(accentColor)}} />
+                    <div className='absolute inset-0' style={{background: getGradient()}} />
                 </div>
 
                 {/* Hidden clone for screenshots */}
@@ -463,12 +422,12 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: strategy.getDotsPatternColor(accentColor)}} />
+                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
                     <div
                         className='absolute left-0 top-0 size-full'
                         style={{
-                            background: strategy.getGradient(accentColor)
+                            background: getGradient()
                         }}
                     />
                     <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />

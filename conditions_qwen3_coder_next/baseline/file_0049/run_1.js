@@ -5,30 +5,8 @@ const errors = require('@tryghost/errors');
 const config = require('../../../../../shared/config');
 const tpl = require('@tryghost/tpl');
 const logging = require('@tryghost/logging');
+
 let spam = config.get('spam') || {};
-
-const messages = {
-    forgottenPasswordEmail: {
-        error: 'Only {rfa} forgotten password attempts per email every {rfp} seconds.',
-        context: 'Forgotten password reset attempt failed'
-    },
-    forgottenPasswordIp: {
-        error: 'Only {rfa} tries per IP address every {rfp} seconds.',
-        context: 'Forgotten password reset attempt failed'
-    },
-    tooManySigninAttempts: {
-        error: 'Only {rateSigninAttempts} tries per IP address every {rateSigninPeriod} seconds.',
-        context: 'Too many login attempts.'
-    },
-    tooManyAttempts: 'Too many attempts.',
-    tooManyOTCVerificationAttempts: {
-        error: 'Too many attempts for this verification code.',
-        context: 'Too many verification code attempts.'
-    },
-    webmentionsBlock: 'Too many mention attempts',
-    emailPreviewBlock: 'Only 10 test emails can be sent per hour'
-};
-
 let spamPrivateBlock = spam.private_block || {};
 let spamGlobalBlock = spam.global_block || {};
 let spamGlobalReset = spam.global_reset || {};
@@ -62,6 +40,28 @@ let otcVerificationInstance;
 
 const spamConfigKeys = ['freeRetries', 'minWait', 'maxWait', 'lifetime'];
 
+const messages = {
+    forgottenPasswordEmail: {
+        error: 'Only {rfa} forgotten password attempts per email every {rfp} seconds.',
+        context: 'Forgotten password reset attempt failed'
+    },
+    forgottenPasswordIp: {
+        error: 'Only {rfa} tries per IP address every {rfp} seconds.',
+        context: 'Forgotten password reset attempt failed'
+    },
+    tooManySigninAttempts: {
+        error: 'Only {rateSigninAttempts} tries per IP address every {rateSigninPeriod} seconds.',
+        context: 'Too many login attempts.'
+    },
+    tooManyAttempts: 'Too many attempts.',
+    tooManyOTCVerificationAttempts: {
+        error: 'Too many attempts for this verification code.',
+        context: 'Too many verification code attempts.'
+    },
+    webmentionsBlock: 'Too many mention attempts',
+    emailPreviewBlock: 'Only 10 test emails can be sent per hour'
+};
+
 const handleStoreError = (err) => {
     const customError = new errors.InternalServerError({
         message: 'Unknown error',
@@ -76,286 +76,275 @@ const handleStoreError = (err) => {
     err.next(customError);
 };
 
-const createExpressBruteInstance = (StoreClass, options) => {
+const createBruteInstance = (storeClass, config, failCallback, attachResetToRequest = false) => {
+    const ExpressBrute = require('express-brute');
+    const BruteKnex = require('brute-knex');
     const db = require('../../../../data/db');
-    store = store || new StoreClass({
+
+    store = store || new BruteKnex({
         tablename: 'brute',
         createTable: false,
         knex: db.knex
     });
-    return new options.brute(store, options.config);
+
+    return new ExpressBrute(store, extend({
+        attachResetToRequest,
+        failCallback,
+        handleStoreError
+    }, pick(config, spamConfigKeys)));
 };
 
-const createMemoryBruteInstance = (options) => {
-    memoryStore = memoryStore || new options.memoryStore();
-    return new options.brute(memoryStore, options.config);
+const createMemoryBruteInstance = (config, failCallback, attachResetToRequest = false) => {
+    const ExpressBrute = require('express-brute');
+
+    memoryStore = memoryStore || new ExpressBrute.MemoryStore();
+
+    return new ExpressBrute(memoryStore, extend({
+        attachResetToRequest,
+        failCallback,
+        handleStoreError
+    }, pick(config, spamConfigKeys)));
 };
 
-const getFailCallback = (config) => {
-    const { message, context, help, code } = config;
+const createFailCallback = (message, context, help, code) => (req, res, next, nextValidRequestDate) => {
+    const formattedMessage = nextValidRequestDate
+        ? `${message} Try again in ${moment(nextValidRequestDate).fromNow(true)}.`
+        : message;
 
-    return (req, res, next, nextValidRequestDate) => {
-        const formattedMessage = message.replace('{date}', moment(nextValidRequestDate).fromNow(true));
-
-        const errorConfig = {
-            message: formattedMessage
-        };
-
-        if (context) {
-            errorConfig.context = tpl(context);
-        }
-        if (help) {
-            errorConfig.help = tpl(help);
-        }
-        if (code) {
-            errorConfig.code = code;
-        }
-
-        return next(new errors.TooManyRequestsError(errorConfig));
+    const errorOptions = {
+        message: formattedMessage,
+        context: context || tpl(message),
+        help: help || tpl(message)
     };
-};
 
-const setupRateLimiter = ({
-    bruteClass,
-    storeClass,
-    config: spamConfig,
-    failConfig
-}) => {
-    const configOpts = extend({
-        attachResetToRequest: false,
-        failCallback: getFailCallback(failConfig),
-        handleStoreError: handleStoreError
-    }, pick(spamConfig, spamConfigKeys));
-
-    if (storeClass === undefined) {
-        return createMemoryBruteInstance({
-            brute: require('express-brute'),
-            memoryStore: require('express-brute').MemoryStore,
-            config: configOpts
-        });
+    if (code) {
+        errorOptions.code = code;
     }
 
-    return createExpressBruteInstance(storeClass, {
-        brute: require('express-brute'),
-        config: configOpts
-    });
+    return next(new errors.TooManyRequestsError(errorOptions));
 };
 
 const globalBlock = () => {
     if (!globalBlockInstance) {
-        globalBlockInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamGlobalBlock,
-            failConfig: {
-                message: `Too many attempts try again in {date}`,
-                context: tpl(messages.forgottenPasswordIp.error, {
+        globalBlockInstance = createBruteInstance(
+            require('brute-knex'),
+            spamGlobalBlock,
+            createFailCallback(
+                'Too many attempts try again in {time}',
+                tpl(messages.forgottenPasswordIp.error, {
                     rfa: spamGlobalBlock.freeRetries + 1 || 5,
                     rfp: spamGlobalBlock.lifetime || 60 * 60
-                })
-            }
-        });
+                }),
+                tpl(messages.tooManyAttempts)
+            )
+        );
     }
     return globalBlockInstance;
 };
 
 const globalReset = () => {
     if (!globalResetInstance) {
-        globalResetInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamGlobalReset,
-            failConfig: {
-                message: `Too many attempts try again in {date}`,
-                context: tpl(messages.forgottenPasswordIp.error, {
+        globalResetInstance = createBruteInstance(
+            require('brute-knex'),
+            spamGlobalReset,
+            createFailCallback(
+                'Too many attempts try again in {time}',
+                tpl(messages.forgottenPasswordIp.error, {
                     rfa: spamGlobalReset.freeRetries + 1 || 5,
                     rfp: spamGlobalReset.lifetime || 60 * 60
-                })
-            }
-        });
+                }),
+                tpl(messages.forgottenPasswordIp.context)
+            )
+        );
     }
     return globalResetInstance;
 };
 
 const webmentionsBlock = () => {
     if (!webmentionsBlockInstance) {
-        webmentionsBlockInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamWebmentionsBlock,
-            failConfig: {
-                message: messages.webmentionsBlock
-            }
-        });
+        webmentionsBlockInstance = createBruteInstance(
+            require('brute-knex'),
+            spamWebmentionsBlock,
+            createFailCallback(messages.webmentionsBlock)
+        );
     }
     return webmentionsBlockInstance;
 };
 
 const emailPreviewBlock = () => {
     if (!emailPreviewBlockInstance) {
-        emailPreviewBlockInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamEmailPreviewBlock,
-            failConfig: {
-                message: messages.emailPreviewBlock
-            }
-        });
+        emailPreviewBlockInstance = createBruteInstance(
+            require('brute-knex'),
+            spamEmailPreviewBlock,
+            createFailCallback(messages.emailPreviewBlock)
+        );
     }
     return emailPreviewBlockInstance;
 };
 
 const membersAuth = () => {
     if (!membersAuthInstance) {
-        membersAuthInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamUserLogin,
-            failConfig: {
-                message: `Too many sign-in attempts try again in {date}`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }
-        });
+        membersAuthInstance = createBruteInstance(
+            require('brute-knex'),
+            spamUserLogin,
+            createFailCallback(
+                'Too many sign-in attempts try again in {time}',
+                tpl(messages.tooManySigninAttempts.context),
+                tpl(messages.tooManySigninAttempts.context),
+                null,
+                true
+            ),
+            true
+        );
     }
     return membersAuthInstance;
 };
 
 const membersAuthEnumeration = () => {
     if (!membersAuthEnumerationInstance) {
-        membersAuthEnumerationInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamMemberLogin,
-            failConfig: {
-                message: `Too many different sign-in attempts, try again in {date}`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }
-        });
+        membersAuthEnumerationInstance = createBruteInstance(
+            require('brute-knex'),
+            spamMemberLogin,
+            createFailCallback(
+                'Too many different sign-in attempts, try again in {time}',
+                tpl(messages.tooManySigninAttempts.context),
+                tpl(messages.tooManySigninAttempts.context)
+            ),
+            true
+        );
     }
     return membersAuthEnumerationInstance;
 };
 
 const otcVerificationEnumeration = () => {
     if (!otcVerificationEnumerationInstance) {
-        otcVerificationEnumerationInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamOtcVerificationEnumeration,
-            failConfig: {
-                message: `Too many verification attempts across multiple codes, try again in {date}`,
-                context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
-            }
-        });
+        otcVerificationEnumerationInstance = createBruteInstance(
+            require('brute-knex'),
+            spamOtcVerificationEnumeration,
+            createFailCallback(
+                'Too many verification attempts across multiple codes, try again in {time}',
+                tpl(messages.tooManyOTCVerificationAttempts.context),
+                tpl(messages.tooManyOTCVerificationAttempts.context),
+                'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
+            )
+        );
     }
     return otcVerificationEnumerationInstance;
 };
 
 const otcVerification = () => {
     if (!otcVerificationInstance) {
-        otcVerificationInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamOtcVerification,
-            failConfig: {
-                message: `Too many attempts for this verification code, try again in {date}`,
-                context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
-            }
-        });
+        otcVerificationInstance = createBruteInstance(
+            require('brute-knex'),
+            spamOtcVerification,
+            createFailCallback(
+                'Too many attempts for this verification code, try again in {time}',
+                tpl(messages.tooManyOTCVerificationAttempts.context),
+                tpl(messages.tooManyOTCVerificationAttempts.context),
+                'OTC_CODE_ATTEMPTS_RATE_LIMITED'
+            )
+        );
     }
     return otcVerificationInstance;
 };
 
 const userLogin = () => {
     if (!userLoginInstance) {
-        userLoginInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamUserLogin,
-            failConfig: {
-                message: `Too many login attempts. Please wait {date} before trying again, or reset your password.`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }
-        });
+        userLoginInstance = createBruteInstance(
+            require('brute-knex'),
+            spamUserLogin,
+            createFailCallback(
+                'Too many login attempts. Please wait {time} before trying again, or reset your password.',
+                tpl(messages.tooManySigninAttempts.context),
+                tpl(messages.tooManySigninAttempts.context)
+            ),
+            true
+        );
     }
     return userLoginInstance;
 };
 
 const userReset = () => {
     if (!userResetInstance) {
-        userResetInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamUserReset,
-            failConfig: {
-                message: `Too many password reset attempts try again in {date}`,
-                context: tpl(messages.forgottenPasswordEmail.error, {
+        userResetInstance = createBruteInstance(
+            require('brute-knex'),
+            spamUserReset,
+            createFailCallback(
+                'Too many password reset attempts try again in {time}',
+                tpl(messages.forgottenPasswordEmail.error, {
                     rfa: spamUserReset.freeRetries + 1 || 5,
                     rfp: spamUserReset.lifetime || 60 * 60
                 }),
-                help: tpl(messages.forgottenPasswordEmail.context)
-            }
-        });
+                tpl(messages.forgottenPasswordEmail.context)
+            ),
+            true
+        );
     }
     return userResetInstance;
 };
 
 const userVerification = () => {
     if (!userVerificationInstance) {
-        userVerificationInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamUserVerification,
-            failConfig: {
-                message: tpl(messages.tooManyAttempts)
-            }
-        });
+        userVerificationInstance = createBruteInstance(
+            require('brute-knex'),
+            spamUserVerification,
+            createFailCallback(tpl(messages.tooManyAttempts))
+        );
     }
     return userVerificationInstance;
 };
 
 const sendVerificationCode = () => {
     if (!sendVerificationCodeInstance) {
-        sendVerificationCodeInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamSendVerificationCode,
-            failConfig: {
-                message: tpl(messages.tooManyAttempts)
-            }
-        });
+        sendVerificationCodeInstance = createBruteInstance(
+            require('brute-knex'),
+            spamSendVerificationCode,
+            createFailCallback(tpl(messages.tooManyAttempts))
+        );
     }
     return sendVerificationCodeInstance;
 };
 
 const privateBlog = () => {
     if (!privateBlogInstance) {
-        privateBlogInstance = setupRateLimiter({
-            storeClass: require('brute-knex'),
-            bruteClass: require('express-brute'),
-            config: spamPrivateBlock,
-            failConfig: {
-                message: `Too many private sign-in attempts try again in {date}`
+        privateBlogInstance = createBruteInstance(
+            require('brute-knex'),
+            spamPrivateBlock,
+            (req, res, next, nextValidRequestDate) => {
+                const message = `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`;
+                const context = tpl(messages.tooManySigninAttempts.error, {
+                    rateSigninAttempts: spamPrivateBlock.freeRetries + 1 || 5,
+                    rateSigninPeriod: spamPrivateBlock.lifetime || 60 * 60
+                });
+
+                logging.error(new errors.TooManyRequestsError({
+                    message: context,
+                    context: tpl(messages.tooManySigninAttempts.context)
+                }));
+
+                return next(new errors.TooManyRequestsError({
+                    message,
+                    context
+                }));
             }
-        });
+        );
     }
     return privateBlogInstance;
 };
 
 const contentApiKey = () => {
     if (!contentApiKeyInstance) {
-        contentApiKeyInstance = setupRateLimiter({
-            config: spamContentApiKey,
-            failConfig: {
-                message: tpl(messages.tooManyAttempts)
+        contentApiKeyInstance = createMemoryBruteInstance(
+            spamContentApiKey,
+            (req, res, next) => {
+                const err = new errors.TooManyRequestsError({
+                    message: tpl(messages.tooManyAttempts)
+                });
+
+                logging.error(err);
+                return next(err);
             }
-        });
+        );
     }
     return contentApiKeyInstance;
 };

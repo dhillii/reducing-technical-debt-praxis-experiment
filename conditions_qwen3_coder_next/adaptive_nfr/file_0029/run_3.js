@@ -122,7 +122,6 @@ export default class Analytics extends Component {
         if (!this.hasFreeSignups) {
             return 'paid';
         }
-
         return this.sortColumn;
     }
 
@@ -300,6 +299,7 @@ export default class Analytics extends Component {
             }
         });
 
+        // Refresh links data
         const linksFilter = `post_id:'${this.post.id}'`;
         let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
         let result = yield this.ajax.request(statsUrl);
@@ -312,8 +312,8 @@ export default class Analytics extends Component {
 
     @task
     *_fetchReferrersStats() {
-        const statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
-        const result = yield this.ajax.request(statsUrl);
+        let statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
+        let result = yield this.ajax.request(statsUrl);
         this.sources = result.stats.map((stat) => {
             return {
                 source: stat.source ?? 'Direct',
@@ -326,8 +326,8 @@ export default class Analytics extends Component {
     @task
     *_fetchLinks() {
         const filter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
-        const result = yield this.ajax.request(statsUrl);
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
+        let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
 
@@ -348,7 +348,9 @@ export default class Analytics extends Component {
     *fetchPostCountTask() {
         if (!this.post.emailOnly) {
             const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
-            this.postCount = result.meta.pagination.total;
+            let count = result.meta.pagination.total;
+
+            this.postCount = count;
         }
     }
 
@@ -376,58 +378,69 @@ export default class Analytics extends Component {
         return true;
     }
 
-    /**
-     * @param {HTMLElement} element
-     * @returns {void}
-     */
+    @action
     applyClasses(element) {
         if (!this.shouldAnimate) {
             return;
         }
 
-        if (this.hasNoChanges(element)) {
+        const isUnchanged = this._isMetricUnchanged(element);
+        if (isUnchanged) {
             return;
         }
 
-        const classNameSelector = Array.from(element.classList).map(className => `.${className}`).join('');
-        const delayed = (el, i) => 100 + 30 * i;
+        const classList = Array.from(element.classList);
+        const selector = classList.map(className => `.${className}`).join('');
 
         anime({
-            targets: `${classNameSelector} .new-number span`,
-            translateY: [10, 0],
-            opacity: [0, 1],
+            targets: `${selector} .new-number span`,
+            translateY: [10,0],
+            opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
             duration: 1000,
-            delay: delayed
+            delay: (el, i) => 100 + 30 * i
         });
 
         anime({
-            targets: `${classNameSelector} .old-number span`,
-            translateY: [0, -10],
-            opacity: [1, 0],
+            targets: `${selector} .old-number span`,
+            translateY: [0,-10],
+            opacity: [1,0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
         });
     }
 
-    /**
-     * @param {HTMLElement} element
-     * @returns {boolean}
-     */
-    hasNoChanges(element) {
-        const stateMap = {
-            'sent': () => this.post.email.emailCount === this.previousSentCount,
-            'opened': () => this.post.email.openedCount === this.previousOpenedCount,
-            'clicked': () => this.post.count.clicks === this.previousClickedCount,
-            'feedback': () => this.totalFeedback === this.previousFeedbackCount,
-            'conversions': () => this.post.count.conversions === this.previousConversionsCount
-        };
+    _isMetricUnchanged(element) {
+        const classes = element.classList;
+        const hasSentClass = classes.contains('sent');
+        const hasOpenedClass = classes.contains('opened');
+        const hasClickedClass = classes.contains('clicked');
+        const hasFeedbackClass = classes.contains('feedback');
+        const hasConversionsClass = classes.contains('conversions');
 
-        return Object.entries(stateMap).some(([className, check]) => {
-            return element.classList.contains(className) && check();
-        });
+        if (hasSentClass && this.post.email.emailCount === this.previousSentCount) {
+            return true;
+        }
+
+        if (hasOpenedClass && this.post.email.openedCount === this.previousOpenedCount) {
+            return true;
+        }
+
+        if (hasClickedClass && this.post.count.clicks === this.previousClickedCount) {
+            return true;
+        }
+
+        if (hasFeedbackClass && this.totalFeedback === this.previousFeedbackCount) {
+            return true;
+        }
+
+        if (hasConversionsClass && this.post.count.conversions === this.previousConversionsCount) {
+            return true;
+        }
+
+        return false;
     }
 
     get showLinks() {

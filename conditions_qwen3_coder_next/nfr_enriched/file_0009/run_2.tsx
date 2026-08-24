@@ -99,116 +99,70 @@ export const EmptyState: React.FC<{title?: string, description: string, buttonAc
     </div>
 );
 
-// Extracted helper to determine offer status based on tier and offer state
-const isOfferActive = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'active' && !!tier && tier.active === true;
+// Extracted helper to determine offer status category
+const getOfferStatusCategory = (offer: any, allTiers: any[] | undefined): 'active' | 'archived' | 'other' => {
+    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+    if (offer.status === 'active' && offerTier && offerTier.active === true) {
+        return 'active';
+    }
+    if (offer.status === 'archived' || (offerTier && offerTier.active === false)) {
+        return 'archived';
+    }
+    return 'other';
 };
 
-const isOfferArchived = (offer: any, tier: Tier | undefined): boolean => {
-    return offer.status === 'archived' || (!tier || tier.active === false);
-};
-
-// Extracted helper to filter offers by tab
-const filterOffersByTab = (offers: any[], tiers: Tier[] | undefined, tab: string): any[] => {
+// Extracted helper to filter offers by tab and status
+const filterOffersByTab = (offers: any[], tab: string, allTiers: any[] | undefined): any[] => {
     return offers.filter(offer => {
-        const offerTier = tiers?.find(tier => tier.id === offer?.tier?.id);
-        return tab === 'active' ? isOfferActive(offer, offerTier) : isOfferArchived(offer, offerTier);
+        const statusCategory = getOfferStatusCategory(offer, allTiers);
+        return (tab === 'active' && statusCategory === 'active') ||
+               (tab === 'archived' && statusCategory === 'archived');
+    });
+};
+
+// Extracted helper to render offer table rows
+const renderOfferRows = (offers: any[], allTiers: any[] | undefined, selectedTab: string, handleOfferEdit: (id: string) => void) => {
+    return offers.map((offer) => {
+        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+
+        if (!offerTier) {
+            return null;
+        }
+
+        const isTierArchived = offerTier?.active === false;
+
+        const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
+
+        return (
+            <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
+                <td className={`${isTierArchived ? 'opacity-50' : ''} p-0`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-semibold'>{offer?.name}</span><br /><span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span></a></td>
+                <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span><br /><span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span></a></td>
+                <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-medium'>{updatedPriceWithCurrency}</span> {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}</a></td>
+                <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`} href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined} onClick={offer.redemption_count === 0 ? !isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {} : () => {}}>{offer.redemption_count}</a></td>
+                <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>{!isTierArchived ? <CopyLinkButton offerCode={offer.code} /> : null}</td>
+                {isTierArchived ?
+                    <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>This offer is disabled, because <br /> it is tied to an archived tier.</div> :
+                    null
+                }
+            </tr>
+        );
     });
 };
 
 // Extracted helper to render table header row
-const renderTableHeader = (tab: string, offers: any[]) => {
-    const count = offers.length;
-    const label = count === 1 ? 'offer' : 'offers';
-    return (
-        <tr className='border-b border-b-grey-300 dark:border-grey-800'>
-            <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{count} {tab === 'active' ? label : label}</th>
-            <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
-            <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
-            <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
-            <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700'></th>
-        </tr>
-    );
-};
-
-// Extracted helper to render a single offer row
-const renderOfferRow = (offer: any, tiers: Tier[] | undefined, handleOfferEdit: (id: string) => void) => {
-    const offerTier = tiers?.find(tier => tier.id === offer?.tier?.id);
-
-    if (!offerTier) {
-        return null;
+const renderTableHeader = (selectedTab: string, activeCount: number, archivedCount: number) => {
+    if ((selectedTab === 'active' && activeCount > 0) || (selectedTab === 'archived' && archivedCount > 0)) {
+        return (
+            <tr className='border-b border-b-grey-300 dark:border-grey-800'>
+                <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{selectedTab === 'active' ? activeCount : archivedCount} {selectedTab === 'active' ? (activeCount !== 1 ? 'offers' : 'offer') : (archivedCount !== 1 ? 'offers' : 'offer')}</th>
+                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
+                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
+                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
+                <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700'></th>
+            </tr>
+        );
     }
-
-    const isTierArchived = offerTier?.active === false;
-
-    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
-
-    return (
-        <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
-            <td className={`${isTierArchived ? 'opacity-50' : ''} p-0`}>
-                <a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`}
-                   onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ?? '') : () => {}}>
-                    <span className='font-semibold'>{offer?.name}</span>
-                    <br />
-                    <span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span>
-                </a>
-            </td>
-            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`}
-                   onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ?? '') : () => {}}>
-                    <span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span>
-                    <br />
-                    <span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span>
-                </a>
-            </td>
-            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`}
-                   onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ?? '') : () => {}}>
-                    <span className='font-medium'>{updatedPriceWithCurrency}</span>
-                    {offer.type !== 'trial' ? (
-                        <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>
-                            {originalPriceWithCurrency}
-                        </span>
-                    ) : null}
-                </a>
-            </td>
-            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
-                   href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ?? '') : undefined}
-                   onClick={offer.redemption_count === 0 ? !isTierArchived ? () => handleOfferEdit(offer?.id ?? '') : () => {} : () => {}}>
-                    {offer.redemption_count}
-                </a>
-            </td>
-            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
-                {!isTierArchived ? <CopyLinkButton offerCode={offer.code} /> : null}
-            </td>
-            {isTierArchived ? (
-                <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>
-                    This offer is disabled, because <br /> it is tied to an archived tier.
-                </div>
-            ) : null}
-        </tr>
-    );
-};
-
-// Extracted helper to render offer list layout
-const renderOfferList = (
-    sortedOffers: any[],
-    allTiers: Tier[] | undefined,
-    selectedTab: string,
-    handleOfferEdit: (id: string) => void
-) => {
-    const filteredOffers = filterOffersByTab(sortedOffers, allTiers, selectedTab);
-    const hasOffers = filteredOffers.length > 0;
-
-    return (
-        <div className='overflow-x-auto'>
-            <table className='m-0 w-full'>
-                {hasOffers ? renderTableHeader(selectedTab, filteredOffers) : null}
-                {filteredOffers.map((offer) => renderOfferRow(offer, allTiers, handleOfferEdit))}
-            </table>
-        </div>
-    );
+    return null;
 };
 
 export const OffersIndexModal = () => {
@@ -217,8 +171,8 @@ export const OffersIndexModal = () => {
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-    const activeOffers = filterOffersByTab(signupOffers, allTiers, 'active');
-    const archivedOffers = filterOffersByTab(signupOffers, allTiers, 'archived');
+    const activeOffers = signupOffers.filter((offer) => getOfferStatusCategory(offer, allTiers) === 'active');
+    const archivedOffers = signupOffers.filter((offer) => getOfferStatusCategory(offer, allTiers) === 'archived');
 
     let offersTabs: Tab[] = [
         {id: 'active', title: 'Active'},
@@ -238,21 +192,32 @@ export const OffersIndexModal = () => {
         updateRoute(`offers/edit/${id}`);
     };
 
-    const sortedOffers = [...signupOffers].sort((offer1, offer2) => {
-        const multiplier = sortDirection === 'desc' ? -1 : 1;
-        switch (sortOption) {
-        case 'name':
-            return multiplier * offer1.name.localeCompare(offer2.name);
-        case 'redemptions':
-            return multiplier * (offer1.redemption_count - offer2.redemption_count);
-        default:
-            return multiplier * ((offer1.created_at ? new Date(offer1.created_at).getTime() : 0) - (offer2.created_at ? new Date(offer2.created_at).getTime() : 0));
-        }
-    });
+    const sortedOffers = signupOffers
+        .sort((offer1, offer2) => {
+            const multiplier = sortDirection === 'desc' ? -1 : 1;
+            switch (sortOption) {
+            case 'name':
+                return multiplier * offer1.name.localeCompare(offer2.name);
+            case 'redemptions':
+                return multiplier * (offer1.redemption_count - offer2.redemption_count);
+            default:
+                return multiplier * ((offer1.created_at ? new Date(offer1.created_at).getTime() : 0) - (offer2.created_at ? new Date(offer2.created_at).getTime() : 0));
+            }
+        });
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const listLayoutOutput = renderOfferList(sortedOffers, allTiers, selectedTab, handleOfferEdit);
+    const activeCount = activeOffers.length;
+    const archivedCount = archivedOffers.length;
+
+    const filteredOffers = filterOffersByTab(sortedOffers, selectedTab, allTiers);
+
+    const listLayoutOutput = <div className='overflow-x-auto'>
+        <table className='m-0 w-full'>
+            {renderTableHeader(selectedTab, activeCount, archivedCount)}
+            {renderOfferRows(filteredOffers, allTiers, selectedTab, handleOfferEdit)}
+        </table>
+    </div>;
 
     const buttons: ButtonProps[] = [
         {
@@ -302,7 +267,7 @@ export const OffersIndexModal = () => {
                     selectedTab={selectedTab}
                     tabs={offersTabs}
                     topRightContent={
-                        (selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
+                        (selectedTab === 'active' && activeCount > 0) || (selectedTab === 'archived' && archivedCount > 0) ?
                             <div className='pt-1'>
                                 <SortMenu
                                     direction={sortDirection as 'asc' | 'desc'}
@@ -337,7 +302,7 @@ export const OffersIndexModal = () => {
                     onTabChange={setSelectedTab}
                 />
             </header>
-            {selectedTab === 'active' && activeOffers.length === 0 && !isFetchingOffers ?
+            {selectedTab === 'active' && activeCount === 0 && !isFetchingOffers ?
                 <EmptyState
                     buttonAction={() => updateRoute('offers/new')}
                     buttonLabel='Create an offer'
@@ -345,7 +310,7 @@ export const OffersIndexModal = () => {
                 /> :
                 null
             }
-            {selectedTab === 'archived' && archivedOffers.length === 0 && !isFetchingOffers ?
+            {selectedTab === 'archived' && archivedCount === 0 && !isFetchingOffers ?
                 <EmptyState
                     buttonAction={() => setSelectedTab('active')}
                     buttonLabel='Back to active'

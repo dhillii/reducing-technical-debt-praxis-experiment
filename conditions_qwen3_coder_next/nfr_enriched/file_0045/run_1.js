@@ -62,10 +62,22 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            const email = this.#normalizeEmail(post.related('email'));
-            const isPublished = this.#isPublishedPost(post);
-            const feedbackEnabled = this.#isFeedbackEnabled(email, hasNewslettersWithFeedback);
-            const showEmailClickAnalytics = this.#shouldShowClickAnalytics(trackClicks, email);
+            let email = post.related('email');
+
+            // Weird bookshelf thing fix
+            if (!email.id) {
+                email = null;
+            }
+
+            let published = true;
+            if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+                // Manually clear it to avoid including information for a post that was reverted to draft
+                email = null;
+                published = false;
+            }
+
+            const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+            const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
 
             return {
                 id: post.get('id'),
@@ -75,71 +87,46 @@ class PostsExporter {
                 status: this.mapPostStatus(post.get('status'), !!email),
                 created_at: post.get('created_at'),
                 updated_at: post.get('updated_at'),
-                published_at: isPublished ? post.get('published_at') : null,
+                published_at: published ? post.get('published_at') : null,
                 featured: post.get('featured'),
                 tags: post.related('tags').map(tag => tag.get('name')).join(', '),
                 post_access: this.postAccessToString(post),
-                email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
+                email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
                 newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
                 sends: email?.get('email_count') ?? null,
                 opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
                 clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-                signups: membersTrackSources && isPublished ? (post.get('count__signups') ?? 0) : null,
-                paid_conversions: membersTrackSources && paidMembersEnabled && isPublished ? (post.get('count__paid_conversions') ?? 0) : null,
+                signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
+                paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
                 feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
                 feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
             };
         });
 
-        const removeableColumns = this.#getRemoveableColumns({
-            newsletters,
-            membersEnabled,
-            hasNewslettersWithFeedback,
-            trackClicks,
-            trackOpens,
-            membersTrackSources,
-            paidMembersEnabled
-        });
+        if (mapped.length) {
+            const removeableColumns = this.#getRemoveableColumns({
+                newsletters,
+                membersEnabled,
+                hasNewslettersWithFeedback,
+                trackClicks,
+                trackOpens,
+                membersTrackSources,
+                paidMembersEnabled
+            });
 
-        this.#removeColumns(mapped, removeableColumns);
+            for (const columnToRemove of removeableColumns) {
+                for (const row of mapped) {
+                    delete row[columnToRemove];
+                }
+            }
+        }
 
         return mapped;
     }
 
     /**
-     * @private Normalize email model, handling edge cases
-     */
-    #normalizeEmail(email) {
-        if (!email || !email.id) {
-            return null;
-        }
-        return email;
-    }
-
-    /**
-     * @private Determine if post is published or scheduled/draft
-     */
-    #isPublishedPost(post) {
-        const status = post.get('status');
-        return status !== 'draft' && status !== 'scheduled';
-    }
-
-    /**
-     * @private Determine if feedback is enabled for this post
-     */
-    #isFeedbackEnabled(email, hasNewslettersWithFeedback) {
-        return email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
-    }
-
-    /**
-     * @private Determine if email click analytics should be shown
-     */
-    #shouldShowClickAnalytics(trackClicks, email) {
-        return trackClicks && email && email.get('track_clicks');
-    }
-
-    /**
-     * @private Determine which columns can be safely removed based on settings
+     * @private
+     * Determine which columns can be safely removed based on global settings
      */
     #getRemoveableColumns({newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled}) {
         const removeableColumns = [];
@@ -169,17 +156,6 @@ class PostsExporter {
         }
 
         return removeableColumns;
-    }
-
-    /**
-     * @private Remove specified columns from all rows
-     */
-    #removeColumns(mapped, columns) {
-        for (const columnToRemove of columns) {
-            for (const row of mapped) {
-                delete row[columnToRemove];
-            }
-        }
     }
 
     mapPostStatus(status, hasEmail) {
@@ -257,7 +233,7 @@ class PostsExporter {
      * @param {*} filter Parsed NQL filter
      * @param {*} allLabels All available member labels
      * @param {*} allTiers All available member tiers
-     * @returns {string[]} Array of human-readable filter strings
+     * @returns {string[]} Array of human-readable filter descriptions
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
@@ -282,7 +258,12 @@ class PostsExporter {
     }
 
     /**
-     * @private Process a single filter key and add corresponding human-readable string
+     * @private Process a single filter key and append human-readable description to strings array
+     * @param {string} key
+     * @param {string|Object} value
+     * @param {*} allLabels
+     * @param {*} allTiers
+     * @param {string[]} strings
      */
     #processFilterKey(key, value, allLabels, allTiers, strings) {
         if (key === 'label') {
@@ -299,8 +280,13 @@ class PostsExporter {
      */
     #processLabelFilter(value, allLabels, strings) {
         if (typeof value === 'string') {
-            const label = allLabels.find(l => l.get('slug') === value);
-            strings.push(label ? label.get('name') : value);
+            const labelSlug = value;
+            const label = allLabels.find(l => l.get('slug') === labelSlug);
+            if (label) {
+                strings.push(label.get('name'));
+            } else {
+                strings.push(labelSlug);
+            }
         }
     }
 
@@ -309,8 +295,13 @@ class PostsExporter {
      */
     #processTierFilter(value, allTiers, strings) {
         if (typeof value === 'string') {
-            const tier = allTiers.find(t => t.get('slug') === value);
-            strings.push(tier ? tier.get('name') : value);
+            const tierSlug = value;
+            const tier = allTiers.find(l => l.get('slug') === tierSlug);
+            if (tier) {
+                strings.push(tier.get('name'));
+            } else {
+                strings.push(tierSlug);
+            }
         }
     }
 
@@ -326,10 +317,14 @@ class PostsExporter {
             } else if (value === 'comped') {
                 strings.push('Complimentary subscribers');
             }
-        } else if (value.$ne === 'free') {
-            strings.push('Paid subscribers');
-        } else if (value.$ne === 'paid') {
-            strings.push('Free subscribers');
+        } else {
+            if (value.$ne === 'free') {
+                strings.push('Paid subscribers');
+            }
+
+            if (value.$ne === 'paid') {
+                strings.push('Free subscribers');
+            }
         }
     }
 }

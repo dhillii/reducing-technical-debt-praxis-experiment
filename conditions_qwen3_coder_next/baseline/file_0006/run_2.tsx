@@ -108,28 +108,139 @@ const NewsletterPreviewContent: React.FC<{
 
     const processedFooterContent = footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 
-    const emailHeader = isManagedEmail(config) ? (
-        <>
-            <p className="leading-normal"><span className="font-semibold text-grey-900">From: </span><span>{senderName} ({senderEmail})</span></p>
-            <p className="leading-normal">
-                <span className="font-semibold text-grey-900">Reply-to: </span>{senderReplyTo ? senderReplyTo : senderEmail}
-            </p>
-        </>
-    ) : (
-        <>
-            <p className="leading-normal"><span className="font-semibold text-grey-900">{senderName}</span><span> {senderEmail}</span></p>
-            <p className="leading-normal"><span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com</p>
-        </>
-    );
+    const getEmailHeader = () => {
+        if (isManagedEmail(config)) {
+            return (
+                <>
+                    <p className="leading-normal"><span className="font-semibold text-grey-900">From: </span><span>{senderName} ({senderEmail})</span></p>
+                    <p className="leading-normal">
+                        <span className="font-semibold text-grey-900">Reply-to: </span>{senderReplyTo ? senderReplyTo : senderEmail}
+                    </p>
+                </>
+            );
+        } else {
+            return (
+                <>
+                    <p className="leading-normal"><span className="font-semibold text-grey-900">{senderName}</span><span> {senderEmail}</span></p>
+                    <p className="leading-normal"><span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com</p>
+                </>
+            );
+        }
+    };
 
-    const excerptClasses = getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
+    const getExcerptClasses = () => {
+        let classes = 'mb-5 text-pretty leading-[1.7] text-black';
+
+        if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
+        } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
+        } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
+            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
+        } else {
+            classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
+        }
+
+        if (titleAlignment === 'center') {
+            classes = clsx(classes, 'text-center');
+        }
+
+        return classes;
+    };
+
+    const getPostTitleClasses = () => {
+        return clsx(
+            'text-4xl font-bold leading-supertight text-black',
+            titleFontCategory === 'serif' && 'font-serif',
+            titleFontWeight === 'normal' && 'font-normal',
+            titleFontWeight === 'medium' && 'font-medium',
+            titleFontWeight === 'semibold' && 'font-semibold',
+            titleFontWeight === 'bold' && 'font-bold',
+            titleAlignment === 'center' ? 'text-center' : 'text-left',
+            showExcerpt ? 'mb-2' : 'mb-8'
+        );
+    };
+
+    const getActionButtons = () => {
+        return (
+            <div className="flex justify-center gap-3">
+                {showFeedback && (
+                    <>
+                        <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                            <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                                <Icon colorClass='' name="thumbs-up" size="md" />
+                                <span>More like this</span>
+                            </span>
+                        </button>
+                        <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                            <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                                <Icon colorClass='' name="thumbs-down" />
+                                <span>Less like this</span>
+                            </span>
+                        </button>
+                    </>
+                )}
+                {showCommentCta && (
+                    <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                        <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                            <Icon colorClass='' name="comment" />
+                            <span>Comment</span>
+                        </span>
+                    </button>
+                )}
+            </div>
+        );
+    };
+
+    const getLatestPosts = () => {
+        const posts = [
+            {title: 'The three latest posts published on your site', desc: 'Posts sent as an email only will never be shown here.', image: LatestPosts1},
+            {title: 'Displayed at the bottom of each newsletter', desc: 'Giving your readers one more place to discover your stories.', image: LatestPosts2},
+            {title: 'To keep your work front and center', desc: 'Making sure that your audience stays engaged.', image: LatestPosts3}
+        ];
+
+        return posts.map((post, index) => (
+            <div key={index} className="flex justify-between gap-4 py-2">
+                <div>
+                    <h4
+                        className={clsx(
+                            'mt-0.5 text-[1.9rem] text-black',
+                            titleFontCategory === 'serif' && 'font-serif',
+                            titleFontWeight === 'normal' && 'font-normal',
+                            titleFontWeight === 'medium' && 'font-medium',
+                            titleFontWeight === 'semibold' && 'font-semibold',
+                            titleFontWeight === 'bold' && 'font-bold'
+                        )}
+                        style={{color: sectionTitleColor}}
+                    >
+                        {post.title}
+                    </h4>
+                    <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>
+                        {post.desc}
+                    </p>
+                </div>
+                <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
+                    <img
+                        alt="Latest post"
+                        className={clsx(
+                            imageCorners === 'square' && 'rounded-none',
+                            imageCorners === 'rounded' && 'rounded-md'
+                        )}
+                        src={post.image}
+                    />
+                </div>
+            </div>
+        ));
+    };
+
+    const excerptClasses = getExcerptClasses();
 
     return (
         <div className="relative flex grow flex-col">
             <div className="absolute inset-0 m-5 flex items-center justify-center">
                 <div className="mx-auto my-0 flex max-h-full w-full max-w-[700px] flex-col overflow-hidden rounded-[4px] text-black shadow-sm">
                     <div className="flex-column flex min-h-[77px] justify-center rounded-t-sm border-b border-grey-200 bg-white px-6 text-sm text-grey-700">
-                        {emailHeader}
+                        {getEmailHeader()}
                     </div>
 
                     <div className="overflow-y-auto text-sm" style={{backgroundColor}}>
@@ -148,16 +259,7 @@ const NewsletterPreviewContent: React.FC<{
                             )}
                             {showPostTitleSection && (
                                 <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
-                                    <h2 className={clsx(
-                                        'text-4xl font-bold leading-supertight text-black',
-                                        titleFontCategory === 'serif' && 'font-serif',
-                                        titleFontWeight === 'normal' && 'font-normal',
-                                        titleFontWeight === 'medium' && 'font-medium',
-                                        titleFontWeight === 'semibold' && 'font-semibold',
-                                        titleFontWeight === 'bold' && 'font-bold',
-                                        titleAlignment === 'center' ? 'text-center' : 'text-left',
-                                        showExcerpt ? 'mb-2' : 'mb-8'
-                                    )} style={{color: postTitleColor}}>Your email newsletter</h2>
+                                    <h2 className={getPostTitleClasses()} style={{color: postTitleColor}}>Your email newsletter</h2>
                                     {showExcerpt && (
                                         <p className={excerptClasses} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
                                     )}
@@ -247,41 +349,14 @@ const NewsletterPreviewContent: React.FC<{
 
                             {(showFeedback || showCommentCta) && (
                                 <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
-                                    <div className="flex justify-center gap-3">
-                                        {showFeedback && (
-                                            <>
-                                                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                                                    <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                                                        <Icon colorClass='' name="thumbs-up" size="md" />
-                                                        <span>More like this</span>
-                                                    </span>
-                                                </button>
-                                                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                                                    <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                                                        <Icon colorClass='' name="thumbs-down" />
-                                                        <span>Less like this</span>
-                                                    </span>
-                                                </button>
-                                            </>
-                                        )}
-                                        {showCommentCta && (
-                                            <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                                                <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                                                    <Icon colorClass='' name="comment" />
-                                                    <span>Comment</span>
-                                                </span>
-                                            </button>
-                                        )}
-                                    </div>
+                                    {getActionButtons()}
                                 </div>
                             )}
 
                             {showLatestPosts && (
                                 <div className={clsx('border-b border-grey-200 py-6', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
                                     <h3 className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black" style={{color: textColor}}>Keep reading</h3>
-                                    <LatestPostItem image={LatestPosts1} title="The three latest posts published on your site" subtitle="Posts sent as an email only will never be shown here." />
-                                    <LatestPostItem image={LatestPosts2} title="Displayed at the bottom of each newsletter" subtitle="Giving your readers one more place to discover your stories." />
-                                    <LatestPostItem image={LatestPosts3} title="To keep your work front and center" subtitle="Making sure that your audience stays engaged." />
+                                    {getLatestPosts()}
                                 </div>
                             )}
 
@@ -326,39 +401,5 @@ const NewsletterPreviewContent: React.FC<{
         </div>
     );
 };
-
-function getExcerptClasses(titleFontCategory: string | undefined, bodyFontCategory: string | undefined, titleAlignment: string | undefined) {
-    let excerptClasses = 'mb-5 text-pretty leading-[1.7] text-black';
-
-    if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
-        excerptClasses = clsx(excerptClasses, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
-        excerptClasses = clsx(excerptClasses, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
-    } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
-        excerptClasses = clsx(excerptClasses, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else {
-        excerptClasses = clsx(excerptClasses, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
-    }
-
-    if (titleAlignment === 'center') {
-        excerptClasses = clsx(excerptClasses, 'text-center');
-    }
-
-    return excerptClasses;
-}
-
-function LatestPostItem({image, title, subtitle}: { image: string; title: string; subtitle: string }) {
-    return (
-        <div className="flex justify-between gap-4 py-2">
-            <div>
-                <h4 className="mt-0.5 text-[1.9rem] text-black font-semibold">{title}</h4>
-                <p className="m-0 text-base text-grey-700">{subtitle}</p>
-            </div>
-            <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                <img alt="Latest post" className="rounded-md" src={image} />
-            </div>
-        </div>
-    );
-}
 
 export default NewsletterPreviewContent;
