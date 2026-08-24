@@ -22,11 +22,11 @@ exports = module.exports = Base;
  */
 
 /* eslint-disable no-unused-vars, no-native-reassign */
-const Date = global.Date;
-const setTimeout = global.setTimeout;
-const setInterval = global.setInterval;
-const clearTimeout = global.clearTimeout;
-const clearInterval = global.clearInterval;
+var Date = global.Date;
+var setTimeout = global.setTimeout;
+var setInterval = global.setInterval;
+var clearTimeout = global.clearTimeout;
+var clearInterval = global.clearInterval;
 /* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
@@ -472,7 +472,7 @@ function colorLines (name, str) {
 /**
  * Object#toString reference.
  */
-const objToString = Object.prototype.toString;
+var objToString = Object.prototype.toString;
 
 /**
  * Check that a / b have the same type.

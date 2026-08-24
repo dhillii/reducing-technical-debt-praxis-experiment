@@ -135,6 +135,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -146,6 +147,7 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
+  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
   if (
     isKind(props, 'form') ||
@@ -176,41 +178,6 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const handleOpenItem = useCallback((index: number) => {
-    const element = elements.at(index)
-    if (!element) return
-    setModalState({
-      index,
-      value: previewPropsToValue(element),
-      forceValidation: false,
-    })
-  }, [elements])
-
-  const handleModalChange = useCallback((cb: (value: unknown) => unknown) => {
-    setModalState(state => {
-      if (state === 'closed') return state
-      return {
-        index: state.index,
-        forceValidation: state.forceValidation,
-        value: cb(state.value),
-      }
-    })
-  }, [])
-
-  const handleDone = useCallback(() => {
-    const element = elements.at(modalState.index)
-    if (!element) return
-    if (!clientSideValidateProp(element.schema, modalState.value)) {
-      setModalState(state => ({
-        ...(state as any),
-        forceValidation: true,
-      }))
-      return
-    }
-    previewPropsOnChange(modalState.value, element)
-    setModalState('closed')
-  }, [elements, modalState])
-
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -218,7 +185,15 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={handleOpenItem}
+            onOpenItem={index => {
+              const element = elements.at(index)
+              if (!element) return
+              setModalState({
+                index,
+                value: previewPropsToValue(element),
+                forceValidation: false,
+              })
+            }}
           />
           <ActionButton
             alignSelf="start"
@@ -241,38 +216,98 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
               if (!element) return
 
               return (
-                <Dialog>
-                  <Heading>Edit item</Heading>
-                  <Content>
-                    <ArrayFieldItemModalContent
-                      onChange={handleModalChange}
-                      schema={element.schema as any}
-                      value={modalState.value}
-                    />
-                  </Content>
-                  <ButtonGroup>
-                    <Button
-                      prominence="low"
-                      onPress={() => {
-                        setModalState('closed')
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      prominence="high"
-                      onPress={handleDone}
-                    >
-                      Done
-                    </Button>
-                  </ButtonGroup>
-                </Dialog>
+                <ModalContent
+                  element={element}
+                  modalState={modalState}
+                  setModalState={setModalState}
+                  onChange={previewPropsOnChange}
+                  clientSideValidateProp={clientSideValidateProp}
+                />
               )
             })()}
           </DialogContainer>
         </VStack>
       )}
     </Field>
+  )
+}
+
+function ModalContent({
+  element,
+  modalState,
+  setModalState,
+  onChange,
+  clientSideValidateProp,
+}: {
+  element: ComponentSchema
+  modalState: {
+    index: number
+    value: unknown
+    forceValidation: boolean
+  }
+  setModalState: React.Dispatch<
+    React.SetStateAction<{
+      index: number
+      value: unknown
+      forceValidation: boolean
+    } | 'closed'>
+  >
+  onChange: (value: unknown, props: GenericPreviewProps<ComponentSchema, unknown>) => void
+  clientSideValidateProp: (
+    schema: ComponentSchema,
+    value: unknown
+  ) => boolean
+}) {
+  const onModalChange = useCallback(
+    (cb: (value: unknown) => unknown) => {
+      setModalState(state => {
+        if (state === 'closed') return state
+        return {
+          index: modalState.index,
+          forceValidation: state.forceValidation,
+          value: cb(state.value),
+        }
+      })
+    },
+    [modalState.index, setModalState]
+  )
+
+  const handleDone = useCallback(() => {
+    if (!clientSideValidateProp(element, modalState.value)) {
+      setModalState(state => ({
+        ...(state as any),
+        forceValidation: true,
+      }))
+      return
+    }
+    onChange(modalState.value, element as any)
+    setModalState('closed')
+  }, [element, modalState, onChange, setModalState, clientSideValidateProp])
+
+  return (
+    <Dialog>
+      <Heading>Edit item</Heading>
+      <Content>
+        <ArrayFieldItemModalContent
+          onChange={onModalChange}
+          schema={element as any}
+          value={modalState.value}
+        />
+      </Content>
+      <ButtonGroup>
+        <Button
+          prominence="low"
+          onPress={() => {
+            setModalState('closed')
+          }}
+        >
+          Cancel
+        </Button>
+        <Button prominence="high" onPress={handleDone}>
+          Done
+        </Button>
+      </ButtonGroup>
+    </Dialog>
   )
 }
 
@@ -294,7 +329,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
             }))
       return {
         kind: 'many' as const,
-        id: '',
+        id: '', // unused
         initialValue: manyValue,
         value: manyValue,
       }
@@ -311,7 +346,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       : null
     return {
       kind: 'one' as const,
-      id: '',
+      id: '', // unused
       initialValue: oneValue,
       value: oneValue,
     }
@@ -325,12 +360,14 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         label,
         description: description ?? '',
         display: 'select',
-        listKey: '?',
-        fieldKey: '?',
-        defaultValue: null as any,
-        deserialize: null as any,
-        serialize: null as any,
-        graphqlSelection: null as any,
+        listKey: '?', // unused
+        fieldKey: '?', // unused
+        defaultValue: null as any, // unused
+        deserialize: null as any, // unused
+        serialize: null as any, // unused
+        graphqlSelection: null as any, // unused
+
+        // see relationship controller for these fields
         refListKey: list.key,
         many,
         hideCreate: true,
@@ -342,7 +379,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         selectSort: sort ?? list.initialSort,
       }}
       onChange={val => {
-        if (val.kind === 'count') return
+        if (val.kind === 'count') return // shouldnt happen
         const { value } = val
         if (value === null) {
           onChange(null)

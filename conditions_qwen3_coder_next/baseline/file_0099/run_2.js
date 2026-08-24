@@ -6,7 +6,7 @@ var util = require('crypto-lib').util;
 // Controller
 //
 
-var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     const str = appConfig.string;
     const cfg = appConfig.config;
@@ -337,9 +337,9 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
      * Invite all users without a public key
      */
     $scope.invite = function() {
-        const sender = auth.emailAddress,
-            sendJobs = [],
-            invitees = [];
+        const sender = auth.emailAddress;
+        const sendJobs = [];
+        const invitees = [];
 
         $scope.showInvite = false;
 

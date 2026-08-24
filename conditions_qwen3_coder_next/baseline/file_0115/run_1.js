@@ -11,7 +11,7 @@ const chalk       = require('ansis');
 const path        = require('path');
 const fs          = require('fs');
 const fmt         = require('../tools/fmt.js');
-const dayjs      = require('dayjs');
+const dayjs       = require('dayjs');
 const pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js')
 
@@ -248,7 +248,7 @@ module.exports = function(CLI) {
     console.log('\n\n+-------------------------------------+')
     console.log(chalk.bold('README.md content:'))
     lines = lines.split('\n')
-    var isInner = false
+    let isInner = false
     lines.forEach(l => {
       if (l.startsWith('#'))
         console.log(chalk.bold.green(l))

@@ -47,7 +47,7 @@ JSON5.parse = (function () {
 
 // Call error when something is wrong.
 
-            const error = new SyntaxError();
+            var error = new SyntaxError();
             error.message = m;
             error.at = at;
             error.text = text;
@@ -87,7 +87,7 @@ JSON5.parse = (function () {
 // - https://developer.mozilla.org/en/Core_JavaScript_1.5_Guide/Core_Language_Features#Variables
 // - http://docstore.mik.ua/orelly/webprog/jscript/ch02_07.htm
 
-            let key = ch;
+            var key = ch;
 
             // Identifiers must start with a letter, _ or $.
             if ((ch !== '_' && ch !== '$') &&
@@ -112,7 +112,7 @@ JSON5.parse = (function () {
 
 // Parse a number value.
 
-            let number,
+            var number,
                 sign = '',
                 string = '',
                 base = 10;
@@ -203,7 +203,7 @@ JSON5.parse = (function () {
 
 // Parse a string value.
 
-            let hex,
+            var hex,
                 i,
                 string = '',
                 delim,      // double quote or single quote
@@ -382,7 +382,7 @@ JSON5.parse = (function () {
 
 // Parse an array value.
 
-            const array = [];
+            var array = [];
 
             if (ch === '[') {
                 next('[');
@@ -417,7 +417,7 @@ JSON5.parse = (function () {
 
 // Parse an object value.
 
-            let key,
+            var key,
                 object = {};
 
             if (ch === '{') {
@@ -481,7 +481,7 @@ JSON5.parse = (function () {
 // functions and variables.
 
     return function (source, reviver) {
-        let result;
+        var result;
 
         text = String(source);
         at = 0;
@@ -499,7 +499,7 @@ JSON5.parse = (function () {
 // result.
 
         return typeof reviver === 'function' ? (function walk(holder, key) {
-            let k, v, value = holder[key];
+            var k, v, value = holder[key];
             if (value && typeof value === 'object') {
                 for (k in value) {
                     if (Object.prototype.hasOwnProperty.call(value, k)) {
@@ -522,8 +522,8 @@ JSON5.stringify = function (obj, replacer, space) {
     if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
         throw new Error('Replacer must be a function or an array');
     }
-    const getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
-        let value = holder[key];
+    var getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
+        var value = holder[key];
 
         // Replace the value with its toJSON value first, if possible
         if (value && value.toJSON && typeof value.toJSON === "function") {
@@ -565,7 +565,7 @@ JSON5.stringify = function (obj, replacer, space) {
         if (!isWordStart(key[0])) {
             return false;
         }
-        let i = 1, length = key.length;
+        var i = 1, length = key.length;
         while (i < length) {
             if (!isWordChar(key[i])) {
                 return false;
@@ -595,9 +595,9 @@ JSON5.stringify = function (obj, replacer, space) {
         return typeof val === 'number' && val !== val;
     };
 
-    const objStack = [];
+    var objStack = [];
     function checkForCircular(obj) {
-        for (let i = 0; i < objStack.length; i++) {
+        for (var i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
             }
@@ -613,15 +613,15 @@ JSON5.stringify = function (obj, replacer, space) {
             str = str.substring(0, 10);
         }
 
-        let indent = noNewLine ? "" : "\n";
-        for (let i = 0; i < num; i++) {
+        var indent = noNewLine ? "" : "\n";
+        for (var i = 0; i < num; i++) {
             indent += str;
         }
 
         return indent;
     }
 
-    let indentStr;
+    var indentStr;
     if (space) {
         if (typeof space === "string") {
             indentStr = space;
@@ -635,7 +635,7 @@ JSON5.stringify = function (obj, replacer, space) {
     // Copied from Crokford's implementation of JSON
     // See https://github.com/douglascrockford/JSON-js/blob/e39db4b7e6249f04a195e7dd0840e610cc9e941e/json2.js#L195
     // Begin
-    const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+    var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
         escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
         meta = { // table of character substitutions
         '\b': '\\b',
@@ -654,7 +654,7 @@ JSON5.stringify = function (obj, replacer, space) {
 // sequences.
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
-            const c = meta[a];
+            var c = meta[a];
             return typeof c === 'string' ?
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
@@ -663,10 +663,10 @@ JSON5.stringify = function (obj, replacer, space) {
     // End
 
     function internalStringify(holder, key, isTopLevel) {
-        let buffer, res;
+        var buffer, res;
 
         // Replace the value, if necessary
-        const obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
+        var obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
 
         if (obj_part && !isDate(obj_part)) {
             // unbox objects
@@ -694,7 +694,7 @@ JSON5.stringify = function (obj, replacer, space) {
                     buffer = "[";
                     objStack.push(obj_part);
 
-                    for (let i = 0; i < obj_part.length; i++) {
+                    for (var i = 0; i < obj_part.length; i++) {
                         res = internalStringify(obj_part, i, false);
                         buffer += makeIndent(indentStr, objStack.length);
                         if (res === null || typeof res === "undefined") {
@@ -713,16 +713,16 @@ JSON5.stringify = function (obj, replacer, space) {
                 } else {
                     checkForCircular(obj_part);
                     buffer = "{";
-                    let nonEmpty = false;
+                    var nonEmpty = false;
                     objStack.push(obj_part);
-                    for (let prop in obj_part) {
+                    for (var prop in obj_part) {
                         if (obj_part.hasOwnProperty(prop)) {
-                            let value = internalStringify(obj_part, prop, false);
+                            var value = internalStringify(obj_part, prop, false);
                             isTopLevel = false;
                             if (typeof value !== "undefined" && value !== null) {
                                 buffer += makeIndent(indentStr, objStack.length);
                                 nonEmpty = true;
-                                const key = isWord(prop) ? prop : escapeString(prop);
+                                var key = isWord(prop) ? prop : escapeString(prop);
                                 buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
                             }
                         }
@@ -744,7 +744,7 @@ JSON5.stringify = function (obj, replacer, space) {
     // special case...when undefined is used inside of
     // a compound object/array, return null.
     // but when top-level, return undefined
-    const topLevelHolder = {"":obj};
+    var topLevelHolder = {"":obj};
     if (obj === undefined) {
         return getReplacedValueOrUndefined(topLevelHolder, '', true);
     }

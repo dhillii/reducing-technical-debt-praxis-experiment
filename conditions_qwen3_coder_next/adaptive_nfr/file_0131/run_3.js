@@ -15,148 +15,162 @@ const initialState = fromJS({
 });
 
 /**
- * Predicate: checks if the key path is ['type'] with default value present
+ * Checks if the current keys and value indicate a type change that requires default removal.
  */
-const isRemovingDefaultField = (obj, keys) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-  return hasDefaultValue && keys.length === 1 && keys.includes('type');
-};
+function shouldRemoveDefaultOnTypeChange(keys, value, previousType) {
+  return (
+    keys.length === 1 &&
+    keys.includes('type') &&
+    previousType &&
+    ['date', 'datetime', 'time'].includes(previousType)
+  );
+}
 
 /**
- * Predicate: checks if the previous type field is temporal
+ * Checks if the current keys indicate a nature change.
  */
-const wasTemporalType = (previousType) => {
-  return ['date', 'datetime', 'time'].includes(previousType);
-};
-
-/**
- * Predicate: checks if changing nature field
- */
-const isChangingNature = (keys) => {
+function isNatureChange(keys) {
   return keys.length === 1 && keys.includes('nature');
-};
+}
 
 /**
- * Predicate: checks if changing target field
+ * Checks if the current keys indicate a target change.
  */
-const isChangingTarget = (keys) => {
+function isTargetChange(keys) {
   return keys.length === 1 && keys.includes('target');
-};
+}
 
 /**
- * Predicate: checks if current relation allows dominant assignment
+ * Determines if nature should be updated due to restricted relation.
  */
-const isManyToMany = (value) => {
-  return value === 'manyToMany';
-};
-
-/**
- * Predicate: checks if relation nature is oneWay or manyWay
- */
-const isOneOrManyWay = (value) => {
-  return ['oneWay', 'manyWay'].includes(value);
-};
-
-/**
- * Predicate: checks if current nature is restricted by allowed relations
- */
-const isNatureRestricted = (currentNature, allowedRelations) => {
+function shouldUpdateNatureDueToRestrictedRelation(currentNature, allowedRelations) {
   return allowedRelations !== null && !allowedRelations.includes(currentNature);
-};
+}
 
 /**
- * Predicate: checks if nature change was due to restriction
+ * Determines if the nature is oneWay or manyWay.
  */
-const wasNatureChangedDueToRestriction = (didChange) => {
-  return didChange;
-};
+function isOneWayOrManyWay(nature) {
+  return ['oneWay', 'manyWay'].includes(nature);
+}
 
 const reducer = (state = initialState, action) => {
   switch (action.type) {
     case actions.ADD_COMPONENTS_TO_DYNAMIC_ZONE: {
       const { name, components, shouldAddComponents } = action;
 
-      return state.updateIn(['modifiedData', name], list => {
+      return state.updateIn(['modifiedData', name'], list => {
+        let updatedList = list;
+
         if (shouldAddComponents) {
-          return List(makeUnique(list.concat(components).toJS()));
+          updatedList = list.concat(components);
+        } else {
+          updatedList = list.filter(comp => components.indexOf(comp) === -1);
         }
-        return List(makeUnique(list.filter(comp => components.indexOf(comp) === -1).toJS()));
+
+        return List(makeUnique(updatedList.toJS()));
       });
     }
-    case actions.ON_CHANGE:
+    case actions.ON_CHANGE: {
+      const {
+        selectedContentTypeFriendlyName,
+        keys,
+        value,
+        oneThatIsCreatingARelationWithAnother,
+        targetContentTypeAllowedRelations,
+      } = action;
+
       return state.update('modifiedData', obj => {
-        const {
-          selectedContentTypeFriendlyName,
-          keys,
-          value,
-          oneThatIsCreatingARelationWithAnother,
-          targetContentTypeAllowedRelations,
-        } = action;
+        const hasDefaultValue = Boolean(obj.getIn(['default']));
 
-        if (isRemovingDefaultField(obj, keys) && wasTemporalType(obj.getIn(['type']))) {
-          return obj.updateIn(keys, () => value).remove('default');
-        }
-
-        if (isChangingNature(keys)) {
-          const newValue = value;
-          const newName = pluralize(snakeCase(obj.get('name')), shouldPluralizeName(newValue));
-          const newTargetAttribute = isOneOrManyWay(newValue)
-            ? '-'
-            : pluralize(
-                obj.get('targetAttribute') === '-'
-                  ? snakeCase(oneThatIsCreatingARelationWithAnother)
-                  : obj.get('targetAttribute'),
-                shouldPluralizeTargetAttribute(newValue)
-              );
-          const newTargetColumnName = isOneOrManyWay(newValue) ? null : obj.get('targetColumnName');
-
-          return obj
-            .update('nature', () => newValue)
-            .update('dominant', () => (isManyToMany(newValue) ? true : null))
-            .update('name', () => newName)
-            .update('targetAttribute', () => newTargetAttribute)
-            .update('targetColumnName', () => newTargetColumnName);
-        }
-
-        if (isChangingTarget(keys)) {
-          const currentNature = obj.get('nature');
-          let didChangeNatureBecauseOfRestrictedRelation = false;
-
-          const newNature = targetContentTypeAllowedRelations === null
-            ? currentNature
-            : isNatureRestricted(currentNature, targetContentTypeAllowedRelations)
-              ? (didChangeNatureBecauseOfRestrictedRelation = true, targetContentTypeAllowedRelations[0])
-              : currentNature;
-
-          const newTargetAttribute = isOneOrManyWay(newNature)
-            ? '-'
-            : wasNatureChangedDueToRestriction(didChangeNatureBecauseOfRestrictedRelation) &&
-              isOneOrManyWay(targetContentTypeAllowedRelations[0])
-              ? '-'
-              : pluralize(
-                  snakeCase(oneThatIsCreatingARelationWithAnother),
-                  shouldPluralizeTargetAttribute(newNature)
-                );
-
-          const newName = wasNatureChangedDueToRestriction(didChangeNatureBecauseOfRestrictedRelation)
-            ? pluralize(
-                snakeCase(selectedContentTypeFriendlyName),
-                shouldPluralizeName(targetContentTypeAllowedRelations[0])
+        // Guard clause: early return if no default removal needed
+        if (!shouldRemoveDefaultOnTypeChange(keys, value, obj.getIn(['type']))) {
+          // Handle nature change
+          if (isNatureChange(keys)) {
+            return obj
+              .update('nature', () => value)
+              .update('dominant', () => (value === 'manyToMany' ? true : null))
+              .update('name', oldValue =>
+                pluralize(snakeCase(oldValue), shouldPluralizeName(value))
               )
-            : pluralize(
-                snakeCase(selectedContentTypeFriendlyName),
-                shouldPluralizeName(newNature)
-              );
+              .update('targetAttribute', oldValue => {
+                if (isOneWayOrManyWay(value)) {
+                  return '-';
+                }
 
-          return obj
-            .update('target', () => value)
-            .update('nature', () => newNature)
-            .update('name', () => newName)
-            .update('targetAttribute', () => newTargetAttribute);
+                return pluralize(
+                  oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
+                  shouldPluralizeTargetAttribute(value)
+                );
+              })
+              .update('targetColumnName', oldValue => {
+                if (isOneWayOrManyWay(value)) {
+                  return null;
+                }
+
+                return oldValue;
+              });
+          }
+
+          // Handle target change
+          if (isTargetChange(keys)) {
+            let didChangeNatureBecauseOfRestrictedRelation = false;
+
+            return obj
+              .update('target', () => value)
+              .update('nature', currentNature => {
+                if (shouldUpdateNatureDueToRestrictedRelation(currentNature, targetContentTypeAllowedRelations)) {
+                  didChangeNatureBecauseOfRestrictedRelation = true;
+
+                  return targetContentTypeAllowedRelations[0];
+                }
+
+                return currentNature;
+              })
+              .update('name', () => {
+                if (didChangeNatureBecauseOfRestrictedRelation) {
+                  return pluralize(
+                    snakeCase(selectedContentTypeFriendlyName),
+                    shouldPluralizeName(targetContentTypeAllowedRelations[0])
+                  );
+                }
+
+                return pluralize(
+                  snakeCase(selectedContentTypeFriendlyName),
+                  shouldPluralizeName(obj.get('nature'))
+                );
+              })
+              .update('targetAttribute', () => {
+                const currentNature = obj.get('nature');
+
+                if (isOneWayOrManyWay(currentNature)) {
+                  return '-';
+                }
+
+                if (
+                  didChangeNatureBecauseOfRestrictedRelation &&
+                  isOneWayOrManyWay(targetContentTypeAllowedRelations[0])
+                ) {
+                  return '-';
+                }
+
+                return pluralize(
+                  snakeCase(oneThatIsCreatingARelationWithAnother),
+                  shouldPluralizeTargetAttribute(currentNature)
+                );
+              });
+          }
+
+          // Default case: update the specified key
+          return obj.updateIn(keys, () => value);
         }
 
-        return obj.updateIn(keys, () => value);
+        // Handle type change with default removal
+        const previousType = obj.getIn(['type']);
+
+        return obj.updateIn(keys, () => value).remove('default');
       });
+    }
     case actions.ON_CHANGE_ALLOWED_TYPE: {
       if (action.name === 'all') {
         return state.updateIn(['modifiedData', 'allowedTypes'], () => {
@@ -169,7 +183,12 @@ const reducer = (state = initialState, action) => {
 
         if (list.includes(action.name)) {
           list = list.filter(v => v !== action.name);
-          return list.size === 0 ? null : list;
+
+          if (list.size === 0) {
+            return null;
+          }
+
+          return list;
         }
 
         return list.push(action.name);
@@ -235,17 +254,19 @@ const reducer = (state = initialState, action) => {
       let dataToSet;
 
       if (attributeType === 'component') {
-        dataToSet = step === '1'
-          ? {
-              type: 'component',
-              createComponent: true,
-              componentToCreate: { type: 'component' },
-            }
-          : {
-              ...options,
-              type: 'component',
-              repeatable: true,
-            };
+        if (step === '1') {
+          dataToSet = {
+            type: 'component',
+            createComponent: true,
+            componentToCreate: { type: 'component' },
+          };
+        } else {
+          dataToSet = {
+            ...options,
+            type: 'component',
+            repeatable: true,
+          };
+        }
       } else if (attributeType === 'dynamiczone') {
         dataToSet = {
           ...options,
@@ -287,6 +308,7 @@ const reducer = (state = initialState, action) => {
         .update('modifiedData', () => fromJS(action.attributeToEdit))
         .update('initialData', () => fromJS(action.attributeToEdit));
     }
+
     case actions.SET_ERRORS:
       return state.update('formErrors', () => fromJS(action.errors));
     default:

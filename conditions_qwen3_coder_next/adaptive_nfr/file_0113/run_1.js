@@ -488,7 +488,7 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-exports.populate = function(path, select, model, match, options, subPopulate, justOne, count) {
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
   // might have passed an object specifying all arguments
   let obj = null;
   if (arguments.length === 1) {

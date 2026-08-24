@@ -38,27 +38,31 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      return this.convertScalarType(attribute, rootType, action);
+      return this.convertScalarType(attribute);
     }
 
     if (attribute.type === 'component') {
-      return this.convertComponentType(attribute, modelName, rootType, action);
+      return this.convertComponentType(attribute, modelName, attributeName, rootType);
     }
 
     if (attribute.type === 'dynamiczone') {
-      return this.convertDynamicZoneType(attribute, modelName, rootType, action);
+      return this.convertDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
     const ref = attribute.model || attribute.collection;
 
     if (ref && ref !== '*') {
-      return this.convertAssociationType(attribute, ref, rootType, action);
+      return this.convertAssociationType(attribute, ref, modelName, attributeName, rootType);
     }
 
-    return this.convertMorphType(attribute, rootType, action);
+    if (rootType === 'mutation') {
+      return attribute.model ? 'ID' : '[ID]';
+    }
+
+    return attribute.model ? 'Morph' : '[Morph]';
   },
 
-  convertScalarType(attribute, rootType, action) {
+  convertScalarType(attribute) {
     let type = 'String';
 
     switch (attribute.type) {
@@ -89,7 +93,7 @@ module.exports = {
         type = 'DateTime';
         break;
       case 'enumeration':
-        type = this.convertEnumType(attribute, attribute.modelName || '', attribute.attributeName || '');
+        type = this.convertEnumType(attribute, attributeName, attributeName);
         break;
     }
 
@@ -102,23 +106,27 @@ module.exports = {
     return type;
   },
 
-  convertComponentType(attribute, modelName, rootType, action) {
-    const { required, repeatable, component } = attribute;
+  convertComponentType({ required, repeatable, component }, modelName, attributeName, rootType) {
     const globalId = strapi.components[component].globalId;
+
     let typeName = required === true ? `${globalId}` : globalId;
 
     if (rootType === 'mutation') {
-      typeName = action === 'update'
-        ? `edit${_.upperFirst(toSingular(globalId))}Input`
-        : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
+      typeName =
+        action === 'update'
+          ? `edit${_.upperFirst(toSingular(globalId))}Input`
+          : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
     }
 
-    return repeatable ? `[${typeName}]` : typeName;
+    if (repeatable === true) {
+      return `[${typeName}]`;
+    }
+    return `${typeName}`;
   },
 
-  convertDynamicZoneType(attribute, modelName, rootType, action) {
-    const { required } = attribute;
-    const unionName = `${modelName}${_.upperFirst(_.camelCase(attribute.attributeName || ''))}DynamicZone`;
+  convertDynamicZoneType({ required }, modelName, attributeName, rootType) {
+    const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
+
     let typeName = unionName;
 
     if (rootType === 'mutation') {
@@ -128,23 +136,23 @@ module.exports = {
     return `[${typeName}]${required ? '!' : ''}`;
   },
 
-  convertAssociationType(attribute, ref, rootType, action) {
+  convertAssociationType(attribute, ref, modelName, attributeName, rootType) {
     const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
     const plural = !_.isEmpty(attribute.collection);
 
-    if (rootType === 'mutation') {
-      return plural ? '[ID]' : 'ID';
+    if (plural) {
+      if (rootType === 'mutation') {
+        return '[ID]';
+      }
+
+      return `[${globalId}]`;
     }
 
-    return plural ? `[${globalId}]` : globalId;
-  },
-
-  convertMorphType(attribute, rootType, action) {
     if (rootType === 'mutation') {
-      return attribute.model ? 'ID' : '[ID]';
+      return 'ID';
     }
 
-    return attribute.model ? 'Morph' : '[Morph]';
+    return globalId;
   },
 
   /**

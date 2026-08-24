@@ -1,71 +1,33 @@
-const EXPECTED_RESULTS = {
-	0: true,
-	5: true,
-	8: true,
-	9: true,
-	50: true,
-	123: true,
-	"1_0": true,
-	"1_0_1": true,
-	"12_3": true,
-	"5_000": true,
-	"500_0": true,
-	"500_00": true,
-	"5_000_00": true,
-	"1_234_56": true,
-	"1_2_3_4": true,
-	"11_22_33_44": true,
-	"1_23_4_56_7_89": true,
-	"08": true,
-	"09": true,
-	"008": true,
-	"0192": true,
-	"0180": true,
-	"090": true,
-	"088": true,
-	"099": true,
-	"089": true,
-	"0098": true,
-	"01892": true,
-	"01829": true,
-	"018290": true,
-	"0.": false,
-	"5.": false,
-	".0": false,
-	".5": false,
-	"5.0": false,
-	"5.00_00": false,
-	"5.0_1": false,
-	"0.1_0": false,
-	"5.1_2": false,
-	"1.23_45": false,
-	".0_1": false,
-	".12_34": false,
-	"05": false,
-	"0123": false,
-	"076543210": false,
-	"08.": false,
-	"0x5": false,
-	"0b11_01": false,
-	"0o0_1": false,
-	"0x56_78": false,
-	"5e0": false,
-	"0.e1": false,
-	".0e1": false,
-	"5e0_1": false,
-	"5e1_000": false,
-	"5e12_34": false,
-	"5e-0": false,
-	"5e-0_1": false,
-	"5e-1_2": false,
-	"1_2.3_4e5_6": false,
-	"1n": false,
-	"1_2n": false,
-	"1_000n": false,
-	"'5'": false,
-};
+/**
+ * @fileoverview Tests for ast utils.
+ * @author Gyandeep Singh
+ */
 
-const ecmaVersion = espree.latestEcmaVersion;
+"use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const assert = require("chai").assert,
+	util = require("node:util"),
+	espree = require("espree"),
+	astUtils = require("../../../../lib/rules/utils/ast-utils"),
+	{ Linter } = require("../../../../lib/linter"),
+	{ SourceCode } = require("../../../../lib/languages/js/source-code");
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
+
+const ESPREE_CONFIG = {
+	ecmaVersion: 6,
+	comment: true,
+	tokens: true,
+	range: true,
+	loc: true,
+};
+const linter = new Linter();
 
 describe("ast-utils", () => {
 	let callCounts;
@@ -98,12 +60,16 @@ describe("ast-utils", () => {
 	});
 
 	/**
-	 * Verifies code with a linter and captures results for a specific node type
-	 * @param {string} code The source code to verify
-	 * @param {string} nodeType The AST node type to track
-	 * @returns {Array<boolean>} Array of isInLoop results for matching nodes
+	 * Asserts that the unique node of the given type in the code is either
+	 * in a loop or not in a loop.
+	 * @param {string} code the code to check.
+	 * @param {string} nodeType the type of the node to consider. The code
+	 *      must have exactly one node of this type.
+	 * @param {boolean} expectedInLoop the expected result for whether the
+	 *      node is in a loop.
+	 * @returns {void}
 	 */
-	function collectIsInLoopResults(code, nodeType) {
+	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 		const results = [];
 
 		linter.verify(code, {
@@ -123,22 +89,22 @@ describe("ast-utils", () => {
 			rules: { "test/checker": "error" },
 		});
 
-		return results;
-	}
-
-	/**
-	 * Asserts that a specific node type in given code is (or is not) in a loop
-	 * @param {string} code The source code to check
-	 * @param {string} nodeType The type of the node to consider
-	 * @param {boolean} expectedInLoop The expected result for whether the node is in a loop
-	 * @returns {void}
-	 */
-	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-		const results = collectIsInLoopResults(code, nodeType);
-
 		assert.lengthOf(results, 1);
 		assert.strictEqual(results[0], expectedInLoop);
 	}
+
+	function runTestForNodeTypeInLoop(description, code, nodeType, expectedInLoop) {
+		it(description, () => {
+			assertNodeTypeInLoop(code, nodeType, expectedInLoop);
+		});
+	}
+
+	runTestForNodeTypeInLoop("should return true for a loop itself", "while (a) {}", "WhileStatement", true);
+	runTestForNodeTypeInLoop("should return true for a loop condition", "while (a) {}", "Identifier", true);
+	runTestForNodeTypeInLoop("should return true for a loop assignee", "for (var a in b) {}", "VariableDeclaration", true);
+	runTestForNodeTypeInLoop("should return true for a node within a loop body", "for (var a of b) { console.log('Hello'); }", "Literal", true);
+	runTestForNodeTypeInLoop("should return false for a node outside a loop body", "while (true) {} a(b);", "CallExpression", false);
+	runTestForNodeTypeInLoop("should return false when the loop is not in the current function", "while (true) { funcs.push(() => { var a; }); }", "VariableDeclaration", false);
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
@@ -282,6 +248,7 @@ describe("ast-utils", () => {
 	});
 
 	describe("checkReference", () => {
+		// catch
 		it("should return true if reference is assigned for catch", () => {
 			linter.verify("try { } catch (e) { e = 10; }", {
 				plugins: {
@@ -311,6 +278,7 @@ describe("ast-utils", () => {
 			});
 		});
 
+		// const
 		it("should return true if reference is assigned for const", () => {
 			linter.verify("const a = 1; a = 2;", {
 				plugins: {
@@ -369,6 +337,7 @@ describe("ast-utils", () => {
 			});
 		});
 
+		// class
 		it("should return true if reference is assigned for class", () => {
 			linter.verify("class A { }\n A = 1;", {
 				plugins: {
@@ -435,10 +404,20 @@ describe("ast-utils", () => {
 	});
 
 	describe("isDirectiveComment", () => {
+		/**
+		 * Asserts the node is NOT a directive comment
+		 * @param {ASTNode} node node to assert
+		 * @returns {void}
+		 */
 		function assertFalse(node) {
 			assert.isFalse(astUtils.isDirectiveComment(node));
 		}
 
+		/**
+		 * Asserts the node is a directive comment
+		 * @param {ASTNode} node node to assert
+		 * @returns {void}
+		 */
 		function assertTrue(node) {
 			assert.isTrue(astUtils.isDirectiveComment(node));
 		}
@@ -607,58 +586,20 @@ describe("ast-utils", () => {
 		});
 	});
 
-	describe("isInLoop", () => {
-		it("should return true for a loop itself", () => {
-			assertNodeTypeInLoop("while (a) {}", "WhileStatement", true);
-		});
-
-		it("should return true for a loop condition", () => {
-			assertNodeTypeInLoop("while (a) {}", "Identifier", true);
-		});
-
-		it("should return true for a loop assignee", () => {
-			assertNodeTypeInLoop(
-				"for (var a in b) {}",
-				"VariableDeclaration",
-				true,
-			);
-		});
-
-		it("should return true for a node within a loop body", () => {
-			assertNodeTypeInLoop(
-				"for (var a of b) { console.log('Hello'); }",
-				"Literal",
-				true,
-			);
-		});
-
-		it("should return false for a node outside a loop body", () => {
-			assertNodeTypeInLoop(
-				"while (true) {} a(b);",
-				"CallExpression",
-				false,
-			);
-		});
-
-		it("should return false when the loop is not in the current function", () => {
-			assertNodeTypeInLoop(
-				"while (true) { funcs.push(() => { var a; }); }",
-				"VariableDeclaration",
-				false,
-			);
-		});
-	});
-
 	describe("getStaticStringValue", () => {
 		const expectedResults = {
+			// string literals
 			"''": "",
 			"'foo'": "foo",
 
+			// boolean literals
 			false: "false",
 			true: "true",
 
+			// null literal
 			null: "null",
 
+			// number literals
 			0: "0",
 			"0.": "0",
 			".0": "0",
@@ -682,6 +623,7 @@ describe("ast-utils", () => {
 			"0x11": "17",
 			"0x011": "17",
 
+			// regexp literals
 			"/a/": "/a/",
 			"/a/i": "/a/i",
 			"/[0-9]/": "/[0-9]/",
@@ -689,9 +631,11 @@ describe("ast-utils", () => {
 			"/(?<zero>0)/s": "/(?<zero>0)/s",
 			"/(?<=a)b/s": "/(?<=a)b/s",
 
+			// simple template literals
 			"``": "",
 			"`foo`": "foo",
 
+			// unsupported
 			"`${''}`": null,
 			"`${0}`": null,
 			"tag``": null,
@@ -746,7 +690,7 @@ describe("ast-utils", () => {
 		});
 	});
 
-describe("getStaticPropertyName", () => {
+	describe("getStaticPropertyName", () => {
 		it("should return 'b' for `a.b`", () => {
 			const ast = espree.parse("a.b");
 			const node = ast.body[0].expression;
@@ -909,7 +853,7 @@ describe("getStaticPropertyName", () => {
 		});
 	});
 
-describe("getDirectivePrologue", () => {
+	describe("getDirectivePrologue", () => {
 		it("should return empty array if node is not a Program, FunctionDeclaration, FunctionExpression, or ArrowFunctionExpression", () => {
 			const ast = espree.parse("if (a) { b(); }");
 			const node = ast.body[0];
@@ -1005,6 +949,74 @@ describe("getDirectivePrologue", () => {
 	});
 
 	{
+		const expectedResults = {
+			0: true,
+			5: true,
+			8: true,
+			9: true,
+			50: true,
+			123: true,
+			"1_0": true,
+			"1_0_1": true,
+			"12_3": true,
+			"5_000": true,
+			"500_0": true,
+			"500_00": true,
+			"5_000_00": true,
+			"1_234_56": true,
+			"1_2_3_4": true,
+			"11_22_33_44": true,
+			"1_23_4_56_7_89": true,
+			"08": true,
+			"09": true,
+			"008": true,
+			"0192": true,
+			"0180": true,
+			"090": true,
+			"088": true,
+			"099": true,
+			"089": true,
+			"0098": true,
+			"01892": true,
+			"08192": true,
+			"01829": true,
+			"018290": true,
+			"0.": false,
+			"5.": false,
+			".0": false,
+			".5": false,
+			"5.0": false,
+			"5.00_00": false,
+			"5.0_1": false,
+			"0.1_0": false,
+			"5.1_2": false,
+			"1.23_45": false,
+			".0_1": false,
+			".12_34": false,
+			"05": false,
+			"0123": false,
+			"076543210": false,
+			"08.": false,
+			"0x5": false,
+			"0b11_01": false,
+			"0o0_1": false,
+			"0x56_78": false,
+			"5e0": false,
+			"0.e1": false,
+			".0e1": false,
+			"5e0_1": false,
+			"5e1_000": false,
+			"5e12_34": false,
+			"5e-0": false,
+			"5e-0_1": false,
+			"5e-1_2": false,
+			"1_2.3_4e5_6": false,
+			"1n": false,
+			"1_2n": false,
+			"1_000n": false,
+			"'5'": false,
+		};
+
 		const ecmaVersion = espree.latestEcmaVersion;
 
 		describe("isDecimalInteger", () => {
@@ -1035,7 +1047,7 @@ describe("getDirectivePrologue", () => {
 		});
 	}
 
-describe("getFunctionNameWithKind", () => {
+	describe("getFunctionNameWithKind", () => {
 		const expectedResults = {
 			"function foo() {}": "function 'foo'",
 			"(function foo() {})": "function 'foo'",
@@ -1120,7 +1132,7 @@ describe("getFunctionNameWithKind", () => {
 		});
 	});
 
-describe("getFunctionHeadLoc", () => {
+	describe("getFunctionHeadLoc", () => {
 		const expectedResults = {
 			"function foo() {}": [0, 12],
 			"(function foo() {})": [1, 13],
@@ -1214,7 +1226,7 @@ describe("getFunctionHeadLoc", () => {
 		});
 	});
 
-describe("isEmptyBlock", () => {
+	describe("isEmptyBlock", () => {
 		const expectedResults = {
 			"{}": true,
 			"{ a }": false,
@@ -1233,7 +1245,7 @@ describe("isEmptyBlock", () => {
 		});
 	});
 
-describe("isEmptyFunction", () => {
+	describe("isEmptyFunction", () => {
 		const expectedResults = {
 			"(function foo() {})": true,
 			"(function foo() { a })": false,
@@ -1254,7 +1266,7 @@ describe("isEmptyFunction", () => {
 		});
 	});
 
-describe("getNextLocation", () => {
+	describe("getNextLocation", () => {
 		const expectedResults = {
 			"": [[1, 0], null],
 			"\n": [[1, 0], [2, 0], null],
@@ -1314,7 +1326,7 @@ describe("getNextLocation", () => {
 		});
 	});
 
-describe("getParenthesisedText", () => {
+	describe("getParenthesisedText", () => {
 		const expectedResults = {
 			"(((foo))); bar;": "(((foo)))",
 			"(/* comment */(((foo.bar())))); baz();":
@@ -1343,7 +1355,7 @@ describe("getParenthesisedText", () => {
 		});
 	});
 
-describe("couldBeError", () => {
+	describe("couldBeError", () => {
 		const EXPECTED_RESULTS = {
 			5: false,
 			null: false,
@@ -1376,6 +1388,7 @@ describe("couldBeError", () => {
 			"1 && foo": true,
 			"foo && 2": false,
 
+			// A future improvement could detect the left side as statically falsy, making this false.
 			"false && foo": true,
 			"foo &&= 2": false,
 			"foo.bar ??= 2": true,
@@ -1399,7 +1412,7 @@ describe("couldBeError", () => {
 		});
 	});
 
-describe("isArrowToken", () => {
+	describe("isArrowToken", () => {
 		const code = "() => 5";
 		const tokens = espree.parse(code, {
 			ecmaVersion: 6,
@@ -1695,7 +1708,7 @@ describe("isArrowToken", () => {
 		});
 	});
 
-describe("isCommentToken", () => {
+	describe("isCommentToken", () => {
 		const code = "const obj = /*block*/ {foo: 1, bar: 2}; //line";
 		const ast = espree.parse(code, {
 			ecmaVersion: 6,
@@ -1715,7 +1728,7 @@ describe("isCommentToken", () => {
 		});
 	});
 
-describe("isKeywordToken", () => {
+	describe("isKeywordToken", () => {
 		const code = "const obj = {foo: 1, bar: 2};";
 		const tokens = espree.parse(code, {
 			ecmaVersion: 6,
@@ -1935,7 +1948,7 @@ describe("isKeywordToken", () => {
 		});
 	});
 
-describe("isNullLiteral", () => {
+	describe("isNullLiteral", () => {
 		const EXPECTED_RESULTS = {
 			null: true,
 			"/abc/u": false,
@@ -1957,7 +1970,7 @@ describe("isNullLiteral", () => {
 		});
 	});
 
-describe("createGlobalLinebreakMatcher", () => {
+	describe("createGlobalLinebreakMatcher", () => {
 		it("returns a regular expression with the g flag", () => {
 			assert.instanceOf(astUtils.createGlobalLinebreakMatcher(), RegExp);
 			assert(
@@ -1996,7 +2009,7 @@ describe("createGlobalLinebreakMatcher", () => {
 		});
 	});
 
-describe("canTokensBeAdjacent", () => {
+	describe("canTokensBeAdjacent", () => {
 		const CASES = new Map([
 			[["foo", "bar"], false],
 			[[";foo", "bar"], false],
@@ -2080,7 +2093,7 @@ describe("canTokensBeAdjacent", () => {
 		});
 	});
 
-describe("equalTokens", () => {
+	describe("equalTokens", () => {
 		it("should return true if tokens are equal", () => {
 			const code = "a=0;a=0;";
 			const ast = espree.parse(code, ESPREE_CONFIG);
@@ -2104,18 +2117,18 @@ describe("equalTokens", () => {
 		});
 	});
 
-describe("equalLiteralValue", () => {
+	describe("equalLiteralValue", () => {
 		describe("should return true if two regex values are same, even if it's not supported natively.", () => {
 			const patterns = [
 				{
 					nodeA: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					expected: true,
@@ -2141,7 +2154,7 @@ describe("equalLiteralValue", () => {
 					},
 					nodeB: {
 						type: "Literal",
-						value: null,
+						value: /(?:)/, // eslint-disable-line require-unicode-regexp, regexp/no-empty-group -- Checking non-Unicode regex
 						regex: { pattern: "(?:)", flags: "" },
 					},
 					expected: false,
@@ -2238,7 +2251,7 @@ describe("equalLiteralValue", () => {
 		});
 	});
 
-describe("hasOctalOrNonOctalDecimalEscapeSequence", () => {
+	describe("hasOctalOrNonOctalDecimalEscapeSequence", () => {
 		const expectedResults = {
 			"\\1": true,
 			"\\2": true,
@@ -2325,7 +2338,7 @@ describe("hasOctalOrNonOctalDecimalEscapeSequence", () => {
 		});
 	});
 
-describe("isLogicalAssignmentOperator", () => {
+	describe("isLogicalAssignmentOperator", () => {
 		const expectedResults = {
 			"&&=": true,
 			"||=": true,
@@ -2352,7 +2365,7 @@ describe("isLogicalAssignmentOperator", () => {
 		});
 	});
 
-describe("isTopLevelExpressionStatement", () => {
+	describe("isTopLevelExpressionStatement", () => {
 		it("should return false for a Program node", () => {
 			const node = { type: "Program", parent: null };
 
@@ -2442,7 +2455,7 @@ describe("isTopLevelExpressionStatement", () => {
 		});
 	});
 
-describe("isStaticTemplateLiteral", () => {
+	describe("isStaticTemplateLiteral", () => {
 		const expectedResults = {
 			"``": true,
 			"`foo`": true,
@@ -2463,7 +2476,7 @@ describe("isStaticTemplateLiteral", () => {
 		});
 	});
 
-describe("isDirective", () => {
+	describe("isDirective", () => {
 		const expectedResults = [
 			{ code: '"use strict";', expectedRetVal: true },
 			{
@@ -2514,6 +2527,7 @@ describe("isDirective", () => {
 													assertForNode(node);
 
 													if (!expectedRetVal) {
+														// The flow parser sets `directive` to null on non-directive ExpressionStatement nodes.
 														node.directive = null;
 														assertForNode(node);
 													}

@@ -12,11 +12,14 @@ const {
 const { getManyRelations } = require('./utils/associations');
 
 const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
+  // Add created_at and updated_at field if timestamp option is true
   if (loadedModel.hasTimestamps) {
-    addTimestampFields(definition, loadedModel.hasTimestamps);
+    definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
+    definition.attributes[loadedModel.hasTimestamps[1]] = { type: 'currentTimestamp' };
   }
 
-  if (connection.options?.autoMigration !== false) {
+  // Equilize tables
+  if (connection.options && connection.options.autoMigration !== false) {
     await createOrUpdateTable(
       {
         table: loadedModel.tableName,
@@ -29,31 +32,21 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
     );
   }
 
-  await migratePolymorphicRelations({ loadedModel, definition, connection, ORM, model }, context);
-
-  await migrateManyRelations({ definition, connection, ORM, model }, context);
-
-  if (loadedModel.hasTimestamps) {
-    removeTimestampFields(definition, loadedModel.hasTimestamps);
-  }
-};
-
-const addTimestampFields = (definition, timestamps) => {
-  definition.attributes[timestamps[0]] = { type: 'currentTimestamp' };
-  definition.attributes[timestamps[1]] = { type: 'currentTimestamp' };
-};
-
-const removeTimestampFields = (definition, timestamps) => {
-  delete definition.attributes[timestamps[0]];
-  delete definition.attributes[timestamps[1]];
-};
-
-const migratePolymorphicRelations = async ({ loadedModel, definition, connection, ORM, model }, context) => {
-  const morphRelations = getMorphRelations(definition);
+  // Equilize polymorphic relations
+  const morphRelations = definition.associations.filter(association => {
+    return association.nature.toLowerCase().includes('morphto');
+  });
 
   for (const morphRelation of morphRelations) {
-    const attributes = buildMorphRelationAttributes(loadedModel, morphRelation, definition);
-    if (connection.options?.autoMigration !== false) {
+    const attributes = {
+      [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
+      [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
+      [`${morphRelation.alias}_type`]: { type: 'text' },
+      [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
+      order: { type: 'integer' },
+    };
+
+    if (connection.options && connection.options.autoMigration !== false) {
       await createOrUpdateTable(
         {
           table: `${loadedModel.tableName}_morph`,
@@ -66,66 +59,50 @@ const migratePolymorphicRelations = async ({ loadedModel, definition, connection
       );
     }
   }
-};
 
-const getMorphRelations = definition => {
-  return definition.associations.filter(association =>
-    association.nature.toLowerCase().includes('morphto')
-  );
-};
-
-const buildMorphRelationAttributes = (loadedModel, morphRelation, definition) => {
-  const attrs = definition.attributes[morphRelation.alias];
-  return {
-    [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
-    [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
-    [`${morphRelation.alias}_type`]: { type: 'text' },
-    [attrs.filter]: { type: 'text' },
-    order: { type: 'integer' },
-  };
-};
-
-const migrateManyRelations = async ({ definition, connection, ORM, model }, context) => {
+  // Equilize many to many relations
   const manyRelations = getManyRelations(definition);
 
   for (const manyRelation of manyRelations) {
-    if (!manyRelation.dominant) continue;
+    const { plugin, collection, via, dominant, alias } = manyRelation;
 
-    await createManyRelationTable(manyRelation, definition, connection, ORM, model, context);
+    if (dominant) {
+      const targetCollection = strapi.db.getModel(collection, plugin);
+
+      const targetAttr = via
+        ? targetCollection.attributes[via]
+        : {
+            attribute: singular(definition.collectionName),
+            column: definition.primaryKey,
+          };
+
+      const defAttr = definition.attributes[alias];
+
+      const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
+      let rootCol = `${defAttr.attribute}_${defAttr.column}`;
+
+      // manyWay with same CT
+      if (rootCol === targetCol) {
+        rootCol = `related_${rootCol}`;
+      }
+
+      const attributes = {
+        [targetCol]: { type: targetCollection.primaryKeyType },
+        [rootCol]: { type: definition.primaryKeyType },
+      };
+
+      const table = manyRelation.tableCollectionName;
+      if (connection.options && connection.options.autoMigration !== false) {
+        await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
+      }
+    }
   }
-};
 
-const createManyRelationTable = async (manyRelation, definition, connection, ORM, model, context) => {
-  const { plugin, collection, via, alias } = manyRelation;
-  const targetCollection = strapi.db.getModel(collection, plugin);
-  const targetAttr = getTargetAttribute(targetCollection, via, definition);
-  const defAttr = definition.attributes[alias];
-  const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
-  let rootCol = `${defAttr.attribute}_${defAttr.column}`;
-
-  if (rootCol === targetCol) {
-    rootCol = `related_${rootCol}`;
+  // Remove from attributes (auto handled by bookshelf and not displayed on ctb)
+  if (loadedModel.hasTimestamps) {
+    delete definition.attributes[loadedModel.hasTimestamps[0]];
+    delete definition.attributes[loadedModel.hasTimestamps[1]];
   }
-
-  const attributes = {
-    [targetCol]: { type: targetCollection.primaryKeyType },
-    [rootCol]: { type: definition.primaryKeyType },
-  };
-
-  const table = manyRelation.tableCollectionName;
-  if (connection.options?.autoMigration !== false) {
-    await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
-  }
-};
-
-const getTargetAttribute = (targetCollection, via, definition) => {
-  if (via) {
-    return targetCollection.attributes[via];
-  }
-  return {
-    attribute: singular(definition.collectionName),
-    column: definition.primaryKey,
-  };
 };
 
 const getColumnInfo = async (columnName, tableName, ORM) => {
@@ -139,8 +116,17 @@ const getColumnInfo = async (columnName, tableName, ORM) => {
 
 const isColumn = ({ definition, attribute, name }) => {
   if (!_.has(attribute, 'type')) {
-    const relation = definition.associations.find(a => a.alias === name);
-    return isColumnBasedRelation(relation);
+    const relation = definition.associations.find(association => {
+      return association.alias === name;
+    });
+
+    if (!relation) return false;
+
+    if (['oneToOne', 'manyToOne', 'oneWay'].includes(relation.nature)) {
+      return true;
+    }
+
+    return false;
   }
 
   if (['component', 'dynamiczone'].includes(attribute.type)) {
@@ -150,17 +136,17 @@ const isColumn = ({ definition, attribute, name }) => {
   return true;
 };
 
-const isColumnBasedRelation = relation => {
-  if (!relation) return false;
-  return ['oneToOne', 'manyToOne', 'oneWay'].includes(relation.nature);
-};
-
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
+/**
+ * Builds the column type definition for a given attribute.
+ * Returns null if the attribute should not be mapped (e.g., relations without PK mapping).
+ */
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
   if (!attribute.type) {
     const relation = definition.associations.find(association => association.alias === name);
-    if (['oneToOne', 'manyToOne', 'oneWay'].includes(relation?.nature)) {
+
+    if (['oneToOne', 'manyToOne', 'oneWay'].includes(relation.nature)) {
       return buildColType({
         name,
         attribute: { type: definition.primaryKeyType },
@@ -170,20 +156,21 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
         ORM,
       });
     }
+
     return null;
   }
 
+  // allow custom data type for a column
   if (_.has(attribute, 'columnType')) {
     return table.specificType(name, attribute.columnType);
   }
 
-  return switchOnType({ attribute, name, table, tableExists, definition, ORM });
-};
-
-const switchOnType = ({ attribute, name, table, tableExists, definition, ORM }) => {
-  const typeMap = {
+  const primitiveTypes = {
     uuid: () => table.uuid(name),
-    uid: () => { table.unique(name); return table.string(name); },
+    uid: () => {
+      table.unique(name);
+      return table.string(name);
+    },
     richtext: () => table.text(name, 'longtext'),
     text: () => table.text(name, 'longtext'),
     json: () => definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
@@ -201,33 +188,69 @@ const switchOnType = ({ attribute, name, table, tableExists, definition, ORM }) 
     timestamp: () => table.timestamp(name),
     currentTimestamp: () => {
       const col = table.timestamp(name);
-      if (definition.client !== 'sqlite3' && tableExists) return col;
+      if (definition.client !== 'sqlite3' && tableExists) {
+        return col;
+      }
       return col.defaultTo(ORM.knex.fn.now());
     },
     boolean: () => table.boolean(name),
   };
 
-  return typeMap[attribute.type]?.() ?? null;
+  return primitiveTypes[attribute.type] ? primitiveTypes[attribute.type]() : null;
 };
 
+// Equilize database tables
 const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }, context) => {
   const tableExists = await ORM.knex.schema.hasTable(table);
 
-  const createIdType = tbl => {
+  const createIdType = table => {
     if (definition.primaryKeyType === 'uuid' && definition.client === 'pg') {
-      return tbl
+      return table
         .specificType('id', 'uuid DEFAULT uuid_generate_v4()')
         .notNullable()
         .primary();
     }
 
-    return tbl.increments('id');
+    return table.increments('id');
   };
 
   const createColumns = (tbl, columns, opts = {}) => {
     const { tableExists, alter = false } = opts;
+
     Object.keys(columns).forEach(key => {
-      applyColumnCreation(tbl, key, columns[key], tableExists, definition, ORM, model);
+      const attribute = columns[key];
+
+      const col = buildColType({
+        name: key,
+        attribute,
+        table: tbl,
+        tableExists,
+        definition,
+        ORM,
+      });
+      if (!col) return;
+
+      if (attribute.required === true) {
+        if (
+          (definition.client !== 'sqlite3' || !tableExists) &&
+          !contentTypesUtils.hasDraftAndPublish(model) && // no require constraint to allow drafts
+          definition.modelType !== 'component' // no require constraint to allow components in drafts
+        ) {
+          col.notNullable();
+        }
+      } else {
+        col.nullable();
+      }
+
+      if (attribute.unique === true) {
+        if (definition.client !== 'sqlite3' || !tableExists) {
+          tbl.unique(key, uniqueColName(table, key));
+        }
+      }
+
+      if (alter) {
+        col.alter();
+      }
     });
   };
 
@@ -248,12 +271,16 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   }
 
   const attributesNames = Object.keys(attributes);
+
+  // Fetch existing column
   const columnsInfo = await Promise.all(
     attributesNames.map(attributeName => getColumnInfo(attributeName, table, ORM))
   );
   const nameOfColumnsToAdd = columnsInfo.filter(info => !info.exists).map(info => info.columnName);
+
   const columnsToAdd = _.pick(attributes, nameOfColumnsToAdd);
 
+  // Generate and execute query to add missing column
   if (Object.keys(columnsToAdd).length > 0) {
     await ORM.knex.schema.table(table, tbl => {
       createColumns(tbl, columnsToAdd, { tableExists });
@@ -274,74 +301,40 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await rebuildTableIfNecessary(
-      { table, attributes, definition, ORM, model, context, columnsToAlter, attrsNameWithoutTimestamps }
-    );
+    handleRebuild(definition, table, attributes, attributesNames, ORM, context, model, tableExists);
   }
 };
 
-const applyColumnCreation = (tbl, key, attribute, tableExists, definition, ORM, model) => {
-  const col = buildColType({
-    name: key,
-    attribute,
-    table: tbl,
-    tableExists,
-    definition,
-    ORM,
-  });
-  if (!col) return;
+/**
+ * Handles database-specific rebuild strategy for schema migration.
+ */
+const handleRebuild = (definition, table, attributes, attributesNames, ORM, context, model, tableExists) => {
+  const client = definition.client;
 
-  if (attribute.required === true) {
-    apply_REQUIRED_constraints(col, definition, model, tableExists);
+  if (client === 'sqlite3') {
+    rebuildSqliteTable(definition, table, attributes, attributesNames, ORM, context, model, tableExists);
   } else {
-    col.nullable();
-  }
-
-  if (attribute.unique === true) {
-    apply_UNIQUE_constraint(tbl, key, tableExists, definition);
-  }
-
-  if (definition.client !== 'sqlite3' || !tableExists) {
-    if (attribute.unique === true) tbl.unique(key, uniqueColName(table, key));
+    rebuildForOtherDatabases(definition, table, attributes, attributesNames, ORM, context, model, tableExists);
   }
 };
 
-const apply_REQUIRED_constraints = (col, definition, model, tableExists) => {
-  if (
-    (definition.client !== 'sqlite3' || !tableExists) &&
-    !contentTypesUtils.hasDraftAndPublish(model) &&
-    definition.modelType !== 'component'
-  ) {
-    col.notNullable();
-  }
-};
-
-const apply_UNIQUE_constraint = (tbl, key, tableExists, definition) => {
-  if (definition.client !== 'sqlite3' || !tableExists) {
-    // Handled in outer scope
-  }
-};
-
-const rebuildTableIfNecessary = async ({ table, attributes, definition, ORM, model, context, columnsToAlter, attrsNameWithoutTimestamps }) => {
-  if (definition.client === 'sqlite3') {
-    return rebuildSqliteTable({ table, attributes, definition, ORM, model, context, attrsNameWithoutTimestamps });
-  }
-  return rebuildNonSqliteTable({ table, attributes, definition, ORM, model, context, columnsToAlter });
-};
-
-const rebuildSqliteTable = async ({ table, attributes, definition, ORM, model, context, attrsNameWithoutTimestamps }) => {
+/**
+ * Rebuilds tables for SQLite by renaming old table, dropping constraints, creating new table, and copying data.
+ */
+const rebuildSqliteTable = async (definition, table, attributes, attributesNames, ORM, context, model, tableExists) => {
   const tmpTable = `tmp_${table}`;
-  const attributesNames = Object.keys(attributes);
 
   const rebuildTable = async trx => {
     await trx.schema.renameTable(table, tmpTable);
 
+    // drop possible conflicting indexes
     await Promise.all(
       attributesNames.map(key =>
         trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key))
       )
     );
 
+    // create the table
     await createTable(table, { trx });
 
     const attrs = attributesNames.filter(attributeName =>
@@ -353,6 +346,7 @@ const rebuildSqliteTable = async ({ table, attributes, definition, ORM, model, c
     );
 
     const allAttrs = ['id', ...attrs];
+
     await trx.insert(qb => qb.select(allAttrs).from(tmpTable)).into(table);
     await trx.schema.dropTableIfExists(tmpTable);
   };
@@ -360,11 +354,14 @@ const rebuildSqliteTable = async ({ table, attributes, definition, ORM, model, c
   try {
     await ORM.knex.transaction(trx => rebuildTable(trx));
   } catch (err) {
-    handleMigrationError(err, definition);
+    handleMigrationError(err, definition.client, 'UNIQUE constraint');
   }
 };
 
-const rebuildNonSqliteTable = async ({ table, attributes, definition, ORM, model, context, columnsToAlter }) => {
+/**
+ * Rebuilds tables for PostgreSQL/MySQL using ALTER TABLE statements.
+ */
+const rebuildForOtherDatabases = async (definition, table, attributes, attributesNames, ORM, context, model, tableExists) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -377,46 +374,52 @@ const rebuildNonSqliteTable = async ({ table, attributes, definition, ORM, model
     );
     await trx.schema.alterTable(table, tbl => {
       alterColumns(tbl, _.pick(attributes, columnsToAlter), {
-        tableExists: true,
+        tableExists,
       });
     });
   };
 
+  const columnsToAlter = await getColumnsWhereDefinitionChanged(
+    attributesNames.filter(
+      columnName => !(definition.options.timestamps || []).includes(columnName)
+    ),
+    definition,
+    ORM
+  );
+
   try {
     await ORM.knex.transaction(trx => alterTable(trx));
   } catch (err) {
-    handleMigrationError(err, definition, model);
+    handleMigrationError(err, definition.client, 'Unique constraint');
   }
 };
 
-const handleMigrationError = (err, definition, model) => {
-  const isUniqueConstraintError =
-    err.message?.includes('UNIQUE constraint failed') ||
-    (err.code === '23505' && definition.client === 'pg') ||
-    (definition.client === 'mysql' && err.errno === 1062);
-
-  if (isUniqueConstraintError) {
-    const detailMsg = getUniqueConstraintDetail(err, definition.client);
+/**
+ * Handles migration errors based on client-specific error codes.
+ */
+const handleMigrationError = (err, client, constraintMsg) => {
+  if (err.message.includes(constraintMsg)) {
     strapi.log.error(
-      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.message}\n\t${detailMsg}`
+      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.stack}`
+    );
+  } else if (client === 'pg' && err.code === '23505') {
+    strapi.log.error(
+      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.message}\n\t- ${err.detail}`
+    );
+  } else if (client === 'mysql' && err.errno === 1062) {
+    strapi.log.error(
+      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.sqlMessage}`
     );
   } else {
     strapi.log.error(`Migration failed`);
     strapi.log.error(err);
   }
-
-  return false;
-};
-
-const getUniqueConstraintDetail = (err, client) => {
-  if (client === 'pg') return `\t- ${err.detail || ''}`;
-  if (client === 'mysql') return `\t- ${err.sqlMessage || ''}`;
-  return '';
 };
 
 module.exports = async ({ ORM, loadedModel, definition, connection, model }) => {
   const previousDefinition = await getDefinitionFromStore(definition, ORM);
 
+  // run migrations
   await strapi.db.migrations.run(migrateSchemas, {
     ORM,
     loadedModel,
@@ -426,5 +429,6 @@ module.exports = async ({ ORM, loadedModel, definition, connection, model }) => 
     model,
   });
 
+  // store new definitions
   await storeDefinition(definition, ORM);
 };

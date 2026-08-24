@@ -135,6 +135,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -146,6 +147,7 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
+  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
   if (
     isKind(props, 'form') ||
@@ -176,6 +178,19 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
+  const handleOpenItem = useCallback(
+    (index: number) => {
+      const element = elements.at(index)
+      if (!element) return
+      setModalState({
+        index,
+        value: previewPropsToValue(element),
+        forceValidation: false,
+      })
+    },
+    [elements]
+  )
+
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -183,15 +198,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={index => {
-              const element = elements.at(index)
-              if (!element) return
-              setModalState({
-                index,
-                value: previewPropsToValue(element),
-                forceValidation: false,
-              })
-            }}
+            onOpenItem={handleOpenItem}
           />
           <ActionButton
             alignSelf="start"
@@ -229,7 +236,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
                   <Content>
                     <ArrayFieldItemModalContent
                       onChange={onModalChange}
-                      schema={element.schema as any}
+                      schema={element.schema as any /* TODO FIXME */}
                       value={modalState.value}
                     />
                   </Content>
@@ -247,7 +254,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
                       onPress={() => {
                         if (!clientSideValidateProp(element.schema, modalState.value)) {
                           setModalState(state => ({
-                            ...(state as any),
+                            ...(state as any) /* TODO FIXME */,
                             forceValidation: true,
                           }))
                           return
@@ -287,7 +294,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
             }))
       return {
         kind: 'many' as const,
-        id: '',
+        id: '', // unused
         initialValue: manyValue,
         value: manyValue,
       }
@@ -304,7 +311,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       : null
     return {
       kind: 'one' as const,
-      id: '',
+      id: '', // unused
       initialValue: oneValue,
       value: oneValue,
     }
@@ -318,12 +325,14 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         label,
         description: description ?? '',
         display: 'select',
-        listKey: '?',
-        fieldKey: '?',
-        defaultValue: null as any,
-        deserialize: null as any,
-        serialize: null as any,
-        graphqlSelection: null as any,
+        listKey: '?', // unused
+        fieldKey: '?', // unused
+        defaultValue: null as any, // unused
+        deserialize: null as any, // unused
+        serialize: null as any, // unused
+        graphqlSelection: null as any, // unused
+
+        // see relationship controller for these fields
         refListKey: list.key,
         many,
         hideCreate: true,
@@ -335,7 +344,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         selectSort: sort ?? list.initialSort,
       }}
       onChange={val => {
-        if (val.kind === 'count') return
+        if (val.kind === 'count') return // shouldnt happen
         const { value } = val
         if (value === null) {
           onChange(null)
@@ -507,6 +516,8 @@ function ArrayFieldListView<Element extends ComponentSchema>(
   const dragType = useMemo(() => Math.random().toString(36), [])
   const { dragAndDropHooks } = useDragAndDrop({
     getItems(keys) {
+      // Use a drag type so the items can only be reordered within this list
+      // and not dragged elsewhere.
       return [...keys].map(key => {
         key = JSON.stringify(key)
         return {
@@ -528,6 +539,8 @@ function ArrayFieldListView<Element extends ComponentSchema>(
               key = JSON.parse(await item.getText(dragType))
               keys.push(key)
             } else if (item.types.has('text/plain')) {
+              // Fallback for Chrome Android case: https://bugs.chromium.org/p/chromium/issues/detail?id=1293803
+              // Multiple drag items are contained in a single string so we need to split them out
               key = await item.getText('text/plain')
               keys = key.split('\n').map(val => val.replaceAll('"', ''))
             }

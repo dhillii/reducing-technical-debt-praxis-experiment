@@ -137,7 +137,7 @@ exports.deepEqual = function deepEqual(a, b) {
 
   // having the same number of owned properties (keys incorporates
   // hasOwnProperty)
-  if (kaLength !== kb.length) {
+  if (kaLength !== kbLength) {
     return false;
   }
 

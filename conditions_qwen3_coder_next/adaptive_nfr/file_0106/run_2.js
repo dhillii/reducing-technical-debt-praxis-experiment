@@ -1,3 +1,9 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
 var EventEmitter = require('events').EventEmitter;
 var Pending = require('./pending');
 var debug = require('debug')('mocha:runnable');
@@ -34,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -177,7 +185,7 @@ Runnable.prototype.fullTitle = function () {
  * @return {string}
  */
 Runnable.prototype.titlePath = function () {
-  return this.parent ? this.parent.titlePath().concat([this.title]) : [this.title];
+  return this.parent.titlePath().concat([this.title]);
 };
 
 /**
@@ -258,7 +266,6 @@ Runnable.prototype.run = function (fn) {
   var ctx = this.ctx;
   var finished;
   var emitted;
-  var callback = done.bind(null);
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
@@ -343,6 +350,11 @@ Runnable.prototype.run = function (fn) {
     done(utils.getError(err));
   }
 
+  /**
+   * Execute the test function synchronously or as a promise-returning function.
+   * Handles both synchronous and promise-based test bodies.
+   * @param {Function} fn - The test function to execute.
+   */
   function callFn (fn) {
     var result = fn.call(ctx);
     if (result && typeof result.then === 'function') {
@@ -366,6 +378,11 @@ Runnable.prototype.run = function (fn) {
     }
   }
 
+  /**
+   * Execute the test function asynchronously using a callback-based API.
+   * Validates callback arguments and handles errors appropriately.
+   * @param {Function} fn - The async test function expecting a callback argument.
+   */
   function callFnAsync (fn) {
     var result = fn.call(ctx, function (err) {
       if (err instanceof Error || toString.call(err) === '[object Error]') {

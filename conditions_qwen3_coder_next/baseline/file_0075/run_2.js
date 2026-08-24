@@ -877,6 +877,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken(
 				{ range: [ast.comments[0].range[0], ast.tokens[5].range[1]] },
 				{ includeComments: true },
@@ -890,6 +894,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken({
 				range: [ast.comments[0].range[0], ast.tokens[5].range[1]],
 			});
@@ -1156,6 +1164,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken(
 				{ range: [ast.tokens[0].range[0], ast.comments[0].range[1]] },
 				{ includeComments: true },
@@ -1169,6 +1181,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken({
 				range: [ast.tokens[0].range[0], ast.comments[0].range[1]],
 			});
@@ -1896,7 +1912,7 @@ describe("TokenStore", () => {
 			check(store.getCommentsAfter(Program), []);
 		});
 
-		it("should return an empty array if there are no comments after a node or token", () => {
+	 it("should return an empty array if there are no comments after a node or token", () => {
 			check(store.getCommentsAfter(CallExpression.callee), []);
 			check(store.getCommentsAfter(TOKENS[0]), []);
 		});

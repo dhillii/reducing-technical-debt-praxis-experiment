@@ -1,3 +1,11 @@
+'use strict';
+
+/* eslint-env browser */
+
+/**
+ * Module dependencies.
+ */
+
 var basename = require('path').basename;
 var debug = require('debug')('mocha:watch');
 var exists = require('fs').existsSync;
@@ -11,8 +19,10 @@ var lstatSync = require('fs').lstatSync;
 var he = require('he');
 
 /**
- * Module dependencies.
+ * Ignored directories.
  */
+
+var ignore = ['node_modules', '.git'];
 
 exports.inherits = require('util').inherits;
 
@@ -464,53 +474,75 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  var files = [];
+exports.lookupFiles = function lookupFiles (basePath, extensions, recursive) {
+  var FileLookupOptions = {
+    basePath: basePath,
+    extensions: extensions,
+    recursive: recursive
+  };
 
-  if (!exists(path)) {
-    if (exists(path + '.js')) {
-      path += '.js';
+  var filePath;
+
+  if (!exists(FileLookupOptions.basePath)) {
+    if (exists(FileLookupOptions.basePath + '.js')) {
+      filePath = FileLookupOptions.basePath + '.js';
+      return filePath;
     } else {
-      files = glob.sync(path);
-      if (!files.length) {
-        throw new Error("cannot resolve path (or pattern) '" + path + "'");
+      var globbed = glob.sync(FileLookupOptions.basePath);
+      if (!globbed.length) {
+        throw new Error("cannot resolve path (or pattern) '" + FileLookupOptions.basePath + "'");
       }
-      return files;
+      return globbed;
     }
   }
 
   try {
-    var stat = statSync(path);
+    var stat = statSync(FileLookupOptions.basePath);
     if (stat.isFile()) {
-      return path;
+      return FileLookupOptions.basePath;
     }
   } catch (err) {
     // ignore error
     return;
   }
 
-  readdirSync(path).forEach(function (file) {
-    file = join(path, file);
-    try {
-      var stat = statSync(file);
-      if (stat.isDirectory()) {
-        if (recursive) {
-          files = files.concat(lookupFiles(file, extensions, recursive));
+  /**
+   * Recursively collects files under the given directory path.
+   *
+   * @api private
+   * @param {string} currentPath Directory path to scan
+   * @param {string[]} exts File extensions to include
+   * @param {boolean} isRecursive Whether to recurse into subdirectories
+   * @param {string[]} accumulator Accumulated file paths
+   * @returns {string[]} Updated accumulator
+   */
+  function scanDir(currentPath, exts, isRecursive, accumulator) {
+    var re = new RegExp('\\.(?:' + exts.join('|') + ')$');
+
+    readdirSync(currentPath).forEach(function (file) {
+      var fullPath = join(currentPath, file);
+      try {
+        var fileStat = statSync(fullPath);
+        if (fileStat.isDirectory()) {
+          if (isRecursive) {
+            scanDir(fullPath, exts, isRecursive, accumulator);
+          }
+          return;
         }
+      } catch (err) {
+        // ignore error
         return;
       }
-    } catch (err) {
-      // ignore error
-      return;
-    }
-    var re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
-      return;
-    }
-    files.push(file);
-  });
 
-  return files;
+      if (!fileStat.isFile() || !re.test(fullPath) || basename(fullPath)[0] === '.') {
+        return;
+      }
+      accumulator.push(fullPath);
+    });
+    return accumulator;
+  }
+
+  return scanDir(FileLookupOptions.basePath, FileLookupOptions.extensions, FileLookupOptions.recursive, []);
 };
 
 /**

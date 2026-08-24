@@ -34,7 +34,7 @@ type Validation = {
 }
 
 /**
- * Validates the given numeric value against field constraints.
+ * Validates the input value against the configured validation rules.
  * Returns an error message if validation fails, otherwise undefined.
  */
 function validate_(
@@ -57,9 +57,6 @@ function validate_(
     return `${label} must be less than or equal to ${validation.max}`
 }
 
-/**
- * Creates a field controller for integer fields with validation and filtering capabilities.
- */
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -204,47 +201,15 @@ export function controller(
 }
 
 /**
- * Renders an integer field input with validation and auto-increment support.
- * Props are marked read-only to prevent mutation.
+ * Renders an auto-increment NumberField when appropriate.
  */
-export function Field({
-  field,
-  value,
-  onChange,
+function AutoIncrementField({
   autoFocus,
-  forceValidation,
-  isRequired,
-}: Readonly<FieldProps<typeof controller>>) {
-  const [isDirty, setDirty] = useState(false)
-  const isReadOnly = !onChange || field.hasAutoIncrementDefault
-
-  if (field.hasAutoIncrementDefault && value.kind === 'create') {
-    return renderAutoIncrementField(field, autoFocus)
-  }
-
-  const validate = (value: Value) =>
-    validate_(value, field.validation, isRequired, field.label, field.hasAutoIncrementDefault)
-
-  return renderIntegerField({
-    field,
-    value,
-    onChange,
-    autoFocus,
-    forceValidation,
-    isDirty,
-    isReadOnly,
-    isRequired,
-    validate,
-  })
-}
-
-/**
- * Renders the auto-increment field UI.
- */
-function renderAutoIncrementField(
-  field: FieldProps<typeof controller>['field'],
-  autoFocus: boolean
-) {
+  field,
+}: {
+  autoFocus?: boolean
+  field: ReturnType<typeof controller>
+}) {
   return (
     <NumberField
       autoFocus={autoFocus}
@@ -266,29 +231,32 @@ function renderAutoIncrementField(
 }
 
 /**
- * Renders the standard integer field UI with validation.
+ * Builds an editable NumberField with validation and dirty tracking.
  */
-function renderIntegerField({
+function EditableField({
   field,
   value,
   onChange,
   autoFocus,
   forceValidation,
-  isDirty,
-  isReadOnly,
   isRequired,
-  validate,
+  isReadOnly,
+  isDirty,
+  setDirty,
 }: {
-  field: FieldProps<typeof controller>['field']
+  field: ReturnType<typeof controller>
   value: Value
-  onChange: FieldProps<typeof controller>['onChange']
-  autoFocus: boolean
-  forceValidation: boolean
-  isDirty: boolean
-  isReadOnly: boolean
+  onChange?: (value: Value) => void
+  autoFocus?: boolean
+  forceValidation?: boolean
   isRequired: boolean
-  validate: (value: Value) => string | undefined
+  isReadOnly: boolean
+  isDirty: boolean
+  setDirty: (dirty: boolean) => void
 }) {
+  const validate = (val: Value) =>
+    validate_(val, field.validation, isRequired, field.label, field.hasAutoIncrementDefault)
+
   return (
     <NumberField
       autoFocus={autoFocus}
@@ -301,6 +269,36 @@ function renderIntegerField({
       onBlur={() => setDirty(true)}
       onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
       value={value.value ?? NaN}
+    />
+  )
+}
+
+export function Field({
+  field,
+  value,
+  onChange,
+  autoFocus,
+  forceValidation,
+  isRequired,
+}: FieldProps<typeof controller>) {
+  const [isDirty, setDirty] = useState(false)
+  const isReadOnly = !onChange || field.hasAutoIncrementDefault
+
+  if (field.hasAutoIncrementDefault && value.kind === 'create') {
+    return <AutoIncrementField autoFocus={autoFocus} field={field} />
+  }
+
+  return (
+    <EditableField
+      field={field}
+      value={value}
+      onChange={onChange}
+      autoFocus={autoFocus}
+      forceValidation={forceValidation}
+      isRequired={isRequired}
+      isReadOnly={isReadOnly}
+      isDirty={isDirty}
+      setDirty={setDirty}
     />
   )
 }

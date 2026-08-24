@@ -43,10 +43,10 @@ const sendMediaMetrics = data => {
 };
 
 const combineFilters = params => {
-  // FIXME: until we support boolean operators for querying we need to make mime_ncontains use AND instead of OR
   if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
-    const whereClauses = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
-    params._where = params._where ? [{ _and: whereClauses }, params._where].filter(Boolean) : whereClauses;
+    params._where = {
+      _and: params.mime_ncontains.map(val => ({ mime_ncontains: val })),
+    };
     delete params.mime_ncontains;
   }
 };

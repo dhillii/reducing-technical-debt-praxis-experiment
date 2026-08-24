@@ -19,18 +19,6 @@ var lstatSync = require('fs').lstatSync;
 var he = require('he');
 
 /**
- * Escaped html representation.
- */
-
-var htmlEscapes = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  '\'': '&#x27;'
-};
-
-/**
  * Ignored directories.
  */
 
@@ -92,110 +80,32 @@ function ignored (path) {
 }
 
 /**
- * File lookup options.
+ * Lookup files in the given `dir`.
  *
- * @typedef {Object} FileLookupOptions
- * @property {string[]} extensions - File extensions to include.
- * @property {boolean} recursive - Whether to recurse into subdirectories.
+ * @api private
+ * @param {string} dir
+ * @param {string[]} [ext=['.js']]
+ * @param {Array} [ret=[]]
+ * @return {Array}
  */
+exports.files = function (dir, ext, ret) {
+  ret = ret || [];
+  ext = ext || ['js'];
 
-/**
- * Directory walk options.
- *
- * @typedef {Object} DirectoryWalkOptions
- * @property {string} baseDir - Base directory to walk.
- * @property {string[]} extensions - File extensions to include.
- * @property {boolean} recursive - Whether to recurse into subdirectories.
- * @property {string[]} accumulator - Accumulator for collected files.
- */
+  var re = new RegExp('\\.(' + ext.join('|') + ')$');
 
-/**
- * @summary Recursively walks directories to collect matching files.
- * @description Applies structural refactoring via Introduce Parameter Object pattern.
- *
- * @param {DirectoryWalkOptions} options - Directory walking parameters.
- * @returns {void}
- */
-function walkDirectory (options) {
-  var baseDir = options.baseDir;
-  var extensions = options.extensions;
-  var recursive = options.recursive;
-  var accumulator = options.accumulator;
-
-  var re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-
-  readdirSync(baseDir)
+  readdirSync(dir)
     .filter(ignored)
-    .forEach(function (file) {
-      var fullPath = join(baseDir, file);
-      try {
-        var stat = lstatSync(fullPath);
-        if (stat.isDirectory()) {
-          if (recursive) {
-            walkDirectory({
-              baseDir: fullPath,
-              extensions: extensions,
-              recursive: recursive,
-              accumulator: accumulator
-            });
-          }
-        } else if (stat.isFile() && re.test(fullPath)) {
-          accumulator.push(fullPath);
-        }
-      } catch (err) {
-        // ignore error
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
-}
 
-/**
- * Lookup file names at the given `path`.
- *
- * @api public
- * @param {string} path Base path to start searching from.
- * @param {string[]} extensions File extensions to look for.
- * @param {boolean} recursive Whether or not to recurse into subdirectories.
- * @return {string[]} An array of paths.
- */
-exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  // Backward compatibility wrapper
-  if (!Array.isArray(extensions)) {
-    recursive = extensions;
-    extensions = ['js'];
-  }
-
-  var files = [];
-
-  if (!exists(path)) {
-    if (exists(path + '.js')) {
-      path += '.js';
-    } else {
-      files = glob.sync(path);
-      if (!files.length) {
-        throw new Error("cannot resolve path (or pattern) '" + path + "'");
-      }
-      return files;
-    }
-  }
-
-  try {
-    var stat = statSync(path);
-    if (stat.isFile()) {
-      return [path];
-    }
-  } catch (err) {
-    // ignore error
-    return [];
-  }
-
-  walkDirectory({
-    baseDir: path,
-    extensions: extensions,
-    recursive: recursive,
-    accumulator: files
-  });
-
-  return files;
+  return ret;
 };
 
 /**
@@ -224,10 +134,8 @@ exports.clean = function (str) {
     // (traditional)->  space/name     parameters    body     (lambda)-> parameters       body   multi-statement/single          keep body content
     .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
-  var match1 = str.match(/^\n?( *)/);
-  var spaces = match1 ? match1[1].length : 0;
-  var match2 = str.match(/^\n?(\t*)/);
-  var tabs = match2 ? match2[1].length : 0;
+  var spaces = str.match(/^\n?( *)/)[1].length;
+  var tabs = str.match(/^\n?(\t*)/)[1].length;
   var re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
   str = str.replace(re, '');
@@ -262,7 +170,7 @@ exports.parseQuery = function (qs) {
  * @param {string} js
  * @return {string}
  */
-function highlight(js) {
+function highlight (js) {
   return js
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -301,7 +209,7 @@ exports.highlightTags = function (name) {
  * @param {string} typeHint The type of the value
  * @returns {string}
  */
-function emptyRepresentation(value, typeHint) {
+function emptyRepresentation (value, typeHint) {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -335,7 +243,7 @@ function emptyRepresentation(value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-var type = exports.type = function type(value) {
+var type = exports.type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -405,7 +313,7 @@ exports.stringify = function (value) {
  * @param {number=} depth
  * @returns {*}
  */
-function jsonStringify(object, spaces, depth) {
+function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
     // primitive types
     return _stringify(object);
@@ -417,11 +325,11 @@ function jsonStringify(object, spaces, depth) {
   var end = Array.isArray(object) ? ']' : '}';
   var length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
-  function repeat(s, n) {
+  function repeat (s, n) {
     return new Array(n).join(s);
   }
 
-  function _stringify(val) {
+  function _stringify (val) {
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -474,14 +382,6 @@ function jsonStringify(object, spaces, depth) {
 }
 
 /**
- * Canonicalize options.
- *
- * @typedef {Object} CanonicalizeOptions
- * @property {Array} [stack=[]] Stack of seen values
- * @property {string} [typeHint] Type hint
- */
-
-/**
  * Return a new Thing that has the keys in sorted order. Recursive.
  *
  * If the Thing...
@@ -496,21 +396,23 @@ function jsonStringify(object, spaces, depth) {
  * @api private
  * @see {@link exports.stringify}
  * @param {*} value Thing to inspect.  May or may not have properties.
- * @param {CanonicalizeOptions} [opts] Canonicalization options
+ * @param {Array} [stack=[]] Stack of seen values
+ * @param {string} [typeHint] Type hint
  * @return {(Object|Array|Function|string|undefined)}
  */
-exports.canonicalize = function canonicalize(value, opts) {
+exports.canonicalize = function canonicalize (value, stack, typeHint) {
   var canonicalizedObj;
   /* eslint-disable no-unused-vars */
   var prop;
   /* eslint-enable no-unused-vars */
-  var stack = opts && opts.stack ? opts.stack.slice() : [];
-  var typeHint = opts && opts.typeHint ? opts.typeHint : type(value);
-  function withStack(value, fn) {
+  typeHint = typeHint || type(value);
+  function withStack (value, fn) {
     stack.push(value);
     fn();
     stack.pop();
   }
+
+  stack = stack || [];
 
   if (stack.indexOf(value) !== -1) {
     return '[Circular]';
@@ -525,7 +427,7 @@ exports.canonicalize = function canonicalize(value, opts) {
     case 'array':
       withStack(value, function () {
         canonicalizedObj = value.map(function (item) {
-          return exports.canonicalize(item, { stack: stack });
+          return exports.canonicalize(item, stack);
         });
       });
       break;
@@ -545,7 +447,7 @@ exports.canonicalize = function canonicalize(value, opts) {
       canonicalizedObj = canonicalizedObj || {};
       withStack(value, function () {
         Object.keys(value).sort().forEach(function (key) {
-          canonicalizedObj[key] = exports.canonicalize(value[key], { stack: stack });
+          canonicalizedObj[key] = exports.canonicalize(value[key], stack);
         });
       });
       break;
@@ -561,6 +463,64 @@ exports.canonicalize = function canonicalize(value, opts) {
   }
 
   return canonicalizedObj;
+};
+
+/**
+ * Lookup file names at the given `path`.
+ *
+ * @api public
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
+ */
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  var files = [];
+
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      path += '.js';
+    } else {
+      files = glob.sync(path);
+      if (!files.length) {
+        throw new Error("cannot resolve path (or pattern) '" + path + "'");
+      }
+      return files;
+    }
+  }
+
+  try {
+    var stat = statSync(path);
+    if (stat.isFile()) {
+      return path;
+    }
+  } catch (err) {
+    // ignore error
+    return;
+  }
+
+  readdirSync(path).forEach(function (file) {
+    file = join(path, file);
+    try {
+      var stat = statSync(file);
+      if (stat.isDirectory()) {
+        if (recursive) {
+          files = files.concat(lookupFiles(file, extensions, recursive));
+        }
+        return;
+      }
+    } catch (err) {
+      // ignore error
+      return;
+    }
+    var re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
+    }
+    files.push(file);
+  });
+
+  return files;
 };
 
 /**
@@ -607,14 +567,14 @@ exports.stackTraceFilter = function () {
     slash = '/';
   }
 
-  function isMochaInternal(line) {
+  function isMochaInternal (line) {
     return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
       (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
       (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
       (~line.indexOf(slash + 'mocha.js'));
   }
 
-  function isNodeInternal(line) {
+  function isNodeInternal (line) {
     return (~line.indexOf('(timers.js:')) ||
       (~line.indexOf('(events.js:')) ||
       (~line.indexOf('(node.js:')) ||
@@ -654,7 +614,7 @@ exports.stackTraceFilter = function () {
  * @param {*} value
  * @returns {boolean} Whether or not `value` is a Promise
  */
-exports.isPromise = function isPromise(value) {
+exports.isPromise = function isPromise (value) {
   return typeof value === 'object' && typeof value.then === 'function';
 };
 

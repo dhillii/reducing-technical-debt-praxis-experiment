@@ -1,3 +1,11 @@
+'use strict';
+
+/**
+ * @file ActionMethod like restart, stop, monitor... are here
+ * @author Alexandre Strzelewicz <as@unitech.io>
+ * @project PM2
+ */
+
 var fs            = require('fs');
 var path          = require('path');
 var eachLimit     = require('async/eachLimit');
@@ -30,38 +38,33 @@ module.exports = function(God) {
       .map(getProcessId);
 
     if (pids.length === 0) {
-      return cb(null, processes.map(fillEmptyMonitorData));
+      return cb(null, processes.map(emptyMonit));
     }
 
     pidusage(pids, function retPidUsage(err, statistics) {
       if (err) {
         console.error('Error caught while calling pidusage');
         console.error(err);
-        return cb(null, processes.map(fillEmptyMonitorData));
+        return cb(null, processes.map(emptyMonit));
       }
 
       if (!statistics) {
         console.error('Statistics is not defined!');
-        return cb(null, processes.map(fillEmptyMonitorData));
+        return cb(null, processes.map(emptyMonit));
       }
 
       processes = processes.map(function(pro) {
-        if (!filterBadProcess(pro)) {
-          return fillEmptyMonitorData(pro);
-        }
+        if (filterBadProcess(pro) === false) return emptyMonitPro(pro);
 
         var pid = getProcessId(pro);
         var stat = statistics[pid];
 
-        if (!stat) {
-          return fillEmptyMonitorData(pro);
-        }
+        if (!stat) return emptyMonitPro(pro);
 
-        pro['monit'] = {
+        pro.monit = {
           memory: stat.memory,
           cpu: Math.round(stat.cpu * 10) / 10
         };
-
         return pro;
       });
 
@@ -88,7 +91,7 @@ module.exports = function(God) {
     function fin(err) {
       if (process_list.length === 0) {
         if (!fs.existsSync(cst.DUMP_FILE_PATH) && typeof that.clearDump === 'function') {
-          that.clearDump(function(){});
+          that.clearDump(function() {});
         }
         return cb(null, {success:true, process_list: process_list});
       }
@@ -126,6 +129,7 @@ module.exports = function(God) {
       apps.shift();
       return saveProc(apps);
     }
+
     saveProc(apps);
   };
 
@@ -156,20 +160,17 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.duplicateProcessId = function(id, cb) {
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
-    }
 
-    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env) {
+    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
-    }
 
     var proc = Utility.clone(God.clusters_db[id].pm2_env);
 
     delete proc.created_at;
     delete proc.pm_id;
     delete proc.unique_id;
-
     proc.unique_id = Utility.generateUUID();
 
     God.injectVariables(proc, function inject (_err, proc) {
@@ -189,23 +190,19 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.startProcessId = function(id, cb) {
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
-    }
 
     var proc = God.clusters_db[id];
 
-    if (proc.pm2_env.status == cst.ONLINE_STATUS) {
+    if (proc.pm2_env.status == cst.ONLINE_STATUS)
       return cb(God.logAndGenerateError('process already online'), {});
-    }
-    if (proc.pm2_env.status == cst.LAUNCHING_STATUS) {
+    if (proc.pm2_env.status == cst.LAUNCHING_STATUS)
       return cb(God.logAndGenerateError('process already started'), {});
-    }
-    if (proc.process && proc.process.pid) {
+    if (proc.process && proc.process.pid)
       return cb(God.logAndGenerateError('Process with pid ' + proc.process.pid + ' already exists'), {});
-    }
 
-    return God.executeApp(God.clusters_db[id].pm2_env, function(err, proc) {
+    return God.executeApp(proc.pm2_env, function(err, proc) {
       return cb(err, Utility.clone(proc));
     });
   };
@@ -218,13 +215,11 @@ module.exports = function(God) {
    * @return Literal
    */
   God.stopProcessId = function(id, cb) {
-    if (typeof id == 'object' && 'id' in id) {
+    if (typeof id == 'object' && 'id' in id)
       id = id.id;
-    }
 
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' : id unknown'), {});
-    }
 
     var proc     = God.clusters_db[id];
 
@@ -234,9 +229,8 @@ module.exports = function(God) {
       proc.process.pid = 0;
       return cb(null, God.getFormatedProcess(id));
     }
-    if (proc.state && proc.state === 'none') {
+    if (proc.state && proc.state === 'none')
       return setTimeout(function() { God.stopProcessId(id, cb); }, 250);
-    }
 
     console.log('Stopping app:%s id:%s', proc.pm2_env.name, proc.pm2_env.pm_id);
     proc.pm2_env.status = cst.STOPPING_STATUS;
@@ -261,9 +255,7 @@ module.exports = function(God) {
       }
 
       if (proc.pm2_env.pm_id.toString().indexOf('_old_') !== 0) {
-        try {
-          fs.unlinkSync(proc.pm2_env.pm_pid_path);
-        } catch (e) {}
+        try { fs.unlinkSync(proc.pm2_env.pm_pid_path); } catch (e) {}
       }
 
       proc.pm2_env.axm_actions = [];
@@ -274,13 +266,11 @@ module.exports = function(God) {
   };
 
   God.resetMetaProcessId = function(id, cb) {
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
-    }
 
-    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env) {
+    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
-    }
 
     God.clusters_db[id].pm2_env.created_at = Utility.getDate();
     God.clusters_db[id].pm2_env.unstable_restarts = 0;
@@ -304,9 +294,7 @@ module.exports = function(God) {
       if (err) return cb(God.logAndGenerateError(err), {});
       delete God.clusters_db[id];
 
-      if (Object.keys(God.clusters_db).length == 0) {
-        God.next_id = 0;
-      }
+      if (Object.keys(God.clusters_db).length == 0) God.next_id = 0;
       return cb(null, proc);
     });
     return false;
@@ -325,18 +313,20 @@ module.exports = function(God) {
     var id = opts.id;
     var env = opts.env || {};
 
-    if (typeof(id) === 'undefined') {
+    if (typeof(id) === 'undefined')
       return cb(God.logAndGenerateError('opts.id not passed to restartProcessId', opts));
-    }
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError('God db process id unknown'), {});
-    }
 
     var proc = God.clusters_db[id];
 
     God.resetState(proc.pm2_env);
     God.deleteCron(id);
 
+    /**
+     * Merge new application configuration on restart
+     * Same system in reloadProcessId and softReloadProcessId
+     */
     Utility.extend(proc.pm2_env.env, env);
     Utility.extendExtraConfig(proc, opts);
 
@@ -346,15 +336,15 @@ module.exports = function(God) {
 
     if (proc.pm2_env.status === cst.ONLINE_STATUS || proc.pm2_env.status === cst.LAUNCHING_STATUS) {
       God.stopProcessId(id, function(err) {
-        if (God.pm2_being_killed) {
+        if (God.pm2_being_killed)
           return cb(God.logAndGenerateError('[RestartProcessId] PM2 is being killed, stopping restart procedure...'));
-        }
         proc.pm2_env.restart_time += 1;
         return God.startProcessId(id, cb);
       });
 
       return false;
-    } else {
+    }
+    else {
       debug('[restart] process not online, starting it');
       return God.startProcessId(id, cb);
     }
@@ -370,14 +360,13 @@ module.exports = function(God) {
   God.restartProcessName = function(name, cb) {
     var processes = God.findByName(name);
 
-    if (processes && processes.length === 0) {
+    if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process'), {});
-    }
 
     eachLimit(processes, cst.CONCURRENT_ACTIONS, function(proc, next) {
-      if (God.pm2_being_killed) {
+      if (God.pm2_being_killed)
         return next('[Watch] PM2 is being killed, stopping restart procedure...');
-      }
+
       if (proc.pm2_env.status === cst.ONLINE_STATUS) {
         return God.restartProcessId({id:proc.pm2_env.pm_id}, next);
       } else if (proc.pm2_env.status !== cst.STOPPING_STATUS
@@ -405,12 +394,13 @@ module.exports = function(God) {
     var id = opts.process_id;
     var signal = opts.signal;
 
-    if (!(id in God.clusters_db)) {
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
-    }
+
+    var proc = God.clusters_db[id];
 
     try {
-      process.kill(God.clusters_db[id].process.pid, signal);
+      process.kill(proc.process.pid, signal);
     } catch(e) {
       return cb(God.logAndGenerateError('Error when sending signal (signal unknown)'), {});
     }
@@ -428,9 +418,8 @@ module.exports = function(God) {
     var processes = God.findByName(opts.process_name);
     var signal    = opts.signal;
 
-    if (processes && processes.length === 0) {
+    if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process name'), {});
-    }
 
     eachLimit(processes, cst.CONCURRENT_ACTIONS, function(proc, next) {
       if (proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS) {
@@ -456,16 +445,16 @@ module.exports = function(God) {
    * @return
    */
   God.stopWatch = function(method, value, fn) {
-    var env = null;
-
     if (method == 'stopAll' || method == 'deleteAll') {
       var processes = God.getFormatedProcesses();
 
       processes.forEach(function(proc) {
         God.clusters_db[proc.pm_id].pm2_env.watch = false;
-        God.watch.disable(proc.pm2_env);
+        God.watch.disable(God.clusters_db[proc.pm_id].pm2_env);
       });
     } else {
+      var env = null;
+
       if (method.indexOf('ProcessId') !== -1) {
         env = God.clusters_db[value];
       } else if (method.indexOf('ProcessName') !== -1) {
@@ -473,8 +462,8 @@ module.exports = function(God) {
       }
 
       if (env) {
-        God.watch.disable(env.pm2_env);
         env.pm2_env.watch = false;
+        God.watch.disable(env.pm2_env);
       }
     }
     return fn(null, {success:true});
@@ -498,11 +487,10 @@ module.exports = function(God) {
 
     if (env) {
       env.pm2_env.watch = !env.pm2_env.watch;
-      if (env.pm2_env.watch) {
+      if (env.pm2_env.watch)
         God.watch.enable(env.pm2_env);
-      } else {
+      else
         God.watch.disable(env.pm2_env);
-      }
     }
 
     return fn(null, {success:true});
@@ -525,12 +513,10 @@ module.exports = function(God) {
     }
 
     if (env) {
-      if (env.pm2_env.watch) {
+      if (env.pm2_env.watch)
         return fn(null, {success:true, notrestarted:true});
-      }
-
-      God.watch.enable(env.pm2_env);
       env.pm2_env.watch = true;
+      God.watch.enable(env.pm2_env);
     }
 
     return fn(null, {success:true});
@@ -555,9 +541,7 @@ module.exports = function(God) {
       if (cluster && cluster.pm2_env) {
         if (cluster.send && cluster.pm2_env.exec_mode == 'cluster_mode') {
           try {
-            cluster.send({
-              type:'log:reload'
-            });
+            cluster.send({ type:'log:reload' });
           } catch(e) {
             console.error(e.message || e);
           }
@@ -580,33 +564,23 @@ module.exports = function(God) {
    * @param String line  Line to send to process stdin
    */
   God.sendLineToStdin = function(packet, cb) {
-    if (typeof(packet.pm_id) == 'undefined' || !packet.line) {
+    if (typeof(packet.pm_id) == 'undefined' || !packet.line)
       return cb(God.logAndGenerateError('pm_id or line field missing'), {});
-    }
 
     var pm_id = packet.pm_id;
     var line  = packet.line;
-
     var proc = God.clusters_db[pm_id];
 
-    if (!proc) {
+    if (!proc)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
-    }
-
-    if (proc.pm2_env.exec_mode == 'cluster_mode') {
+    if (proc.pm2_env.exec_mode == 'cluster_mode')
       return cb(God.logAndGenerateError('Cannot send line to processes in cluster mode'), {});
-    }
-
-    if (proc.pm2_env.status != cst.ONLINE_STATUS && proc.pm2_env.status != cst.LAUNCHING_STATUS) {
+    if (proc.pm2_env.status != cst.ONLINE_STATUS && proc.pm2_env.status != cst.LAUNCHING_STATUS)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
-    }
 
     try {
       proc.stdin.write(line, function() {
-        return cb(null, {
-          pm_id : pm_id,
-          line : line
-        });
+        return cb(null, { pm_id : pm_id, line : line });
       });
     } catch(e) {
       return cb(God.logAndGenerateError(e), {});
@@ -620,33 +594,25 @@ module.exports = function(God) {
   God.sendDataToProcessId = function(packet, cb) {
     if (typeof(packet.id) == 'undefined' ||
         typeof(packet.data) == 'undefined' ||
-        !packet.topic) {
+        !packet.topic)
       return cb(God.logAndGenerateError('ID, DATA or TOPIC field is missing'), {});
-    }
 
     var pm_id = packet.id;
-    var data  = packet.data;
-
     var proc = God.clusters_db[pm_id];
 
-    if (!proc) {
+    if (!proc)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
-    }
-
-    if (proc.pm2_env.status != cst.ONLINE_STATUS && proc.pm2_env.status != cst.LAUNCHING_STATUS) {
+    if (proc.pm2_env.status != cst.ONLINE_STATUS && proc.pm2_env.status != cst.LAUNCHING_STATUS)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
-    }
 
     try {
       proc.send(packet);
-    } catch(e) {
+    }
+    catch(e) {
       return cb(God.logAndGenerateError(e), {});
     }
 
-    return cb(null, {
-      success: true,
-      data   : packet
-    });
+    return cb(null, { success: true, data   : packet });
   };
 
   /**
@@ -659,9 +625,8 @@ module.exports = function(God) {
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
       var id = cmd.id;
-      if (!(id in God.clusters_db)) {
+      if (!(id in God.clusters_db))
         return cb(God.logAndGenerateError(id + ' id unknown'), {});
-      }
       var proc = God.clusters_db[id];
 
       var action_exist = false;
@@ -672,33 +637,29 @@ module.exports = function(God) {
           action.output = [];
         }
       });
-
       if (action_exist == false) {
         return cb(God.logAndGenerateError('Action doesn\'t exist ' + cmd.msg + ' for ' + proc.pm2_env.name), {});
       }
 
       if (proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS) {
-        if (cmd.opts == null && !cmd.uuid) {
+        if (cmd.opts == null && !cmd.uuid)
           proc.send(cmd.msg);
-        } else {
+        else
           proc.send(cmd);
-        }
-
         return cb(null, { process_count : 1, success : true });
-      } else {
-        return cb(God.logAndGenerateError(id + ' : id offline'), {});
       }
-    } else if ('name' in cmd) {
+      else
+        return cb(God.logAndGenerateError(id + ' : id offline'), {});
+    }
+
+    else if ('name' in cmd) {
       var name = cmd.name;
       var arr = Object.keys(God.clusters_db);
       var sent = 0;
 
       (function ex(arr) {
         if (arr[0] == null || !arr) {
-          return cb(null, {
-            process_count : sent,
-            success : true
-          });
+          return cb(null, { process_count : sent, success : true });
         }
 
         var id = arr[0];
@@ -709,7 +670,6 @@ module.exports = function(God) {
         }
 
         var proc_env = God.clusters_db[id].pm2_env;
-
         const isActionAvailable = proc_env.axm_actions.find(action => action.action_name === cmd.msg) !== undefined;
 
         if (isActionAvailable === false) {
@@ -724,36 +684,33 @@ module.exports = function(God) {
             (proc_env.status == cst.ONLINE_STATUS ||
              proc_env.status == cst.LAUNCHING_STATUS)) {
 
-          var action_exist_local = false;
-
+          var action_found = false;
           proc_env.axm_actions.forEach(function(action) {
-            if (action.action_name == cmd.msg) {
-              action_exist_local = true;
-            }
+            if (action.action_name == cmd.msg) action_found = true;
           });
 
-          if (action_exist_local == false || proc_env.axm_actions.length == 0) {
+          if (action_found === false || proc_env.axm_actions.length === 0) {
             arr.shift();
             return ex(arr);
           }
 
-          if (cmd.opts == null) {
+          if (cmd.opts == null)
             God.clusters_db[id].send(cmd.msg);
-          } else {
+          else
             God.clusters_db[id].send(cmd);
-          }
 
           sent++;
           arr.shift();
           return ex(arr);
-        } else {
+        }
+        else {
           arr.shift();
           return ex(arr);
         }
       })(arr);
-    } else {
-      return cb(God.logAndGenerateError('method requires name or id field'), {});
     }
+
+    else return cb(God.logAndGenerateError('method requires name or id field'), {});
     return false;
   };
 
@@ -771,18 +728,16 @@ module.exports = function(God) {
   };
 
   God.monitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) {
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
       return cb(new Error('Unknown pm_id'));
-    }
 
     God.clusters_db[pm_id].pm2_env._km_monitored = true;
     return cb(null, { success : true, pm_id : pm_id });
   };
 
   God.unmonitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) {
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
       return cb(new Error('Unknown pm_id'));
-    }
 
     God.clusters_db[pm_id].pm2_env._km_monitored = false;
     return cb(null, { success : true, pm_id : pm_id });
@@ -813,34 +768,44 @@ module.exports = function(God) {
   };
 };
 
+/**
+ * @param {Object} pro
+ * @returns {boolean}
+ */
 function filterBadProcess(pro) {
-  if (pro.pm2_env.status !== cst.ONLINE_STATUS) {
-    return false;
-  }
-
+  if (pro.pm2_env.status !== cst.ONLINE_STATUS) return false;
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
-    if (isNaN(pro.pm2_env.axm_options.pid))  {
-      return false;
-    }
+    if (isNaN(pro.pm2_env.axm_options.pid)) return false;
   }
-
   return true;
 }
 
+/**
+ * @param {Object} pro
+ * @returns {number|string}
+ */
 function getProcessId(pro) {
   var pid = pro.pid;
-
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
     pid = pro.pm2_env.axm_options.pid;
   }
-
   return pid;
 }
 
-function fillEmptyMonitorData(pro) {
-  pro['monit'] = {
-    memory : 0,
-    cpu : 0
-  };
+/**
+ * @param {Object} pro
+ * @returns {Object}
+ */
+function emptyMonit(pro) {
+  pro.monit = { memory : 0, cpu : 0 };
+  return pro;
+}
+
+/**
+ * @param {Object} pro
+ * @returns {Object}
+ */
+function emptyMonitPro(pro) {
+  pro.monit = { memory : 0, cpu : 0 };
   return pro;
 }

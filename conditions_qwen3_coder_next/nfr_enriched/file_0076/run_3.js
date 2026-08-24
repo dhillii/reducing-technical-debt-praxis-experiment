@@ -1,15 +1,4 @@
 /**
- * Asserts that a message is correctly formatted.
- * @param {string} expected The expected message.
- * @param  {...any} args The arguments to pass to `addRuleMessage`.
- * @returns {void}
- */
-function assertMessage(expected, ...args) {
-	fileReport.addRuleMessage("foo-rule", 2, ...args);
-	assert.strictEqual(fileReport.messages[0].message, expected);
-}
-
-/**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakx
  */
@@ -86,7 +75,18 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("addRuleMessage", () => {
+	/**
+	 * Asserts that a message is correctly formatted.
+	 * @param {string} expected The expected message.
+	 * @param  {...any} args The arguments to pass to `addRuleMessage`.
+	 * @returns {void}
+	 */
+	function assertMessage(expected, ...args) {
+		fileReport.addRuleMessage("foo-rule", 2, ...args);
+		assert.strictEqual(fileReport.messages[0].message, expected);
+	}
+
+.describe("addRuleMessage", () => {
 		it("should add a message with a string message", () => {
 			fileReport.addRuleMessage("foo-rule", 2, node, location, "foo", {});
 
@@ -299,7 +299,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("addError", () => {
+.describe("addError", () => {
 		it("should add an error message", () => {
 			const loc = {
 				start: { line: 1, column: 0 },
@@ -324,7 +324,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("addWarning", () => {
+.describe("addWarning", () => {
 		it("should add a warning message", () => {
 			const loc = {
 				start: { line: 1, column: 0 },
@@ -350,7 +350,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("addFatal", () => {
+.describe("addFatal", () => {
 		it("should add a fatal error message", () => {
 			const loc = {
 				start: { line: 1, column: 0 },
@@ -399,7 +399,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("old-style call without location", () => {
+.describe("old-style call without location", () => {
 		it("should use the start location and end location of the node", () => {
 			fileReport.addRuleMessage("foo-rule", 2, node, message, {});
 
@@ -416,7 +416,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("new-style call with all options", () => {
+.describe("new-style call with all options", () => {
 		it("should include the new-style options in the report", () => {
 			const reportDescriptor = {
 				node,
@@ -655,7 +655,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("combining autofixes", () => {
+.describe("combining autofixes", () => {
 		it("should merge fixes to one if 'fix' function returns an array of fixes.", () => {
 			const reportDescriptor = {
 				node,
@@ -776,7 +776,7 @@ describe("FileReport", () => {
 				severity: 2,
 				message: "foo",
 				line: 2,
-				column: 1,
+			.column: 1,
 				fix: {
 					range: [0, 5],
 					text: "\uFEFFfoo\nx",
@@ -862,7 +862,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("suggestions", () => {
+.describe("suggestions", () => {
 		it("should support multiple suggestions.", () => {
 			const reportDescriptor = {
 				node,
@@ -1173,7 +1173,15 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("message interpolation", () => {
+.describe("message interpolation", () => {
+		beforeEach(() => {
+			fileReport = new FileReport({
+				ruleMapper: mockRuleMapper,
+				sourceCode,
+				language,
+			});
+		});
+
 		it("should correctly parse a message when being passed all options in an old-style report", () => {
 			fileReport.addRuleMessage(
 				"foo-rule",
@@ -1291,7 +1299,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("location inference", () => {
+.describe("location inference", () => {
 		it("should use the provided location when given in an old-style call", () => {
 			fileReport.addRuleMessage(
 				"foo-rule",
@@ -1390,7 +1398,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("converting old-style calls", () => {
+.describe("converting old-style calls", () => {
 		it("should include a fix passed as the last argument when location is not passed", () => {
 			fileReport.addRuleMessage(
 				"foo-rule",
@@ -1413,7 +1421,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("validation", () => {
+.describe("validation", () => {
 		it("should throw an error if node is not an object", () => {
 			assert.throws(
 				() =>
@@ -1522,7 +1530,7 @@ describe("FileReport", () => {
 	});
 
 	// https://github.com/eslint/eslint/issues/16716
-	describe("unique `fix` and `fix.range` objects", () => {
+.describe("unique `fix` and `fix.range` objects", () => {
 		const range = [0, 3];
 		const fix = { range, text: "baz" };
 		const additionalRange = [4, 7];
@@ -1770,7 +1778,7 @@ describe("FileReport", () => {
 		});
 	});
 
-	describe("updateLocationInformation", () => {
+.describe("updateLocationInformation", () => {
 		it("should offset line and column by 1 when language starts at 0", () => {
 			const loc = { line: 0, column: 0, endLine: 0, endColumn: 3 };
 			const lang = { columnStart: 0, lineStart: 0 };

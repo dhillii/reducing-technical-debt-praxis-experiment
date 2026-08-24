@@ -34,7 +34,7 @@ type Validation = {
 }
 
 /**
- * Validates the given numeric field value against specified constraints.
+ * Validates the given numeric value against field constraints.
  * Returns an error message if validation fails, or undefined if valid.
  */
 function validate_(
@@ -58,7 +58,7 @@ function validate_(
 }
 
 /**
- * Creates and configures a field controller instance for integer-type fields.
+ * Creates and configures a field controller for integer fields.
  */
 export function controller(
   config: FieldControllerConfig<{
@@ -204,8 +204,8 @@ export function controller(
 }
 
 /**
- * Renders the primary editing UI for an integer field.
- * Uses immutable props when possible to improve predictability and safety.
+ * Renders the UI for an integer field.
+ * Props are marked read-only to prevent mutation.
  */
 export function Field({
   field,
@@ -219,50 +219,51 @@ export function Field({
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
   if (field.hasAutoIncrementDefault && value.kind === 'create') {
-    return renderAutoIncrementField(field)
+    return (
+      <NumberField
+        autoFocus={autoFocus}
+        description={field.description}
+        label={field.label}
+        isReadOnly
+        contextualHelp={
+          <ContextualHelp>
+            <Heading>Auto increment</Heading>
+            <Content>
+              <Text>
+                This field is set to auto increment. It will default to the next available number.
+              </Text>
+            </Content>
+          </ContextualHelp>
+        }
+      />
+    )
   }
 
-  const validate = (val: Value) =>
-    validate_(val, field.validation, isRequired, field.label, field.hasAutoIncrementDefault)
+  /**
+   * Validates the current field value using field metadata.
+   */
+  function validateField(value: Value): string | undefined {
+    return validate_(
+      value,
+      field.validation,
+      isRequired,
+      field.label,
+      field.hasAutoIncrementDefault
+    )
+  }
 
   return (
     <NumberField
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
+      errorMessage={(forceValidation || isDirty) && validateField(value)}
       isReadOnly={isReadOnly}
       isRequired={isRequired}
       width="alias.singleLineWidth"
       onBlur={() => setDirty(true)}
       onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
       value={value.value ?? NaN}
-    />
-  )
-}
-
-/**
- * Renders a read-only NumberField for auto-increment fields.
- */
-function renderAutoIncrementField(field: {
-  description?: string
-  label: string
-}): JSX.Element {
-  return (
-    <NumberField
-      description={field.description}
-      label={field.label}
-      isReadOnly
-      contextualHelp={
-        <ContextualHelp>
-          <Heading>Auto increment</Heading>
-          <Content>
-            <Text>
-              This field is set to auto increment. It will default to the next available number.
-            </Text>
-          </Content>
-        </ContextualHelp>
-      }
     />
   )
 }

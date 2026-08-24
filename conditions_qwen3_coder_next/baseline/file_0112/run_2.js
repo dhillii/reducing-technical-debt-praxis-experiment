@@ -12,6 +12,7 @@ const util = require('util');
 const utils = require('./utils');
 const validatorErrorSymbol = require('./helpers/symbols').validatorErrorSymbol;
 const documentIsModified = require('./helpers/symbols').documentIsModified;
+
 const populateModelSymbol = require('./helpers/symbols').populateModelSymbol;
 
 const CastError = MongooseError.CastError;
@@ -30,16 +31,17 @@ function SchemaType(path, options, instance) {
   this.splitPath();
 
   options = options || {};
-  this._applyDefaultOptions(options);
-  this._prepareOptions(options);
-  this._setupImmutable(options);
-  this._processOptions(options);
-}
-
-SchemaType.prototype._applyDefaultOptions = function(options) {
   const defaultOptions = this.constructor.defaultOptions || {};
   const defaultOptionsKeys = Object.keys(defaultOptions);
 
+  this._applyDefaultOptions(options, defaultOptions, defaultOptionsKeys);
+  this._processSelectOption(options);
+  this._initializeOptions(options);
+  this._setupImmutable(options);
+  this._processOptions(properties => this.options, properties => this._processIndex(properties), properties => this._processCast(properties), properties => this._processPropertyOverrides(properties));
+}
+
+SchemaType.prototype._applyDefaultOptions = function(options, defaultOptions, defaultOptionsKeys) {
   for (const option of defaultOptionsKeys) {
     if (defaultOptions.hasOwnProperty(option) && !options.hasOwnProperty(option)) {
       options[option] = defaultOptions[option];
@@ -47,11 +49,13 @@ SchemaType.prototype._applyDefaultOptions = function(options) {
   }
 };
 
-SchemaType.prototype._prepareOptions = function(options) {
+SchemaType.prototype._processSelectOption = function(options) {
   if (options.select == null) {
     delete options.select;
   }
+};
 
+SchemaType.prototype._initializeOptions = function(options) {
   const Options = this.OptionsConstructor || SchemaTypeOptions;
   this.options = new Options(options);
   this._index = null;
@@ -64,49 +68,63 @@ SchemaType.prototype._setupImmutable = function(options) {
   }
 };
 
-SchemaType.prototype._processOptions = function(options) {
+SchemaType.prototype._processOptions = function(...processors) {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
-    if (prop === 'cast') {
-      this.castFunction(this.options[prop]);
-      continue;
-    }
-    if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
-      this._processOption(prop, options[prop]);
+    for (const processor of processors) {
+      if (processor(prop)) {
+        break;
+      }
     }
   }
 };
 
-SchemaType.prototype._processOption = function(prop, val) {
-  if (prop === 'index' && this._index) {
-    this._handleIndexFalse(val);
-    return;
+SchemaType.prototype._processIndex = function(prop) {
+  if (prop !== 'index') {
+    return false;
   }
+  const val = this.options[prop];
+  if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
+    if (this._index) {
+      if (typeof this._index === 'object' && this._index != null) {
+        if (val === false) {
+          if (this._index.unique) {
+            throw new Error('Path "' + this.path + '" may not have `index` ' +
+              'set to false and `unique` set to true');
+          }
+          if (this._index.sparse) {
+            throw new Error('Path "' + this.path + '" may not have `index` ' +
+              'set to false and `sparse` set to true');
+          }
+          this._index = false;
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+};
 
+SchemaType.prototype._processCast = function(prop) {
+  if (prop === 'cast') {
+    this.castFunction(this.options[prop]);
+    return true;
+  }
+  return false;
+};
+
+SchemaType.prototype._processPropertyOverrides = function(prop) {
+  if (!utils.hasUserDefinedProperty(this.options, prop) || typeof this[prop] !== 'function') {
+    return false;
+  }
+  const val = this.options[prop];
   if (prop === 'default') {
     this.default(val);
-    return;
+    return true;
   }
-
   const opts = Array.isArray(val) ? val : [val];
   this[prop].apply(this, opts);
-};
-
-SchemaType.prototype._handleIndexFalse = function(val) {
-  if (val === false) {
-    const index = this._index;
-    if (typeof index === 'object' && index != null) {
-      if (index.unique) {
-        throw new Error('Path "' + this.path + '" may not have `index` ' +
-          'set to false and `unique` set to true');
-      }
-      if (index.sparse) {
-        throw new Error('Path "' + this.path + '" may not have `index` ' +
-          'set to false and `sparse` set to true');
-      }
-    }
-    this._index = false;
-  }
+  return true;
 };
 
 SchemaType.prototype.OptionsConstructor = SchemaTypeOptions;
@@ -118,7 +136,6 @@ SchemaType.prototype.splitPath = function() {
   if (this.path == null) {
     return undefined;
   }
-
   this._presplitPath = this.path.indexOf('.') === -1 ? [this.path] : this.path.split('.');
   return this._presplitPath;
 };
@@ -266,14 +283,35 @@ SchemaType.prototype.get = function(fn) {
 
 SchemaType.prototype.validate = function(obj, message, type) {
   if (typeof obj === 'function' || obj && utils.getFunctionName(obj.constructor) === 'RegExp') {
-    this._addValidator(obj, message, type);
+    let properties;
+    if (typeof message === 'function') {
+      properties = { validator: obj, message: message };
+      properties.type = type || 'user defined';
+    } else if (message instanceof Object && !type) {
+      properties = utils.clone(message);
+      if (!properties.message) {
+        properties.message = properties.msg;
+      }
+      properties.validator = obj;
+      properties.type = properties.type || 'user defined';
+    } else {
+      if (message == null) {
+        message = MongooseError.messages.general.default;
+      }
+      if (!type) {
+        type = 'user defined';
+      }
+      properties = { message: message, type: type, validator: obj };
+    }
+    if (properties.isAsync) {
+      handleIsAsync();
+    }
+    this.validators.push(properties);
     return this;
   }
-
   let i;
   let length;
   let arg;
-
   for (i = 0, length = arguments.length; i < length; i++) {
     arg = arguments[i];
     if (!utils.isPOJO(arg)) {
@@ -285,37 +323,7 @@ SchemaType.prototype.validate = function(obj, message, type) {
     }
     this.validate(arg.validator, arg);
   }
-
   return this;
-};
-
-SchemaType.prototype._addValidator = function(validator, message, type) {
-  let properties;
-  if (typeof message === 'function') {
-    properties = { validator: validator, message: message };
-    properties.type = type || 'user defined';
-  } else if (message instanceof Object && !type) {
-    properties = utils.clone(message);
-    if (!properties.message) {
-      properties.message = properties.msg;
-    }
-    properties.validator = validator;
-    properties.type = properties.type || 'user defined';
-  } else {
-    if (message == null) {
-      message = MongooseError.messages.general.default;
-    }
-    if (!type) {
-      type = 'user defined';
-    }
-    properties = { message: message, type: type, validator: validator };
-  }
-
-  if (properties.isAsync) {
-    handleIsAsync();
-  }
-
-  this.validators.push(properties);
 };
 
 const handleIsAsync = util.deprecate(function handleIsAsync() {},
@@ -325,37 +333,34 @@ const handleIsAsync = util.deprecate(function handleIsAsync() {},
 
 SchemaType.prototype.required = function(required, message) {
   let customOptions = {};
-
   if (arguments.length > 0 && required == null) {
-    this._removeRequiredValidator();
+    this.validators = this.validators.filter(function(v) {
+      return v.validator !== this.requiredValidator;
+    }, this);
     this.isRequired = false;
     delete this.originalRequiredValue;
     return this;
   }
-
   if (typeof required === 'object') {
     customOptions = required;
     message = customOptions.message || message;
     required = required.isRequired;
   }
-
   if (required === false) {
-    this._removeRequiredValidator();
+    this.validators = this.validators.filter(function(v) {
+      return v.validator !== this.requiredValidator;
+    }, this);
     this.isRequired = false;
     delete this.originalRequiredValue;
     return this;
   }
-
   const _this = this;
   this.isRequired = true;
-
   this.requiredValidator = function(v) {
     const cachedRequired = get(this, '$__.cachedRequired');
-
     if (cachedRequired != null && !this.$__isSelected(_this.path) && !this[documentIsModified](_this.path)) {
       return true;
     }
-
     if (cachedRequired != null && _this.path in cachedRequired) {
       const res = cachedRequired[_this.path] ?
         _this.checkRequired(v, this) :
@@ -365,30 +370,20 @@ SchemaType.prototype.required = function(required, message) {
     } else if (typeof required === 'function') {
       return required.apply(this) ? _this.checkRequired(v, this) : true;
     }
-
     return _this.checkRequired(v, this);
   };
   this.originalRequiredValue = required;
-
   if (typeof required === 'string') {
     message = required;
     required = undefined;
   }
-
   const msg = message || MongooseError.messages.general.required;
   this.validators.unshift(Object.assign({}, customOptions, {
     validator: this.requiredValidator,
     message: msg,
     type: 'required'
   }));
-
   return this;
-};
-
-SchemaType.prototype._removeRequiredValidator = function() {
-  this.validators = this.validators.filter(function(v) {
-    return v.validator !== this.requiredValidator;
-  }, this);
 };
 
 SchemaType.prototype.ref = function(ref) {
@@ -405,7 +400,6 @@ SchemaType.prototype.getDefault = function(scope, init) {
     if (typeof ret === 'object' && (!this.options || !this.options.shared)) {
       ret = utils.clone(ret);
     }
-
     const casted = this.applySetters(ret, scope, init);
     if (casted && casted.$isSingleNested) {
       casted.$__parent = scope;
@@ -421,11 +415,9 @@ SchemaType.prototype._applySetters = function(value, scope, init) {
     return v;
   }
   const setters = this.setters;
-
   for (let i = setters.length - 1; i >= 0; i--) {
     v = setters[i].call(scope, v, this);
   }
-
   return v;
 };
 
@@ -438,9 +430,7 @@ SchemaType.prototype.applySetters = function(value, scope, init, priorVal, optio
   if (v == null) {
     return this._castNullish(v);
   }
-
   v = this.cast(v, scope, init, priorVal, options);
-
   return v;
 };
 
@@ -448,15 +438,12 @@ SchemaType.prototype.applyGetters = function(value, scope) {
   let v = value;
   const getters = this.getters;
   const len = getters.length;
-
   if (len === 0) {
     return v;
   }
-
   for (let i = 0; i < len; ++i) {
     v = getters[i].call(scope, v, this);
   }
-
   return v;
 };
 
@@ -468,48 +455,37 @@ SchemaType.prototype.select = function select(val) {
 SchemaType.prototype.doValidate = function(value, fn, scope, options) {
   let err = false;
   const path = this.path;
-
   const validators = this.validators.
     filter(v => v != null && typeof v === 'object');
-
   let count = validators.length;
-
   if (!count) {
     return fn(null);
   }
-
   const _this = this;
   validators.forEach(function(v) {
     if (err) {
       return;
     }
-
     const validator = v.validator;
     let ok;
-
     const validatorProperties = utils.clone(v);
     validatorProperties.path = options && options.path ? options.path : path;
     validatorProperties.value = value;
-
     if (validator instanceof RegExp) {
       validate(validator.test(value), validatorProperties);
       return;
     }
-
     if (typeof validator !== 'function') {
       return;
     }
-
     if (value === undefined && validator !== _this.requiredValidator) {
       validate(true, validatorProperties);
       return;
     }
-
     if (validatorProperties.isAsync) {
       asyncValidate(validator, scope, value, validatorProperties, validate);
       return;
     }
-
     try {
       if (validatorProperties.propsParameter) {
         ok = validator.call(scope, value, validatorProperties);
@@ -523,7 +499,6 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
         validatorProperties.message = error.message;
       }
     }
-
     if (ok != null && typeof ok.then === 'function') {
       ok.then(
         function(ok) { validate(ok, validatorProperties); },
@@ -536,9 +511,7 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
     } else {
       validate(ok, validatorProperties);
     }
-
   });
-
   function validate(ok, validatorProperties) {
     if (err) {
       return;
@@ -589,7 +562,6 @@ function asyncValidate(validator, scope, value, props, cb) {
           return;
         }
         called = true;
-
         props.reason = error;
         props.message = error.message;
         cb(false, props);
@@ -600,11 +572,9 @@ function asyncValidate(validator, scope, value, props, cb) {
 SchemaType.prototype.doValidateSync = function(value, scope, options) {
   const path = this.path;
   const count = this.validators.length;
-
   if (!count) {
     return null;
   }
-
   let validators = this.validators;
   if (value === void 0) {
     if (this.validators.length > 0 && this.validators[0].type === 'required') {
@@ -613,36 +583,29 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
       return null;
     }
   }
-
   let err = null;
   validators.forEach(function(v) {
     if (err) {
       return;
     }
-
     if (v == null || typeof v !== 'object') {
       return;
     }
-
     const validator = v.validator;
     const validatorProperties = utils.clone(v);
     validatorProperties.path = options && options.path ? options.path : path;
     validatorProperties.value = value;
     let ok;
-
     if (validator.isAsync) {
       return;
     }
-
     if (validator instanceof RegExp) {
       validate(validator.test(value), validatorProperties);
       return;
     }
-
     if (typeof validator !== 'function') {
       return;
     }
-
     try {
       if (validatorProperties.propsParameter) {
         ok = validator.call(scope, value, validatorProperties);
@@ -653,13 +616,11 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
       ok = false;
       validatorProperties.reason = error;
     }
-
     if (ok != null && typeof ok.then === 'function') {
       return;
     }
     validate(ok, validatorProperties);
   });
-
   return err;
 
   function validate(ok, validatorProperties) {
@@ -676,13 +637,11 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
 
 SchemaType._isRef = function(self, value, doc, init) {
   let ref = init && self.options && (self.options.ref || self.options.refPath);
-
   if (!ref && doc && doc.$__ != null) {
     const path = doc.$__fullPath(self.path);
     const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
     ref = owner.populated(path) || doc.populated(self.path);
   }
-
   if (ref) {
     if (value == null) {
       return true;
@@ -692,10 +651,8 @@ SchemaType._isRef = function(self, value, doc, init) {
         utils.isObject(value)) {
       return true;
     }
-
     return init;
   }
-
   return false;
 };
 
@@ -703,19 +660,16 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
   if (value == null) {
     return value;
   }
-
   if (value.$__ != null) {
     value.$__.wasPopulated = true;
     return value;
   }
-
   if (Buffer.isBuffer(value) || !utils.isObject(value)) {
     if (init) {
       return value;
     }
     throw new CastError(this.instance, value, this.path, null, this);
   }
-
   const path = doc.$__fullPath(this.path);
   const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
   const pop = owner.populated(path, true);
@@ -728,7 +682,6 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
     ret = new pop.options[populateModelSymbol](value);
     ret.$__.wasPopulated = true;
   }
-
   return ret;
 };
 
@@ -781,7 +734,6 @@ SchemaType.prototype.castForQueryWrapper = function(params) {
     this.$$context = null;
     return ret;
   }
-
   const ret = this.castForQuery(params.val);
   this.$$context = null;
   return ret;
@@ -837,4 +789,5 @@ SchemaType.prototype.clone = function() {
 module.exports = exports = SchemaType;
 
 exports.CastError = CastError;
+
 exports.ValidatorError = ValidatorError;

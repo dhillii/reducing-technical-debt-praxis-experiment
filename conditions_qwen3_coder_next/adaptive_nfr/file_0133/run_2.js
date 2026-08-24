@@ -205,158 +205,138 @@ const initQueryOptions = (targetModel, parent) => {
 };
 
 /**
- * Strategy interface for association resolvers
+ * Helper: determine if the association is a component-to-something relation that requires special handling.
+ * @param {Object} association
+ * @param {Object} model
+ * @returns {boolean}
  */
-class AssociationResolverStrategy {
-  constructor(association, targetModel, model) {
-    this.association = association;
-    this.targetModel = targetModel;
-    this.model = model;
-  }
-
-  getResolver() {
-    throw new Error('getResolver must be implemented');
-  }
-}
+const isComponentRelation = (association, model) => {
+  return model.modelType === 'component';
+};
 
 /**
- * Morph association resolver strategy
+ * Helper: extract relationship resolver logic for morph associations.
  */
-class MorphAssociationResolver extends AssociationResolverStrategy {
-  getResolver() {
-    const { model, association } = this;
-    const { alias, primaryKey } = model;
+const buildMorphResolver = (alias, targetModel, model) => {
+  return async obj => {
+    if (obj[alias]) {
+      return assignOptions(obj[alias], obj);
+    }
 
-    return async obj => {
-      if (obj[alias]) {
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      id: obj[model.primaryKey],
+    };
+
+    const entry = await strapi.query(model.uid).findOne(params, [alias]);
+
+    return assignOptions(entry[alias], obj);
+  };
+};
+
+/**
+ * Helper: extract resolver logic for non-morph associations.
+ * @param {Object} resolver
+ * @param {Object} association
+ * @param {Object} model
+ * @param {Object} targetModel
+ * @returns {Object}
+ */
+const buildNonMorphResolver = (resolver, association, model, targetModel) => {
+  const { nature, alias } = association;
+  const { primaryKey } = model;
+
+  resolver[alias] = async (obj, options) => {
+    // force component relations to be refetched
+    if (isComponentRelation(association, model)) {
+      obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
+    }
+
+    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+
+    const localId = obj[model.primaryKey];
+    const targetPK = targetModel.primaryKey;
+    const foreignId = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
+
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      ...convertToParams(_.omit(amountLimiting(options), 'where')),
+      ...convertToQuery(options.where),
+    };
+
+    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+      if (!_.has(obj, alias) || _.isNil(foreignId)) {
+        return null;
+      }
+
+      // check this is an entity and not a mongo ID
+      if (_.has(obj[alias], targetPK)) {
         return assignOptions(obj[alias], obj);
       }
 
-      const params = {
-        ...initQueryOptions(this.targetModel, obj),
-        id: obj[primaryKey],
+      const query = {
+        single: true,
+        filters: {
+          ...params,
+          [targetPK]: foreignId,
+        },
       };
 
-      const entry = await strapi.query(model.uid).findOne(params, [alias]);
+      return loader.load(query).then(r => assignOptions(r, obj));
+    }
 
-      return assignOptions(entry[alias], obj);
-    };
-  }
-}
+    if (
+      nature === 'oneToMany' ||
+      (nature === 'manyToMany' && association.dominant !== true)
+    ) {
+      const { via } = association;
 
-/**
- * Standard association resolver strategy
- */
-class StandardAssociationResolver extends AssociationResolverStrategy {
-  getResolver() {
-    const { model, association, targetModel } = this;
-    const { alias, primaryKey } = model;
-    const targetPK = targetModel.primaryKey;
-
-    return async (obj, options) => {
-      // force component relations to be refetched
-      if (model.modelType === 'component') {
-        obj[alias] = _.get(obj[alias], targetPK, obj[alias]);
-      }
-
-      const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
-
-      const localId = obj[model.primaryKey];
-      const foreignId = _.get(obj[alias], targetPK, obj[alias]);
-
-      const params = {
-        ...initQueryOptions(targetModel, obj),
-        ...convertToParams(_.omit(amountLimiting(options), 'where')),
-        ...convertToQuery(options.where),
+      const filters = {
+        ...params,
+        [via]: localId,
       };
 
-      const nature = association.nature;
+      return loader.load({ filters }).then(r => assignOptions(r, obj));
+    }
 
-      if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-        if (!_.has(obj, alias) || _.isNil(foreignId)) {
-          return null;
+    if (
+      nature === 'manyWay' ||
+      (nature === 'manyToMany' && association.dominant === true)
+    ) {
+      let targetIds = [];
+
+      // find the related ids to query them and apply the filters
+      if (Array.isArray(obj[alias])) {
+        targetIds = obj[alias].map(value => value[targetPK] || value);
+      } else {
+        const entry = await strapi
+          .query(model.uid)
+          .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
+
+        if (_.isEmpty(entry[alias])) {
+          return [];
         }
 
-        // check this is an entity and not a mongo ID
-        if (_.has(obj[alias], targetPK)) {
-          return assignOptions(obj[alias], obj);
-        }
-
-        const query = {
-          single: true,
-          filters: {
-            ...params,
-            [targetPK]: foreignId,
-          },
-        };
-
-        return loader.load(query).then(r => assignOptions(r, obj));
+        targetIds = entry[alias].map(el => el[targetPK]);
       }
 
-      if (nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true)) {
-        const { via } = association;
+      const filters = {
+        ...params,
+        [`${targetPK}_in`]: targetIds.map(_.toString),
+      };
 
-        const filters = {
-          ...params,
-          [via]: localId,
-        };
+      return loader.load({ filters }).then(r => assignOptions(r, obj));
+    }
+  };
 
-        return loader.load({ filters }).then(r => assignOptions(r, obj));
-      }
-
-      if (nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true)) {
-        let targetIds = [];
-
-        // find the related ids to query them and apply the filters
-        if (Array.isArray(obj[alias])) {
-          targetIds = obj[alias].map(value => value[targetPK] || value);
-        } else {
-          const entry = await strapi
-            .query(model.uid)
-            .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
-
-          if (_.isEmpty(entry[alias])) {
-            return [];
-          }
-
-          targetIds = entry[alias].map(el => el[targetPK]);
-        }
-
-        const filters = {
-          ...params,
-          [`${targetPK}_in`]: targetIds.map(_.toString),
-        };
-
-        return loader.load({ filters }).then(r => assignOptions(r, obj));
-      }
-    };
-  }
-}
-
-/**
- * Factory to create appropriate resolver strategy based on association nature
- * @param {object} association - association object
- * @param {object} targetModel - target model
- * @param {object} model - source model
- * @returns {AssociationResolverStrategy}
- */
-const createResolverStrategy = (association, targetModel, model) => {
-  const { nature } = association;
-
-  const morphNatures = [
-    'oneToManyMorph',
-    'manyMorphToOne',
-    'manyMorphToMany',
-    'manyToManyMorph',
-  ];
-
-  if (morphNatures.includes(nature)) {
-    return new MorphAssociationResolver(association, targetModel, model);
-  }
-
-  return new StandardAssociationResolver(association, targetModel, model);
+  return resolver;
 };
 
+/**
+ * Build resolvers for associations on a model.
+ * @param {Object} model
+ * @returns {Object}
+ */
 const buildAssocResolvers = model => {
   const { primaryKey, associations = [] } = model;
 
@@ -367,10 +347,18 @@ const buildAssocResolvers = model => {
       const target = association.model || association.collection;
       const targetModel = strapi.getModel(target, association.plugin);
 
-      const { alias } = association;
+      const { nature, alias } = association;
 
-      const strategy = createResolverStrategy(association, targetModel, model);
-      resolver[alias] = strategy.getResolver();
+      if (
+        nature === 'oneToManyMorph' ||
+        nature === 'manyMorphToOne' ||
+        nature === 'manyMorphToMany' ||
+        nature === 'manyToManyMorph'
+      ) {
+        resolver[alias] = buildMorphResolver(alias, targetModel, model);
+      } else {
+        buildNonMorphResolver(resolver, association, model, targetModel);
+      }
 
       return resolver;
     }, {});

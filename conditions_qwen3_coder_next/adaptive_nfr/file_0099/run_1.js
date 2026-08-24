@@ -26,7 +26,11 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
             resetFields();
 
             // fill fields depending on replyTo
-            fillFields({ message: replyTo, replyAll: replyAll, forward: forward });
+            fillFields({
+                message: replyTo,
+                replyAll: replyAll,
+                forward: forward
+            });
 
             $scope.verify($scope.to[0]);
         },
@@ -100,41 +104,45 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
     }
 
     /**
-     * Fills email fields based on the provided message context.
-     * @param {Object} context - Context object containing message and flags
-     * @param {Object} context.message - The original message to reply/forward
-     * @param {boolean} context.replyAll - Whether to include all recipients
-     * @param {boolean} context.forward - Whether this is a forward operation
+     * Fills write fields from a given message based on operation type (reply/forward).
+     * @param {Object} params - Parameters for filling fields
+     * @param {Object} params.message - Message to reply/forward to
+     * @param {boolean} params.replyAll - Whether to include all original recipients
+     * @param {boolean} params.forward - Whether operation is a forward
      */
-    function fillFields(context) {
+    function fillFields(params) {
         var replyTo, from, sentDate, body;
 
-        if (!context.message) {
+        if (!params.message) {
             return;
         }
 
-        $scope.writerTitle = (context.forward) ? 'Forward' : 'Reply';
+        var re = params.message;
+        var replyAll = params.replyAll || false;
+        var forward = params.forward || false;
 
-        replyTo = context.message.replyTo && context.message.replyTo[0] && context.message.replyTo[0].address || context.message.from[0].address;
+        $scope.writerTitle = forward ? 'Forward' : 'Reply';
+
+        replyTo = re.replyTo && re.replyTo[0] && re.replyTo[0].address || re.from[0].address;
 
         // fill recipient field and references
-        if (!context.forward) {
+        if (!forward) {
             $scope.to.unshift({
                 address: replyTo
             });
             $scope.to.forEach($scope.verify);
 
-            $scope.references = (context.message.references || []);
-            if (context.message.id && $scope.references.indexOf(context.message.id) < 0) {
+            $scope.references = (re.references || []);
+            if (re.id && $scope.references.indexOf(re.id) < 0) {
                 // references might not exist yet, so use the double concat
-                $scope.references = $scope.references.concat(context.message.id);
+                $scope.references = $scope.references.concat(re.id);
             }
-            if (context.message.id) {
-                $scope.inReplyTo = context.message.id;
+            if (re.id) {
+                $scope.inReplyTo = re.id;
             }
         }
-        if (context.replyAll) {
-            context.message.to.concat(context.message.cc).forEach(function(recipient) {
+        if (replyAll) {
+            re.to.concat(re.cc).forEach(function(recipient) {
                 var me = auth.emailAddress;
                 if (recipient.address === me && replyTo !== me) {
                     // don't reply to yourself
@@ -154,25 +162,25 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         }
 
         // fill attachments and references on forward
-        if (context.forward) {
+        if (forward) {
             // create a new array, otherwise removing an attachment will also
             // remove it from the original in the mail list as a side effect
-            $scope.attachments = [].concat(context.message.attachments);
-            if (context.message.id) {
-                $scope.references = [context.message.id];
+            $scope.attachments = [].concat(re.attachments);
+            if (re.id) {
+                $scope.references = [re.id];
             }
         }
 
         // fill subject
-        if (context.forward) {
-            $scope.subject = 'Fwd: ' + context.message.subject;
+        if (forward) {
+            $scope.subject = 'Fwd: ' + re.subject;
         } else {
-            $scope.subject = context.message.subject ? 'Re: ' + context.message.subject.replace('Re: ', '') : '';
+            $scope.subject = re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '';
         }
 
         // fill text body
-        from = context.message.from[0].name || replyTo;
-        sentDate = $filter('date')(context.message.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+        from = re.from[0].name || replyTo;
+        sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
             var str = '';
@@ -183,22 +191,22 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
             return str;
         }
 
-        if (context.forward) {
+        if (forward) {
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
-                'From: ' + context.message.from[0].name + ' <' + context.message.from[0].address + '>\n' +
+                'From: ' + re.from[0].name + ' <' + re.from[0].address + '>\n' +
                 'Date: ' + sentDate + '\n' +
-                'Subject: ' + context.message.subject + '\n' +
-                'To: ' + createString(context.message.to) + '\n' +
-                ((context.message.cc && context.message.cc.length > 0) ? 'Cc: ' + createString(context.message.cc) + '\n' : '') +
+                'Subject: ' + re.subject + '\n' +
+                'To: ' + createString(re.to) + '\n' +
+                ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
                 '\n\n';
 
         } else {
             body = '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
         }
 
-        if (context.message.body) {
-            body += context.message.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
+        if (re.body) {
+            body += re.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
             $scope.body = body;
         }
     }

@@ -289,7 +289,7 @@ class QueryInterface {
    * @return {Promise}
    */
   dropTable(tableName, options) {
-    // if we're forcing we should be cascading unless explicitly stated otherwise
+    // if we're forcing we should be cascading unless explicitly said otherwise
     options = _.clone(options) || {};
     options.cascade = options.cascade || options.force || false;
 

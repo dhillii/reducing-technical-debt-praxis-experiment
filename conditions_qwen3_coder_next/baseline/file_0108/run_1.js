@@ -97,11 +97,11 @@ exports.files = function (dir, ext, ret) {
   readdirSync(dir)
     .filter(ignored)
     .forEach(function (path) {
-      const resolvedPath = join(dir, path);
-      if (lstatSync(resolvedPath).isDirectory()) {
-        exports.files(resolvedPath, ext, ret);
-      } else if (resolvedPath.match(re)) {
-        ret.push(resolvedPath);
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
 
@@ -403,7 +403,7 @@ function jsonStringify (object, spaces, depth) {
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
   /* eslint-disable no-unused-vars */
-  const prop;
+  let prop;
   /* eslint-enable no-unused-vars */
   typeHint = typeHint || type(value);
   function withStack (value, fn) {
@@ -500,12 +500,12 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   }
 
   readdirSync(path).forEach(function (file) {
-    const resolvedFile = join(path, file);
+    file = join(path, file);
     try {
-      const stat = statSync(resolvedFile);
+      const stat = statSync(file);
       if (stat.isDirectory()) {
         if (recursive) {
-          files = files.concat(lookupFiles(resolvedFile, extensions, recursive));
+          files = files.concat(lookupFiles(file, extensions, recursive));
         }
         return;
       }
@@ -514,10 +514,10 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
       return;
     }
     const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(resolvedFile) || basename(resolvedFile)[0] === '.') {
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
       return;
     }
-    files.push(resolvedFile);
+    files.push(file);
   });
 
   return files;

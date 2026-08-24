@@ -1,3 +1,9 @@
+/**
+ * Aggregator.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
 'use strict';
 
 const _ = require('lodash');
@@ -38,6 +44,13 @@ const isEnumType = type => {
  * Returns all fields that are not of type array
  *
  * @returns {Boolean}
+ *
+ * @example
+ *
+ * isNotOfTypeArray([String])
+ * // => false
+ * isNotOfTypeArray(String!)
+ * // => true
  */
 const isNotOfTypeArray = type => {
   return !/(\[\w+!?\])/.test(type);
@@ -77,6 +90,7 @@ const fieldResolver = (field, key) => {
     const resolver =
       field.resolve ||
       function resolver(obj) {
+        // eslint-disable-line no-unused-vars
         return obj[key];
       };
     return resolver(object);
@@ -85,10 +99,13 @@ const fieldResolver = (field, key) => {
 
 /**
  * Create fields resolvers
+ *
+ * @return {Object}
  */
 const createFieldsResolver = function(fields, resolverFn, typeCheck) {
   const resolver = Object.keys(fields).reduce((acc, fieldKey) => {
     const field = fields[fieldKey];
+    // Check if the field is of the correct type
     if (typeCheck(field)) {
       return _.set(acc, fieldKey, (obj, options, context) => {
         return resolverFn(
@@ -109,7 +126,21 @@ const createFieldsResolver = function(fields, resolverFn, typeCheck) {
 };
 
 /**
- * Convert non-primitive type to string
+ * Convert non-primitive type to string (non-primitive types corresponds to a reference to an other model)
+ *
+ * @returns {String}
+ *
+ * @example
+ *
+ * extractType(String!)
+ * // => String
+ *
+ * extractType(user)
+ * // => ID
+ *
+ * extractType(ENUM_TEST_FIELD, enumeration)
+ * // => String
+ *
  */
 const extractType = function(_type, attributeType) {
   return isPrimitiveType(_type)
@@ -121,6 +152,25 @@ const extractType = function(_type, attributeType) {
 
 /**
  * Create the resolvers for each aggregation field
+ *
+ * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ *
+ * const fields = {
+ *   username: String,
+ *   age: Int,
+ * }
+ *
+ * const typeCheck = (type) => type === 'Int' || type === 'Float',
+ *
+ * const fieldsResoler = createAggregationFieldsResolver(model, fields, 'sum', typeCheck);
+ *
+ * // => {
+ *   age: function ageResolver() { .... }
+ * }
  */
 const createAggregationFieldsResolver = function(model, fields, operation, typeCheck) {
   return createFieldsResolver(
@@ -132,11 +182,26 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
       });
 
       if (model.orm === 'mongoose') {
-        return mongooseAggregateQuery(model, filters, fieldKey, operation);
+        return buildQuery({ model, filters, aggregate: true })
+          .group({
+            _id: null,
+            [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
+          })
+          .exec()
+          .then(result => _.get(result, [0, fieldKey]));
       }
 
       if (model.orm === 'bookshelf') {
-        return bookshelfAggregateQuery(model, filters, fieldKey, operation);
+        return model
+          .query(qb => {
+            // apply filters
+            buildQuery({ model, filters })(qb);
+
+            // `sum, avg, min, max` pass nicely to knex :->
+            qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
+          })
+          .fetch()
+          .then(result => result.get(`${operation}_${fieldKey}`));
       }
     },
     typeCheck
@@ -144,35 +209,15 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
 };
 
 /**
- * Execute aggregation query for mongoose ORM
+ * Pre-process group by data for mongoose ORM
+ *
+ * @param {Object} params - Processing parameters
+ * @param {Array} params.result - Raw aggregation result
+ * @param {String} params.fieldKey - Field key used for grouping
+ * @param {Object} params.filters - Original filters
+ * @returns {Array} Processed group by data
  */
-const mongooseAggregateQuery = async (model, filters, fieldKey, operation) => {
-  return buildQuery({ model, filters, aggregate: true })
-    .group({
-      _id: null,
-      [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
-    })
-    .exec()
-    .then(result => _.get(result, [0, fieldKey]));
-};
-
-/**
- * Execute aggregation query for bookshelf ORM
- */
-const bookshelfAggregateQuery = async (model, filters, fieldKey, operation) => {
-  return model
-    .query(qb => {
-      buildQuery({ model, filters })(qb);
-      qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
-    })
-    .fetch()
-    .then(result => result.get(`${operation}_${fieldKey}`));
-};
-
-/**
- * Correctly format the data returned by the group by
- */
-const preProcessGroupByData = function({ result, fieldKey, filters }) {
+const processMongooseGroupByResult = function({ result, fieldKey, filters }) {
   const _result = _.toArray(result).filter(value => Boolean(value._id));
   return _.map(_result, value => {
     return {
@@ -191,68 +236,20 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
 };
 
 /**
- * Create the resolvers for each group by field
+ * Pre-process group by data for bookshelf ORM
+ *
+ * @param {Object} params - Processing parameters
+ * @param {Array} params.result - Raw model collection
+ * @param {String} params.fieldKey - Field key used for grouping
+ * @param {Object} params.filters - Original filters
+ * @returns {Array} Processed group by data
  */
-const createGroupByFieldsResolver = function(model, fields) {
-  const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
-    const params = convertRestQueryParams({
-      ...convertToParams(_.omit(filters, 'where')),
-      ...convertToQuery(filters.where),
-    });
-
-    if (model.orm === 'mongoose') {
-      return mongooseGroupByQuery(model, params, fieldKey, filters);
-    }
-
-    if (model.orm === 'bookshelf') {
-      return bookshelfGroupByQuery(model, params, fieldKey, filters);
-    }
-  };
-
-  return createFieldsResolver(fields, resolver, () => true);
-};
-
-/**
- * Execute group by query for mongoose ORM
- */
-const mongooseGroupByQuery = async (model, params, fieldKey, filters) => {
-  const result = await buildQuery({
-    model,
-    filters: params,
-    aggregate: true,
-  }).group({
-    _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
-  });
-
-  return preProcessGroupByData({
-    result,
-    fieldKey,
-    filters,
-  });
-};
-
-/**
- * Execute group by query for bookshelf ORM
- */
-const bookshelfGroupByQuery = async (model, params, fieldKey, filters) => {
-  return model
-    .query(qb => {
-      buildQuery({ model, filters: params })(qb);
-      qb.groupBy(fieldKey);
-      qb.select(fieldKey);
-    })
-    .fetchAll()
-    .then(result => bookshelfGroupByResult(result, fieldKey, filters));
-};
-
-/**
- * Process group by result for bookshelf ORM
- */
-const bookshelfGroupByResult = (result, fieldKey, filters) => {
-  let values = result.models
+const processBookshelfGroupByResult = function({ result, fieldKey, filters }) {
+  const values = result.models
     .map(m => m.get(fieldKey))
     .filter(v => !!v)
     .map(v => '' + v);
+
   return values.map(v => ({
     key: v,
     connection: () => {
@@ -268,7 +265,66 @@ const bookshelfGroupByResult = (result, fieldKey, filters) => {
 };
 
 /**
+ * Create the resolvers for each group by field
+ *
+ * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ * const fields = {
+ *   username: [UserConnectionUsername],
+ *   email: [UserConnectionEmail],
+ * }
+ * const fieldsResoler = createGroupByFieldsResolver(model, fields);
+ *
+ * // => {
+ *   username: function usernameResolver() { .... }
+ *   email: function emailResolver() { .... }
+ * }
+ */
+const createGroupByFieldsResolver = function(model, fields) {
+  const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
+    const params = convertRestQueryParams({
+      ...convertToParams(_.omit(filters, 'where')),
+      ...convertToQuery(filters.where),
+    });
+
+    if (model.orm === 'mongoose') {
+      const result = await buildQuery({
+        model,
+        filters: params,
+        aggregate: true,
+      }).group({
+        _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
+      });
+
+      return processMongooseGroupByResult({
+        result,
+        fieldKey,
+        filters,
+      });
+    }
+
+    if (model.orm === 'bookshelf') {
+      return model
+        .query(qb => {
+          buildQuery({ model, filters: params })(qb);
+          qb.groupBy(fieldKey);
+          qb.select(fieldKey);
+        })
+        .fetchAll()
+        .then(result => processBookshelfGroupByResult({ result, fieldKey, filters }));
+    }
+  };
+
+  return createFieldsResolver(fields, resolver, () => true);
+};
+
+/**
  * Generate the connection type of each non-array field of the model
+ *
+ * @return {String}
  */
 const generateConnectionFieldsTypes = function(fields, model) {
   const { globalId, attributes } = model;
@@ -289,9 +345,6 @@ const generateConnectionFieldsTypes = function(fields, model) {
     .join('\n\n');
 };
 
-/**
- * Format connection group by fields
- */
 const formatConnectionGroupBy = function(fields, model) {
   const { globalId } = model;
   const groupByGlobalId = `${globalId}GroupBy`;
@@ -314,9 +367,6 @@ const formatConnectionGroupBy = function(fields, model) {
   };
 };
 
-/**
- * Format connection aggregator fields
- */
 const formatConnectionAggregator = function(fields, model, modelName) {
   const { globalId } = model;
 
@@ -354,7 +404,7 @@ const formatConnectionAggregator = function(fields, model, modelName) {
   };
 
   if (!_.isEmpty(numericFields)) {
-    const defaultAggregatorFunc = () => {};
+    const defaultAggregatorFunc = obj => obj;
 
     aggregatorTypes += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
     aggregatorTypes += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
@@ -406,6 +456,49 @@ const formatConnectionAggregator = function(fields, model, modelName) {
 
 /**
  * This method is the entry point to the GraphQL's Aggregation.
+ * It takes as param the model and its fields and it'll create the aggregation types and resolver to it
+ * Example:
+ *  type User {
+ *     username: String,
+ *     age: Int,
+ *  }
+ *
+ * It'll create
+ *  type UserConnection {
+ *    values: [User],
+ *    groupBy: UserGroupBy,
+ *    aggreate: UserAggregate
+ *  }
+ *
+ *  type UserAggregate {
+ *     count: Int
+ *     sum: UserAggregateSum
+ *     avg: UserAggregateAvg
+ *  }
+ *
+ *  type UserAggregateSum {
+ *     age: Float
+ *  }
+ *
+ *  type UserAggregateAvg {
+ *    age: Float
+ *  }
+ *
+ *  type UserGroupBy {
+ *     username: [UserConnectionUsername]
+ *     age: [UserConnectionAge]
+ *  }
+ *
+ *  type UserConnectionUsername {
+ *    key: String
+ *    connection: UserConnection
+ *  }
+ *
+ *  type UserConnectionAge {
+ *    key: Int
+ *    connection: UserConnection
+ *  }
+ *
  */
 const formatModelConnectionsGQL = function({ fields, model: contentType, name, resolver }) {
   const { globalId } = contentType;

@@ -375,7 +375,7 @@ function pad (str, len) {
  * @return {string} Diff
  */
 function inlineDiff (err) {
-  const msg = errorDiff(err);
+  let msg = errorDiff(err);
 
   // linenos
   const lines = msg.split('\n');

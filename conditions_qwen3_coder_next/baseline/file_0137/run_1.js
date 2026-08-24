@@ -1,6 +1,51 @@
+'use strict';
+
+/**
+ * Upload.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const util = require('util');
+const _ = require('lodash');
+const {
+  nameToSlug,
+  contentTypes: contentTypesUtils,
+  sanitizeEntity,
+  webhook: webhookUtils,
+} = require('strapi-utils');
+
+const { MEDIA_UPDATE, MEDIA_CREATE, MEDIA_DELETE } = webhookUtils.webhookEvents;
+
+const { bytesToKbytes } = require('../utils/file');
+
+const { UPDATED_BY_ATTRIBUTE, CREATED_BY_ATTRIBUTE } = contentTypesUtils.constants;
+
+const randomSuffix = () => crypto.randomBytes(5).toString('hex');
+
+const generateFileName = name => {
+  const baseName = nameToSlug(name, { separator: '_', lowercase: false });
+
+  return `${baseName}_${randomSuffix()}`;
+};
+
+const sendMediaMetrics = data => {
+  if (_.has(data, 'caption') && !_.isEmpty(data.caption)) {
+    strapi.telemetry.send('didSaveMediaWithCaption');
+  }
+
+  if (_.has(data, 'alternativeText') && !_.isEmpty(data.alternativeText)) {
+    strapi.telemetry.send('didSaveMediaWithAlternativeText');
+  }
+};
+
 const combineFilters = params => {
   if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
-    params._where = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
+    const { mime_ncontains } = params;
+    params._where = mime_ncontains.map(val => ({ mime_ncontains: val }));
     delete params.mime_ncontains;
   }
 };

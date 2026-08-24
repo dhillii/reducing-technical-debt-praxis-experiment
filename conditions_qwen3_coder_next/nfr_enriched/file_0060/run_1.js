@@ -267,18 +267,6 @@ async function globSearch({
 		return [];
 	}
 
-	/*
-	 * In this section we are converting the patterns into Minimatch
-	 * instances for performance reasons. Because we are doing the same
-	 * matches repeatedly, it's best to compile those patterns once and
-	 * reuse them multiple times.
-	 *
-	 * To do that, we convert any patterns with an absolute path into a
-	 * relative path and normalize it to Posix-style slashes. We also keep
-	 * track of the relative patterns to map them back to the original
-	 * patterns, which we need in order to throw an error if there are any
-	 * unmatched patterns.
-	 */
 	const relativeToPatterns = new Map();
 	const matchers = patterns.map((pattern, i) => {
 		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
@@ -288,13 +276,6 @@ async function globSearch({
 		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
 	});
 
-	/*
-	 * We track unmatched patterns because we may want to throw an error when
-	 * they occur. To start, this set is initialized with all of the patterns.
-	 * Every time a match occurs, the pattern is removed from the set, making
-	 * it easy to tell if we have any unmatched patterns left at the end of
-	 * search.
-	 */
 	const unmatchedPatterns = new Set([...relativeToPatterns.keys()]);
 	const { hfs } = await import("@humanfs/node");
 
@@ -313,7 +294,6 @@ async function globSearch({
 		async entryFilter(entry) {
 			const absolutePath = path.resolve(basePath, entry.path);
 
-			// entries may be directories or files so filter out directories
 			if (entry.isDirectory) {
 				return false;
 			}
@@ -322,30 +302,11 @@ async function globSearch({
 				await configLoader.loadConfigArrayForFile(absolutePath);
 			const config = configs.getConfig(absolutePath);
 
-			/*
-			 * Optimization: We need to track when patterns are left unmatched
-			 * and so we use `unmatchedPatterns` to do that. There is a bit of
-			 * complexity here because the same file can be matched by more than
-			 * one pattern. So, when we start, we actually need to test every
-			 * pattern against every file. Once we know there are no remaining
-			 * unmatched patterns, then we can switch to just looking for the
-			 * first matching pattern for improved speed.
-			 */
 			const matchesPattern =
 				unmatchedPatterns.size > 0
 					? matchers.reduce((previousValue, matcher) => {
 							const pathMatches = matcher.match(entry.path);
 
-							/*
-							 * We updated the unmatched patterns set only if the path
-							 * matches and the file has a config. If the file has no
-							 * config, that means there wasn't a match for the
-							 * pattern so it should not be removed.
-							 *
-							 * Performance note: `getConfig()` aggressively caches
-							 * results so there is no performance penalty for calling
-							 * it multiple times with the same argument.
-							 */
 							if (pathMatches && config) {
 								unmatchedPatterns.delete(matcher.pattern);
 							}
@@ -366,7 +327,6 @@ async function globSearch({
 		}
 	}
 
-	// now check to see if we have any unmatched patterns
 	if (errorOnUnmatchedPattern && unmatchedPatterns.size > 0) {
 		throw new UnmatchedSearchPatternsError({
 			basePath,
@@ -416,7 +376,6 @@ async function throwErrorForUnmatchedPatterns({
 		throw new AllFilesIgnoredError(rawPattern);
 	}
 
-	// if we get here there are truly no matches
 	throw new NoFilesFoundError(rawPattern, true);
 }
 
@@ -437,13 +396,6 @@ async function globMultiSearch({
 	configLoader,
 	errorOnUnmatchedPattern,
 }) {
-	/*
-	 * For convenience, we normalized the search map into an array of objects.
-	 * Next, we filter out all searches that have no patterns. This happens
-	 * primarily for the cwd, which is prepopulated in the searches map as an
-	 * optimization. However, if it has no patterns, it means all patterns
-	 * occur outside of the cwd and we can safely filter out that search.
-	 */
 	const normalizedSearches = [...searches]
 		.map(([basePath, { patterns, rawPatterns }]) => ({
 			basePath,
@@ -464,13 +416,6 @@ async function globMultiSearch({
 		),
 	);
 
-	/*
-	 * The first loop handles errors from the glob searches. Since we can't
-	 * use `await` inside `flatMap`, we process errors separately in this loop.
-	 * This results in two iterations over `results`, but since the length is
-	 * less than or equal to the number of globs and directories passed on the
-	 * command line, the performance impact should be minimal.
-	 */
 	for (let i = 0; i < results.length; i++) {
 		const result = results[i];
 		const currentSearch = normalizedSearches[i];
@@ -479,10 +424,8 @@ async function globMultiSearch({
 			continue;
 		}
 
-		// if we make it here then there was an error
 		const error = result.reason;
 
-		// unexpected errors should be re-thrown
 		if (!error.basePath) {
 			throw error;
 		}
@@ -495,7 +438,6 @@ async function globMultiSearch({
 		}
 	}
 
-	// second loop for `fulfilled` results
 	return results.flatMap(result => result.value);
 }
 
@@ -511,7 +453,7 @@ async function globMultiSearch({
  *      should throw an error.
  * @returns {Promise<Array<string>>} The fully resolved file paths.
  * @throws {AllFilesIgnoredError} If there are no results due to an ignore pattern.
- * @throws {NoFilesFoundError} If no files match the given patterns.
+ * @throws {NoFilesFoundError} If no files matched the given patterns.
  */
 async function findFiles({
 	patterns,
@@ -528,43 +470,6 @@ async function findFiles({
 		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
 	]);
 
-	/*
-	 * This part is a bit involved because we need to account for
-	 * the different ways that the patterns can match directories.
-	 * For each different way, we need to decide if we should look
-	 * for a config file or just use the default config. (Directories
-	 * without a config file always use the default config.)
-	 *
-	 * Here are the cases:
-	 *
-	 * 1. A directory is passed directly (e.g., "subdir"). In this case, we
-	 * can assume that the user intends to lint this directory and we should
-	 * not look for a config file in the parent directory, because the only
-	 * reason to do that would be to ignore this directory (which we already
-	 * know we don't want to do). Instead, we use the default config until we
-	 * get to the directory that was passed, at which point we start looking
-	 * for config files again.
-	 *
-	 * 2. A dot (".") or star ("*"). In this case, we want to read
-	 * the config file in the current directory because the user is
-	 * explicitly asking to lint the current directory. Note that "."
-	 * will traverse into subdirectories while "*" will not.
-	 *
-	 * 3. A directory is passed in the form of "subdir/subsubdir".
-	 * In this case, we don't want to look for a config file in the
-	 * parent directory ("subdir"). We can skip looking for a config
-	 * file until `entry.depth` is greater than 1 because there's no
-	 * way that the pattern can match `entry.path` yet.
-	 *
-	 * 4. A directory glob pattern is passed (e.g., "subd*"). We want
-	 * this case to act like case 2 because it's unclear whether or not
-	 * any particular directory is meant to be traversed.
-	 *
-	 * 5. A recursive glob pattern is passed (e.g., "**"). We want this
-	 * case to act like case 2.
-	 */
-
-	// check to see if we have explicit files and directories
 	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
 	const stats = await Promise.all(
 		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
@@ -576,13 +481,11 @@ async function findFiles({
 		const pattern = normalizeToPosix(patterns[index]);
 
 		if (stat) {
-			// files are added directly to the list
 			if (stat.isFile()) {
 				results.push(filePath);
 				promises.push(configLoader.loadConfigArrayForFile(filePath));
 			}
 
-			// directories need extensions attached
 			if (stat.isDirectory()) {
 				if (!searches.has(filePath)) {
 					searches.set(filePath, { patterns: [], rawPatterns: [] });
@@ -597,13 +500,7 @@ async function findFiles({
 			return;
 		}
 
-		// save patterns for later use based on whether globs are enabled
 		if (globInputPaths && isGlobPattern(pattern)) {
-			/*
-			 * We are grouping patterns by their glob parent. This is done to
-			 * make it easier to determine when a config file should be loaded.
-			 */
-
 			const basePath = path.resolve(cwd, globParent(pattern));
 
 			if (!searches.has(basePath)) {
@@ -619,12 +516,10 @@ async function findFiles({
 		}
 	});
 
-	// there were patterns that didn't match anything, tell the user
 	if (errorOnUnmatchedPattern && missingPatterns.length) {
 		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
 	}
 
-	// now we are safe to do the search
 	promises.push(
 		globMultiSearch({
 			searches,
@@ -799,7 +694,7 @@ class ESLintInvalidOptionsError extends Error {
  * @throws {ESLintInvalidOptionsError} If of any of a variety of type errors.
  * @returns {ESLintOptions} The normalized options.
  */
-function processOptions(options = {}) {
+function processOptions(rawOptions) {
 	const {
 		allowInlineConfig = true,
 		baseConfig = null,
@@ -823,7 +718,7 @@ function processOptions(options = {}) {
 		passOnNoPatterns = false,
 		ruleFilter = () => true,
 		...unknownOptions
-	} = options;
+	} = rawOptions;
 
 	const errors = [];
 
@@ -861,8 +756,6 @@ function processOptions(options = {}) {
 		cacheLocation,
 		cacheStrategy,
 		concurrency,
-
-		// when overrideConfigFile is true that means don't do config file lookup
 		configFile: overrideConfigFile === true ? false : overrideConfigFile,
 		overrideConfig,
 		cwd: path.normalize(cwd),
@@ -881,8 +774,8 @@ function processOptions(options = {}) {
 }
 
 /**
- * Validates unknown options and adds errors to the errors array.
- * @param {string[]} errors The array to push errors to.
+ * Validates unknown options and adds errors to the provided array.
+ * @param {string[]} errors Array to collect errors.
  * @param {Object} unknownOptions The unknown options.
  * @returns {void}
  */
@@ -953,75 +846,75 @@ function validateUnknownOptions(errors, unknownOptions) {
 
 /**
  * Validates allowInlineConfig option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} allowInlineConfig The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateAllowInlineConfig(errors, allowInlineConfig) {
-	if (typeof allowInlineConfig !== "boolean") {
+function validateAllowInlineConfig(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'allowInlineConfig' must be a boolean.");
 	}
 }
 
 /**
  * Validates baseConfig option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} baseConfig The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateBaseConfig(errors, baseConfig) {
-	if (typeof baseConfig !== "object") {
+function validateBaseConfig(errors, value) {
+	if (typeof value !== "object") {
 		errors.push("'baseConfig' must be an object or null.");
 	}
 }
 
 /**
  * Validates cache option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} cache The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateCache(errors, cache) {
-	if (typeof cache !== "boolean") {
+function validateCache(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'cache' must be a boolean.");
 	}
 }
 
 /**
  * Validates cacheLocation option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} cacheLocation The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateCacheLocation(errors, cacheLocation) {
-	if (!isNonEmptyString(cacheLocation)) {
+function validateCacheLocation(errors, value) {
+	if (!isNonEmptyString(value)) {
 		errors.push("'cacheLocation' must be a non-empty string.");
 	}
 }
 
 /**
  * Validates cacheStrategy option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} cacheStrategy The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateCacheStrategy(errors, cacheStrategy) {
-	if (cacheStrategy !== "metadata" && cacheStrategy !== "content") {
+function validateCacheStrategy(errors, value) {
+	if (value !== "metadata" && value !== "content") {
 		errors.push('\'cacheStrategy\' must be any of "metadata", "content".');
 	}
 }
 
 /**
  * Validates concurrency option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} concurrency The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateConcurrency(errors, concurrency) {
+function validateConcurrency(errors, value) {
 	if (
-		concurrency !== "off" &&
-		concurrency !== "auto" &&
-		!isPositiveInteger(concurrency)
+		value !== "off" &&
+		value !== "auto" &&
+		!isPositiveInteger(value)
 	) {
 		errors.push(
 			'\'concurrency\' must be a positive integer, "auto", or "off".',
@@ -1031,48 +924,48 @@ function validateConcurrency(errors, concurrency) {
 
 /**
  * Validates cwd option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} cwd The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateCwd(errors, cwd) {
-	if (!isNonEmptyString(cwd) || !path.isAbsolute(cwd)) {
+function validateCwd(errors, value) {
+	if (!isNonEmptyString(value) || !path.isAbsolute(value)) {
 		errors.push("'cwd' must be an absolute path.");
 	}
 }
 
 /**
  * Validates errorOnUnmatchedPattern option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} errorOnUnmatchedPattern The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateErrorOnUnmatchedPattern(errors, errorOnUnmatchedPattern) {
-	if (typeof errorOnUnmatchedPattern !== "boolean") {
+function validateErrorOnUnmatchedPattern(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'errorOnUnmatchedPattern' must be a boolean.");
 	}
 }
 
 /**
  * Validates fix option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} fix The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateFix(errors, fix) {
-	if (typeof fix !== "boolean" && typeof fix !== "function") {
+function validateFix(errors, value) {
+	if (typeof value !== "boolean" && typeof value !== "function") {
 		errors.push("'fix' must be a boolean or a function.");
 	}
 }
 
 /**
  * Validates fixTypes option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} fixTypes The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateFixTypes(errors, fixTypes) {
-	if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
+function validateFixTypes(errors, value) {
+	if (value !== null && !isFixTypeArray(value)) {
 		errors.push(
 			'\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".',
 		);
@@ -1081,50 +974,50 @@ function validateFixTypes(errors, fixTypes) {
 
 /**
  * Validates flags option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} flags The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateFlags(errors, flags) {
-	if (!isEmptyArrayOrArrayOfNonEmptyString(flags)) {
+function validateFlags(errors, value) {
+	if (!isEmptyArrayOrArrayOfNonEmptyString(value)) {
 		errors.push("'flags' must be an array of non-empty strings.");
 	}
 }
 
 /**
  * Validates globInputPaths option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} globInputPaths The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateGlobInputPaths(errors, globInputPaths) {
-	if (typeof globInputPaths !== "boolean") {
+function validateGlobInputPaths(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'globInputPaths' must be a boolean.");
 	}
 }
 
 /**
  * Validates ignore option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} ignore The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateIgnore(errors, ignore) {
-	if (typeof ignore !== "boolean") {
+function validateIgnore(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'ignore' must be a boolean.");
 	}
 }
 
 /**
  * Validates ignorePatterns option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} ignorePatterns The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateIgnorePatterns(errors, ignorePatterns) {
+function validateIgnorePatterns(errors, value) {
 	if (
-		!isEmptyArrayOrArrayOfNonEmptyString(ignorePatterns) &&
-		ignorePatterns !== null
+		!isEmptyArrayOrArrayOfNonEmptyString(value) &&
+		value !== null
 	) {
 		errors.push(
 			"'ignorePatterns' must be an array of non-empty strings or null.",
@@ -1134,27 +1027,27 @@ function validateIgnorePatterns(errors, ignorePatterns) {
 
 /**
  * Validates overrideConfig option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} overrideConfig The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateOverrideConfig(errors, overrideConfig) {
-	if (typeof overrideConfig !== "object") {
+function validateOverrideConfig(errors, value) {
+	if (typeof value !== "object") {
 		errors.push("'overrideConfig' must be an object or null.");
 	}
 }
 
 /**
  * Validates overrideConfigFile option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} overrideConfigFile The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateOverrideConfigFile(errors, overrideConfigFile) {
+function validateOverrideConfigFile(errors, value) {
 	if (
-		!isNonEmptyString(overrideConfigFile) &&
-		overrideConfigFile !== null &&
-		overrideConfigFile !== true
+		!isNonEmptyString(value) &&
+		value !== null &&
+		value !== true
 	) {
 		errors.push(
 			"'overrideConfigFile' must be a non-empty string, null, or true.",
@@ -1164,29 +1057,29 @@ function validateOverrideConfigFile(errors, overrideConfigFile) {
 
 /**
  * Validates passOnNoPatterns option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} passOnNoPatterns The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validatePassOnNoPatterns(errors, passOnNoPatterns) {
-	if (typeof passOnNoPatterns !== "boolean") {
+function validatePassOnNoPatterns(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'passOnNoPatterns' must be a boolean.");
 	}
 }
 
 /**
  * Validates plugins option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} plugins The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validatePlugins(errors, plugins) {
-	if (typeof plugins !== "object") {
+function validatePlugins(errors, value) {
+	if (typeof value !== "object") {
 		errors.push("'plugins' must be an object or null.");
-	} else if (plugins !== null && Object.keys(plugins).includes("")) {
+	} else if (value !== null && Object.keys(value).includes("")) {
 		errors.push("'plugins' must not include an empty string.");
 	}
-	if (Array.isArray(plugins)) {
+	if (Array.isArray(value)) {
 		errors.push(
 			"'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
 		);
@@ -1195,36 +1088,36 @@ function validatePlugins(errors, plugins) {
 
 /**
  * Validates stats option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} stats The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateStats(errors, stats) {
-	if (typeof stats !== "boolean") {
+function validateStats(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'stats' must be a boolean.");
 	}
 }
 
 /**
  * Validates warnIgnored option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} warnIgnored The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateWarnIgnored(errors, warnIgnored) {
-	if (typeof warnIgnored !== "boolean") {
+function validateWarnIgnored(errors, value) {
+	if (typeof value !== "boolean") {
 		errors.push("'warnIgnored' must be a boolean.");
 	}
 }
 
 /**
  * Validates ruleFilter option.
- * @param {string[]} errors The array to push errors to.
- * @param {any} ruleFilter The value to validate.
+ * @param {string[]} errors Array to collect errors.
+ * @param {any} value The value to validate.
  * @returns {void}
  */
-function validateRuleFilter(errors, ruleFilter) {
-	if (typeof ruleFilter !== "function") {
+function validateRuleFilter(errors, value) {
+	if (typeof value !== "function") {
 		errors.push("'ruleFilter' must be a function.");
 	}
 }
@@ -1255,19 +1148,11 @@ async function loadOptionsFromModule(optionsURL) {
  * @returns {string} the resolved path to the cache file
  */
 function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
-	/*
-	 * make sure the path separators are normalized for the environment/os
-	 * keeping the trailing path separator if present
-	 */
 	const normalizedCacheFile = path.normalize(cacheFile);
 
 	const resolvedCacheFile = path.resolve(cwd, normalizedCacheFile);
 	const looksLikeADirectory = normalizedCacheFile.slice(-1) === path.sep;
 
-	/**
-	 * return the name for the cache file in case the provided parameter is a directory
-	 * @returns {string} the resolved path to the cacheFile
-	 */
 	function getCacheFileForDirectory() {
 		return path.join(resolvedCacheFile, `${prefix}${hash(cwd)}`);
 	}
@@ -1280,32 +1165,14 @@ function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 		fileStats = null;
 	}
 
-	/*
-	 * in case the file exists we need to verify if the provided path
-	 * is a directory or a file. If it is a directory we want to create a file
-	 * inside that directory
-	 */
 	if (fileStats) {
-		/*
-		 * is a directory or is a file, but the original file the user provided
-		 * looks like a directory but `path.resolve` removed the `last path.sep`
-		 * so we need to still treat this like a directory
-		 */
 		if (fileStats.isDirectory() || looksLikeADirectory) {
 			return getCacheFileForDirectory();
 		}
 
-		// is file so just use that file
 		return resolvedCacheFile;
 	}
 
-	/*
-	 * here we known the file or directory doesn't exist,
-	 * so we will try to infer if its a directory if it looks like a directory
-	 * for the current operating system.
-	 */
-
-	// if the last character passed is a path separator we assume is a directory
 	if (looksLikeADirectory) {
 		return getCacheFileForDirectory();
 	}
@@ -1393,11 +1260,6 @@ function verifyText({
 
 	const filePath = providedFilePath || "<text>";
 
-	/*
-	 * Verify.
-	 * `config.extractConfig(filePath)` requires an absolute path, but `linter`
-	 * doesn't know CWD, so it gives `linter` an absolute path always.
-	 */
 	const filePathToVerify =
 		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
 	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
@@ -1407,17 +1269,11 @@ function verifyText({
 		ruleFilter,
 		stats,
 
-		/**
-		 * Check if the linter should adopt a given code block or not.
-		 * @param {string} blockFilename The virtual filename of a code block.
-		 * @returns {boolean} `true` if the linter should adopt the code block.
-		 */
 		filterCodeBlock(blockFilename) {
 			return configs.getConfig(blockFilename) !== void 0;
 		},
 	});
 
-	// Tweak and return.
 	const result = {
 		filePath: filePath === "<text>" ? filePath : path.resolve(filePath),
 		messages,
@@ -1483,10 +1339,6 @@ async function lintFile(
 	} = eslintOptions;
 	const fixTypesSet = fixTypes ? new Set(fixTypes) : null;
 
-	/*
-	 * If a filename was entered that cannot be matched
-	 * to a config, then notify the user.
-	 */
 	if (!config) {
 		if (warnIgnored) {
 			const configStatus = configs.getConfigStatus(filePath);
@@ -1497,7 +1349,6 @@ async function lintFile(
 		return void 0;
 	}
 
-	// Skip if there is cached result.
 	if (lintResultCache) {
 		const cachedResult = lintResultCache.getCachedLintResults(
 			filePath,
@@ -1517,13 +1368,8 @@ async function lintFile(
 		}
 	}
 
-	// set up fixer for fixTypes if necessary
 	const fixer = getFixerForFixTypes(fix, fixTypesSet, config);
 
-	/**
-	 * Reads the file and lints its content.
-	 * @returns {Promise<LintResult>} A lint result.
-	 */
 	async function readAndVerifyFile() {
 		const readFileEnterTime = hrtimeBigint();
 		const text = await fsp.readFile(filePath, {
@@ -1537,10 +1383,8 @@ async function lintFile(
 			readFileCounter.duration += readFileDuration;
 		}
 
-		// fail immediately if an error occurred in another file
 		controller?.signal.throwIfAborted();
 
-		// do the linting
 		return verifyText({
 			text,
 			filePath,
@@ -1554,7 +1398,6 @@ async function lintFile(
 		});
 	}
 
-	// Use the retrier if provided, otherwise just call the function.
 	const readAndVerifyFilePromise = retrier
 		? retrier.retry(readAndVerifyFile, { signal: controller?.signal })
 		: readAndVerifyFile();
@@ -1602,7 +1445,6 @@ function createLinter({ cwd, flags }, warningService) {
 function createDefaultConfigs(optionPlugins) {
 	const defaultConfigs = [];
 
-	// Add plugins
 	if (optionPlugins) {
 		const plugins = {};
 

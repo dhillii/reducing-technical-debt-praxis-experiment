@@ -149,145 +149,7 @@ export function denyFilter() {
 export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
-/**
- * Determines if a list configuration should generate an item-level access test.
- */
-function shouldGenerateItemAccessTest(access: {
-  create: boolean
-  update: boolean
-  delete: boolean
-}) {
-  return [access.create, access.update, access.delete].includes(false)
-}
-
-/**
- * Determines if a list configuration should generate filter-related tests.
- */
-function shouldGenerateFilterTests(access: {
-  query: boolean
-  update: boolean
-  delete: boolean
-}) {
-  return [access.query, access.update, access.delete].includes(false)
-}
-
-/**
- * Yields a list definition with item-level access control.
- */
-function* generateItemAccessList(
-  prefix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
-  const suffix = `${prefix}${makeName(access)}`
-  const name = `List_item_${suffix}`
-
-  yield {
-    name,
-    expect: { type: 'item' as const, ...access },
-    access: {
-      operation: {
-        query: access.query ? allowAll : denyAll,
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      item: {
-        create: access.create ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: name + 's',
-    },
-  } as const
-}
-
-/**
- * Yields filter(b) and filter list definitions.
- */
-function* generateFilterLists(
-  prefix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
-  const suffix = `${prefix}${makeName(access)}`
-  const nameFB = `List_filterb_${suffix}`
-  const nameF = `List_filter_${suffix}`
-
-  yield {
-    name: nameFB,
-    expect: { type: 'filter(b)' as const, ...access },
-    access: {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: access.query ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
-      item: {
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: nameFB + 's',
-    },
-  } as const
-
-  yield {
-    name: nameF,
-    expect: { type: 'filter' as const, ...access },
-    access: {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: access.query ? allowFilter : denyFilter,
-        update: access.update ? allowFilter : denyFilter,
-        delete: access.delete ? allowFilter : denyFilter,
-      },
-      item: {
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: nameF + 's',
-    },
-  } as const
-}
-
-export function* makeList({
+function* generateBaseLists({
   prefix = ``,
   access,
   fields,
@@ -330,13 +192,185 @@ export function* makeList({
       plural: nameO + 's',
     },
   } as const
+}
 
-  if (shouldGenerateItemAccessTest(access)) {
-    yield* generateItemAccessList(prefix, access, fields)
+function* generateItemAccessList({
+  prefix = ``,
+  access,
+  fields,
+}: {
+  prefix?: string
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
+  fields: Field[]
+}) {
+  const suffix = `${prefix}${makeName(access)}`
+  const nameI = `List_item_${suffix}`
+  yield {
+    name: nameI,
+    expect: { type: 'item' as const, ...access },
+    access: {
+      operation: {
+        query: access.query ? allowAll : denyAll,
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      item: {
+        create: access.create ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameI + 's',
+    },
+  } as const
+}
+
+function* generateFilterBList({
+  prefix = ``,
+  access,
+  fields,
+}: {
+  prefix?: string
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
+  fields: Field[]
+}) {
+  const suffix = `${prefix}${makeName(access)}`
+  const nameFB = `List_filterb_${suffix}`
+  yield {
+    name: nameFB,
+    expect: { type: 'filter(b)' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameFB + 's',
+    },
+  } as const
+}
+
+function* generateFilterList({
+  prefix = ``,
+  access,
+  fields,
+}: {
+  prefix?: string
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
+  fields: Field[]
+}) {
+  const suffix = `${prefix}${makeName(access)}`
+  const nameF = `List_filter_${suffix}`
+  yield {
+    name: nameF,
+    expect: { type: 'filter' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      filter: {
+        query: access.query ? allowFilter : denyFilter,
+        update: access.update ? allowFilter : denyFilter,
+        delete: access.delete ? allowFilter : denyFilter,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameF + 's',
+    },
+  } as const
+}
+
+/**
+ * Determines if item-level access permissions require special test list generation
+ */
+function hasRestrictedItemPermissions(access: {
+  create: boolean
+  update: boolean
+  delete: boolean
+}) {
+  return [access.create, access.update, access.delete].includes(false)
+}
+
+/**
+ * Determines if filter access permissions require filter-related test lists
+ */
+function hasRestrictedFilterPermissions(access: {
+  query: boolean
+  update: boolean
+  delete: boolean
+}) {
+  return [access.query, access.update, access.delete].includes(false)
+}
+
+export function* makeList({
+  prefix = ``,
+  access,
+  fields,
+}: {
+  prefix?: string
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
+  fields: Field[]
+}) {
+  yield* generateBaseLists({ prefix, access, fields })
+
+  if (hasRestrictedItemPermissions(access)) {
+    yield* generateItemAccessList({ prefix, access, fields })
   }
 
-  if (shouldGenerateFilterTests(access)) {
-    yield* generateFilterLists(prefix, access, fields)
+  if (hasRestrictedFilterPermissions(access)) {
+    yield* generateFilterBList({ prefix, access, fields })
+    yield* generateFilterList({ prefix, access, fields })
   }
 }
 

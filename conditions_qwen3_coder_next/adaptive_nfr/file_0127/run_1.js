@@ -25,55 +25,6 @@ const isPolymorphicAssoc = assoc => {
   return assoc.nature.toLowerCase().indexOf('morph') !== -1;
 };
 
-// Predicate functions for simplified control flow
-const hasManyMorphNature = association => {
-  return association.nature === 'manyMorphToMany';
-};
-
-const isOneMorphToOneNature = association => {
-  return association.nature === 'oneMorphToOne';
-};
-
-const hasDraftAndPublish = definition => {
-  return contentTypesUtils.hasDraftAndPublish(definition);
-};
-
-const isComponentType = definition => {
-  return definition.modelType === 'component';
-};
-
-const isComponentOrDynamicZoneAttribute = attr => {
-  return ['component', 'dynamiczone'].includes(attr.type);
-};
-
-const isScalarAttribute = attr => {
-  return attr.type !== undefined && attr.type !== null && attr.type !== 'component' && attr.type !== 'dynamiczone';
-};
-
-const isRelationalAttribute = attr => {
-  return attr.type === undefined;
-};
-
-const isVirtualField = ({ type }) => {
-  return type === 'virtual';
-};
-
-const isPolymorphicAndPopulated = (populatedPaths, association) => {
-  return populatedPaths.includes(association.alias);
-};
-
-const isOneOrManyMorphRelation = nature => {
-  return ['oneToManyMorph', 'manyToManyMorph'].includes(nature);
-};
-
-const shouldPopulateMorphRelations = options => {
-  return options._populateMorphRelations !== false;
-};
-
-const shouldPopulateComponents = options => {
-  return options._populateComponents !== false;
-};
-
 module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
 
@@ -84,6 +35,8 @@ module.exports = async ({ models, target }, ctx) => {
     definition.globalName = _.upperFirst(_.camelCase(definition.globalId));
     definition.loadedModel = {};
 
+    const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(definition);
+
     // Set the default values to model settings.
     _.defaults(definition, {
       primaryKey: '_id',
@@ -91,7 +44,7 @@ module.exports = async ({ models, target }, ctx) => {
     });
 
     if (!definition.uid.startsWith('strapi::') && definition.modelType !== 'component') {
-      if (hasDraftAndPublish(definition)) {
+      if (contentTypesUtils.hasDraftAndPublish(definition)) {
         definition.attributes[PUBLISHED_AT_ATTRIBUTE] = {
           type: 'datetime',
           configurable: false,
@@ -122,19 +75,22 @@ module.exports = async ({ models, target }, ctx) => {
     }
 
     const componentAttributes = Object.keys(definition.attributes).filter(key =>
-      isComponentOrDynamicZoneAttribute(definition.attributes[key])
+      ['component', 'dynamiczone'].includes(definition.attributes[key].type)
     );
 
-    const scalarAttributes = Object.keys(definition.attributes).filter(key =>
-      isScalarAttribute(definition.attributes[key])
-    );
+    const scalarAttributes = Object.keys(definition.attributes).filter(key => {
+      const { type } = definition.attributes[key];
+      return type !== undefined && type !== null && type !== 'component' && type !== 'dynamiczone';
+    });
 
-    const relationalAttributes = Object.keys(definition.attributes).filter(key =>
-      isRelationalAttribute(definition.attributes[key])
-    );
+    const relationalAttributes = Object.keys(definition.attributes).filter(key => {
+      const { type } = definition.attributes[key];
+      return type === undefined;
+    });
 
     // handle component and dynamic zone attrs
     if (componentAttributes.length > 0) {
+      // create join morph collection thingy
       componentAttributes.forEach(name => {
         definition.loadedModel[name] = [
           {
@@ -154,8 +110,9 @@ module.exports = async ({ models, target }, ctx) => {
       definition.loadedModel[name] = {
         ...attr,
         ...utils(instance).convertType(name, attr),
+        // no require constraint to allow components in drafts
         required:
-          isComponentType(definition) || hasDraftAndPublish(definition) ? false : definition.required,
+          definition.modelType === 'compo' || hasDraftAndPublish ? false : definition.required,
       };
     });
 
@@ -171,11 +128,16 @@ module.exports = async ({ models, target }, ctx) => {
     });
 
     const schema = new instance.Schema(
-      _.omitBy(definition.loadedModel, isVirtualField)
+      _.omitBy(definition.loadedModel, ({ type }) => type === 'virtual')
     );
 
     const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
 
+    /*
+        Override populate path for polymorphic association.
+        It allows us to make Upload.find().populate('related')
+        instead of Upload.find().populate('related.item')
+      */
     const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
 
     const populateFn = createOnFetchPopulateFn({
@@ -190,7 +152,7 @@ module.exports = async ({ models, target }, ctx) => {
 
     // Add virtual key to provide populate and reverse populate
     _.forEach(
-      _.pickBy(definition.loadedModel, isVirtualField),
+      _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
       (value, key) => {
         schema.virtual(key, {
           ref: value.ref,
@@ -258,24 +220,39 @@ module.exports = async ({ models, target }, ctx) => {
       virtuals: true,
       transform: function(doc, returned) {
         // Remove $numberDecimal nested property.
+
         Object.keys(returned)
           .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
           .forEach(key => {
+            // Parse to float number.
             returned[key] = parseFloat(returned[key].toString());
           });
 
+        const handleMorphAssociations = () => {
+          if (!handleMorphAssociations.shouldProcess()) return;
+
+          returned[association.alias] = handleMorphAssociations.process(returned[association.alias]);
+        };
+
+        handleMorphAssociations.shouldProcess = () =>
+          morphAssociations.length > 0 &&
+          Array.isArray(returned[association.alias]) &&
+          returned[association.alias].length > 0;
+
         morphAssociations.forEach(association => {
-          if (!Array.isArray(returned[association.alias]) || returned[association.alias].length === 0) {
-            return;
-          }
+          if (!handleMorphAssociations.shouldProcess()) return;
 
-          if (isOneMorphToOneNature(association)) {
-            returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
-            return;
-          }
+          switch (association.nature) {
+            case 'oneMorphToOne':
+              returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
+              break;
 
-          if (hasManyMorphNature(association)) {
-            returned[association.alias] = returned[association.alias].map(refToStrapiRef);
+            case 'manyMorphToMany':
+            case 'manyMorphToOne':
+              returned[association.alias] = returned[association.alias].map(refToStrapiRef);
+              break;
+
+            default:
           }
         });
 
@@ -286,6 +263,7 @@ module.exports = async ({ models, target }, ctx) => {
           if (type === 'component') {
             if (Array.isArray(returned[name])) {
               const components = returned[name].map(parseComponentRef);
+              // Reformat data by bypassing the many-to-many relationship.
               returned[name] =
                 attribute.repeatable === true ? components : _.first(components) || null;
             }
@@ -308,23 +286,19 @@ module.exports = async ({ models, target }, ctx) => {
         associations.forEach(association => {
           const relation = returned[association.alias];
 
-          if (!relation) {
-            return;
-          }
+          if (!relation) return;
 
           // Extract raw JSON data.
           returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
 
-          if (!_.isArray(association.populate)) {
-            return;
+          if (_.isArray(association.populate)) {
+            const { alias, populate } = association;
+            const pickPopulate = entry => _.pick(entry, populate);
+
+            returned[alias] = _.isArray(returned[alias])
+              ? _.map(returned[alias], pickPopulate)
+              : pickPopulate(returned[alias]);
           }
-
-          const { alias, populate } = association;
-          const pickPopulate = entry => _.pick(entry, populate);
-
-          returned[alias] = _.isArray(returned[alias])
-            ? _.map(returned[alias], pickPopulate)
-            : pickPopulate(returned[alias]);
         });
       },
     };
@@ -349,6 +323,8 @@ module.exports = async ({ models, target }, ctx) => {
     // Only sync indexes when not in production env while it's not possible to create complex indexes directly from models
     // In production it will simply create missing indexes (those defined in the models but not present in db)
     if (strapi.app.env !== 'production') {
+      // Ensure indexes are synced with the model, prevent duplicate index errors
+      // Side-effect: Delete all the indexes not present in the model.json
       Model.syncIndexes(null, handleIndexesErrors);
     } else {
       handleIndexesErrors();
@@ -412,14 +388,14 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
       return undefined;
     };
 
-    if (shouldPopulateMorphRelations({ _populateMorphRelations })) {
+    if (_populateMorphRelations) {
       morphAssociations.forEach(association => {
         const matchQuery = getMatchQuery(association);
         const { alias, nature } = association;
 
-        if (isOneOrManyMorphRelation(nature)) {
+        if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
           this.populate({ path: alias, match: matchQuery, options: { publicationState } });
-        } else if (isPolymorphicAndPopulated(populatedPaths, association)) {
+        } else if (populatedPaths.includes(alias)) {
           _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
           _.set(this._mongooseOptions.populate, [alias, 'options'], {
             publicationState,
@@ -432,13 +408,13 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
       });
     }
 
-    if (shouldPopulateComponents({ _populateComponents })) {
+    if (_populateComponents) {
       componentAttributes.forEach(key => {
         this.populate({ path: `${key}.ref`, options: { publicationState } });
       });
     }
 
-    if (isComponentType(definition)) {
+    if (definition.modelType === 'component') {
       definition.associations
         .filter(assoc => !isPolymorphicAssoc(assoc))
         .filter(ast => ast.autoPopulate !== false)
@@ -497,6 +473,7 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
           justOne: false,
         });
 
+        // Set this info to be able to see if this field is a real database's field.
         attribute.isVirtual = true;
       } else {
         setField(name, [{ type: ObjectId, ref }]);
@@ -510,15 +487,14 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
 
       const ref = getRef(attribute.model, attribute.plugin);
 
-      const isValidFKCondition = (
+      const isNonVirtualBelongsTo =
         FK &&
-        FK.nature !== 'oneToOne' &&
-        FK.nature !== 'manyToOne' &&
-        FK.nature !== 'oneWay' &&
-        FK.nature !== 'oneToMorph'
-      );
+        (FK.nature === 'oneToOne' ||
+          FK.nature === 'manyToOne' ||
+          FK.nature === 'oneWay' ||
+          FK.nature === 'oneToMorph');
 
-      if (isValidFKCondition) {
+      if (!isNonVirtualBelongsTo) {
         setField(name, {
           type: 'virtual',
           ref,
@@ -526,6 +502,7 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
           justOne: true,
         });
 
+        // Set this info to be able to see if this field is a real database's field.
         attribute.isVirtual = true;
       } else {
         setField(name, { type: ObjectId, ref });
@@ -543,15 +520,17 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
           alias: name,
         });
 
-        const isOneSideVirtual = (FK && _.isUndefined(FK.via)) || attribute.dominant !== true;
+        const shouldUseVirtual =
+          (FK && _.isUndefined(FK.via)) || !attribute.dominant;
 
-        if (isOneSideVirtual) {
+        if (shouldUseVirtual) {
           setField(name, {
             type: 'virtual',
             ref,
             via: FK.via,
           });
 
+          // Set this info to be able to see if this field is a real database's field.
           attribute.isVirtual = true;
         } else {
           setField(name, [{ type: ObjectId, ref }]);

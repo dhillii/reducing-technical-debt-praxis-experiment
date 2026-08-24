@@ -20,8 +20,10 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-// Scalar type mapping lookup table
-const SCALAR_TYPE_MAP = {
+/**
+ * Strategy object for scalar type mapping.
+ */
+const scalarTypeMap = {
   boolean: 'Boolean',
   integer: 'Int',
   biginteger: 'Long',
@@ -35,39 +37,27 @@ const SCALAR_TYPE_MAP = {
 };
 
 /**
- * Convert scalar attribute type to GraphQL scalar type.
- * @param {Object} attribute - Attribute definition
- * @return {String} GraphQL scalar type name
+ * Extracted predicate for required scalar type handling.
  */
-const getScalarType = (attribute) => {
-  const type = SCALAR_TYPE_MAP[attribute.type];
-  return type || 'String';
-};
-
-/**
- * Determine if a scalar type should be non-nullable.
- * @param {Object} attribute - Attribute definition
- * @param {String} rootType - Root operation type (query/mutation)
- * @param {String} action - Mutation action (create/update)
- * @return {Boolean} true if type should be non-nullable
- */
-const shouldMakeScalarNonNullable = (attribute, rootType, action) => {
+const shouldAddRequiredMarker = (attribute, rootType, action) => {
   if (!attribute.required) return false;
   if (rootType !== 'mutation') return true;
-  if (action === 'update' && attribute.default !== undefined) return false;
-  return true;
+  if (action !== 'update' && attribute.default === undefined) return true;
+  return false;
 };
 
 /**
- * Convert component attribute to GraphQL type.
- * @param {Object} attribute - Component attribute definition
- * @param {String} modelName - Model name
- * @param {String} rootType - Root operation type
- * @param {String} action - Mutation action
- * @return {String} GraphQL type string
+ * Extracted method to build scalar type string with optional required marker.
  */
-const convertComponentType = (attribute, modelName, rootType, action) => {
-  const { required, repeatable, component } = attribute;
+const getScalarTypeString = (scalarType, attribute, rootType, action) => {
+  const type = scalarTypeMap[attribute.type] || scalarType;
+  return shouldAddRequiredMarker(attribute, rootType, action) ? `${type}!` : type;
+};
+
+/**
+ * Helper for component type conversion.
+ */
+const getComponentTypeName = ({ required, repeatable, component, rootType, action, modelName, attributeName }) => {
   const globalId = strapi.components[component].globalId;
 
   let typeName = required === true ? `${globalId}` : globalId;
@@ -83,15 +73,9 @@ const convertComponentType = (attribute, modelName, rootType, action) => {
 };
 
 /**
- * Convert dynamiczone attribute to GraphQL type.
- * @param {Object} attribute - Dynamiczone attribute definition
- * @param {String} modelName - Model name
- * @param {String} attributeName - Attribute name
- * @param {String} rootType - Root operation type
- * @return {String} GraphQL type string
+ * Helper for dynamiczone type conversion.
  */
-const convertDynamiczoneType = (attribute, modelName, attributeName, rootType) => {
-  const { required } = attribute;
+const getDynamicZoneTypeName = ({ required, rootType, modelName, attributeName }) => {
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
 
   let typeName = unionName;
@@ -104,12 +88,9 @@ const convertDynamiczoneType = (attribute, modelName, attributeName, rootType) =
 };
 
 /**
- * Convert association attribute to GraphQL type.
- * @param {Object} attribute - Association attribute definition
- * @param {String} rootType - Root operation type
- * @return {String} GraphQL type string
+ * Helper for association (relation) type conversion.
  */
-const convertAssociationType = (attribute, rootType) => {
+const getAssociationTypeName = ({ attribute, rootType, modelName, attributeName }) => {
   const ref = attribute.model || attribute.collection;
 
   if (!ref || ref === '*') {
@@ -120,10 +101,20 @@ const convertAssociationType = (attribute, rootType) => {
   const plural = !_.isEmpty(attribute.collection);
 
   if (plural) {
-    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
+    if (rootType === 'mutation') return '[ID]';
+    return `[${globalId}]`;
   }
 
-  return rootType === 'mutation' ? 'ID' : globalId;
+  if (rootType === 'mutation') return 'ID';
+  return globalId;
+};
+
+/**
+ * Dispatch scalar attribute conversion logic.
+ */
+const convertScalarAttribute = (attribute, modelName, attributeName, rootType, action) => {
+  const scalarType = 'String';
+  return getScalarTypeString(scalarType, attribute, rootType, action);
 };
 
 module.exports = {
@@ -143,28 +134,32 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    if (!isScalarAttribute(attribute)) {
-      switch (attribute.type) {
-        case 'component':
-          return convertComponentType(attribute, modelName, rootType, action);
-        case 'dynamiczone':
-          return convertDynamiczoneType(attribute, modelName, attributeName, rootType);
-        default:
-          return convertAssociationType(attribute, rootType);
-      }
+    if (isScalarAttribute(attribute)) {
+      return convertScalarAttribute(attribute, modelName, attributeName, rootType, action);
     }
 
-    let type = getScalarType(attribute);
-
-    if (attribute.type === 'enumeration') {
-      type = this.convertEnumType(attribute, modelName, attributeName);
+    if (attribute.type === 'component') {
+      return getComponentTypeName({
+        required: attribute.required,
+        repeatable: attribute.repeatable,
+        component: attribute.component,
+        rootType,
+        action,
+        modelName,
+        attributeName,
+      });
     }
 
-    if (shouldMakeScalarNonNullable(attribute, rootType, action)) {
-      type += '!';
+    if (attribute.type === 'dynamiczone') {
+      return getDynamicZoneTypeName({
+        required: attribute.required,
+        rootType,
+        modelName,
+        attributeName,
+      });
     }
 
-    return type;
+    return getAssociationTypeName({ attribute, rootType, modelName, attributeName });
   },
 
   /**

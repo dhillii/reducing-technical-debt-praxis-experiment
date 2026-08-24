@@ -306,9 +306,13 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
   switch (operator) {
     case 'and':
-      return buildAndClause(qb, value);
+      return qb.where(andQb => {
+        handleAndOrClauses(andQb, value, 'and', buildWhereClause);
+      });
     case 'or':
-      return buildOrClause(qb, value);
+      return qb.where(orQb => {
+        handleAndOrClauses(orQb, value, 'or', buildWhereClause);
+      });
     case 'eq':
       return qb.where(field, value);
     case 'ne':
@@ -342,31 +346,23 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
   }
 };
 
-const buildAndClause = (qb, value) => {
-  return qb.where(andQb => {
-    value.forEach(andClause => {
-      if (Array.isArray(andClause)) {
-        andClause.forEach(clause =>
-          andQb.where(subQb => buildWhereClause({ qb: subQb, ...clause }))
-        );
+const handleAndOrClauses = (qb, clauses, connector, buildFn) => {
+  clauses.forEach(clause => {
+    if (Array.isArray(clause)) {
+      clause.forEach(subClause => {
+        if (connector === 'and') {
+          qb.where(subQb => buildFn({ qb: subQb, ...subClause }));
+        } else {
+          qb.orWhere(subQb => buildFn({ qb: subQb, ...subClause }));
+        }
+      });
+    } else {
+      if (connector === 'and') {
+        qb.where(subQb => buildFn({ qb: subQb, ...clause }));
       } else {
-        andQb.where(subQb => buildWhereClause({ qb: subQb, ...andClause }));
+        qb.orWhere(subQb => buildFn({ qb: subQb, ...clause }));
       }
-    });
-  });
-};
-
-const buildOrClause = (qb, value) => {
-  return qb.where(orQb => {
-    value.forEach(orClause => {
-      if (Array.isArray(orClause)) {
-        orClause.forEach(orClause =>
-          orQb.where(subQb => buildWhereClause({ qb: subQb, ...orClause }))
-        );
-      } else {
-        orQb.where(subQb => buildWhereClause({ qb: subQb, ...orClause }));
-      }
-    });
+    }
   });
 };
 

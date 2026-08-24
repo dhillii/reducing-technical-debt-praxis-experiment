@@ -11,313 +11,319 @@
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
- * Creates a mapping of rule names to their lazy-loaded rule modules.
- * @returns {Map<string, import("../types").Rule.RuleModule>} A map of rule definitions.
+ * Creates a rule loader function for a given rule name.
+ * @param {string} ruleName The name of the rule module to load.
+ * @returns {() => import("../types").Rule.RuleModule} A function that loads the rule module.
  */
-function createRuleMap() {
-	const ruleEntries = [];
+function createRuleLoader(ruleName) {
+	return () => require(`./${ruleName}`);
+}
 
-	// Helper function to add a single entry to the array
-	function addRuleEntry(name, loader) {
-		ruleEntries.push([name, loader]);
-	}
+/**
+ * Builds a map of rule names to their lazy-loading functions.
+ * @returns {Record<string, () => import("../types").Rule.RuleModule>} The map of rules.
+ */
+function buildRuleMap() {
+	// List of all built-in rule names, kept sorted for readability
+	const ruleNames = [
+		"accessor-pairs",
+		"array-bracket-newline",
+		"array-bracket-spacing",
+		"array-callback-return",
+		"array-element-newline",
+		"arrow-body-style",
+		"arrow-parens",
+		"arrow-spacing",
+		"block-scoped-var",
+		"block-spacing",
+		"brace-style",
+		"callback-return",
+		"camelcase",
+		"capitalized-comments",
+		"class-methods-use-this",
+		"comma-dangle",
+		"comma-spacing",
+		"comma-style",
+		"complexity",
+		"computed-property-spacing",
+		"consistent-return",
+		"consistent-this",
+		"constructor-super",
+		"curly",
+		"default-case",
+		"default-case-last",
+		"default-param-last",
+		"dot-location",
+		"dot-notation",
+		"eol-last",
+		"eqeqeq",
+		"for-direction",
+		"func-call-spacing",
+		"func-name-matching",
+		"func-names",
+		"func-style",
+		"function-call-argument-newline",
+		"function-paren-newline",
+		"generator-star-spacing",
+		"getter-return",
+		"global-require",
+		"grouped-accessor-pairs",
+		"guard-for-in",
+		"handle-callback-err",
+		"id-blacklist",
+		"id-denylist",
+		"id-length",
+		"id-match",
+		"implicit-arrow-linebreak",
+		"indent",
+		"indent-legacy",
+		"init-declarations",
+		"jsx-quotes",
+		"key-spacing",
+		"keyword-spacing",
+		"line-comment-position",
+		"linebreak-style",
+		"lines-around-comment",
+		"lines-around-directive",
+		"lines-between-class-members",
+		"logical-assignment-operators",
+		"max-classes-per-file",
+		"max-depth",
+		"max-len",
+		"max-lines",
+		"max-lines-per-function",
+		"max-nested-callbacks",
+		"max-params",
+		"max-statements",
+		"max-statements-per-line",
+		"multiline-comment-style",
+		"multiline-ternary",
+		"new-cap",
+		"new-parens",
+		"newline-after-var",
+		"newline-before-return",
+		"newline-per-chained-call",
+		"no-alert",
+		"no-array-constructor",
+		"no-async-promise-executor",
+		"no-await-in-loop",
+		"no-bitwise",
+		"no-buffer-constructor",
+		"no-caller",
+		"no-case-declarations",
+		"no-catch-shadow",
+		"no-class-assign",
+		"no-compare-neg-zero",
+		"no-cond-assign",
+		"no-confusing-arrow",
+		"no-console",
+		"no-const-assign",
+		"no-constant-binary-expression",
+		"no-constant-condition",
+		"no-constructor-return",
+		"no-continue",
+		"no-control-regex",
+		"no-debugger",
+		"no-delete-var",
+		"no-div-regex",
+		"no-dupe-args",
+		"no-dupe-class-members",
+		"no-dupe-else-if",
+		"no-dupe-keys",
+		"no-duplicate-case",
+		"no-duplicate-imports",
+		"no-else-return",
+		"no-empty",
+		"no-empty-character-class",
+		"no-empty-function",
+		"no-empty-pattern",
+		"no-empty-static-block",
+		"no-eq-null",
+		"no-eval",
+		"no-ex-assign",
+		"no-extend-native",
+		"no-extra-bind",
+		"no-extra-boolean-cast",
+		"no-extra-label",
+		"no-extra-parens",
+		"no-extra-semi",
+		"no-fallthrough",
+		"no-floating-decimal",
+		"no-func-assign",
+		"no-global-assign",
+		"no-implicit-coercion",
+		"no-implicit-globals",
+		"no-implied-eval",
+		"no-import-assign",
+		"no-inline-comments",
+		"no-inner-declarations",
+		"no-invalid-regexp",
+		"no-invalid-this",
+		"no-irregular-whitespace",
+		"no-iterator",
+		"no-label-var",
+		"no-labels",
+		"no-lone-blocks",
+		"no-lonely-if",
+		"no-loop-func",
+		"no-loss-of-precision",
+		"no-magic-numbers",
+		"no-misleading-character-class",
+		"no-mixed-operators",
+		"no-mixed-requires",
+		"no-mixed-spaces-and-tabs",
+		"no-multi-assign",
+		"no-multi-spaces",
+		"no-multi-str",
+		"no-multiple-empty-lines",
+		"no-native-reassign",
+		"no-negated-condition",
+		"no-negated-in-lhs",
+		"no-nested-ternary",
+		"no-new",
+		"no-new-func",
+		"no-new-native-nonconstructor",
+		"no-new-object",
+		"no-new-require",
+		"no-new-symbol",
+		"no-new-wrappers",
+		"no-nonoctal-decimal-escape",
+		"no-obj-calls",
+		"no-object-constructor",
+		"no-octal",
+		"no-octal-escape",
+		"no-param-reassign",
+		"no-path-concat",
+		"no-plusplus",
+		"no-process-env",
+		"no-process-exit",
+		"no-promise-executor-return",
+		"no-proto",
+		"no-prototype-builtins",
+		"no-redeclare",
+		"no-regex-spaces",
+		"no-restricted-exports",
+		"no-restricted-globals",
+		"no-restricted-imports",
+		"no-restricted-modules",
+		"no-restricted-properties",
+		"no-restricted-syntax",
+		"no-return-assign",
+		"no-return-await",
+		"no-script-url",
+		"no-self-assign",
+		"no-self-compare",
+		"no-sequences",
+		"no-setter-return",
+		"no-shadow",
+		"no-shadow-restricted-names",
+		"no-spaced-func",
+		"no-sparse-arrays",
+		"no-sync",
+		"no-tabs",
+		"no-template-curly-in-string",
+		"no-ternary",
+		"no-this-before-super",
+		"no-throw-literal",
+		"no-trailing-spaces",
+		"no-unassigned-vars",
+		"no-undef",
+		"no-undef-init",
+		"no-undefined",
+		"no-underscore-dangle",
+		"no-unexpected-multiline",
+		"no-unmodified-loop-condition",
+		"no-unneeded-ternary",
+		"no-unreachable",
+		"no-unreachable-loop",
+		"no-unsafe-finally",
+		"no-unsafe-negation",
+		"no-unsafe-optional-chaining",
+		"no-unused-expressions",
+		"no-unused-labels",
+		"no-unused-private-class-members",
+		"no-unused-vars",
+		"no-use-before-define",
+		"no-useless-assignment",
+		"no-useless-backreference",
+		"no-useless-call",
+		"no-useless-catch",
+		"no-useless-computed-key",
+		"no-useless-concat",
+		"no-useless-constructor",
+		"no-useless-escape",
+		"no-useless-rename",
+		"no-useless-return",
+		"no-var",
+		"no-void",
+		"no-warning-comments",
+		"no-whitespace-before-property",
+		"no-with",
+		"nonblock-statement-body-position",
+		"object-curly-newline",
+		"object-curly-spacing",
+		"object-property-newline",
+		"object-shorthand",
+		"one-var",
+		"one-var-declaration-per-line",
+		"operator-assignment",
+		"operator-linebreak",
+		"padded-blocks",
+		"padding-line-between-statements",
+		"prefer-arrow-callback",
+		"prefer-const",
+		"prefer-destructuring",
+		"prefer-exponentiation-operator",
+		"prefer-named-capture-group",
+		"prefer-numeric-literals",
+		"prefer-object-has-own",
+		"prefer-object-spread",
+		"prefer-promise-reject-errors",
+		"prefer-reflect",
+		"prefer-regex-literals",
+		"prefer-rest-params",
+		"prefer-spread",
+		"prefer-template",
+		"preserve-caught-error",
+		"quote-props",
+		"quotes",
+		"radix",
+		"require-atomic-updates",
+		"require-await",
+		"require-unicode-regexp",
+		"require-yield",
+		"rest-spread-spacing",
+		"semi",
+		"semi-spacing",
+		"semi-style",
+		"sort-imports",
+		"sort-keys",
+		"sort-vars",
+		"space-before-blocks",
+		"space-before-function-paren",
+		"space-in-parens",
+		"space-infix-ops",
+		"space-unary-ops",
+		"spaced-comment",
+		"strict",
+		"switch-colon-spacing",
+		"symbol-description",
+		"template-curly-spacing",
+		"template-tag-spacing",
+		"unicode-bom",
+		"use-isnan",
+		"valid-typeof",
+		"vars-on-top",
+		"wrap-iife",
+		"wrap-regex",
+		"yield-star-spacing",
+		"yoda",
+	];
 
-	// Add all rules using the helper to keep complexity low
-	addRuleEntry("accessor-pairs", () => require("./accessor-pairs"));
-	addRuleEntry("array-bracket-newline", () => require("./array-bracket-newline"));
-	addRuleEntry("array-bracket-spacing", () => require("./array-bracket-spacing"));
-	addRuleEntry("array-callback-return", () => require("./array-callback-return"));
-	addRuleEntry("array-element-newline", () => require("./array-element-newline"));
-	addRuleEntry("arrow-body-style", () => require("./arrow-body-style"));
-	addRuleEntry("arrow-parens", () => require("./arrow-parens"));
-	addRuleEntry("arrow-spacing", () => require("./arrow-spacing"));
-	addRuleEntry("block-scoped-var", () => require("./block-scoped-var"));
-	addRuleEntry("block-spacing", () => require("./block-spacing"));
-	addRuleEntry("brace-style", () => require("./brace-style"));
-	addRuleEntry("callback-return", () => require("./callback-return"));
-	addRuleEntry("camelcase", () => require("./camelcase"));
-	addRuleEntry("capitalized-comments", () => require("./capitalized-comments"));
-	addRuleEntry("class-methods-use-this", () => require("./class-methods-use-this"));
-	addRuleEntry("comma-dangle", () => require("./comma-dangle"));
-	addRuleEntry("comma-spacing", () => require("./comma-spacing"));
-	addRuleEntry("comma-style", () => require("./comma-style"));
-	addRuleEntry("complexity", () => require("./complexity"));
-	addRuleEntry("computed-property-spacing", () => require("./computed-property-spacing"));
-	addRuleEntry("consistent-return", () => require("./consistent-return"));
-	addRuleEntry("consistent-this", () => require("./consistent-this"));
-	addRuleEntry("constructor-super", () => require("./constructor-super"));
-	addRuleEntry("curly", () => require("./curly"));
-	addRuleEntry("default-case", () => require("./default-case"));
-	addRuleEntry("default-case-last", () => require("./default-case-last"));
-	addRuleEntry("default-param-last", () => require("./default-param-last"));
-	addRuleEntry("dot-location", () => require("./dot-location"));
-	addRuleEntry("dot-notation", () => require("./dot-notation"));
-	addRuleEntry("eol-last", () => require("./eol-last"));
-	addRuleEntry("eqeqeq", () => require("./eqeqeq"));
-	addRuleEntry("for-direction", () => require("./for-direction"));
-	addRuleEntry("func-call-spacing", () => require("./func-call-spacing"));
-	addRuleEntry("func-name-matching", () => require("./func-name-matching"));
-	addRuleEntry("func-names", () => require("./func-names"));
-	addRuleEntry("func-style", () => require("./func-style"));
-	addRuleEntry("function-call-argument-newline", () => require("./function-call-argument-newline"));
-	addRuleEntry("function-paren-newline", () => require("./function-paren-newline"));
-	addRuleEntry("generator-star-spacing", () => require("./generator-star-spacing"));
-	addRuleEntry("getter-return", () => require("./getter-return"));
-	addRuleEntry("global-require", () => require("./global-require"));
-	addRuleEntry("grouped-accessor-pairs", () => require("./grouped-accessor-pairs"));
-	addRuleEntry("guard-for-in", () => require("./guard-for-in"));
-	addRuleEntry("handle-callback-err", () => require("./handle-callback-err"));
-	addRuleEntry("id-blacklist", () => require("./id-blacklist"));
-	addRuleEntry("id-denylist", () => require("./id-denylist"));
-	addRuleEntry("id-length", () => require("./id-length"));
-	addRuleEntry("id-match", () => require("./id-match"));
-	addRuleEntry("implicit-arrow-linebreak", () => require("./implicit-arrow-linebreak"));
-	addRuleEntry("indent", () => require("./indent"));
-	addRuleEntry("indent-legacy", () => require("./indent-legacy"));
-	addRuleEntry("init-declarations", () => require("./init-declarations"));
-	addRuleEntry("jsx-quotes", () => require("./jsx-quotes"));
-	addRuleEntry("key-spacing", () => require("./key-spacing"));
-	addRuleEntry("keyword-spacing", () => require("./keyword-spacing"));
-	addRuleEntry("line-comment-position", () => require("./line-comment-position"));
-	addRuleEntry("linebreak-style", () => require("./linebreak-style"));
-	addRuleEntry("lines-around-comment", () => require("./lines-around-comment"));
-	addRuleEntry("lines-around-directive", () => require("./lines-around-directive"));
-	addRuleEntry("lines-between-class-members", () => require("./lines-between-class-members"));
-	addRuleEntry("logical-assignment-operators", () => require("./logical-assignment-operators"));
-	addRuleEntry("max-classes-per-file", () => require("./max-classes-per-file"));
-	addRuleEntry("max-depth", () => require("./max-depth"));
-	addRuleEntry("max-len", () => require("./max-len"));
-	addRuleEntry("max-lines", () => require("./max-lines"));
-	addRuleEntry("max-lines-per-function", () => require("./max-lines-per-function"));
-	addRuleEntry("max-nested-callbacks", () => require("./max-nested-callbacks"));
-	addRuleEntry("max-params", () => require("./max-params"));
-	addRuleEntry("max-statements", () => require("./max-statements"));
-	addRuleEntry("max-statements-per-line", () => require("./max-statements-per-line"));
-	addRuleEntry("multiline-comment-style", () => require("./multiline-comment-style"));
-	addRuleEntry("multiline-ternary", () => require("./multiline-ternary"));
-	addRuleEntry("new-cap", () => require("./new-cap"));
-	addRuleEntry("new-parens", () => require("./new-parens"));
-	addRuleEntry("newline-after-var", () => require("./newline-after-var"));
-	addRuleEntry("newline-before-return", () => require("./newline-before-return"));
-	addRuleEntry("newline-per-chained-call", () => require("./newline-per-chained-call"));
-	addRuleEntry("no-alert", () => require("./no-alert"));
-	addRuleEntry("no-array-constructor", () => require("./no-array-constructor"));
-	addRuleEntry("no-async-promise-executor", () => require("./no-async-promise-executor"));
-	addRuleEntry("no-await-in-loop", () => require("./no-await-in-loop"));
-	addRuleEntry("no-bitwise", () => require("./no-bitwise"));
-	addRuleEntry("no-buffer-constructor", () => require("./no-buffer-constructor"));
-	addRuleEntry("no-caller", () => require("./no-caller"));
-	addRuleEntry("no-case-declarations", () => require("./no-case-declarations"));
-	addRuleEntry("no-catch-shadow", () => require("./no-catch-shadow"));
-	addRuleEntry("no-class-assign", () => require("./no-class-assign"));
-	addRuleEntry("no-compare-neg-zero", () => require("./no-compare-neg-zero"));
-	addRuleEntry("no-cond-assign", () => require("./no-cond-assign"));
-	addRuleEntry("no-confusing-arrow", () => require("./no-confusing-arrow"));
-	addRuleEntry("no-console", () => require("./no-console"));
-	addRuleEntry("no-const-assign", () => require("./no-const-assign"));
-	addRuleEntry("no-constant-binary-expression", () => require("./no-constant-binary-expression"));
-	addRuleEntry("no-constant-condition", () => require("./no-constant-condition"));
-	addRuleEntry("no-constructor-return", () => require("./no-constructor-return"));
-	addRuleEntry("no-continue", () => require("./no-continue"));
-	addRuleEntry("no-control-regex", () => require("./no-control-regex"));
-	addRuleEntry("no-debugger", () => require("./no-debugger"));
-	addRuleEntry("no-delete-var", () => require("./no-delete-var"));
-	addRuleEntry("no-div-regex", () => require("./no-div-regex"));
-	addRuleEntry("no-dupe-args", () => require("./no-dupe-args"));
-	addRuleEntry("no-dupe-class-members", () => require("./no-dupe-class-members"));
-	addRuleEntry("no-dupe-else-if", () => require("./no-dupe-else-if"));
-	addRuleEntry("no-dupe-keys", () => require("./no-dupe-keys"));
-	addRuleEntry("no-duplicate-case", () => require("./no-duplicate-case"));
-	addRuleEntry("no-duplicate-imports", () => require("./no-duplicate-imports"));
-	addRuleEntry("no-else-return", () => require("./no-else-return"));
-	addRuleEntry("no-empty", () => require("./no-empty"));
-	addRuleEntry("no-empty-character-class", () => require("./no-empty-character-class"));
-	addRuleEntry("no-empty-function", () => require("./no-empty-function"));
-	addRuleEntry("no-empty-pattern", () => require("./no-empty-pattern"));
-	addRuleEntry("no-empty-static-block", () => require("./no-empty-static-block"));
-	addRuleEntry("no-eq-null", () => require("./no-eq-null"));
-	addRuleEntry("no-eval", () => require("./no-eval"));
-	addRuleEntry("no-ex-assign", () => require("./no-ex-assign"));
-	addRuleEntry("no-extend-native", () => require("./no-extend-native"));
-	addRuleEntry("no-extra-bind", () => require("./no-extra-bind"));
-	addRuleEntry("no-extra-boolean-cast", () => require("./no-extra-boolean-cast"));
-	addRuleEntry("no-extra-label", () => require("./no-extra-label"));
-	addRuleEntry("no-extra-parens", () => require("./no-extra-parens"));
-	addRuleEntry("no-extra-semi", () => require("./no-extra-semi"));
-	addRuleEntry("no-fallthrough", () => require("./no-fallthrough"));
-	addRuleEntry("no-floating-decimal", () => require("./no-floating-decimal"));
-	addRuleEntry("no-func-assign", () => require("./no-func-assign"));
-	addRuleEntry("no-global-assign", () => require("./no-global-assign"));
-	addRuleEntry("no-implicit-coercion", () => require("./no-implicit-coercion"));
-	addRuleEntry("no-implicit-globals", () => require("./no-implicit-globals"));
-	addRuleEntry("no-implied-eval", () => require("./no-implied-eval"));
-	addRuleEntry("no-import-assign", () => require("./no-import-assign"));
-	addRuleEntry("no-inline-comments", () => require("./no-inline-comments"));
-	addRuleEntry("no-inner-declarations", () => require("./no-inner-declarations"));
-	addRuleEntry("no-invalid-regexp", () => require("./no-invalid-regexp"));
-	addRuleEntry("no-invalid-this", () => require("./no-invalid-this"));
-	addRuleEntry("no-irregular-whitespace", () => require("./no-irregular-whitespace"));
-	addRuleEntry("no-iterator", () => require("./no-iterator"));
-	addRuleEntry("no-label-var", () => require("./no-label-var"));
-	addRuleEntry("no-labels", () => require("./no-labels"));
-	addRuleEntry("no-lone-blocks", () => require("./no-lone-blocks"));
-	addRuleEntry("no-lonely-if", () => require("./no-lonely-if"));
-	addRuleEntry("no-loop-func", () => require("./no-loop-func"));
-	addRuleEntry("no-loss-of-precision", () => require("./no-loss-of-precision"));
-	addRuleEntry("no-magic-numbers", () => require("./no-magic-numbers"));
-	addRuleEntry("no-misleading-character-class", () => require("./no-misleading-character-class"));
-	addRuleEntry("no-mixed-operators", () => require("./no-mixed-operators"));
-	addRuleEntry("no-mixed-requires", () => require("./no-mixed-requires"));
-	addRuleEntry("no-mixed-spaces-and-tabs", () => require("./no-mixed-spaces-and-tabs"));
-	addRuleEntry("no-multi-assign", () => require("./no-multi-assign"));
-	addRuleEntry("no-multi-spaces", () => require("./no-multi-spaces"));
-	addRuleEntry("no-multi-str", () => require("./no-multi-str"));
-	addRuleEntry("no-multiple-empty-lines", () => require("./no-multiple-empty-lines"));
-	addRuleEntry("no-native-reassign", () => require("./no-native-reassign"));
-	addRuleEntry("no-negated-condition", () => require("./no-negated-condition"));
-	addRuleEntry("no-negated-in-lhs", () => require("./no-negated-in-lhs"));
-	addRuleEntry("no-nested-ternary", () => require("./no-nested-ternary"));
-	addRuleEntry("no-new", () => require("./no-new"));
-	addRuleEntry("no-new-func", () => require("./no-new-func"));
-	addRuleEntry("no-new-native-nonconstructor", () => require("./no-new-native-nonconstructor"));
-	addRuleEntry("no-new-object", () => require("./no-new-object"));
-	addRuleEntry("no-new-require", () => require("./no-new-require"));
-	addRuleEntry("no-new-symbol", () => require("./no-new-symbol"));
-	addRuleEntry("no-new-wrappers", () => require("./no-new-wrappers"));
-	addRuleEntry("no-nonoctal-decimal-escape", () => require("./no-nonoctal-decimal-escape"));
-	addRuleEntry("no-obj-calls", () => require("./no-obj-calls"));
-	addRuleEntry("no-object-constructor", () => require("./no-object-constructor"));
-	addRuleEntry("no-octal", () => require("./no-octal"));
-	addRuleEntry("no-octal-escape", () => require("./no-octal-escape"));
-	addRuleEntry("no-param-reassign", () => require("./no-param-reassign"));
-	addRuleEntry("no-path-concat", () => require("./no-path-concat"));
-	addRuleEntry("no-plusplus", () => require("./no-plusplus"));
-	addRuleEntry("no-process-env", () => require("./no-process-env"));
-	addRuleEntry("no-process-exit", () => require("./no-process-exit"));
-	addRuleEntry("no-promise-executor-return", () => require("./no-promise-executor-return"));
-	addRuleEntry("no-proto", () => require("./no-proto"));
-	addRuleEntry("no-prototype-builtins", () => require("./no-prototype-builtins"));
-	addRuleEntry("no-redeclare", () => require("./no-redeclare"));
-	addRuleEntry("no-regex-spaces", () => require("./no-regex-spaces"));
-	addRuleEntry("no-restricted-exports", () => require("./no-restricted-exports"));
-	addRuleEntry("no-restricted-globals", () => require("./no-restricted-globals"));
-	addRuleEntry("no-restricted-imports", () => require("./no-restricted-imports"));
-	addRuleEntry("no-restricted-modules", () => require("./no-restricted-modules"));
-	addRuleEntry("no-restricted-properties", () => require("./no-restricted-properties"));
-	addRuleEntry("no-restricted-syntax", () => require("./no-restricted-syntax"));
-	addRuleEntry("no-return-assign", () => require("./no-return-assign"));
-	addRuleEntry("no-return-await", () => require("./no-return-await"));
-	addRuleEntry("no-script-url", () => require("./no-script-url"));
-	addRuleEntry("no-self-assign", () => require("./no-self-assign"));
-	addRuleEntry("no-self-compare", () => require("./no-self-compare"));
-	addRuleEntry("no-sequences", () => require("./no-sequences"));
-	addRuleEntry("no-setter-return", () => require("./no-setter-return"));
-	addRuleEntry("no-shadow", () => require("./no-shadow"));
-	addRuleEntry("no-shadow-restricted-names", () => require("./no-shadow-restricted-names"));
-	addRuleEntry("no-spaced-func", () => require("./no-spaced-func"));
-	addRuleEntry("no-sparse-arrays", () => require("./no-sparse-arrays"));
-	addRuleEntry("no-sync", () => require("./no-sync"));
-	addRuleEntry("no-tabs", () => require("./no-tabs"));
-	addRuleEntry("no-template-curly-in-string", () => require("./no-template-curly-in-string"));
-	addRuleEntry("no-ternary", () => require("./no-ternary"));
-	addRuleEntry("no-this-before-super", () => require("./no-this-before-super"));
-	addRuleEntry("no-throw-literal", () => require("./no-throw-literal"));
-	addRuleEntry("no-trailing-spaces", () => require("./no-trailing-spaces"));
-	addRuleEntry("no-unassigned-vars", () => require("./no-unassigned-vars"));
-	addRuleEntry("no-undef", () => require("./no-undef"));
-	addRuleEntry("no-undef-init", () => require("./no-undef-init"));
-	addRuleEntry("no-undefined", () => require("./no-undefined"));
-	addRuleEntry("no-underscore-dangle", () => require("./no-underscore-dangle"));
-	addRuleEntry("no-unexpected-multiline", () => require("./no-unexpected-multiline"));
-	addRuleEntry("no-unmodified-loop-condition", () => require("./no-unmodified-loop-condition"));
-	addRuleEntry("no-unneeded-ternary", () => require("./no-unneeded-ternary"));
-	addRuleEntry("no-unreachable", () => require("./no-unreachable"));
-	addRuleEntry("no-unreachable-loop", () => require("./no-unreachable-loop"));
-	addRuleEntry("no-unsafe-finally", () => require("./no-unsafe-finally"));
-	addRuleEntry("no-unsafe-negation", () => require("./no-unsafe-negation"));
-	addRuleEntry("no-unsafe-optional-chaining", () => require("./no-unsafe-optional-chaining"));
-	addRuleEntry("no-unused-expressions", () => require("./no-unused-expressions"));
-	addRuleEntry("no-unused-labels", () => require("./no-unused-labels"));
-	addRuleEntry("no-unused-private-class-members", () => require("./no-unused-private-class-members"));
-	addRuleEntry("no-unused-vars", () => require("./no-unused-vars"));
-	addRuleEntry("no-use-before-define", () => require("./no-use-before-define"));
-	addRuleEntry("no-useless-assignment", () => require("./no-useless-assignment"));
-	addRuleEntry("no-useless-backreference", () => require("./no-useless-backreference"));
-	addRuleEntry("no-useless-call", () => require("./no-useless-call"));
-	addRuleEntry("no-useless-catch", () => require("./no-useless-catch"));
-	addRuleEntry("no-useless-computed-key", () => require("./no-useless-computed-key"));
-	addRuleEntry("no-useless-concat", () => require("./no-useless-concat"));
-	addRuleEntry("no-useless-constructor", () => require("./no-useless-constructor"));
-	addRuleEntry("no-useless-escape", () => require("./no-useless-escape"));
-	addRuleEntry("no-useless-rename", () => require("./no-useless-rename"));
-	addRuleEntry("no-useless-return", () => require("./no-useless-return"));
-	addRuleEntry("no-var", () => require("./no-var"));
-	addRuleEntry("no-void", () => require("./no-void"));
-	addRuleEntry("no-warning-comments", () => require("./no-warning-comments"));
-	addRuleEntry("no-whitespace-before-property", () => require("./no-whitespace-before-property"));
-	addRuleEntry("no-with", () => require("./no-with"));
-	addRuleEntry("nonblock-statement-body-position", () => require("./nonblock-statement-body-position"));
-	addRuleEntry("object-curly-newline", () => require("./object-curly-newline"));
-	addRuleEntry("object-curly-spacing", () => require("./object-curly-spacing"));
-	addRuleEntry("object-property-newline", () => require("./object-property-newline"));
-	addRuleEntry("object-shorthand", () => require("./object-shorthand"));
-	addRuleEntry("one-var", () => require("./one-var"));
-	addRuleEntry("one-var-declaration-per-line", () => require("./one-var-declaration-per-line"));
-	addRuleEntry("operator-assignment", () => require("./operator-assignment"));
-	addRuleEntry("operator-linebreak", () => require("./operator-linebreak"));
-	addRuleEntry("padded-blocks", () => require("./padded-blocks"));
-	addRuleEntry("padding-line-between-statements", () => require("./padding-line-between-statements"));
-	addRuleEntry("prefer-arrow-callback", () => require("./prefer-arrow-callback"));
-	addRuleEntry("prefer-const", () => require("./prefer-const"));
-	addRuleEntry("prefer-destructuring", () => require("./prefer-destructuring"));
-	addRuleEntry("prefer-exponentiation-operator", () => require("./prefer-exponentiation-operator"));
-	addRuleEntry("prefer-named-capture-group", () => require("./prefer-named-capture-group"));
-	addRuleEntry("prefer-numeric-literals", () => require("./prefer-numeric-literals"));
-	addRuleEntry("prefer-object-has-own", () => require("./prefer-object-has-own"));
-	addRuleEntry("prefer-object-spread", () => require("./prefer-object-spread"));
-	addRuleEntry("prefer-promise-reject-errors", () => require("./prefer-promise-reject-errors"));
-	addRuleEntry("prefer-reflect", () => require("./prefer-reflect"));
-	addRuleEntry("prefer-regex-literals", () => require("./prefer-regex-literals"));
-	addRuleEntry("prefer-rest-params", () => require("./prefer-rest-params"));
-	addRuleEntry("prefer-spread", () => require("./prefer-spread"));
-	addRuleEntry("prefer-template", () => require("./prefer-template"));
-	addRuleEntry("preserve-caught-error", () => require("./preserve-caught-error"));
-	addRuleEntry("quote-props", () => require("./quote-props"));
-	addRuleEntry("quotes", () => require("./quotes"));
-	addRuleEntry("radix", () => require("./radix"));
-	addRuleEntry("require-atomic-updates", () => require("./require-atomic-updates"));
-	addRuleEntry("require-await", () => require("./require-await"));
-	addRuleEntry("require-unicode-regexp", () => require("./require-unicode-regexp"));
-	addRuleEntry("require-yield", () => require("./require-yield"));
-	addRuleEntry("rest-spread-spacing", () => require("./rest-spread-spacing"));
-	addRuleEntry("semi", () => require("./semi"));
-	addRuleEntry("semi-spacing", () => require("./semi-spacing"));
-	addRuleEntry("semi-style", () => require("./semi-style"));
-	addRuleEntry("sort-imports", () => require("./sort-imports"));
-	addRuleEntry("sort-keys", () => require("./sort-keys"));
-	addRuleEntry("sort-vars", () => require("./sort-vars"));
-	addRuleEntry("space-before-blocks", () => require("./space-before-blocks"));
-	addRuleEntry("space-before-function-paren", () => require("./space-before-function-paren"));
-	addRuleEntry("space-in-parens", () => require("./space-in-parens"));
-	addRuleEntry("space-infix-ops", () => require("./space-infix-ops"));
-	addRuleEntry("space-unary-ops", () => require("./space-unary-ops"));
-	addRuleEntry("spaced-comment", () => require("./spaced-comment"));
-	addRuleEntry("strict", () => require("./strict"));
-	addRuleEntry("switch-colon-spacing", () => require("./switch-colon-spacing"));
-	addRuleEntry("symbol-description", () => require("./symbol-description"));
-	addRuleEntry("template-curly-spacing", () => require("./template-curly-spacing"));
-	addRuleEntry("template-tag-spacing", () => require("./template-tag-spacing"));
-	addRuleEntry("unicode-bom", () => require("./unicode-bom"));
-	addRuleEntry("use-isnan", () => require("./use-isnan"));
-	addRuleEntry("valid-typeof", () => require("./valid-typeof"));
-	addRuleEntry("vars-on-top", () => require("./vars-on-top"));
-	addRuleEntry("wrap-iife", () => require("./wrap-iife"));
-	addRuleEntry("wrap-regex", () => require("./wrap-regex"));
-	addRuleEntry("yield-star-spacing", () => require("./yield-star-spacing"));
-	addRuleEntry("yoda", () => require("./yoda"));
-
-	return new LazyLoadingRuleMap(Object.fromEntries(ruleEntries));
+	return Object.fromEntries(
+		ruleNames.map(name => [name, createRuleLoader(name)])
+	);
 }
 
 /** @type {Map<string, import("../types").Rule.RuleModule>} */
-module.exports = createRuleMap();
+module.exports = new LazyLoadingRuleMap(buildRuleMap());

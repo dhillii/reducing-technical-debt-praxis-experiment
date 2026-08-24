@@ -1,7 +1,25 @@
+/**
+ * @fileoverview This option sets a specific tab width for your code
+ *
+ * This rule has been ported and modified from nodeca.
+ * @author Vitaly Puzrin
+ * @author Gyandeep Singh
+ * @deprecated in ESLint v4.0.0
+ */
+
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const astUtils = require("./utils/ast-utils");
 
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
+// this rule has known coverage issues, but it's deprecated and shouldn't be updated in the future anyway.
+/* c8 ignore next */
 /** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
@@ -513,8 +531,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check last node line indent this detects, that block closed correctly
-		 * This function for more complicated return statement case, where closing parenthesis may be followed by ';'
+		 * Check last node line indent for return statements
 		 * @param {ASTNode} node Node to examine
 		 * @param {number} firstLineIndent first line needed indent
 		 * @returns {void}
@@ -578,7 +595,6 @@ module.exports = {
 
 		/**
 		 * Returns a parent node of given node based on a specified type
-		 * if not present then return null
 		 * @param {ASTNode} node node to examine
 		 * @param {string} type type that is being looked for
 		 * @param {string[]} stopAtList end points for the evaluating code
@@ -601,7 +617,6 @@ module.exports = {
 
 		/**
 		 * Returns the VariableDeclarator based on the current node
-		 * if not present then return null
 		 * @param {ASTNode} node node to examine
 		 * @returns {ASTNode|null} if found then node otherwise null
 		 */
@@ -610,8 +625,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check to see if the node is part of the multi-line variable declaration.
-		 * Also if its on the same line as the varNode
+		 * Check to see if the node is part of the multi-line variable declaration
 		 * @param {ASTNode} node node to check
 		 * @param {ASTNode} varNode variable declaration node to check against
 		 * @returns {boolean} True if all the above condition satisfy
@@ -625,8 +639,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check to see if the argument before the callee node is multi-line and
-		 * there should only be 1 argument before the callee node
+		 * Check to see if the argument before the callee node is multi-line
 		 * @param {ASTNode} node node to check
 		 * @returns {boolean} True if arguments are multi-line
 		 */
@@ -820,7 +833,6 @@ module.exports = {
 								parentElements[0].loc.end.line !==
 									parent.loc.start.line
 							) {
-								// Do nothing - first element spans multiple lines
 							} else if (
 								typeof options[parent.type] === "number"
 							) {
@@ -977,8 +989,7 @@ module.exports = {
 		}
 
 		/**
-		 * Filter out the elements which are on the same line of each other or the node.
-		 * basically have only 1 elements from each line except the variable declaration line.
+		 * Filter out the elements which are on the same line of each other or the node
 		 * @param {ASTNode} node Variable declaration node
 		 * @returns {ASTNode[]} Filtered elements
 		 */
@@ -1036,7 +1047,6 @@ module.exports = {
 
 		/**
 		 * Check and decide whether to check for indentation for blockless nodes
-		 * Scenarios are for or while statements without braces around them
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */

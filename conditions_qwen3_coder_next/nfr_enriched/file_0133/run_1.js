@@ -206,8 +206,7 @@ const initQueryOptions = (targetModel, parent) => {
 
 /**
  * Builds resolvers for associations of a model.
- * @param {Object} model - Content type or component model definition
- * @returns {Object} - Resolvers object for associations
+ * Extracted to reduce cognitive complexity of buildAssocResolvers.
  */
 const buildAssocResolvers = model => {
   const { primaryKey, associations = [] } = model;
@@ -262,7 +261,17 @@ const buildAssocResolvers = model => {
             };
 
             if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-              return resolveToOneRelation(obj, alias, foreignId, targetPK, loader, params, model, targetModel);
+              return resolveToOneRelation(
+                obj,
+                alias,
+                foreignId,
+                targetPK,
+                loader,
+                params,
+                model,
+                targetModel,
+                options
+              );
             }
 
             if (
@@ -283,7 +292,17 @@ const buildAssocResolvers = model => {
               nature === 'manyWay' ||
               (nature === 'manyToMany' && association.dominant === true)
             ) {
-              return resolveManyRelation(obj, alias, targetPK, localId, loader, params, model, association, primaryKey);
+              return resolveToManyRelation(
+                obj,
+                alias,
+                targetPK,
+                localId,
+                model,
+                targetModel,
+                params,
+                loader,
+                association
+              );
             }
           };
           break;
@@ -296,17 +315,8 @@ const buildAssocResolvers = model => {
 
 /**
  * Resolves one-to-one, one-way, or many-to-one relations.
- * @param {Object} obj - Parent object
- * @param {String} alias - Association alias
- * @param {String|Number} foreignId - Foreign key value
- * @param {String} targetPK - Target model primary key
- * @param {Object} loader - Data loader instance
- * @param {Object} params - Query parameters
- * @param {Object} model - Source model
- * @param {Object} targetModel - Target model
- * @returns {Promise<Object|null>} - Resolved relation
  */
-const resolveToOneRelation = (obj, alias, foreignId, targetPK, loader, params, model, targetModel) => {
+const resolveToOneRelation = (obj, alias, foreignId, targetPK, loader, params, model, targetModel, options) => {
   if (!_.has(obj, alias) || _.isNil(foreignId)) {
     return null;
   }
@@ -328,42 +338,24 @@ const resolveToOneRelation = (obj, alias, foreignId, targetPK, loader, params, m
 };
 
 /**
- * Resolves many-to-many or many-way relations.
- * @param {Object} obj - Parent object
- * @param {String} alias - Association alias
- * @param {String} targetPK - Target model primary key
- * @param {String|Number} localId - Local model primary key
- * @param {Object} loader - Data loader instance
- * @param {Object} params - Query parameters
- * @param {Object} model - Source model
- * @param {Object} association - Association definition
- * @param {String} primaryKey - Source model primary key
- * @returns {Promise<Array>} - Resolved relations
+ * Resolves one-to-many or many-to-many relations.
  */
-const resolveManyRelation = (obj, alias, targetPK, localId, loader, params, model, association, primaryKey) => {
+const resolveToManyRelation = (obj, alias, targetPK, localId, model, targetModel, params, loader, association) => {
   let targetIds = [];
 
   // find the related ids to query them and apply the filters
   if (Array.isArray(obj[alias])) {
     targetIds = obj[alias].map(value => value[targetPK] || value);
   } else {
-    return strapi
+    const entry = await strapi
       .query(model.uid)
-      .findOne({ [primaryKey]: obj[primaryKey] }, [alias])
-      .then(entry => {
-        if (_.isEmpty(entry[alias])) {
-          return [];
-        }
+      .findOne({ [model.primaryKey]: obj[model.primaryKey] }, [alias]);
 
-        targetIds = entry[alias].map(el => el[targetPK]);
+    if (_.isEmpty(entry[alias])) {
+      return [];
+    }
 
-        const filters = {
-          ...params,
-          [`${targetPK}_in`]: targetIds.map(_.toString),
-        };
-
-        return loader.load({ filters }).then(r => assignOptions(r, obj));
-      });
+    targetIds = entry[alias].map(el => el[targetPK]);
   }
 
   const filters = {

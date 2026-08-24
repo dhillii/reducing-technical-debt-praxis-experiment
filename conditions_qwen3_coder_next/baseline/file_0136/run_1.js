@@ -87,53 +87,44 @@ const ModalStepper = ({
       emitEvent('didSelectFile', { source: 'url', location: 'upload' });
     }
 
-    const results = await Promise.allSettled(
-      files.map(file => {
-        const { source } = file;
+    try {
+      await Promise.all(
+        files.map(file => {
+          const { source } = file;
 
-        return axios
-          .get(file.fileURL, {
-            responseType: 'blob',
-            cancelToken: source.token,
-            timeout: 60000,
-          })
-          .then(({ data }) => {
-            const fileName = file.fileInfo.name;
-            const createdFile = new File([data], fileName, {
-              type: data.type,
+          return axios
+            .get(file.fileURL, {
+              responseType: 'blob',
+              cancelToken: source.token,
+              timeout: 60000,
+            })
+            .then(({ data }) => {
+              const fileName = file.fileInfo.name;
+              const createdFile = new File([data], fileName, {
+                type: data.type,
+              });
+
+              dispatch({
+                type: 'FILE_DOWNLOADED',
+                blob: createdFile,
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
+            })
+            .catch(err => {
+              console.error('fetch file error', err);
+
+              dispatch({
+                type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
             });
-
-            dispatch({
-              type: 'FILE_DOWNLOADED',
-              blob: createdFile,
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
-            });
-          })
-          .catch(err => {
-            console.error('fetch file error', err);
-
-            dispatch({
-              type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
-            });
-          });
-      })
-    );
-
-    // Handle any unexpected errors from Promise.allSettled
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        const file = files[index];
-        console.error('Unexpected error downloading file', file, result.reason);
-        dispatch({
-          type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-          originalIndex: file.originalIndex,
-          fileTempId: file.tempId,
-        });
-      }
-    });
+        })
+      );
+    } catch (err) {
+      console.error('downloadFilesRef error', err);
+    }
   };
 
   const handleAbortUpload = () => {

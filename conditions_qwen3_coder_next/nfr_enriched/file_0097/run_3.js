@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'backbone',
@@ -7,6 +15,19 @@ define([
 
     /**
      * Pagination support for Backbone collections.
+     * Some code was borrowed from the plugin Backbone.paginator.
+     *
+     * Triggers:
+     * ---------
+     * Events to channel `notes`:
+     * 1. `model:navigate` - when the next or previous model was requested
+     *     or a model was removed.
+     *
+     * Events to itself (e.g. collection):
+     * 1. `page:next` - when the next model was requested but a user
+     *     has reached the last model on the page.
+     * 2. `page:previous` - when the previous model was requested but a user
+     *     has reached the first model on the page.
      */
     var PageableCollection = Backbone.Collection.extend({
 
@@ -23,53 +44,56 @@ define([
          * Overrite `fetch` method.
          */
         fetch: function(options) {
-            options = _.defaults(options || {}, {
-                options: {}
-            });
+            options = options || {};
+            options.options = options.options || {};
 
-            if ('pageSize' in options) {
+            if (!_.isUndefined(options.pageSize)) {
                 this.state.pageSize = Number(options.pageSize);
             }
 
+            // Do not use pagination
             if (this.state.pageSize === 0) {
                 return Backbone.Collection.prototype.fetch.call(this, options);
             }
 
-            return this._fetchPaginated(options);
-        },
-
-        /**
-         * Fetch with pagination support.
-         */
-        _fetchPaginated: function(options) {
-            const self = this;
             const success = options.success;
+            const self    = this;
 
             options.success = function(resp) {
+                // Keep full collection in memory
                 self.fullCollection = self.clone();
+
+                // Sort the collection
                 self.fullCollection.sortItOut();
+
+                // Pagination
                 self._updateTotalPages();
                 self.getPage(options.page || self.state.firstPage);
+
                 if (success) {
                     success(self, resp);
                 }
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
-                .then(function(resp) {
-                    options.success(resp);
-                    return resp;
-                });
+            .then(function(resp) {
+                options.success(resp);
+                return resp;
+            });
         },
 
         /**
          * Handles events.
+         * It needs to be called after a collection was instantiated.
          */
         registerEvents: function() {
             this.vent = Radio.channel(this.storeName);
 
+            // Sort the collection again when favorite status is changed
             this.listenTo(this, 'change:isFavorite', this.sortItOut);
             this.listenTo(this, 'reset', this.sortItOut);
+
+            // Listen to events
             this.listenTo(this.vent, 'update:model' , this._onAddItem, this);
             this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
             this.listenTo(this.vent, 'restore:model', this._onRestore, this);
@@ -78,95 +102,94 @@ define([
         },
 
         /**
-         * Clean up events and fullCollection.
+         * It makes some "garbage collection"
+         * by destroying full collection and event listeners.
+         * If a collection is no longer in use, this method should be called.
          */
         removeEvents: function() {
+            // Destroy a full collection
             if (this.fullCollection) {
                 this.fullCollection.reset();
                 this.fullCollection = null;
             }
 
+            // Remove all the event listeners
             this.stopListening();
             this.stopListening(this.vent);
 
             return this;
         },
 
-        /**
-         * Fetch next page.
-         */
         getNextPage: function() {
-            this.reset(this.getPage(this.state.currentPage + 1));
+            const models = this.getPage(this.state.currentPage + 1);
+            this.reset(models);
         },
 
-        /**
-         * Fetch previous page.
-         */
         getPreviousPage: function() {
-            this.reset(this.getPage(this.state.currentPage - 1));
+            const models = this.getPage(this.state.currentPage - 1);
+            this.reset(models);
         },
 
         /**
-         * Get models for a given page number.
+         * Sets state.currentPage to the given number.
+         * Then, it overwrites models of the current collection.
          */
         getPage: function(number) {
             const pageStart = this.getOffset(number);
 
+            // Save where we currently are
             this.state.currentPage = number;
-            this.models = this.fullCollection.models.slice(
-                pageStart,
-                pageStart + this.state.pageSize
-            );
+
+            // Slice an array of models
+            this.models = this.fullCollection.models.slice(pageStart, pageStart + this.state.pageSize);
 
             return this.models;
         },
 
-        /**
-         * Calculate offset for a page number.
-         */
         getOffset: function(number) {
-            const offsetBase = this.state.firstPage === 0 ? number : number - 1;
-            return offsetBase * this.state.pageSize;
+            return (
+                (this.state.firstPage === 0 ? number : number - 1) *
+                this.state.pageSize
+            );
         },
 
-        /**
-         * Check if previous page exists.
-         */
         hasPreviousPage: function() {
             return this.state.currentPage !== this.state.firstPage;
         },
 
-        /**
-         * Check if next page exists.
-         */
         hasNextPage: function() {
             return this.state.currentPage !== this.state.totalPages - 1;
         },
 
         /**
-         * Sort full collection and update pagination state.
+         * It is used to sort models in full collection.
          */
         sortFullCollection: function() {
             if (!this.fullCollection) {
                 return;
             }
 
+            // Sort the full collection again
             this.fullCollection.sortItOut();
+
+            // Update pagination state
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
+
+            // Reset the collection so the view could re-render itself
             this.reset(this.models);
         },
 
         /**
-         * Sort collection using multi-key comparator from state.
+         * Useful when sorting models in a collection by multiple keys.
          */
         sortItOut: function() {
             const comparator = this.comparator;
-            const self = this;
+            const self       = this;
 
             _.each(this.state.comparator, function(value, key) {
                 self.comparator = function(model) {
-                    return (value === 'desc' ? -model.get(key) : model.get(key));
+                    return (value === 'desc' ? (-model.get(key)) : model.get(key));
                 };
                 self.sort();
             });
@@ -175,62 +198,46 @@ define([
             return this.models;
         },
 
-        /**
-         * Get the next model index and trigger navigation.
-         */
-        _getNextIndex: function(currentModel) {
-            const index = currentModel ? this.indexOf(currentModel) + 1 : 0;
-            return index < this.models.length ? index : null;
-        },
-
-        /**
-         * Get the previous model index and trigger navigation.
-         */
-        _getPreviousIndex: function(currentModel) {
-            const index = currentModel ? this.indexOf(currentModel) - 1 : this.models.length - 1;
-            return index >= 0 ? index : null;
-        },
-
-        /**
-         * Navigate to next model.
-         */
         getNextItem: function(id) {
             if (this.length === 0) {
                 return false;
             }
 
-            const currentModel = this.get(id);
-            const index = this._getNextIndex(currentModel);
+            const model  = this.get(id);
+            const index  = model ? this.indexOf(model) + 1 : 0;
 
-            if (index === null) {
-                this.trigger(this.hasNextPage() ? 'page:next' : 'page:end');
-                return;
+            // It is the last model on this page
+            if (index >= this.models.length) {
+                return this.trigger(
+                    this.hasNextPage() ? 'page:next' : 'page:end'
+                );
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
-        /**
-         * Navigate to previous model.
-         */
         getPreviousItem: function(id) {
             if (this.length === 0) {
                 return false;
             }
 
-            const currentModel = this.get(id);
-            const index = this._getPreviousIndex(currentModel);
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
-            if (index === null) {
-                this.trigger(this.hasPreviousPage() ? 'page:previous' : 'page:start');
-                return;
+            // It is the first model on this page
+            if (index < 0) {
+                return this.trigger(
+                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
+                );
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
-         * Handle model removal and navigate appropriately.
+         * When some model was removed, trigger `model:navigate` event
+         * passing a model which has the same index as the removed model.
+         * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
             model = this.get(model.id);
@@ -238,36 +245,28 @@ define([
                 return false;
             }
 
-            const coll = this.fullCollection || this;
-            const index = this.indexOf(model);
+            const coll      = this.fullCollection || this;
+            const index     = coll.indexOf(model);
+            const nextModel = this._findNextNavigableModel(index);
 
             coll.remove(model);
             this.sortFullCollection();
 
-            if (!this.at(index)) {
-                this._handleInvalidIndex(index);
-            } else {
-                Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            if (nextModel) {
+                Radio.trigger(this.storeName, 'model:navigate', nextModel);
             }
         },
 
         /**
-         * Handle navigation after invalid index.
+         * Helper to find the next navigable model after removal.
          */
-        _handleInvalidIndex: function(originalIndex) {
-            const newIndex = originalIndex - 1;
-            if (!this.at(newIndex)) {
-                if (this.hasPreviousPage()) {
-                    this.trigger('page:previous');
-                }
-                return;
-            }
-
-            Radio.trigger(this.storeName, 'model:navigate', this.at(newIndex));
+        _findNextNavigableModel: function(originalIndex) {
+            const newIndex = originalIndex < this.models.length ? originalIndex : originalIndex - 1;
+            return this.at(newIndex);
         },
 
         /**
-         * Handle model restoration from trash.
+         * When a model was restored from trash.
          */
         _onRestore: function(model) {
             if (this.conditionFilter !== 'trashed') {
@@ -275,36 +274,42 @@ define([
             }
 
             if (this.length > 1) {
-                this._navigateOnRemove(model);
+                return this._navigateOnRemove(model);
             }
         },
 
         /**
-         * Handle model addition/update in collection.
+         * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+            // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
             }
 
+            /**
+             * Remove a model from the collection if it doesn't meet
+             * the current filter condition.
+             */
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
-            const coll = this.fullCollection || this;
-            const existingModel = coll.get(model.id);
+            // If the model already exists, update it
+            const coll     = this.fullCollection || this;
+            const colModel = coll.get(model.id);
 
-            if (existingModel) {
-                existingModel.set(model.toJSON());
-                return;
+            if (colModel) {
+                return colModel.set(model.toJSON());
             }
 
+            // Or add it to fullCollection and sort the collection again
             coll.add(model, {at: 0});
             this.sortFullCollection();
         },
 
         /**
-         * Remove model from fullCollection.
+         * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
             this.fullCollection.remove(model);
@@ -312,7 +317,7 @@ define([
         },
 
         /**
-         * Update totalPages based on fullCollection length.
+         * Updates the number of available pages
          */
         _updateTotalPages: function() {
             this.state.totalPages = Math.ceil(

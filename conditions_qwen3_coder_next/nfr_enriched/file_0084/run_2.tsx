@@ -33,9 +33,6 @@ type Validation = {
   max: number
 }
 
-/**
- * Validates the given numeric field value against validation rules and field metadata.
- */
 function validate_(
   value: Value,
   validation: Validation,
@@ -44,40 +41,18 @@ function validate_(
   hasAutoIncrementDefault: boolean
 ): string | undefined {
   const { value: input, kind } = value
-
-  if (
-    (kind === 'create' && hasAutoIncrementDefault && input === null) ||
-    (kind === 'update' && value.initial === null && input === null)
-  ) {
-    return
-  }
-
-  if (isRequired && input === null) {
-    return `${label} is required`
-  }
-
-  if (typeof input !== 'number') {
-    return
-  }
-
+  if (kind === 'create' && hasAutoIncrementDefault && input === null) return
+  if (kind === 'update' && value.initial === null && input === null) return
+  if (isRequired && input === null) return `${label} is required`
+  if (typeof input !== 'number') return
   const v = input
-
-  if (!Number.isInteger(v)) {
-    return `${label} is not a valid integer`
-  }
-
-  if (validation.min !== undefined && v < validation.min) {
+  if (!Number.isInteger(v)) return `${label} is not a valid integer`
+  if (validation.min !== undefined && v < validation.min)
     return `${label} must be greater than or equal to ${validation.min}`
-  }
-
-  if (validation.max !== undefined && v > validation.max) {
+  if (validation.max !== undefined && v > validation.max)
     return `${label} must be less than or equal to ${validation.max}`
-  }
 }
 
-/**
- * Factory for the Int field controller.
- */
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -125,7 +100,7 @@ export function controller(
           typeLabel,
           onChange,
           type,
-          value,
+          value: filterValue,
           ...otherProps
         } = props
         const [isDirty, setDirty] = useState(false)
@@ -141,7 +116,7 @@ export function controller(
             autoFocus={autoFocus}
             errorMessage={
               (forceValidation || isDirty) &&
-              !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+              !validate({ kind: 'update', initial: null, value: filterValue }, { isRequired: true })
                 ? 'Required'
                 : null
             }
@@ -149,7 +124,7 @@ export function controller(
             width="auto"
             onBlur={() => setDirty(true)}
             onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
-            value={value ?? NaN}
+            value={filterValue ?? NaN}
           />
         )
       },
@@ -161,19 +136,19 @@ export function controller(
         return { [config.fieldKey]: { [type]: value } }
       },
       parseGraphQL: value => {
-        return entriesTyped(value).flatMap(([type, value]) => {
-          if (type === 'equals' && value === null) {
+        return entriesTyped(value).flatMap(([type, val]) => {
+          if (type === 'equals' && val === null) {
             return [{ type: 'empty', value: null }]
           }
-          if (!value) return []
-          if (type === 'equals') return { type: 'equals', value }
+          if (!val) return []
+          if (type === 'equals') return { type: 'equals', value: val }
           if (type === 'not') {
-            if (value?.equals === null) return { type: 'not_empty', value: null }
-            if (value?.equals === undefined) return []
-            return { type: 'not', value: value.equals }
+            if (val?.equals === null) return { type: 'not_empty', value: null }
+            if (val?.equals === undefined) return []
+            return { type: 'not', value: val.equals }
           }
           if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
-            return { type, value }
+            return { type, value: val }
           }
           return []
         })
@@ -222,8 +197,63 @@ export function controller(
 }
 
 /**
- * Renders an integer input field for create/update forms.
+ * Renders the auto-increment detail when applicable.
  */
+function renderAutoIncrementField(field: ReturnType<typeof controller>['fieldMeta']) {
+  return (
+    <NumberField
+      autoFocus={false}
+      description={field.description}
+      label={field.label}
+      isReadOnly
+      contextualHelp={
+        <ContextualHelp>
+          <Heading>Auto increment</Heading>
+          <Content>
+            <Text>
+              This field is set to auto increment. It will default to the next available number.
+            </Text>
+          </Content>
+        </ContextualHelp>
+      }
+    />
+  )
+}
+
+/**
+ * Renders an editable number field for integer input.
+ */
+function renderEditableField(
+  field: ReturnType<typeof controller>['fieldMeta'],
+  value: Value,
+  onChange: FieldProps<typeof controller>['onChange'],
+  autoFocus: boolean,
+  isRequired: boolean,
+  forceValidation: boolean,
+  isDirty: boolean,
+  setIsDirty: (value: boolean) => void
+) {
+  const validate = (val: Value) =>
+    validate_(val, field.validation, isRequired, field.label, field.hasAutoIncrementDefault)
+
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      errorMessage={(forceValidation || isDirty) && validate(value)}
+      isReadOnly={!onChange || field.hasAutoIncrementDefault}
+      isRequired={isRequired}
+      width="alias.singleLineWidth"
+      onBlur={() => setIsDirty(true)}
+      onChange={x =>
+        onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })
+      }
+      value={value.value ?? NaN}
+    />
+  )
+}
+
 export function Field({
   field,
   value,
@@ -232,69 +262,20 @@ export function Field({
   forceValidation,
   isRequired,
 }: Readonly<FieldProps<typeof controller>>) {
-  const [isDirty, setDirty] = useState(false)
-  const isReadOnly = !onChange || field.hasAutoIncrementDefault
-
-  /**
-   * Renders the auto-increment display field.
-   */
-  function renderAutoIncrementField() {
-    return (
-      <NumberField
-        autoFocus={autoFocus}
-        description={field.description}
-        label={field.label}
-        isReadOnly
-        contextualHelp={
-          <ContextualHelp>
-            <Heading>Auto increment</Heading>
-            <Content>
-              <Text>
-                This field is set to auto increment. It will default to the next available number.
-              </Text>
-            </Content>
-          </ContextualHelp>
-        }
-      />
-    )
-  }
-
-  /**
-   * Renders the interactive editable number field.
-   */
-  function renderEditableField() {
-    /**
-     * Validates the current value and returns a human-readable error message if invalid.
-     */
-    function validate currentValue: Value): string | undefined {
-      return validate_(
-        currentValue,
-        field.validation,
-        isRequired,
-        field.label,
-        field.hasAutoIncrementDefault
-      )
-    }
-
-    return (
-      <NumberField
-        autoFocus={autoFocus}
-        description={field.description}
-        label={field.label}
-        errorMessage={(forceValidation || isDirty) && validate(value)}
-        isReadOnly={isReadOnly}
-        isRequired={isRequired}
-        width="alias.singleLineWidth"
-        onBlur={() => setDirty(true)}
-        onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
-        value={value.value ?? NaN}
-      />
-    )
-  }
+  const [isDirty, setIsDirty] = useState(false)
 
   if (field.hasAutoIncrementDefault && value.kind === 'create') {
-    return renderAutoIncrementField()
+    return renderAutoIncrementField(field)
   }
 
-  return renderEditableField()
+  return renderEditableField(
+    field,
+    value,
+    onChange,
+    autoFocus,
+    isRequired,
+    forceValidation,
+    isDirty,
+    setIsDirty
+  )
 }

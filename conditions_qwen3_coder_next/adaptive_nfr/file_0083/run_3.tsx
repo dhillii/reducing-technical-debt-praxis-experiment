@@ -46,6 +46,7 @@ type ItemPageProps = {
   listKey: string
 }
 
+/** Returns a stable callback reference that always invokes the latest version of the callback. */
 function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Func): Func {
   const callbackRef = useRef(callback)
   const cb = useCallback((...args: any[]) => {
@@ -58,19 +59,8 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
 }
 
 /**
- * Determines whether the dialog should be shown based on field visibility.
+ * Renders a delete button with confirmation dialog and error handling.
  */
-function shouldShowField(field: any): boolean {
-  return field?.itemView?.fieldMode && field?.itemView?.fieldPosition !== undefined && field?.itemView?.isRequired !== undefined
-}
-
-/**
- * Determines whether the action should be shown in the current context.
- */
-function shouldShowAction(action: any): boolean {
-  return action?.itemView?.actionMode !== 'hidden'
-}
-
 function DeleteButton({
   list,
   itemId,
@@ -91,23 +81,21 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = useCallback(async () => {
+  const handlePrimaryAction = async () => {
     try {
       await deleteItem()
+      toastQueue.neutral(`${list.singular} deleted.`, {
+        timeout: 5000,
+      })
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
     } catch (err: any) {
       toastQueue.critical('Unable to delete item', {
         actionLabel: 'Details',
         onAction: () => setErrorDialogValue(err),
         shouldCloseOnAction: true,
       })
-      return
     }
-
-    toastQueue.neutral(`${list.singular} deleted.`, {
-      timeout: 5000,
-    })
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }, [deleteItem, list, router])
+  }
 
   return (
     <Fragment>
@@ -118,10 +106,14 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={handlePrimaryAction}
         >
           <Text>
-            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
+            Are you sure you want to delete{' '}
+            <strong style={{ fontWeight: 600 }}>
+              {itemLabel}
+            </strong>
+            ? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -135,6 +127,7 @@ function DeleteButton({
   )
 }
 
+/** Renders a content-not-found UI component. */
 function ItemNotFound(props: PropsWithChildren) {
   return (
     <VStack
@@ -155,6 +148,9 @@ function ItemNotFound(props: PropsWithChildren) {
   )
 }
 
+/**
+ * Renders a reset-button with confirmation dialog.
+ */
 function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   return (
     <DialogTrigger>
@@ -174,6 +170,9 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
+/**
+ * Renders the item edit form, handling saving, validation, and error display.
+ */
 function ItemForm({
   listKey,
   initialValue,
@@ -204,10 +203,11 @@ function ItemForm({
   )
 
   const [value, setValue] = useState(() => initialValue)
+
   function resetValueState() {
     setValue(() => initialValue)
   }
-  useEffect(() => resetValueState(), [initialValue])
+  useEffect(resetValueState, [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
@@ -216,16 +216,14 @@ function ItemForm({
     if (e.target !== e.currentTarget) return
     e.preventDefault()
 
-    const newForceValidation = invalidFields.size !== 0
-    setForceValidation(newForceValidation)
-    if (newForceValidation) return
-
-    const operationData = serializeValueToOperationItem('update', list.fields, value, initialValue)
+    const hasInvalidFields = invalidFields.size !== 0
+    setForceValidation(hasInvalidFields)
+    if (hasInvalidFields) return
 
     const { error: _error } = await update({
       variables: {
         id: itemId,
-        data: operationData,
+        data: serializeValueToOperationItem('update', list.fields, value, initialValue),
       },
     })
 
@@ -245,7 +243,6 @@ function ItemForm({
     toastQueue.positive(`Saved changes to ${list.singular.toLocaleLowerCase()}.`, {
       timeout: 5000,
     })
-
     onSaveSuccess()
   })
 
@@ -296,11 +293,11 @@ function ItemForm({
 
         <BaseToolbar>
           <Button
-            isDisabled={!hasChangedFields}
-            isPending={loading}
-            prominence="high"
-            type="submit"
-          >
+                isDisabled={!hasChangedFields}
+                isPending={loading}
+                prominence="high"
+                type="submit"
+              >
             Save
           </Button>
           <ResetButton hasChanges={hasChangedFields} onReset={resetValueState} />
@@ -318,54 +315,83 @@ function ItemForm({
   )
 }
 
+/** Returns the item page component for the given list */
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
+/**
+ * Renders the item view page, managing loading, data fetching, and rendering
+ * its child components (header, form, error notices).
+ */
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const id_ = useRouter().query.id
   const [itemId] = Array.isArray(id_) ? id_ : [id_]
   const { data, error, loading, refetch } = useListItem(listKey, itemId ?? null)
   const item = data?.item
+
   const itemLabel_ = item?.[list.labelField] ?? item?.id
   const itemLabel = typeof itemLabel_ === 'string' ? itemLabel_ : (itemId ?? '')
 
   const pageLoading = loading || itemId === undefined
   const pageLabel = itemLabel || itemId
-  const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
-  const initialValue = useMemo(() => {
-    if (!item) return null
-    return deserializeItemToValue(list.fields, item)
-  }, [list.fields, data?.item])
+  const pageTitle =
+    list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
 
-  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    const fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> = {}
-    const fieldPositions: Record<string, 'form' | 'sidebar'> = {}
-    const isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>> = {}
+  const initialValue = useMemo(
+    () => (item ? deserializeItemToValue(list.fields, item) : null),
+    [list.fields, item]
+  )
 
-    for (const [key, field] of Object.entries(list.fields)) {
-      fieldModes[key] = field.itemView.fieldMode
-      fieldPositions[key] = field.itemView.fieldPosition
-      isRequireds[key] = field.itemView.isRequired
-    }
-
-    for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
-      if (shouldShowField(field)) {
-        fieldModes[field.key] = field.itemView.fieldMode
-        fieldPositions[field.key] = field.itemView.fieldPosition
-        isRequireds[field.key] = field.itemView.isRequired
+  const {
+    actionsInContext,
+    fieldModes,
+    fieldPositions,
+    isRequireds,
+  } = useMemo(() => {
+    const mergeFieldMeta = (
+      existing: Record<string, unknown>,
+      fieldsFromAdminMeta: any[]
+    ) => {
+      for (const field of fieldsFromAdminMeta) {
+        if (
+          !field?.itemView ||
+          !field.key ||
+          !field.itemView.fieldMode ||
+          !field.itemView.fieldPosition ||
+          !field.itemView.isRequired
+        )
+          continue
+        existing[field.key] = field.itemView
       }
     }
 
-    const actionModes: Record<string, 'read' | 'edit' | 'hidden'> = {}
-    for (const [key, action] of Object.entries(list.actions)) {
-      actionModes[key] = action.itemView.actionMode
-    }
-
-    for (const action of data?.keystone?.adminMeta?.list?.actions ?? []) {
-      if (action?.itemView?.actionMode && action.key) {
-        actionModes[action.key] = action.itemView.actionMode
+    const mergeActionMeta = (
+      existing: Record<string, unknown>,
+      actionsFromAdminMeta: any[]
+    ) => {
+      for (const action of actionsFromAdminMeta) {
+        if (!action?.itemView?.actionMode || !action.key) continue
+        existing[action.key] = action.itemView.actionMode
       }
     }
+
+    const fieldModes = Object.fromEntries(
+      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
+    )
+    const fieldPositions = Object.fromEntries(
+      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
+    )
+    const isRequireds = Object.fromEntries(
+      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
+    )
+    const actionModes = Object.fromEntries(
+      Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
+    )
+
+    mergeFieldMeta(fieldModes, data?.keystone?.adminMeta?.list?.fields ?? [])
+    mergeFieldMeta(fieldPositions, data?.keystone?.adminMeta?.list?.fields ?? [])
+    mergeFieldMeta(isRequireds, data?.keystone?.adminMeta?.list?.fields ?? [])
+    mergeActionMeta(actionModes, data?.keystone?.adminMeta?.list?.actions ?? [])
 
     const actionsInContext = list.actions
       .map(action => ({
@@ -375,7 +401,7 @@ function ItemPage({ listKey }: ItemPageProps) {
           actionMode: actionModes[action.key],
         },
       }))
-      .filter(shouldShowAction)
+      .filter(action => action.itemView.actionMode !== 'hidden')
 
     return {
       actionsInContext,
@@ -383,9 +409,9 @@ function ItemPage({ listKey }: ItemPageProps) {
       fieldPositions,
       isRequireds,
     }
-  }, [data?.keystone?.adminMeta, list.fields])
+  }, [data?.keystone?.adminMeta, list.fields, list.actions])
 
-  function onAction(action: ActionMeta, resultId: string | null) {
+  const handleAction = (action: ActionMeta, resultId: string | null) => {
     const { navigation } = action.itemView
 
     if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
@@ -395,37 +421,6 @@ function ItemPage({ listKey }: ItemPageProps) {
     } else {
       router.push(list.isSingleton ? '/' : `/${list.path}`)
     }
-  }
-
-  function renderNotFoundContent() {
-    if (!item) {
-      if (list.isSingleton) {
-        if (itemId === '1') {
-          return (
-            <ItemNotFound>
-              <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-              {!list.hideCreate && <CreateButtonLink list={list} />}
-            </ItemNotFound>
-          )
-        }
-        return (
-          <ItemNotFound>
-            <Text>
-              An item with ID <strong>“{itemId}”</strong> does not exist.
-            </Text>
-          </ItemNotFound>
-        )
-      }
-      return (
-        <ItemNotFound>
-          <Text>
-            The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
-            access to it.
-          </Text>
-        </ItemNotFound>
-      )
-    }
-    return null
   }
 
   return (
@@ -438,7 +433,7 @@ function ItemPage({ listKey }: ItemPageProps) {
           label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
           title={pageTitle}
           item={item ?? null}
-          onAction={onAction}
+          onAction={handleAction}
         />
       }
     >
@@ -450,7 +445,28 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {renderNotFoundContent()}
+            {item == null &&
+              (list.isSingleton ? (
+                itemId === '1' ? (
+                  <ItemNotFound>
+                    <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
+                    {!list.hideCreate && <CreateButtonLink list={list} />}
+                  </ItemNotFound>
+                ) : (
+                  <ItemNotFound>
+                    <Text>
+                      An item with ID <strong>“{itemId}”</strong> does not exist.
+                    </Text>
+                  </ItemNotFound>
+                )
+              ) : (
+                <ItemNotFound>
+                  <Text>
+                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+                    access to it.
+                  </Text>
+                </ItemNotFound>
+              ))}
           </Box>
           {initialValue && (
             <ItemForm

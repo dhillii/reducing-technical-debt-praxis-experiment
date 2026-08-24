@@ -1,3 +1,9 @@
+/***************************
+ *
+ * Extra methods
+ *
+ **************************/
+
 var cst         = require('../../constants.js');
 var Common      = require('../Common.js');
 var UX          = require('./UX');
@@ -8,137 +14,6 @@ var fmt         = require('../tools/fmt.js');
 var dayjs      = require('dayjs');
 var pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js')
-
-/**
- * Check if system monitoring should be skipped
- * @returns {boolean}
- */
-function shouldSkipSysMonitoring() {
-  return process.env.TRAVIS ||
-         global.it === 'function' ||
-         cst.IS_WINDOWS === true;
-}
-
-/**
- * Check if pm2-sysmonit is not enabled in configuration
- * @param {Object} pm2Configuration
- * @returns {boolean}
- */
-function isSysmonitDisabled(pm2Configuration) {
-  return pm2Configuration && pm2Configuration.sysmonit !== 'true';
-}
-
-/**
- * Check if app_id matches any process in the list
- * @param {Array} list
- * @param {string|number} app_id
- * @returns {boolean}
- */
-function hasMatchingProcess(list, app_id) {
-  return list.some(l => app_id == l.pm_id);
-}
-
-/**
- * Check if report data is available and no error occurred
- * @param {Error} err
- * @param {Object} report
- * @returns {boolean}
- */
-function hasValidReport(err, report) {
-  return report && !err;
-}
-
-/**
- * Check if pm_id is a valid number
- * @param {string|number} pm_id
- * @returns {boolean}
- */
-function isPmIdValidNumber(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Check if type is cpu profiling
- * @param {string} type
- * @returns {boolean}
- */
-function isCpuProfiling(type) {
-  return type === 'cpu';
-}
-
-/**
- * Check if type is memory profiling
- * @param {string} type
- * @returns {boolean}
- */
-function isMemoryProfiling(type) {
-  return type === 'mem';
-}
-
-/**
- * Check if separator is a function (for argument normalization)
- * @param {*} separator
- * @param {*} cb
- * @returns {boolean}
- */
-function isSeparatorFunction(separator, cb) {
-  return !cb && typeof(separator) === 'function';
-}
-
-/**
- * Check if pm_id is not a number (for attach method)
- * @param {string|number} pm_id
- * @returns {boolean}
- */
-function isPmIdNotNumber(pm_id) {
-  return isNaN(pm_id);
-}
-
-/**
- * Check if first argument is a function (for argument normalization)
- * @param {*} firstArg
- * @returns {boolean}
- */
-function isFirstArgFunction(firstArg) {
-  return typeof(firstArg) === 'function';
-}
-
-/**
- * Check if packet is actually proc_id (for argument normalization)
- * @param {*} proc_id
- * @param {*} packet
- * @returns {boolean}
- */
-function isPacketActuallyProcId(proc_id, packet) {
-  return typeof proc_id === 'object' && typeof packet === 'function';
-}
-
-/**
- * Check if params is a function (for argument normalization)
- * @param {*} params
- * @returns {boolean}
- */
-function isParamsFunction(params) {
-  return typeof(params) === 'function';
-}
-
-/**
- * Check if pm_id is not a number (for trigger method)
- * @param {string|number} pm_id
- * @returns {boolean}
- */
-function isPmIdNotNumeric(pm_id) {
-  return isNaN(pm_id);
-}
-
-/**
- * Check if cb exists and is a function (for callback handling)
- * @param {*} cb
- * @returns {boolean}
- */
-function hasCallback(cb) {
-  return typeof cb === 'function';
-}
 
 module.exports = function(CLI) {
   /**
@@ -158,7 +33,7 @@ module.exports = function(CLI) {
    * Install pm2-sysmonit
    */
   CLI.prototype.launchSysMonitoring = function(cb) {
-    if (shouldSkipSysMonitoring() || isSysmonitDisabled(this.pm2_configuration)) {
+    if (shouldSkipSysMonitoring.call(this)) {
       return cb ? cb(null) : null;
     }
 
@@ -184,24 +59,26 @@ module.exports = function(CLI) {
   };
 
   /**
+   * Check if system monitoring should be skipped
+   * @returns {boolean}
+   */
+  function shouldSkipSysMonitoring() {
+    return (this.pm2_configuration && this.pm2_configuration.sysmonit !== 'true') ||
+           process.env.TRAVIS ||
+           global.it === 'function' ||
+           cst.IS_WINDOWS === true;
+  }
+
+  /**
    * Show application environment
    * @method env
    * @callback cb
    */
   CLI.prototype.env = function(app_id, cb) {
+    var procs = [];
     var printed = 0;
 
     this.Client.executeRemote('getMonitorData', {}, (err, list) => {
-      if (err) {
-        Common.err(`Modules with id ${app_id} not found`);
-        return cb ? cb.apply(null, arguments) : this.exitCli(cst.ERROR_EXIT);
-      }
-
-      if (!hasMatchingProcess(list, app_id)) {
-        Common.err(`Modules with id ${app_id} not found`);
-        return cb ? cb.apply(null, arguments) : this.exitCli(cst.ERROR_EXIT);
-      }
-
       list.forEach(l => {
         if (app_id == l.pm_id) {
           printed++;
@@ -227,6 +104,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.report = function() {
     var that = this;
+
     var Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
@@ -238,7 +116,7 @@ module.exports = function(CLI) {
       fmt.field('Date', new Date());
       fmt.sep();
 
-      if (hasValidReport(err, report)) {
+      if (report && !err) {
         fmt.title(chalk.bold.blue('Daemon'));
         fmt.field('pm2d version', report.pm2_version);
         fmt.field('node version', report.node_version);
@@ -308,7 +186,7 @@ module.exports = function(CLI) {
   CLI.prototype.getPID = function(app_name, cb) {
     var that = this;
 
-    if (isFirstArgFunction(app_name)) {
+    if (typeof(app_name) === 'function') {
       cb = app_name;
       app_name = null;
     }
@@ -327,7 +205,7 @@ module.exports = function(CLI) {
         }
       });
 
-      if (!hasCallback(cb)) {
+      if (!cb) {
         Common.printOut(pids.join("\n"));
         return that.exitCli(cst.SUCCESS_EXIT);
       }
@@ -345,12 +223,12 @@ module.exports = function(CLI) {
     var dayjs = require('dayjs');
     var cmd;
 
-    if (isCpuProfiling(type)) {
+    if (type === 'cpu') {
       cmd = {
         ext: '.cpuprofile',
         action: 'profileCPU'
       };
-    } else if (isMemoryProfiling(type)) {
+    } else if (type === 'mem') {
       cmd = {
         ext: '.heapprofile',
         action: 'profileMEM'
@@ -382,10 +260,12 @@ module.exports = function(CLI) {
     lines.forEach(l => {
       if (l.startsWith('#')) {
         console.log(chalk.bold.green(l));
-      } else if (l.startsWith('```')) {
-        isInner = !isInner;
-        console.log(chalk.gray(l));
-      } else if (isInner) {
+      } else if (isInner || l.startsWith('```')) {
+        if (isInner && l.startsWith('```')) {
+          isInner = false;
+        } else if (!isInner) {
+          isInner = true;
+        }
         console.log(chalk.gray(l));
       } else if (l.startsWith('`')) {
         console.log(chalk.gray(l));
@@ -402,6 +282,7 @@ module.exports = function(CLI) {
    * @method boilerplate
    */
   CLI.prototype.boilerplate = function(cb) {
+    var i = 0;
     var projects = [];
     var enquirer = require('enquirer');
     const forEach = require('async/forEach');
@@ -454,7 +335,7 @@ module.exports = function(CLI) {
   CLI.prototype.sendLineToStdin = function(pm_id, line, separator, cb) {
     var that = this;
 
-    if (isSeparatorFunction(separator, cb)) {
+    if (!cb && typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
@@ -481,12 +362,12 @@ module.exports = function(CLI) {
     var that = this;
     var readline = require('readline');
 
-    if (isPmIdNotNumber(pm_id)) {
+    if (isNaN(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
       return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
     }
 
-    if (isFirstArgFunction(separator)) {
+    if (typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
@@ -526,7 +407,7 @@ module.exports = function(CLI) {
   CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
     var that = this;
 
-    if (isPacketActuallyProcId(proc_id, packet)) {
+    if (typeof proc_id === 'object' && typeof packet === 'function') {
       cb = packet;
       packet = proc_id;
     } else {
@@ -572,7 +453,7 @@ module.exports = function(CLI) {
    * @param  {Function}      cb          callback
    */
   CLI.prototype.trigger = function(pm_id, action_name, params, cb) {
-    if (isParamsFunction(params)) {
+    if (typeof(params) === 'function') {
       cb = params;
       params = null;
     }
@@ -587,7 +468,7 @@ module.exports = function(CLI) {
     if (params) {
       cmd.opts = params;
     }
-    if (isPmIdNotNumeric(pm_id)) {
+    if (isNaN(pm_id)) {
       cmd.name = pm_id;
     } else {
       cmd.id = pm_id;
@@ -819,6 +700,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.dashboard = function(cb) {
     var that = this;
+
     var Dashboard = require('./Dashboard');
 
     if (cb) {
@@ -863,6 +745,7 @@ module.exports = function(CLI) {
 
   CLI.prototype.monit = function(cb) {
     var that = this;
+
     var Monit = require('./Monit.js');
 
     if (cb) {

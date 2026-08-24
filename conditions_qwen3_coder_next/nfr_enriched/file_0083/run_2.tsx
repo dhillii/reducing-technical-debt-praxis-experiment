@@ -46,6 +46,9 @@ type ItemPageProps = {
   listKey: string
 }
 
+/**
+ * Returns a stable callback reference that always invokes the latest version of the provided callback.
+ */
 function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Func): Func {
   const callbackRef = useRef(callback)
   const cb = useCallback((...args: any[]) => {
@@ -57,6 +60,9 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
   return cb as any
 }
 
+/**
+ * Renders a delete button with confirmation dialog and error handling.
+ */
 function DeleteButton({
   list,
   itemId,
@@ -77,24 +83,32 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = async () => {
+  const handlePrimaryAction = async () => {
     try {
       await deleteItem()
-      toastQueue.neutral(`${list.singular} deleted.`, { timeout: 5000 })
-      router.push(list.isSingleton ? '/' : `/${list.path}`)
     } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
+      const errorMessage = 'Unable to delete item'
+      toastQueue.critical(errorMessage, {
         actionLabel: 'Details',
         onAction: () => setErrorDialogValue(err),
         shouldCloseOnAction: true,
       })
+      return
     }
+
+    toastQueue.neutral(`${list.singular} deleted.`, {
+      timeout: 5000,
+    })
+    router.push(list.isSingleton ? '/' : `/${list.path}`)
   }
 
-  const getDeleteConfirmationMessage = () => (
-    <Text>
-      Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
-    </Text>
+  const confirmationMessage = useMemo(
+    () => (
+      <Text>
+        Are you sure you want to delete <strong>{itemLabel}</strong>? This action cannot be undone.
+      </Text>
+    ),
+    [itemLabel]
   )
 
   return (
@@ -106,9 +120,9 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={handlePrimaryAction}
         >
-          {getDeleteConfirmationMessage()}
+          {confirmationMessage}
         </AlertDialog>
       </DialogTrigger>
 
@@ -121,7 +135,10 @@ function DeleteButton({
   )
 }
 
-function ItemNotFound(props: PropsWithChildren) {
+/**
+ * Renders a standardized "Not Found" message with an optional icon and slot provider.
+ */
+function ItemNotFound({ children }: PropsWithChildren) {
   return (
     <VStack
       alignItems="center"
@@ -135,16 +152,24 @@ function ItemNotFound(props: PropsWithChildren) {
       <Icon src={fileWarningIcon} color="neutralEmphasis" size="large" />
       <Heading align="center">Not found</Heading>
       <SlotProvider slots={{ text: { align: 'center', maxWidth: 'scale.5000' } }}>
-        {props.children}
+        {children}
       </SlotProvider>
     </VStack>
   )
 }
 
-function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
+/**
+ * Renders a reset button with confirmation dialog and conditional activation.
+ */
+function ResetButton({ onReset, hasChanges }: { onReset: () => void; hasChanges?: boolean }) {
+  const confirmationMessage = useMemo(
+    () => <Text>Are you sure? Lost changes cannot be recovered.</Text>,
+    []
+  )
+
   return (
     <DialogTrigger>
-      <Button tone="accent" isDisabled={!props.hasChanges}>
+      <Button tone="accent" isDisabled={!hasChanges}>
         Reset
       </Button>
       <AlertDialog
@@ -152,14 +177,17 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
         cancelLabel="Cancel"
         primaryActionLabel="Yes, reset"
         autoFocusButton="primary"
-        onPrimaryAction={props.onReset}
+        onPrimaryAction={onReset}
       >
-        Are you sure? Lost changes cannot be recovered.
+        {confirmationMessage}
       </AlertDialog>
     </DialogTrigger>
   )
 }
 
+/**
+ * Renders an item editing form with validation, saving, and error handling.
+ */
 function ItemForm({
   listKey,
   initialValue,
@@ -174,8 +202,8 @@ function ItemForm({
   itemLabel: string
   onSaveSuccess: () => void
   fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>>
-  isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
   fieldPositions: Record<string, 'form' | 'sidebar'>
+  isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
 }) {
   const list = useList(listKey)
   const itemId = initialValue.id as string
@@ -190,9 +218,8 @@ function ItemForm({
   )
 
   const [value, setValue] = useState(() => initialValue)
-  function resetValueState() {
-    setValue(() => initialValue)
-  }
+  
+  const resetValueState = useCallback(() => setValue(() => initialValue), [initialValue])
   useEffect(resetValueState, [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
@@ -201,6 +228,7 @@ function ItemForm({
   const handleSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
+    
     const newForceValidation = invalidFields.size !== 0
     setForceValidation(newForceValidation)
     if (newForceValidation) return
@@ -212,13 +240,14 @@ function ItemForm({
       },
     })
 
-    const error = CombinedGraphQLErrors.is(_error)
+    const normalizedError = CombinedGraphQLErrors.is(_error)
       ? _error.errors.find(x => x.path === undefined || x.path?.length === 1)
       : _error
-    if (error) {
+
+    if (normalizedError) {
       toastQueue.critical('Unable to save item', {
         actionLabel: 'Details',
-        onAction: () => setUpdateError(new Error(error.message)),
+        onAction: () => setUpdateError(new Error(normalizedError.message)),
         shouldCloseOnAction: true,
       })
       return
@@ -237,13 +266,7 @@ function ItemForm({
       <form onSubmit={handleSave} style={{ display: 'contents' }}>
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
-          <GraphQLErrorNotice
-            errors={
-              CombinedGraphQLErrors.is(error)
-                ? error.errors.filter(x => x.path === undefined || x.path?.length === 1)
-                : [error]
-            }
-          />
+          <GraphQLErrorNotice errors={getFilteredListErrors(error)} />
           <Fields
             view="itemView"
             position="form"
@@ -299,8 +322,22 @@ function ItemForm({
   )
 }
 
+/**
+ * Extracts and normalizes top-level GraphQL errors from a potential CombinedGraphQLErrors instance.
+ */
+function getFilteredListErrors(error: any) {
+  if (!error) return []
+  if (CombinedGraphQLErrors.is(error)) {
+    return error.errors.filter(x => x.path === undefined || x.path?.length === 1)
+  }
+  return [error]
+}
+
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
+/**
+ * Renders the item view page with loading, not-found, and form states.
+ */
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const id_ = useRouter().query.id
@@ -319,32 +356,28 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [list.fields, data?.item])
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    const actionModes = Object.fromEntries(
-      Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
-    )
-    const fieldModes = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
-    )
-    const fieldPositions = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
-    )
-    const isRequireds = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
-    )
+    const actionModes: Record<string, 'read' | 'edit' | 'hidden'> = {}
+    const fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> = {}
+    const fieldPositions: Record<string, 'form' | 'sidebar'> = {}
+    const isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>> = {}
+
+    for (const [key, action] of Object.entries(list.actions)) {
+      actionModes[key] = action.itemView.actionMode
+    }
+
+    for (const [key, field] of Object.entries(list.fields)) {
+      fieldModes[key] = field.itemView.fieldMode
+      fieldPositions[key] = field.itemView.fieldPosition
+      isRequireds[key] = field.itemView.isRequired
+    }
 
     for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
-      if (
-        !field?.itemView ||
-        !field.key ||
-        !field.itemView.fieldMode ||
-        !field.itemView.fieldPosition ||
-        !field.itemView.isRequired
-      )
-        continue
+      if (!isFieldMetaComplete(field)) continue
       fieldModes[field.key] = field.itemView.fieldMode
       fieldPositions[field.key] = field.itemView.fieldPosition
       isRequireds[field.key] = field.itemView.isRequired
     }
+
     for (const action of data?.keystone?.adminMeta?.list?.actions ?? []) {
       if (!action?.itemView?.actionMode || !action.key) continue
       actionModes[action.key] = action.itemView.actionMode
@@ -360,17 +393,11 @@ function ItemPage({ listKey }: ItemPageProps) {
       }))
       .filter(action => action.itemView.actionMode !== 'hidden')
 
-    return {
-      actionsInContext,
-      fieldModes,
-      fieldPositions,
-      isRequireds,
-    }
+    return { actionsInContext, fieldModes, fieldPositions, isRequireds }
   }, [data?.keystone?.adminMeta, list.fields])
 
   function onAction(action: ActionMeta, resultId: string | null) {
     const { navigation } = action.itemView
-
     if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
       refetch()
     } else if (navigation === 'follow' && resultId) {
@@ -412,14 +439,14 @@ function ItemPage({ listKey }: ItemPageProps) {
                 ) : (
                   <ItemNotFound>
                     <Text>
-                      An item with ID <strong>“{itemId}”</strong> does not exist.
+                      An item with ID <strong>{itemId}</strong> does not exist.
                     </Text>
                   </ItemNotFound>
                 )
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+                    The item with ID <strong>{itemId}</strong> doesn’t exist, or you don’t have
                     access to it.
                   </Text>
                 </ItemNotFound>
@@ -439,5 +466,18 @@ function ItemPage({ listKey }: ItemPageProps) {
         </ColumnLayout>
       )}
     </PageContainer>
+  )
+}
+
+/**
+ * Checks whether field metadata is valid for consumption.
+ */
+function isFieldMetaComplete(field: any): boolean {
+  return (
+    field?.itemView &&
+    typeof field.key === 'string' &&
+    typeof field.itemView.fieldMode !== 'undefined' &&
+    typeof field.itemView.fieldPosition !== 'undefined' &&
+    typeof field.itemView.isRequired !== 'undefined'
   )
 }

@@ -121,6 +121,7 @@ module.exports = {
 
     const data = record ? record.toJSON() : record;
 
+    // Retrieve data manually.
     if (_.isEmpty(populate)) {
       const arrayOfPromises = this.associations
         .filter(association => ['manyMorphToOne', 'manyMorphToMany'].includes(association.nature))
@@ -152,6 +153,7 @@ module.exports = {
       transacting,
     });
 
+    // Only update fields which are on this document.
     const values = Object.keys(removeUndefinedKeys(params.values)).reduce((acc, current) => {
       const property = params.values[current];
       const association = this.associations.filter(x => x.alias === current)[0];
@@ -192,6 +194,7 @@ module.exports = {
             return _.set(acc, current, null);
           }
 
+          // set old relations to null
           const updateLink = this.where({ [current]: property })
             .save(
               { [current]: null },
@@ -214,10 +217,14 @@ module.exports = {
               );
             });
 
+          // set new relation
           relationUpdates.push(updateLink);
           return _.set(acc, current, property);
         }
         case 'oneToMany': {
+          // receive array of ids or array of objects with ids
+
+          // set relation to null for all the ids not in the list
           const currentIds = response[current];
           const toRemove = _.differenceWith(currentIds, property, (a, b) => {
             return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
@@ -281,11 +288,14 @@ module.exports = {
           relationUpdates.push(updatePromise);
           return acc;
         }
+        // media -> model
         case 'manyMorphToMany':
         case 'manyMorphToOne': {
+          // Update the relational array.
           const refs = params.values[current];
 
           if (Array.isArray(refs) && refs.length === 0) {
+            // clear related
             relationUpdates.push(
               removeRelationMorph(this, { params: { id: primaryKeyValue }, transacting })
             );
@@ -304,6 +314,7 @@ module.exports = {
           });
           break;
         }
+        // model -> media
         case 'oneToManyMorph':
         case 'manyToManyMorph': {
           const currentValue = transformToArrayID(params.values[current]);

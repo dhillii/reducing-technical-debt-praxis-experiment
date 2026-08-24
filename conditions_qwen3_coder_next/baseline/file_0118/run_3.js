@@ -1,3 +1,6 @@
+// json5.js
+// Modern JSON. See README.md for details.
+//
 // This file is based directly off of Douglas Crockford's json_parse.js:
 // https://github.com/douglascrockford/JSON-js/blob/master/json_parse.js
 
@@ -610,7 +613,7 @@ JSON5.stringify = function (obj, replacer, space) {
             str = str.substring(0, 10);
         }
 
-        let indent = noNewLine ? "" : "\n";
+        const indent = noNewLine ? "" : "\n";
         for (let i = 0; i < num; i++) {
             indent += str;
         }
@@ -651,7 +654,7 @@ JSON5.stringify = function (obj, replacer, space) {
 // sequences.
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
-            let c = meta[a];
+            const c = meta[a];
             return typeof c === 'string' ?
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);

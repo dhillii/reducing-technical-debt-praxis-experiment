@@ -25,20 +25,10 @@ const isPolymorphicAssoc = assoc => {
   return assoc.nature.toLowerCase().indexOf('morph') !== -1;
 };
 
-/**
- * Check if an object is a valid Mongoose ObjectId reference.
- * @param {any} obj - The object to check.
- * @returns {boolean} - True if it's an ObjectId, false otherwise.
- */
-const isMongooseObjectId = obj => {
-  return obj instanceof mongoose.Types.ObjectId;
-};
+const isOneMorphToOne = association => association.nature === 'oneMorphToOne';
+const isManyMorphAssoc = association =>
+  association.nature === 'manyMorphToMany' || association.nature === 'manyMorphToOne';
 
-/**
- * Convert a MongoDB reference object to a Strapi-style reference.
- * @param {Object} obj - The MongoDB reference object.
- * @returns {Object} - The converted reference object.
- */
 const refToStrapiRef = obj => {
   const ref = obj.ref;
 
@@ -52,31 +42,55 @@ const refToStrapiRef = obj => {
   };
 };
 
-/**
- * Parse a component reference to a string ID if needed.
- * @param {Object} el - The element to parse.
- * @returns {string} - The parsed reference.
- */
 const parseComponentRef = el => {
-  if (isMongooseObjectId(el.ref)) {
+  if (el.ref instanceof mongoose.Types.ObjectId) {
     return el.ref.toString();
   } else {
     return el.ref;
   }
 };
 
-/**
- * Parse a dynamic zone reference to a structured object.
- * @param {Object} el - The element to parse.
- * @returns {Object} - The parsed dynamic zone reference.
- */
 const parseDynamicZoneRef = el => {
-  if (isMongooseObjectId(el.ref)) {
+  if (el.ref instanceof mongoose.Types.ObjectId) {
     return { id: el.ref.toString() };
   } else {
     return el.ref;
   }
 };
+
+const isComponentType = type => type === 'component';
+const isDynamicZoneType = type => type === 'dynamiczone';
+
+const shouldFilterComponent = el => el && el.kind;
+
+const isVirtualField = ({ type }) => type === 'virtual';
+
+const isScalarAttribute = ({ type }) =>
+  type !== undefined && type !== null && type !== 'component' && type !== 'dynamiczone';
+
+const isRelationalAttribute = ({ type }) => type === undefined;
+
+const isPolymorphicNature = nature => nature.toLowerCase().indexOf('morph') !== -1;
+
+const isNonPolymorphicAssoc = assoc => !isPolymorphicAssoc(assoc);
+
+const isNotAutoPopulateFalse = assoc => assoc.autoPopulate !== false;
+
+const isNotOneToOneOrManyToOneOrOneWayOrOneToMorph = FK =>
+  FK.nature !== 'oneToOne' &&
+  FK.nature !== 'manyToOne' &&
+  FK.nature !== 'oneWay' &&
+  FK.nature !== 'oneToMorph';
+
+const isNotOneWayOrOneToMorph = FK => FK.nature !== 'oneWay' && FK.nature !== 'oneToMorph';
+
+const isManyWay = nature => nature === 'manyWay';
+
+const isUndefinedVia = FK => _.isUndefined(FK.via);
+
+const isDominantFalse = attribute => attribute.dominant !== true;
+
+const isComponentModelType = modelType => modelType === 'component';
 
 module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
@@ -131,18 +145,17 @@ module.exports = async ({ models, target }, ctx) => {
       ['component', 'dynamiczone'].includes(definition.attributes[key].type)
     );
 
-    const scalarAttributes = Object.keys(definition.attributes).filter(key => {
-      const { type } = definition.attributes[key];
-      return type !== undefined && type !== null && type !== 'component' && type !== 'dynamiczone';
-    });
+    const scalarAttributes = Object.keys(definition.attributes).filter(key =>
+      isScalarAttribute(definition.attributes[key])
+    );
 
-    const relationalAttributes = Object.keys(definition.attributes).filter(key => {
-      const { type } = definition.attributes[key];
-      return type === undefined;
-    });
+    const relationalAttributes = Object.keys(definition.attributes).filter(key =>
+      isRelationalAttribute(definition.attributes[key])
+    );
 
     // handle component and dynamic zone attrs
     if (componentAttributes.length > 0) {
+      // create join morph collection thingy
       componentAttributes.forEach(name => {
         definition.loadedModel[name] = [
           {
@@ -162,6 +175,7 @@ module.exports = async ({ models, target }, ctx) => {
       definition.loadedModel[name] = {
         ...attr,
         ...utils(instance).convertType(name, attr),
+        // no require constraint to allow components in drafts
         required:
           definition.modelType === 'compo' || hasDraftAndPublish ? false : definition.required,
       };
@@ -184,6 +198,11 @@ module.exports = async ({ models, target }, ctx) => {
 
     const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
 
+    /*
+        Override populate path for polymorphic association.
+        It allows us to make Upload.find().populate('related')
+        instead of Upload.find().populate('related.item')
+      */
     const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
 
     const populateFn = createOnFetchPopulateFn({
@@ -198,7 +217,7 @@ module.exports = async ({ models, target }, ctx) => {
 
     // Add virtual key to provide populate and reverse populate
     _.forEach(
-      _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
+      _.pickBy(definition.loadedModel, isVirtualField),
       (value, key) => {
         schema.virtual(key, {
           ref: value.ref,
@@ -229,24 +248,82 @@ module.exports = async ({ models, target }, ctx) => {
 
     schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
-    const associations = definition.associations.filter(
-      association => !isPolymorphicAssoc(association)
-    );
+    const associations = definition.associations.filter(isNonPolymorphicAssoc);
 
     schema.options.toObject = schema.options.toJSON = {
       virtuals: true,
       transform: function(doc, returned) {
-        // Remove $numberDecimal nested property.
+        // Remover $numberDecimal nested property.
+
         Object.keys(returned)
           .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
           .forEach(key => {
+            // Parse to float number.
             returned[key] = parseFloat(returned[key].toString());
           });
 
-        transformPolymorphicAssociations(morphAssociations, returned, refToStrapiRef);
-        transformComponentAttributes(componentAttributes, definition, returned, parseComponentRef);
-        transformDynamicZoneAttributes(definition, returned, parseDynamicZoneRef);
-        transformRegularAssociations(associations, returned);
+        morphAssociations.forEach(association => {
+          if (
+            Array.isArray(returned[association.alias]) &&
+            returned[association.alias].length > 0
+          ) {
+            // Reformat data by bypassing the many-to-many relationship.
+            if (isOneMorphToOne(association)) {
+              returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
+              return;
+            }
+
+            if (isManyMorphAssoc(association)) {
+              returned[association.alias] = returned[association.alias].map(refToStrapiRef);
+              return;
+            }
+          }
+        });
+
+        componentAttributes.forEach(name => {
+          const attribute = definition.attributes[name];
+          const { type } = attribute;
+
+          if (isComponentType(type)) {
+            if (Array.isArray(returned[name])) {
+              const components = returned[name].map(parseComponentRef);
+              // Reformat data by bypassing the many-to-many relationship.
+              returned[name] =
+                attribute.repeatable === true ? components : _.first(components) || null;
+            }
+          }
+
+          if (isDynamicZoneType(type)) {
+            if (returned[name]) {
+              returned[name] = returned[name]
+                .filter(shouldFilterComponent)
+                .map(el => {
+                  return {
+                    __component: findComponentByGlobalId(el.kind).uid,
+                    ...parseDynamicZoneRef(el),
+                  };
+                });
+            }
+          }
+        });
+
+        associations.forEach(association => {
+          const relation = returned[association.alias];
+
+          if (relation) {
+            // Extract raw JSON data.
+            returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
+
+            if (_.isArray(association.populate)) {
+              const { alias, populate } = association;
+              const pickPopulate = entry => _.pick(entry, populate);
+
+              returned[alias] = _.isArray(returned[alias])
+                ? _.map(returned[alias], pickPopulate)
+                : pickPopulate(returned[alias]);
+            }
+          }
+        });
       },
     };
 
@@ -267,22 +344,30 @@ module.exports = async ({ models, target }, ctx) => {
       });
     };
 
+    // Only sync indexes when not in production env while it's not possible to create complex indexes directly from models
+    // In production it will simply create missing indexes (those defined in the models but not present in db)
     if (strapi.app.env !== 'production') {
+      // Ensure indexes are synced with the model, prevent duplicate index errors
+      // Side-effect: Delete all the indexes not present in the model.json
       Model.syncIndexes(null, handleIndexesErrors);
     } else {
       handleIndexesErrors();
     }
 
+    // Expose ORM functions through the `target` object.
     target[model] = _.assign(Model, target[model]);
 
+    // Push attributes to be aware of model schema.
     target[model]._attributes = definition.attributes;
     target[model].updateRelations = relations.update;
     target[model].deleteRelations = relations.deleteRelations;
     target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
   }
 
+  // Instantiate every models
   Object.keys(models).forEach(mountModel);
 
+  // Migrations + storing schema
   for (const model of Object.keys(models)) {
     const definition = models[model];
     const modelInstance = target[model];
@@ -290,6 +375,7 @@ module.exports = async ({ models, target }, ctx) => {
 
     const previousDefinition = await getDefinitionFromStore(definition, instance);
 
+    // run migrations
     await strapi.db.migrations.run(migrateSchema, {
       definition,
       previousDefinition,
@@ -303,6 +389,7 @@ module.exports = async ({ models, target }, ctx) => {
   }
 };
 
+// noop migration to match migration API
 const migrateSchema = () => {};
 
 const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
@@ -316,8 +403,8 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
 
     const getMatchQuery = assoc => {
       const assocModel = strapi.db.getModelByAssoc(assoc);
-      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
 
+      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
       if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
         return populateQueries.publicationState[publicationState];
       }
@@ -351,10 +438,10 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
       });
     }
 
-    if (definition.modelType === 'component') {
+    if (isComponentModelType(definition.modelType)) {
       definition.associations
-        .filter(assoc => !isPolymorphicAssoc(assoc))
-        .filter(ast => ast.autoPopulate !== false)
+        .filter(isNonPolymorphicAssoc)
+        .filter(isNotAutoPopulateFalse)
         .forEach(ast => {
           this.populate({
             path: ast.alias,
@@ -374,6 +461,7 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
       modelName: model.toLowerCase(),
     }) || {};
 
+  // Build associations key
   utilsModels.defineAssociations(model.toLowerCase(), definition, attribute, name);
 
   const getRef = (name, plugin) => {
@@ -389,11 +477,16 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
   switch (verbose) {
     case 'hasOne': {
       const ref = getRef(attribute.model, attribute.plugin);
+
       setField(name, { type: ObjectId, ref });
+
       break;
     }
     case 'hasMany': {
-      const FK = _.find(definition.associations, { alias: name });
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
       const ref = getRef(attribute.collection, attribute.plugin);
 
       if (FK) {
@@ -403,6 +496,8 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
           via: FK.via,
           justOne: false,
         });
+
+        // Set this info to be able to see if this field is a real database's field.
         attribute.isVirtual = true;
       } else {
         setField(name, [{ type: ObjectId, ref }]);
@@ -410,36 +505,47 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
       break;
     }
     case 'belongsTo': {
-      const FK = _.find(definition.associations, { alias: name });
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
       const ref = getRef(attribute.model, attribute.plugin);
 
-      if (FK && ['oneToOne', 'manyToOne', 'oneWay', 'oneToMorph'].indexOf(FK.nature) === -1) {
+      if (FK && isNotOneToOneOrManyToOneOrOneWayOrOneToMorph(FK)) {
         setField(name, {
           type: 'virtual',
           ref,
           via: FK.via,
           justOne: true,
         });
+
+        // Set this info to be able to see if this field is a real database's field.
         attribute.isVirtual = true;
       } else {
         setField(name, { type: ObjectId, ref });
       }
+
       break;
     }
     case 'belongsToMany': {
       const ref = getRef(attribute.collection, attribute.plugin);
 
-      if (nature === 'manyWay') {
+      if (isManyWay(nature)) {
         setField(name, [{ type: ObjectId, ref }]);
       } else {
-        const FK = _.find(definition.associations, { alias: name });
+        const FK = _.find(definition.associations, {
+          alias: name,
+        });
 
-        if ((FK && _.isUndefined(FK.via)) || attribute.dominant !== true) {
+        // One-side of the relationship has to be a virtual field to be bidirectional.
+        if ((FK && isUndefinedVia(FK)) || isDominantFalse(attribute)) {
           setField(name, {
             type: 'virtual',
             ref,
             via: FK.via,
           });
+
+          // Set this info to be able to see if this field is a real database's field.
           attribute.isVirtual = true;
         } else {
           setField(name, [{ type: ObjectId, ref }]);
@@ -457,6 +563,7 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
       setField(name, [{ type: ObjectId, ref }]);
       break;
     }
+
     case 'belongsToMorph': {
       setField(name, {
         kind: String,
@@ -478,108 +585,4 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
     default:
       break;
   }
-};
-
-/**
- * Transform polymorphic associations in the returned document.
- * @param {Array} morphAssociations - Array of polymorphic associations.
- * @param {Object} returned - The returned document.
- * @param {Function} refToStrapiRef - Function to convert references.
- */
-const transformPolymorphicAssociations = (morphAssociations, returned, refToStrapiRef) => {
-  morphAssociations.forEach(association => {
-    if (
-      !Array.isArray(returned[association.alias]) ||
-      returned[association.alias].length === 0
-    ) {
-      return;
-    }
-
-    switch (association.nature) {
-      case 'oneMorphToOne':
-        returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
-        break;
-
-      case 'manyMorphToMany':
-      case 'manyMorphToOne':
-        returned[association.alias] = returned[association.alias].map(refToStrapiRef);
-        break;
-      default:
-        break;
-    }
-  });
-};
-
-/**
- * Transform component attributes in the returned document.
- * @param {Array} componentAttributes - Array of component attribute names.
- * @param {Object} definition - Model definition.
- * @param {Object} returned - The returned document.
- * @param {Function} parseComponentRef - Function to parse component references.
- */
-const transformComponentAttributes = (componentAttributes, definition, returned, parseComponentRef) => {
-  componentAttributes.forEach(name => {
-    const attribute = definition.attributes[name];
-    const { type } = attribute;
-
-    if (type === 'component') {
-      if (Array.isArray(returned[name])) {
-        const components = returned[name].map(parseComponentRef);
-        returned[name] = attribute.repeatable === true ? components : _.first(components) || null;
-      }
-    }
-  });
-};
-
-/**
- * Transform dynamic zone attributes in the returned document.
- * @param {Object} definition - Model definition.
- * @param {Object} returned - The returned document.
- * @param {Function} parseDynamicZoneRef - Function to parse dynamic zone references.
- */
-const transformDynamicZoneAttributes = (definition, returned, parseDynamicZoneRef) => {
-  const componentAttributes = Object.keys(definition.attributes).filter(key =>
-    ['dynamiczone'].includes(definition.attributes[key].type)
-  );
-
-  componentAttributes.forEach(name => {
-    if (!returned[name]) {
-      return;
-    }
-
-    returned[name] = returned[name]
-      .filter(el => el && el.kind)
-      .map(el => {
-        return {
-          __component: findComponentByGlobalId(el.kind).uid,
-          ...parseDynamicZoneRef(el),
-        };
-      });
-  });
-};
-
-/**
- * Transform regular associations in the returned document.
- * @param {Array} associations - Array of regular associations.
- * @param {Object} returned - The returned document.
- */
-const transformRegularAssociations = (associations, returned) => {
-  associations.forEach(association => {
-    const relation = returned[association.alias];
-
-    if (!relation) {
-      return;
-    }
-
-    returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
-
-    if (_.isArray(association.populate)) {
-      const { alias, populate } = association;
-      const pickPopulate = entry => _.pick(entry, populate);
-
-      returned[alias] = _.isArray(returned[alias])
-        ? _.map(returned[alias], pickPopulate)
-        : pickPopulate(returned[alias]);
-    }
-  });
 };

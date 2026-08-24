@@ -14,31 +14,62 @@ const initialState = fromJS({
   isCreatingComponentWhileAddingAField: false,
 });
 
-const updateRelationDataBasedOnNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother, targetContentTypeAllowedRelations) => {
-  const didChangeNatureBecauseOfRestrictedRelation = !targetContentTypeAllowedRelations ||
-    !targetContentTypeAllowedRelations.includes(obj.get('nature'));
+const isManyWayRelation = nature => ['oneWay', 'manyWay'].includes(nature);
 
-  const newNature = targetContentTypeAllowedRelations &&
-    !targetContentTypeAllowedRelations.includes(obj.get('nature')) &&
-    targetContentTypeAllowedRelations[0] || obj.get('nature');
+const updateOnNatureChange = (obj, value, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother) => {
+  const newName = pluralize(
+    snakeCase(selectedContentTypeFriendlyName),
+    shouldPluralizeName(value)
+  );
+
+  const newTargetAttribute = value === 'manyToMany'
+    ? null
+    : pluralize(
+      snakeCase(oneThatIsCreatingARelationWithAnother),
+      shouldPluralizeTargetAttribute(value)
+    );
 
   return obj
-    .update('nature', () => newNature)
+    .update('nature', () => value)
+    .update('dominant', () => (value === 'manyToMany' ? true : null))
+    .update('name', () => newName)
+    .update('targetAttribute', () => (isManyWayRelation(value) ? '-' : newTargetAttribute))
+    .update('targetColumnName', () => (isManyWayRelation(value) ? null : null));
+};
+
+const updateOnTargetChange = (obj, value, action, didChangeNatureBecauseOfRestrictedRelation) => {
+  const {
+    selectedContentTypeFriendlyName,
+    oneThatIsCreatingARelationWithAnother,
+    targetContentTypeAllowedRelations,
+  } = action;
+
+  const nature = obj.get('nature');
+  const targetAttribute = isManyWayRelation(nature)
+    ? '-'
+    : pluralize(
+      snakeCase(oneThatIsCreatingARelationWithAnother),
+      shouldPluralizeTargetAttribute(nature)
+    );
+
+  const targetAttributeAfterChange = didChangeNatureBecauseOfRestrictedRelation && isManyWayRelation(targetContentTypeAllowedRelations[0])
+    ? '-'
+    : targetAttribute;
+
+  return obj
+    .update('target', () => value)
+    .update('targetAttribute', () => targetAttributeAfterChange)
     .update('name', () => {
-      const contentTypeName = snakeCase(value === '-' ? oneThatIsCreatingARelationWithAnother : obj.get('name'));
-      return pluralize(
-        contentTypeName,
-        shouldPluralizeName(newNature)
-      );
-    })
-    .update('targetAttribute', () => {
-      if (['oneWay', 'manyWay'].includes(newNature)) {
-        return '-';
+      if (didChangeNatureBecauseOfRestrictedRelation) {
+        return pluralize(
+          snakeCase(selectedContentTypeFriendlyName),
+          shouldPluralizeName(targetContentTypeAllowedRelations[0])
+        );
       }
 
       return pluralize(
-        snakeCase(oneThatIsCreatingARelationWithAnother),
-        shouldPluralizeTargetAttribute(newNature)
+        snakeCase(selectedContentTypeFriendlyName),
+        shouldPluralizeName(nature)
       );
     });
 };
@@ -70,6 +101,7 @@ const reducer = (state = initialState, action) => {
         } = action;
         const hasDefaultValue = Boolean(obj.getIn(['default']));
 
+        // There is no need to remove the default key if the default value isn't defined
         if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
           const previousType = obj.getIn(['type']);
 
@@ -79,45 +111,29 @@ const reducer = (state = initialState, action) => {
         }
 
         if (keys.length === 1 && keys.includes('nature')) {
-          return obj
-            .update('nature', () => value)
-            .update('dominant', () => {
-              if (value === 'manyToMany') {
-                return true;
-              }
-
-              return null;
-            })
-            .update('name', oldValue => {
-              return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
-            })
-            .update('targetAttribute', oldValue => {
-              if (['oneWay', 'manyWay'].includes(value)) {
-                return '-';
-              }
-
-              return pluralize(
-                oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
-                shouldPluralizeTargetAttribute(value)
-              );
-            })
-            .update('targetColumnName', oldValue => {
-              if (['oneWay', 'manyWay'].includes(value)) {
-                return null;
-              }
-
-              return oldValue;
-            });
+          return updateOnNatureChange(obj, value, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother);
         }
 
         if (keys.length === 1 && keys.includes('target')) {
           const { targetContentTypeAllowedRelations } = action;
+          let didChangeNatureBecauseOfRestrictedRelation = false;
 
-          return updateRelationDataBasedOnNatureChange(
-            obj.update('target', () => value),
+          const updatedObj = obj.update('target', () => value);
+
+          const updatedNature = targetContentTypeAllowedRelations === null
+            ? obj.get('nature')
+            : targetContentTypeAllowedRelations.includes(obj.get('nature'))
+              ? obj.get('nature')
+              : (() => {
+                didChangeNatureBecauseOfRestrictedRelation = true;
+                return targetContentTypeAllowedRelations[0];
+              })();
+
+          return updateOnTargetChange(
+            updatedObj.update('nature', () => updatedNature),
             value,
-            oneThatIsCreatingARelationWithAnother,
-            targetContentTypeAllowedRelations
+            action,
+            didChangeNatureBecauseOfRestrictedRelation
           );
         }
 
@@ -126,7 +142,11 @@ const reducer = (state = initialState, action) => {
     case actions.ON_CHANGE_ALLOWED_TYPE: {
       if (action.name === 'all') {
         return state.updateIn(['modifiedData', 'allowedTypes'], () => {
-          return action.value ? fromJS(['images', 'videos', 'files']) : null;
+          if (action.value) {
+            return fromJS(['images', 'videos', 'files']);
+          }
+
+          return null;
         });
       }
 
@@ -135,7 +155,12 @@ const reducer = (state = initialState, action) => {
 
         if (list.includes(action.name)) {
           list = list.filter(v => v !== action.name);
-          return list.size === 0 ? null : list;
+
+          if (list.size === 0) {
+            return null;
+          }
+
+          return list;
         }
 
         return list.push(action.name);
@@ -144,11 +169,13 @@ const reducer = (state = initialState, action) => {
     case actions.RESET_PROPS:
       return initialState;
     case actions.RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO: {
+      // This is run when the user doesn't want to create a new component
       return initialState.update('modifiedData', () =>
         fromJS({ type: 'component', repeatable: true, ...action.options })
       );
     }
     case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA: {
+      // This is run when the user has created a new component
       const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
       const modifiedData = fromJS({
         name: componentToCreate.get('name'),

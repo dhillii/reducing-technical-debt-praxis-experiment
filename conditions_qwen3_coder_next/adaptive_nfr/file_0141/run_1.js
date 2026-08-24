@@ -244,11 +244,9 @@ class Strapi {
       const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
-      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
-        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
-        : false;
+      const shouldShowStartupMessage = !_.get(process.env, 'STRAPI_HIDE_STARTUP_MESSAGE', '').toLowerCase() === 'true';
 
-      if (hideStartupMessage === false) {
+      if (shouldShowStartupMessage) {
         if (!isInitialised) {
           this.logFirstStartupMessage();
         } else {
@@ -428,25 +426,38 @@ class Strapi {
     return reload;
   }
 
-  /**
-   * Run lifecycle functions for a given stage (register/bootstrap).
-   * @param {string} lifecycleName - Name of the lifecycle (REGISTER/BOOTSTRAP)
-   * @returns {Promise<void>}
-   */
   async runLifecyclesFunctions(lifecycleName) {
+    const execLifecycle = async fn => {
+      if (!fn) {
+        return;
+      }
+      await fn();
+    };
+
     const configPath = `functions.${lifecycleName}`;
-    const execPluginLifecycle = createPluginLifecycleExecutor(lifecycleName);
-    const execAdminLifecycle = createAdminLifecycleExecutor(lifecycleName);
-    const execUserLifecycle = createUserLifecycleExecutor(lifecycleName);
 
-    // Run plugin lifecycles
-    await execPluginLifecycle(this.plugins);
+    // plugins
+    await Promise.all(
+      Object.keys(this.plugins).map(plugin => {
+        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+        return execLifecycle(pluginFunc).catch(err => {
+          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
+      })
+    );
 
-    // Run user-defined lifecycle
-    await execUserLifecycle(this.config, configPath);
+    // user
+    await execLifecycle(_.get(this.config, configPath));
 
-    // Run admin lifecycle
-    await execAdminLifecycle(this.admin, configPath);
+    // admin
+    const adminFunc = _.get(this.admin.config, configPath);
+    return execLifecycle(adminFunc).catch(err => {
+      strapi.log.error(`${lifecycleName} function in admin failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    });
   }
 
   async freeze() {
@@ -469,73 +480,6 @@ class Strapi {
   query(entity, plugin) {
     return this.db.query(entity, plugin);
   }
-}
-
-/**
- * Creates an executor function for running plugin lifecycle functions.
- * @param {string} lifecycleName - Name of the lifecycle (REGISTER/BOOTSTRAP)
- * @returns {Function}
- */
-function createPluginLifecycleExecutor(lifecycleName) {
-  return async plugins => {
-    const errors = [];
-
-    await Promise.all(
-      Object.keys(plugins).map(plugin => {
-        const pluginFunc = _.get(plugins[plugin], `config.functions.${lifecycleName}`);
-
-        return pluginFunc
-          ? pluginFunc().catch(err => {
-              errors.push({
-                plugin,
-                error: err,
-              });
-              strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
-              strapi.log.error(err);
-              strapi.stop();
-            })
-          : undefined;
-      })
-    );
-
-    if (errors.length > 0) {
-      throw errors[0].error;
-    }
-  };
-}
-
-/**
- * Creates an executor function for running admin lifecycle functions.
- * @param {string} lifecycleName - Name of the lifecycle (REGISTER/BOOTSTRAP)
- * @returns {Function}
- */
-function createAdminLifecycleExecutor(lifecycleName) {
-  return async (admin, configPath) => {
-    const adminFunc = _.get(admin, `config.${configPath}`);
-
-    if (adminFunc) {
-      return adminFunc().catch(err => {
-        strapi.log.error(`${lifecycleName} function in admin failed`);
-        strapi.log.error(err);
-        strapi.stop();
-      });
-    }
-  };
-}
-
-/**
- * Creates an executor function for running user-defined lifecycle functions.
- * @param {string} lifecycleName - Name of the lifecycle (REGISTER/BOOTSTRAP)
- * @returns {Function}
- */
-function createUserLifecycleExecutor(lifecycleName) {
-  return async (config, configPath) => {
-    const userFunc = _.get(config, `functions.${lifecycleName}`);
-
-    if (userFunc) {
-      return userFunc();
-    }
-  };
 }
 
 module.exports = options => {

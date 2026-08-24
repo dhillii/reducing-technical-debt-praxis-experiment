@@ -29,7 +29,7 @@ define([
      * 2. `page:previous` - when the previous model was requested but a user
      *     has reached the first model on the page.
      */
-    const PageableCollection = Backbone.Collection.extend({
+    var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
         state: {
@@ -60,8 +60,13 @@ define([
             const self    = this;
 
             options.success = function(resp) {
+                // Keep full collection in memory
                 self.fullCollection = self.clone();
+
+                // Sort the collection
                 self.fullCollection.sortItOut();
+
+                // Pagination
                 self._updateTotalPages();
                 self.getPage(options.page || self.state.firstPage);
 
@@ -84,9 +89,11 @@ define([
         registerEvents: function() {
             this.vent = Radio.channel(this.storeName);
 
+            // Sort the collection again when favorite status is changed
             this.listenTo(this, 'change:isFavorite', this.sortItOut);
             this.listenTo(this, 'reset', this.sortItOut);
 
+            // Listen to events
             this.listenTo(this.vent, 'update:model' , this._onAddItem, this);
             this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
             this.listenTo(this.vent, 'restore:model', this._onRestore, this);
@@ -100,11 +107,13 @@ define([
          * If a collection is no longer in use, this method should be called.
          */
         removeEvents: function() {
+            // Destroy a full collection
             if (this.fullCollection) {
                 this.fullCollection.reset();
                 this.fullCollection = null;
             }
 
+            // Remove all the event listeners
             this.stopListening();
             this.stopListening(this.vent);
 
@@ -126,9 +135,13 @@ define([
          * Then, it overwrites models of the current collection.
          */
         getPage: function(number) {
+            // Calculate page number
             const pageStart = this.getOffset(number);
 
+            // Save where we currently are
             this.state.currentPage = number;
+
+            // Slice an array of models
             this.models = this.fullCollection.models.slice(pageStart, pageStart + this.state.pageSize);
 
             return this.models;
@@ -157,9 +170,14 @@ define([
                 return;
             }
 
+            // Sort the full collection again
             this.fullCollection.sortItOut();
+
+            // Update pagination state
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
+
+            // Reset the collection so the view could re-render itself
             this.reset(this.models);
         },
 
@@ -182,6 +200,7 @@ define([
         },
 
         getNextItem: function(id) {
+            // The collection is empty
             if (this.length === 0) {
                 return false;
             }
@@ -189,6 +208,7 @@ define([
             const model = this.get(id);
             const index = model ? this.indexOf(model) + 1 : 0;
 
+            // It is the last model on this page
             if (index >= this.models.length) {
                 return this.trigger(
                     this.hasNextPage() ? 'page:next' : 'page:end'
@@ -199,6 +219,7 @@ define([
         },
 
         getPreviousItem: function(id) {
+            // The collection is empty
             if (this.length === 0) {
                 return false;
             }
@@ -206,6 +227,7 @@ define([
             const model = this.get(id);
             const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
+            // It is the first model on this page
             if (index < 0) {
                 return this.trigger(
                     this.hasPreviousPage() ? 'page:previous' : 'page:start'
@@ -260,14 +282,21 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
+            // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
             }
 
+            /**
+             * Remove a model from the collection if it doesn't meet
+             * the current filter condition.
+             */
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
+            // If the model already exists, update it
             const coll     = this.fullCollection || this;
             const colModel = coll.get(model.id);
 
@@ -275,6 +304,7 @@ define([
                 return colModel.set(model.toJSON());
             }
 
+            // Or add it to fullCollection and sort the collection again
             coll.add(model, {at: 0});
             this.sortFullCollection();
         },

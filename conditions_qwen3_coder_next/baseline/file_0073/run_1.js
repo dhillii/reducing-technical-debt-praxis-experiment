@@ -1,6 +1,6 @@
 /**
  * @fileoverview Tests for FlatConfigArray
- * @author Nicholas C. Zakas
+ * @author Nicholas C. Zakx
  */
 
 "use strict";

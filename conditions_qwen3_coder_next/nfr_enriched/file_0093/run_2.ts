@@ -42,6 +42,7 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
+  // order isn't always guaranteed (we might use `where.id.in`)
   const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
   const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
@@ -54,7 +55,9 @@ export function expectEqualItems(
 
 export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
   return Object.fromEntries(
-    fields.map(f => [f.name, seeded[f.name]])
+    fields.map(f => {
+      return [f.name, seeded[f.name]]
+    })
   )
 }
 
@@ -63,11 +66,15 @@ export function makeWhereFilter(
   seeded: Record<string, any> | Record<string, any>[]
 ): any {
   if (Array.isArray(seeded)) {
-    return { OR: seeded.map(s => makeWhereFilter(fields, s)) }
+    return {
+      OR: seeded.map(s => makeWhereFilter(fields, s)),
+    }
   }
 
   return Object.fromEntries(
-    fields.map(f => [f.name, { equals: seeded[f.name] }])
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
   )
 }
 
@@ -76,11 +83,17 @@ export function makeWhereAndFilter(
   seeded: Record<string, any> | Record<string, any>[]
 ): any {
   if (Array.isArray(seeded)) {
-    return { OR: seeded.map(s => makeWhereAndFilter(fields, s)) }
+    return {
+      OR: seeded.map(s => makeWhereAndFilter(fields, s)),
+    }
   }
 
   return {
-    AND: fields.map(f => ({ [f.name]: { equals: seeded[f.name] } })),
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
   }
 }
 
@@ -111,40 +124,42 @@ export function makeFieldEntry({
     isFilterable: access.filterable ? allowAll : denyAll,
     isIndexed: unique ? 'unique' : false,
     validation: {
-      isRequired: unique,
+      isRequired: unique, // helps with debugging
     },
     defaultValue: unique ? null : `Value_${name}`,
   } as const
 }
 
 export function allowFilter() {
-  return { id: { not: null } }
+  return {
+    id: {
+      not: null,
+    },
+  }
 }
 
 export function denyFilter() {
-  return { id: { equals: 'never' } }
+  return {
+    id: {
+      equals: 'never',
+    },
+  }
 }
 
 export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
-function* makeListOperation({
-  prefix,
-  access,
-  fields,
-}: {
-  prefix: string
+function* makeListWithSuffix(
+  suffix: string,
   access: {
     query: boolean
     create: boolean
     update: boolean
     delete: boolean
-  }
+  },
   fields: Field[]
-}) {
-  const suffix = `${prefix}${makeName(access)}`
+) {
   const nameO = `List_operation_${suffix}`
-
   yield {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
@@ -173,23 +188,17 @@ function* makeListOperation({
   } as const
 }
 
-function* makeListItemAccess({
-  prefix,
-  access,
-  fields,
-}: {
-  prefix: string
+function* makeListWithItemAccess(
+  suffix: string,
   access: {
     query: boolean
     create: boolean
     update: boolean
     delete: boolean
-  }
+  },
   fields: Field[]
-}) {
-  const suffix = `${prefix}${makeName(access)}`
+) {
   const nameI = `List_item_${suffix}`
-
   yield {
     name: nameI,
     expect: { type: 'item' as const, ...access },
@@ -218,23 +227,13 @@ function* makeListItemAccess({
   } as const
 }
 
-function* makeListFilterB({
-  prefix,
-  access,
-  fields,
-}: {
-  prefix: string
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  }
-  fields: Field[]
-}) {
-  const suffix = `${prefix}${makeName(access)}`
+function* makeListWithFilterB(suffix: string, access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}, fields: Field[]) {
   const nameFB = `List_filterb_${suffix}`
-
   yield {
     name: nameFB,
     expect: { type: 'filter(b)' as const, ...access },
@@ -263,23 +262,13 @@ function* makeListFilterB({
   } as const
 }
 
-function* makeListFilter({
-  prefix,
-  access,
-  fields,
-}: {
-  prefix: string
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  }
-  fields: Field[]
-}) {
-  const suffix = `${prefix}${makeName(access)}`
+function* makeListWithFilter(suffix: string, access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}, fields: Field[]) {
   const nameF = `List_filter_${suffix}`
-
   yield {
     name: nameF,
     expect: { type: 'filter' as const, ...access },
@@ -308,7 +297,7 @@ function* makeListFilter({
   } as const
 }
 
-function* makeList({
+export function* makeList({
   prefix = ``,
   access,
   fields,
@@ -322,19 +311,21 @@ function* makeList({
   }
   fields: Field[]
 }) {
-  yield* makeListOperation({ prefix, access, fields })
+  const suffix = `${prefix}${makeName(access)}`
+  yield* makeListWithSuffix(suffix, access, fields)
 
   if ([access.create, access.update, access.delete].includes(false)) {
-    yield* makeListItemAccess({ prefix, access, fields })
+    yield* makeListWithItemAccess(suffix, access, fields)
   }
 
   if ([access.query, access.update, access.delete].includes(false)) {
-    yield* makeListFilterB({ prefix, access, fields })
-    yield* makeListFilter({ prefix, access, fields })
+    yield* makeListWithFilterB(suffix, access, fields)
+    yield* makeListWithFilter(suffix, access, fields)
   }
 }
 
 export function randomCount() {
+  // return 1 + randomInt()
   return 6
 }
 
@@ -344,6 +335,8 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -351,6 +344,8 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -374,7 +369,12 @@ export const lists = [
             for (const update of [false, true]) {
               for (const filterable of [false, true]) {
                 yield makeFieldEntry({
-                  access: { read, create, update, filterable },
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
                   unique: false,
                 })
               }
@@ -388,11 +388,17 @@ export const lists = [
       ...fields,
       ...(function* () {
         for (const read of [false, true]) {
-          for (const create of [true]) {
+          for (const create of [/*false */ true]) {
+            // only TRUE, otherwise we need create hooks when uniquely constrained
             for (const update of [false, true]) {
               for (const filterable of [false, true]) {
                 yield makeFieldEntry({
-                  access: { read, create, update, filterable },
+                  access: {
+                    read,
+                    create,
+                    update,
+                    filterable,
+                  },
                   unique: true,
                 })
               }
@@ -407,13 +413,23 @@ export const lists = [
         for (const update of [false, true]) {
           for (const delete_ of [false, true]) {
             yield* makeList({
-              access: { query, create, update, delete: delete_ },
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
               fields,
             })
 
             yield* makeList({
               prefix: `UNIQUE_`,
-              access: { query, create, update, delete: delete_ },
+              access: {
+                query,
+                create,
+                update,
+                delete: delete_,
+              },
               fields: fieldsUnique,
             })
           }

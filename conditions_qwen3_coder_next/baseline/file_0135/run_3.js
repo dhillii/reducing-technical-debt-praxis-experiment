@@ -39,7 +39,7 @@ const InputModalStepper = ({
     handleFileSelection,
     handleFileToEditChange,
     handleFormDisabled,
-    handleGoToEditNewFile,
+    handleGoToAddBrowseFiles,
     handleRemoveFileToUpload,
     handleResetFileToEdit,
     handleSetCropResult,
@@ -356,7 +356,7 @@ const InputModalStepper = ({
             onSubmitEdit={
               currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
             }
-            onClickEditNewFile={handleGoToEditNewFile}
+            onClickEditNewFile={handleGoToAddBrowseFiles}
             onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
             onSubmitEditNewFile={handleSubmitEditNewFile}
             ref={currentStep === 'edit' ? editModalRef : null}

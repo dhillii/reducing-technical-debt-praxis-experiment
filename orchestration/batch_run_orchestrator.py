@@ -93,7 +93,7 @@ LOCATION_CONTEXT_LINES = 3
 # A completion shorter than this fraction of the original source is assumed
 # to be a partial/snippet response rather than a full-file refactor, unless
 # the source itself is trivially small.
-_PARTIAL_OUTPUT_MIN_RATIO = 0.5
+_PARTIAL_OUTPUT_MIN_RATIO = 0.4
 _PARTIAL_OUTPUT_MIN_SOURCE_CHARS = 200
 
 

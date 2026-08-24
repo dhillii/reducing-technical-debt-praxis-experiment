@@ -104,9 +104,9 @@ const connect = (provider, query) => {
 /**
  * Checks if user is empty and registration is disabled.
  *
- * @param {Object} user
- * @param {Object} advanced
- * @returns {boolean}
+ * @param {Object}  user
+ * @param {Object}  advanced
+ * @return {Boolean}
  */
 const isEmptyUserAndRegistrationDisabled = (user, advanced) => {
   return _.isEmpty(user) && !advanced.allow_register;
@@ -115,10 +115,10 @@ const isEmptyUserAndRegistrationDisabled = (user, advanced) => {
 /**
  * Checks if email is taken by a different provider.
  *
- * @param {Array} users
- * @param {Object} user
- * @param {Object} advanced
- * @returns {boolean}
+ * @param {Array}   users
+ * @param {Object}  user
+ * @param {Object}  advanced
+ * @return {Boolean}
  */
 const emailTakenByDifferentProvider = (users, user, advanced) => {
   return (
@@ -211,9 +211,9 @@ const getProfile = async (provider, query, callback) => {
 };
 
 /**
- * Gets Discord profile.
+ * Retrieves Discord profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getDiscordProfile = (access_token, callback) => {
@@ -243,8 +243,7 @@ const getDiscordProfile = (access_token, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       const username = `${body.username}#${body.discriminator}`;
@@ -256,17 +255,16 @@ const getDiscordProfile = (access_token, callback) => {
 };
 
 /**
- * Gets Cognito profile.
+ * Retrieves Cognito profile.
  *
- * @param {string} idToken
+ * @param {String}   idToken
  * @param {Function} callback
  */
 const getCognitoProfile = (idToken, callback) => {
   const tokenPayload = jwt.decode(idToken);
 
   if (!tokenPayload) {
-    callback(new Error('unable to decode jwt token'));
-    return;
+    return callback(new Error('unable to decode jwt token'));
   }
 
   callback(null, {
@@ -276,9 +274,9 @@ const getCognitoProfile = (idToken, callback) => {
 };
 
 /**
- * Gets Facebook profile.
+ * Retrieves Facebook profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getFacebookProfile = (access_token, callback) => {
@@ -293,8 +291,7 @@ const getFacebookProfile = (access_token, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -305,9 +302,9 @@ const getFacebookProfile = (access_token, callback) => {
 };
 
 /**
- * Gets Google profile.
+ * Retrieves Google profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getGoogleProfile = (access_token, callback) => {
@@ -319,8 +316,7 @@ const getGoogleProfile = (access_token, callback) => {
     .qs({ access_token })
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -331,9 +327,9 @@ const getGoogleProfile = (access_token, callback) => {
 };
 
 /**
- * Gets GitHub profile.
+ * Retrieves GitHub profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getGitHubProfile = (access_token, callback) => {
@@ -353,43 +349,49 @@ const getGitHubProfile = (access_token, callback) => {
     .auth(access_token)
     .request((err, res, userbody) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       if (userbody.email) {
-        callback(null, {
+        return callback(null, {
           username: userbody.login,
           email: userbody.email,
         });
-        return;
       }
 
-      getGitHubEmail(github, access_token, userbody.login, callback);
+      getGitHubEmail(access_token, userbody.login, callback);
     });
 };
 
 /**
- * Gets GitHub email.
+ * Retrieves GitHub email.
  *
- * @param {Object} github
- * @param {string} access_token
- * @param {string} username
+ * @param {String}   access_token
+ * @param {String}   username
  * @param {Function} callback
  */
-const getGitHubEmail = (github, access_token, username, callback) => {
+const getGitHubEmail = (access_token, username, callback) => {
+  const github = purest({
+    provider: 'github',
+    config: purestConfig,
+    defaults: {
+      headers: {
+        'user-agent': 'strapi',
+      },
+    },
+  });
+
   github
     .query()
     .get('user/emails')
     .auth(access_token)
     .request((err, res, emailsbody) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       const email = Array.isArray(emailsbody)
-        ? emailsbody.find(email => email.primary === true)?.email || null
+        ? emailsbody.find(email => email.primary === true).email
         : null;
 
       callback(null, {
@@ -400,9 +402,9 @@ const getGitHubEmail = (github, access_token, username, callback) => {
 };
 
 /**
- * Gets Microsoft profile.
+ * Retrieves Microsoft profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getMicrosoftProfile = (access_token, callback) => {
@@ -417,8 +419,7 @@ const getMicrosoftProfile = (access_token, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -429,11 +430,11 @@ const getMicrosoftProfile = (access_token, callback) => {
 };
 
 /**
- * Gets Twitter profile.
+ * Retrieves Twitter profile.
  *
- * @param {string} access_token
- * @param {Object} query
- * @param {Object} grant
+ * @param {String}   access_token
+ * @param {Object}   query
+ * @param {Object}   grant
  * @param {Function} callback
  */
 const getTwitterProfile = (access_token, query, grant, callback) => {
@@ -451,8 +452,7 @@ const getTwitterProfile = (access_token, query, grant, callback) => {
     .qs({ screen_name: query['raw[screen_name]'], include_email: 'true' })
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -463,10 +463,10 @@ const getTwitterProfile = (access_token, query, grant, callback) => {
 };
 
 /**
- * Gets Instagram profile.
+ * Retrieves Instagram profile.
  *
- * @param {string} access_token
- * @param {Object} grant
+ * @param {String}   access_token
+ * @param {Object}   grant
  * @param {Function} callback
  */
 const getInstagramProfile = (access_token, grant, callback) => {
@@ -483,8 +483,7 @@ const getInstagramProfile = (access_token, grant, callback) => {
     .qs({ access_token, fields: 'id,username' })
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -495,10 +494,10 @@ const getInstagramProfile = (access_token, grant, callback) => {
 };
 
 /**
- * Gets VK profile.
+ * Retrieves VK profile.
  *
- * @param {string} access_token
- * @param {Object} query
+ * @param {String}   access_token
+ * @param {Object}   query
  * @param {Function} callback
  */
 const getVKProfile = (access_token, query, callback) => {
@@ -512,8 +511,7 @@ const getVKProfile = (access_token, query, callback) => {
     .qs({ access_token, id: query.raw.user_id, v: '5.122' })
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -524,10 +522,10 @@ const getVKProfile = (access_token, query, callback) => {
 };
 
 /**
- * Gets Twitch profile.
+ * Retrieves Twitch profile.
  *
- * @param {string} access_token
- * @param {Object} grant
+ * @param {String}   access_token
+ * @param {Object}   grant
  * @param {Function} callback
  */
 const getTwitchProfile = (access_token, grant, callback) => {
@@ -564,8 +562,7 @@ const getTwitchProfile = (access_token, grant, callback) => {
     .auth(access_token, grant.twitch.key)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -576,9 +573,9 @@ const getTwitchProfile = (access_token, grant, callback) => {
 };
 
 /**
- * Gets LinkedIn profile.
+ * Retrieves LinkedIn profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getLinkedInProfile = (access_token, callback) => {
@@ -609,8 +606,7 @@ const getLinkedInProfile = (access_token, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            reject(err);
-            return;
+            return reject(err);
           }
           resolve(body);
         });
@@ -625,8 +621,7 @@ const getLinkedInProfile = (access_token, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            reject(err);
-            return;
+            return reject(err);
           }
           resolve(body);
         });
@@ -637,22 +632,20 @@ const getLinkedInProfile = (access_token, callback) => {
     .then(([details, emailResponse]) => {
       const { localizedFirstName } = details;
       const { elements } = emailResponse;
-      const email = elements[0]?.['handle~'];
+      const email = elements[0]['handle~'];
 
       callback(null, {
         username: localizedFirstName,
-        email: email?.emailAddress || null,
+        email: email.emailAddress,
       });
     })
-    .catch(err => {
-      callback(err);
-    });
+    .catch(err => callback(err));
 };
 
 /**
- * Gets Reddit profile.
+ * Retrieves Reddit profile.
  *
- * @param {string} access_token
+ * @param {String}   access_token
  * @param {Function} callback
  */
 const getRedditProfile = (access_token, callback) => {
@@ -672,8 +665,7 @@ const getRedditProfile = (access_token, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       callback(null, {
@@ -684,10 +676,10 @@ const getRedditProfile = (access_token, callback) => {
 };
 
 /**
- * Gets Auth0 profile.
+ * Retrieves Auth0 profile.
  *
- * @param {string} access_token
- * @param {Object} grant
+ * @param {String}   access_token
+ * @param {Object}   grant
  * @param {Function} callback
  */
 const getAuth0Profile = (access_token, grant, callback) => {
@@ -716,8 +708,7 @@ const getAuth0Profile = (access_token, grant, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
       const username =
@@ -732,10 +723,10 @@ const getAuth0Profile = (access_token, grant, callback) => {
 };
 
 /**
- * Gets CAS profile.
+ * Retrieves CAS profile.
  *
- * @param {string} access_token
- * @param {Object} grant
+ * @param {String}   access_token
+ * @param {Object}   grant
  * @param {Function} callback
  */
 const getCASProfile = (access_token, grant, callback) => {
@@ -766,12 +757,16 @@ const getCASProfile = (access_token, grant, callback) => {
     .auth(access_token)
     .request((err, res, body) => {
       if (err) {
-        callback(err);
-        return;
+        return callback(err);
       }
 
-      const username = getUserNameFromCAS(body);
-      const email = getEmailFromCAS(body);
+      // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
+      const username = body.attributes
+        ? body.attributes.strapiusername || body.id || body.sub
+        : body.strapiusername || body.id || body.sub;
+      const email = body.attributes
+        ? body.attributes.strapiemail || body.attributes.email
+        : body.strapiemail || body.email;
 
       if (!username || !email) {
         strapi.log.warn(
@@ -784,32 +779,6 @@ const getCASProfile = (access_token, grant, callback) => {
         email,
       });
     });
-};
-
-/**
- * Extracts username from CAS response body.
- *
- * @param {Object} body
- * @returns {string|null}
- */
-const getUserNameFromCAS = body => {
-  if (body.attributes) {
-    return body.attributes.strapiusername || body.id || body.sub;
-  }
-  return body.strapiusername || body.id || body.sub;
-};
-
-/**
- * Extracts email from CAS response body.
- *
- * @param {Object} body
- * @returns {string|null}
- */
-const getEmailFromCAS = body => {
-  if (body.attributes) {
-    return body.attributes.strapiemail || body.attributes.email;
-  }
-  return body.strapiemail || body.email;
 };
 
 const buildRedirectUri = (provider = '') =>

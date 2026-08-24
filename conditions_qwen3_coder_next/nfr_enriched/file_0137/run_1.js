@@ -1,19 +1,59 @@
-const extractFileDataForUpload = (file, fileInfo, metas) => {
-  return {
-    filename: file.name,
-    type: file.type,
-    size: file.size,
-    ...fileInfo,
-    ...metas
-  };
+'use strict';
+
+/**
+ * Upload.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const util = require('util');
+const _ = require('lodash');
+const {
+  nameToSlug,
+  contentTypes: contentTypesUtils,
+  sanitizeEntity,
+  webhook: webhookUtils,
+} = require('strapi-utils');
+
+const { MEDIA_UPDATE, MEDIA_CREATE, MEDIA_DELETE } = webhookUtils.webhookEvents;
+
+const { bytesToKbytes } = require('../utils/file');
+
+const { UPDATED_BY_ATTRIBUTE, CREATED_BY_ATTRIBUTE } = contentTypesUtils.constants;
+
+const randomSuffix = () => crypto.randomBytes(5).toString('hex');
+
+const generateFileName = name => {
+  const baseName = nameToSlug(name, { separator: '_', lowercase: false });
+
+  return `${baseName}_${randomSuffix()}`;
 };
 
-const applyMimeNcontainsFilter = params => {
-  // FIXME: until we support boolean operators for querying we need to make mime_ncontains use AND instead of OR
-  if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
-    params._where = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
-    delete params.mime_ncontains;
+const sendMediaMetrics = data => {
+  if (_.has(data, 'caption') && !_.isEmpty(data.caption)) {
+    strapi.telemetry.send('didSaveMediaWithCaption');
   }
+
+  if (_.has(data, 'alternativeText') && !_.isEmpty(data.alternativeText)) {
+    strapi.telemetry.send('didSaveMediaWithAlternativeText');
+  }
+};
+
+/**
+ * Applies filter transformations for unsupported query parameters.
+ * Specifically maps mime_ncontains array to _where clauses with AND semantics.
+ * @param {Object} params - Query parameters object
+ */
+const applyMimeNcontainsFilter = params => {
+  if (!_.has(params, 'mime_ncontains') || !Array.isArray(params.mime_ncontains)) {
+    return;
+  }
+
+  params._where = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
+  delete params.mime_ncontains;
 };
 
 module.exports = {
@@ -36,12 +76,14 @@ module.exports = {
     const { refId, ref, source, field } = metas;
 
     if (refId && ref && field) {
-      entity.related = [{
-        refId,
-        ref,
-        source,
-        field,
-      }];
+      entity.related = [
+        {
+          refId,
+          ref,
+          source,
+          field,
+        },
+      ];
     }
 
     if (metas.path) {
@@ -58,35 +100,46 @@ module.exports = {
     } catch (e) {
       if (e.code === 'ERR_FS_FILE_TOO_LARGE') {
         throw strapi.errors.entityTooLarge('FileTooBig', {
-          errors: [{
-            id: 'Upload.status.sizeLimit',
-            message: `${file.name} file is bigger than the limit size!`,
-            values: { file: file.name },
-          }],
+          errors: [
+            {
+              id: 'Upload.status.sizeLimit',
+              message: `${file.name} file is bigger than the limit size!`,
+              values: { file: file.name },
+            },
+          ],
         });
       }
       throw e;
     }
 
     const { optimize } = strapi.plugins.upload.services['image-manipulation'];
+
     const { buffer, info } = await optimize(readBuffer);
 
-    const formattedFile = this.formatFileInfo({
-      filename: file.name,
-      type: file.type,
-      size: file.size,
-    }, fileInfo, metas);
+    const formattedFile = this.formatFileInfo(
+      {
+        filename: file.name,
+        type: file.type,
+        size: file.size,
+      },
+      fileInfo,
+      metas
+    );
 
-    return _.assign(formattedFile, info, { buffer });
+    return _.assign(formattedFile, info, {
+      buffer,
+    });
   },
 
   async upload({ data, files }, { user } = {}) {
     const { fileInfo, ...metas } = data;
+
     const fileArray = Array.isArray(files) ? files : [files];
     const fileInfoArray = Array.isArray(fileInfo) ? fileInfo : [fileInfo];
 
-    const doUpload = async (file, fileInfoOverride) => {
-      const fileData = await this.enhanceFile(file, fileInfoOverride, metas);
+    const doUpload = async (file, fileInfo) => {
+      const fileData = await this.enhanceFile(file, fileInfo, metas);
+
       return this.uploadFileAndPersist(fileData, { user });
     };
 
@@ -119,8 +172,10 @@ module.exports = {
         if (!format) continue;
 
         const { key, file } = format;
+
         await strapi.plugins.upload.provider.upload(file);
         delete file.buffer;
+
         _.set(fileData, ['formats', key], file);
       }
     }
@@ -172,25 +227,28 @@ module.exports = {
     const { fileInfo } = data;
     const fileData = await this.enhanceFile(file, fileInfo);
 
+    // keep a constant hash
     _.assign(fileData, {
       hash: dbFile.hash,
       ext: dbFile.ext,
     });
 
+    // execute delete function of the provider
     if (dbFile.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(dbFile);
 
       if (dbFile.formats) {
         await Promise.all(
-          Object.keys(dbFile.formats).map(key =>
-            strapi.plugins.upload.provider.delete(dbFile.formats[key])
-          )
+          Object.keys(dbFile.formats).map(key => {
+            return strapi.plugins.upload.provider.delete(dbFile.formats[key]);
+          })
         );
       }
     }
 
     await strapi.plugins.upload.provider.upload(fileData);
 
+    // clear old formats
     _.set(fileData, 'formats', {});
 
     const thumbnailFile = await generateThumbnail(fileData);
@@ -206,8 +264,10 @@ module.exports = {
         if (!format) continue;
 
         const { key, file } = format;
+
         await strapi.plugins.upload.provider.upload(file);
         delete file.buffer;
+
         _.set(fileData, ['formats', key], file);
       }
     }
@@ -276,14 +336,15 @@ module.exports = {
   async remove(file) {
     const config = strapi.plugins.upload.config;
 
+    // execute delete function of the provider
     if (file.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(file);
 
       if (file.formats) {
         await Promise.all(
-          Object.keys(file.formats).map(key =>
-            strapi.plugins.upload.provider.delete(file.formats[key])
-          )
+          Object.keys(file.formats).map(key => {
+            return strapi.plugins.upload.provider.delete(file.formats[key]);
+          })
         );
       }
     }

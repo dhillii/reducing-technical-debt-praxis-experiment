@@ -207,7 +207,13 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
               setModalState('closed')
             }}
           >
-            {renderArrayFieldModal(props, modalState, setModalState, elements, onChange)}
+            {renderArrayFieldModalContent(
+              props,
+              modalState,
+              setModalState,
+              elements,
+              onChange
+            )}
           </DialogContainer>
         </VStack>
       )}
@@ -215,13 +221,13 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
   )
 }
 
-function renderArrayFieldModal(
+function renderArrayFieldModalContent(
   props: DefaultFieldProps<'array'>,
   modalState: typeof ArrayFieldPreview.prototype.state,
   setModalState: React.Dispatch<React.SetStateAction<typeof ArrayFieldPreview.prototype.state>>,
   elements: DefaultFieldProps<'array'>['elements'],
   onChange: DefaultFieldProps<'array'>['onChange']
-): ReactElement | null {
+) {
   if (props.schema.element.kind === 'child') return null
   if (modalState === 'closed') return null
 
@@ -299,6 +305,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         deserialize: null as any,
         serialize: null as any,
         graphqlSelection: null as any,
+
         refListKey: list.key,
         many,
         hideCreate: true,
@@ -328,10 +335,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   )
 }
 
-function buildRelationshipFormValue(
-  value: unknown,
-  many: boolean
-): { kind: 'one' | 'many'; id: string; initialValue: any; value: any } {
+function buildRelationshipFormValue(value: any, many: boolean) {
   if (many) {
     if (value !== null && !('length' in value)) throw TypeError('bad value')
     const manyValue =
@@ -355,7 +359,7 @@ function buildRelationshipFormValue(
   const oneValue = value
     ? {
         id: value.id,
-        label: value.label || x.id.toString(),
+        label: value.label || value.id.toString(),
         data: value.data,
         built: undefined,
       }
@@ -422,19 +426,16 @@ function ObjectFieldPreview({ schema, autoFocus, fields }: DefaultFieldProps<'ob
 function renderObjectFieldFields(
   fields: DefaultFieldProps<'object'>['fields'],
   firstFocusable: string | undefined
-): ReactElement[] {
-  const result: ReactElement[] = []
-  for (const [key, propVal] of Object.entries(fields)) {
-    if (!isNonChildFieldPreviewProps(propVal)) continue
-    result.push(
+) {
+  return Object.entries(fields)
+    .filter(([_, propVal]) => isNonChildFieldPreviewProps(propVal))
+    .map(([key, propVal]) => (
       <FormValueContentFromPreviewProps
         autoFocus={key === firstFocusable}
         key={key}
         {...propVal}
       />
-    )
-  }
-  return result
+    ))
 }
 
 function ConditionalFieldPreview({

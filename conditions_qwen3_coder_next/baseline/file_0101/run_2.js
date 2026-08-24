@@ -59,7 +59,7 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    const self = this,
+    var self = this,
         userId = options.userId,
         overridePermission = options.overridePermission;
 
@@ -144,7 +144,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
  * @param userId [String] the receiver's email address
  */
 Keychain.prototype.getReceiverPublicKey = function(userId) {
-    const self = this;
+    var self = this;
 
     // search local keyring for public key
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
@@ -206,7 +206,7 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
  * return [Object] The user's key pair {publicKey, privateKey}
  */
 Keychain.prototype.getUserKeyPair = function(userId) {
-    const self = this;
+    var self = this;
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
@@ -266,7 +266,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
  * @param [Object] The user's key pair {publicKey, privateKey}
  */
 Keychain.prototype.putUserKeyPair = function(keypair) {
-    const self = this;
+    var self = this;
 
     // validate input
     if (!keypair || !keypair.publicKey || !keypair.privateKey || !keypair.publicKey.userId || keypair.publicKey.userId !== keypair.privateKey.userId) {
@@ -311,7 +311,7 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 //
 
 Keychain.prototype.lookupPublicKey = function(id) {
-    const self = this,
+    var self = this,
         cloudPubkey;
 
     if (!id) {

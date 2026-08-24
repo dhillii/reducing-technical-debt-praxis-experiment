@@ -206,8 +206,7 @@ const initQueryOptions = (targetModel, parent) => {
 
 /**
  * Builds resolvers for associations of a model.
- * @param {Object} model - Content type or component model definition
- * @returns {Object} - Resolvers object for associations
+ * Extracted to reduce cognitive complexity of buildAssocResolvers.
  */
 const buildAssocResolvers = model => {
   const { primaryKey, associations = [] } = model;
@@ -262,7 +261,7 @@ const buildAssocResolvers = model => {
             };
 
             if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-              return resolveToOneRelation(obj, alias, targetPK, foreignId, loader, params, model, targetModel);
+              return buildOneToOneResolver(loader, obj, alias, targetPK, foreignId, params, model, targetModel, localId);
             }
 
             if (
@@ -283,7 +282,7 @@ const buildAssocResolvers = model => {
               nature === 'manyWay' ||
               (nature === 'manyToMany' && association.dominant === true)
             ) {
-              return resolveManyRelation(obj, alias, targetPK, localId, model, targetModel, loader, params, primaryKey);
+              return buildManyToManyResolver(loader, obj, alias, targetPK, targetModel, model, localId, primaryKey);
             }
           };
           break;
@@ -295,18 +294,9 @@ const buildAssocResolvers = model => {
 };
 
 /**
- * Resolves one-to-one, one-way, or many-to-one relations.
- * @param {Object} obj - Parent object
- * @param {string} alias - Association alias
- * @param {string} targetPK - Target model primary key
- * @param {any} foreignId - Foreign ID value
- * @param {Object} loader - Data loader instance
- * @param {Object} params - Query parameters
- * @param {Object} model - Source model
- * @param {Object} targetModel - Target model
- * @returns {Promise<Object|null>} - Resolved relation
+ * Builds resolver for oneToOne, oneWay, manyToOne associations.
  */
-const resolveToOneRelation = (obj, alias, targetPK, foreignId, loader, params, model, targetModel) => {
+const buildOneToOneResolver = (loader, obj, alias, targetPK, foreignId, params, model, targetModel, localId) => {
   if (!_.has(obj, alias) || _.isNil(foreignId)) {
     return null;
   }
@@ -328,19 +318,9 @@ const resolveToOneRelation = (obj, alias, targetPK, foreignId, loader, params, m
 };
 
 /**
- * Resolves one-to-many or many-to-many relations.
- * @param {Object} obj - Parent object
- * @param {string} alias - Association alias
- * @param {string} targetPK - Target model primary key
- * @param {any} localId - Local ID value
- * @param {Object} model - Source model
- * @param {Object} targetModel - Target model
- * @param {Object} loader - Data loader instance
- * @param {Object} params - Query parameters
- * @param {string} primaryKey - Source model primary key
- * @returns {Promise<Array>} - Resolved relations
+ * Builds resolver for manyToMany and manyWay associations.
  */
-const resolveManyRelation = (obj, alias, targetPK, localId, model, targetModel, loader, params, primaryKey) => {
+const buildManyToManyResolver = (loader, obj, alias, targetPK, targetModel, model, localId, primaryKey) => {
   let targetIds = [];
 
   // find the related ids to query them and apply the filters
@@ -356,9 +336,10 @@ const resolveManyRelation = (obj, alias, targetPK, localId, model, targetModel, 
         }
 
         targetIds = entry[alias].map(el => el[targetPK]);
-
         const filters = {
-          ...params,
+          ...initQueryOptions(targetModel, obj),
+          ...convertToParams(_.omit(amountLimiting({}), 'where')),
+          ...convertToQuery({}),
           [`${targetPK}_in`]: targetIds.map(_.toString),
         };
 
@@ -367,7 +348,9 @@ const resolveManyRelation = (obj, alias, targetPK, localId, model, targetModel, 
   }
 
   const filters = {
-    ...params,
+    ...initQueryOptions(targetModel, obj),
+    ...convertToParams(_.omit(amountLimiting({}), 'where')),
+    ...convertToQuery({}),
     [`${targetPK}_in`]: targetIds.map(_.toString),
   };
 

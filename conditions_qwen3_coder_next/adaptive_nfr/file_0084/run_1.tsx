@@ -53,6 +53,27 @@ function validate_(
     return `${label} must be less than or equal to ${validation.max}`
 }
 
+/**
+ * Determines if the field should be treated as read-only.
+ */
+function isReadOnlyField(onChange: ((val: any) => void) | undefined, hasAutoIncrementDefault: boolean): boolean {
+  return !onChange || hasAutoIncrementDefault
+}
+
+/**
+ * Determines if the field should render in auto-increment read-only mode.
+ */
+function isAutoIncrementCreateMode(value: Value, hasAutoIncrementDefault: boolean): boolean {
+  return hasAutoIncrementDefault && value.kind === 'create'
+}
+
+/**
+ * Determines if the value is non-null and finite, otherwise returns null.
+ */
+function safeParseNumber(value: number | null): number | null {
+  return value !== null && Number.isFinite(value) ? value : null
+}
+
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -196,42 +217,76 @@ export function controller(
   }
 }
 
-function isCreateWithAutoIncrementDefault(value: Value, hasAutoIncrementDefault: boolean): boolean {
-  return value.kind === 'create' && hasAutoIncrementDefault
-}
-
-function IsValidableNumber(value: Value): value is Value & { value: number } {
-  const v = value.value
-  return typeof v === 'number' && Number.isInteger(v)
+/**
+ * Renders an auto-increment field in read-only mode.
+ */
+function AutoIncrementField({ field, autoFocus }: { field: typeof controller extends FieldController<infer V, infer R, infer I> ? { hasAutoIncrementDefault: boolean } & Omit<ReturnType<typeof controller>, 'hasAutoIncrementDefault'> : any; autoFocus?: boolean }) {
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      isReadOnly
+      contextualHelp={
+        <ContextualHelp>
+          <Heading>Auto increment</Heading>
+          <Content>
+            <Text>
+              This field is set to auto increment. It will default to the next available number.
+            </Text>
+          </Content>
+        </ContextualHelp>
+      }
+    />
+  )
 }
 
 /**
- * Returns whether the value should be treated as empty for validation purposes.
+ * Renders the editable number field.
  */
-function isEmptyValue(value: Value): boolean {
-  return value.value === null
-}
-
-/**
- * Returns whether the provided input value is invalid based on required and validation constraints.
- */
-function hasValidationErrors(
-  value: Value,
-  isRequired: boolean,
-  label: string,
-  hasAutoIncrementDefault: boolean,
-  validation: Validation
-): boolean {
-  if (isEmptyValue(value)) {
-    if (isCreateWithAutoIncrementDefault(value, hasAutoIncrementDefault)) return false
-    if (value.kind === 'update' && value.initial === null) return false
-    return isRequired
+function EditableNumberField({
+  field,
+  value,
+  onChange,
+  autoFocus,
+  forceValidation,
+  isRequired,
+  isDirty,
+  setIsDirty,
+}: {
+  field: typeof controller extends FieldController<infer V, infer R, infer I> ? { validation: Validation; hasAutoIncrementDefault: boolean; label: string; description?: string } & Omit<ReturnType<typeof controller>, 'validation' | 'hasAutoIncrementDefault' | 'label' | 'description'> : any
+  value: Value
+  onChange: ((val: any) => void) | undefined
+  autoFocus?: boolean
+  forceValidation?: boolean
+  isRequired: boolean
+  isDirty: boolean
+  setIsDirty: (isDirty: boolean) => void
+}) {
+  const validate = (value: Value): string | undefined => {
+    return validate_(
+      value,
+      field.validation,
+      isRequired,
+      field.label,
+      field.hasAutoIncrementDefault
+    )
   }
-  if (!IsValidableNumber(value)) return false
-  const v = value.value
-  if (validation.min !== undefined && v < validation.min) return true
-  if (validation.max !== undefined && v > validation.max) return true
-  return false
+
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      errorMessage={(forceValidation || isDirty) && validate(value)}
+      isReadOnly={!onChange || field.hasAutoIncrementDefault}
+      isRequired={isRequired}
+      width="alias.singleLineWidth"
+      onBlur={() => setIsDirty(true)}
+      onChange={x => onChange?.({ ...value, value: safeParseNumber(x) })}
+      value={value.value ?? NaN}
+    />
+  )
 }
 
 export function Field({
@@ -242,42 +297,22 @@ export function Field({
   forceValidation,
   isRequired,
 }: FieldProps<typeof controller>) {
-  const [isDirty, setDirty] = useState(false)
-  const isReadOnly = !onChange || field.hasAutoIncrementDefault
+  const [isDirty, setIsDirty] = useState(false)
 
-  if (isCreateWithAutoIncrementDefault(value, field.hasAutoIncrementDefault)) {
-    return (
-      <NumberField
-        autoFocus={autoFocus}
-        description={field.description}
-        label={field.label}
-        isReadOnly
-        contextualHelp={
-          <ContextualHelp>
-            <Heading>Auto increment</Heading>
-            <Content>
-              <Text>
-                This field is set to auto increment. It will default to the next available number.
-              </Text>
-            </Content>
-          </ContextualHelp>
-        }
-      />
-    )
+  if (isAutoIncrementCreateMode(value, field.hasAutoIncrementDefault)) {
+    return <AutoIncrementField field={field} autoFocus={autoFocus} />
   }
 
   return (
-    <NumberField
+    <EditableNumberField
+      field={field}
+      value={value}
+      onChange={onChange}
       autoFocus={autoFocus}
-      description={field.description}
-      label={field.label}
-      errorMessage={(forceValidation || isDirty) && hasValidationErrors(value, isRequired, field.label, field.hasAutoIncrementDefault, field.validation) ? 'Invalid' : null}
-      isReadOnly={isReadOnly}
+      forceValidation={forceValidation}
       isRequired={isRequired}
-      width="alias.singleLineWidth"
-      onBlur={() => setDirty(true)}
-      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
-      value={value.value ?? NaN}
+      isDirty={isDirty}
+      setIsDirty={setIsDirty}
     />
   )
 }

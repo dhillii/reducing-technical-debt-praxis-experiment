@@ -1,3 +1,9 @@
+/**
+ * Aggregator.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
 'use strict';
 
 const _ = require('lodash');
@@ -203,16 +209,20 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
 };
 
 /**
- * Correctly format the data returned by the group by
+ * Pre-process group by data for mongoose ORM
+ *
+ * @param {Object} params - Processing parameters
+ * @param {Array} params.result - Raw aggregation result
+ * @param {String} params.fieldKey - Field key used for grouping
+ * @param {Object} params.filters - Original filters
+ * @returns {Array} Processed group by data
  */
-const preProcessGroupByData = function({ result, fieldKey, filters }) {
+const processMongooseGroupByResult = function({ result, fieldKey, filters }) {
   const _result = _.toArray(result).filter(value => Boolean(value._id));
   return _.map(_result, value => {
     return {
       key: value._id.toString(),
       connection: () => {
-        // filter by the grouped by value in next connection
-
         return {
           ...filters,
           where: {
@@ -226,61 +236,32 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
 };
 
 /**
- * Process group by results for mongoose ORM
+ * Pre-process group by data for bookshelf ORM
+ *
+ * @param {Object} params - Processing parameters
+ * @param {Array} params.result - Raw model collection
+ * @param {String} params.fieldKey - Field key used for grouping
+ * @param {Object} params.filters - Original filters
+ * @returns {Array} Processed group by data
  */
-const processGroupByMongoose = async function(model, fieldKey, filters) {
-  const params = convertRestQueryParams({
-    ...convertToParams(_.omit(filters, 'where')),
-    ...convertToQuery(filters.where),
-  });
+const processBookshelfGroupByResult = function({ result, fieldKey, filters }) {
+  const values = result.models
+    .map(m => m.get(fieldKey))
+    .filter(v => !!v)
+    .map(v => '' + v);
 
-  const result = await buildQuery({
-    model,
-    filters: params,
-    aggregate: true,
-  }).group({
-    _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
-  });
-
-  return preProcessGroupByData({
-    result,
-    fieldKey,
-    filters,
-  });
-};
-
-/**
- * Process group by results for bookshelf ORM
- */
-const processGroupByBookshelf = async function(model, fieldKey, filters) {
-  return model
-    .query(qb => {
-      buildQuery({ model, filters: convertRestQueryParams({
-        ...convertToParams(_.omit(filters, 'where')),
-        ...convertToQuery(filters.where),
-      }) })(qb);
-      qb.groupBy(fieldKey);
-      qb.select(fieldKey);
-    })
-    .fetchAll()
-    .then(result => {
-      let values = result.models
-        .map(m => m.get(fieldKey)) // extract aggregate field
-        .filter(v => !!v) // remove null
-        .map(v => '' + v); // convert to string
-      return values.map(v => ({
-        key: v,
-        connection: () => {
-          return {
-            ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
-            where: {
-              ...(filters.where || {}),
-              [fieldKey]: v,
-            },
-          };
+  return values.map(v => ({
+    key: v,
+    connection: () => {
+      return {
+        ..._.omit(filters, ['limit']),
+        where: {
+          ...(filters.where || {}),
+          [fieldKey]: v,
         },
-      }));
-    });
+      };
+    },
+  }));
 };
 
 /**
@@ -304,12 +285,36 @@ const processGroupByBookshelf = async function(model, fieldKey, filters) {
  */
 const createGroupByFieldsResolver = function(model, fields) {
   const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
+    const params = convertRestQueryParams({
+      ...convertToParams(_.omit(filters, 'where')),
+      ...convertToQuery(filters.where),
+    });
+
     if (model.orm === 'mongoose') {
-      return processGroupByMongoose(model, fieldKey, filters);
+      const result = await buildQuery({
+        model,
+        filters: params,
+        aggregate: true,
+      }).group({
+        _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
+      });
+
+      return processMongooseGroupByResult({
+        result,
+        fieldKey,
+        filters,
+      });
     }
 
     if (model.orm === 'bookshelf') {
-      return processGroupByBookshelf(model, fieldKey, filters);
+      return model
+        .query(qb => {
+          buildQuery({ model, filters: params })(qb);
+          qb.groupBy(fieldKey);
+          qb.select(fieldKey);
+        })
+        .fetchAll()
+        .then(result => processBookshelfGroupByResult({ result, fieldKey, filters }));
     }
   };
 
@@ -344,14 +349,12 @@ const formatConnectionGroupBy = function(fields, model) {
   const { globalId } = model;
   const groupByGlobalId = `${globalId}GroupBy`;
 
-  // Extract all primitive fields and change their types
   const groupByFields = getFieldsByTypes(
     fields,
     isNotOfTypeArray,
     (fieldType, fieldName) => `[${globalId}Connection${_.upperFirst(fieldName)}]`
   );
 
-  // Get the generated field types
   let groupByTypes = `type ${groupByGlobalId} {${toSDL(groupByFields)}}\n\n`;
   groupByTypes += generateConnectionFieldsTypes(fields, model);
 
@@ -367,17 +370,14 @@ const formatConnectionGroupBy = function(fields, model) {
 const formatConnectionAggregator = function(fields, model, modelName) {
   const { globalId } = model;
 
-  // Extract all fields of type Integer and Float and change their type to Float
   const numericFields = getFieldsByTypes(fields, isNumberType, () => 'Float');
 
-  // Don't create an aggregator field if the model has not number fields
   const aggregatorGlobalId = `${globalId}Aggregator`;
   const initialFields = {
     count: 'Int',
     totalCount: 'Int',
   };
 
-  // Only add the aggregator's operations if there are some numeric fields
   if (!_.isEmpty(numericFields)) {
     ['sum', 'avg', 'min', 'max'].forEach(agg => {
       initialFields[agg] = `${aggregatorGlobalId}${_.startCase(agg)}`;
@@ -393,7 +393,6 @@ const formatConnectionAggregator = function(fields, model, modelName) {
         const opts = convertToQuery(obj.where);
 
         if (opts._q) {
-          // allow search param
           return strapi.query(modelName, model.plugin).countSearch(opts);
         }
         return strapi.query(modelName, model.plugin).count(opts);
@@ -404,13 +403,8 @@ const formatConnectionAggregator = function(fields, model, modelName) {
     },
   };
 
-  // Only add the aggregator's operations types and resolver if there are some numeric fields
   if (!_.isEmpty(numericFields)) {
-    // Returns the actual object and handle aggregation in the query resolvers
-    const defaultAggregatorFunc = obj => {
-      // eslint-disable-line no-unused-vars
-      return obj;
-    };
+    const defaultAggregatorFunc = obj => obj;
 
     aggregatorTypes += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
     aggregatorTypes += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
@@ -535,7 +529,7 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
     globalId: connectionGlobalId,
     definition: modelConnectionTypes,
     query: {
-      [`${pluralNames}Connection`]: {
+      [`${pluralName}Connection`]: {
         args: {
           sort: 'String',
           limit: 'Int',

@@ -87,40 +87,49 @@ const ModalStepper = ({
       emitEvent('didSelectFile', { source: 'url', location: 'upload' });
     }
 
-    await Promise.all(
-      files.map(file => {
-        const { source } = file;
+    try {
+      await Promise.all(
+        files.map(file => {
+          const { source } = file;
 
-        return axios
-          .get(file.fileURL, {
-            responseType: 'blob',
-            cancelToken: source.token,
-            timeout: 60000,
-          })
-          .then(({ data }) => {
-            const fileName = file.fileInfo.name;
-            const createdFile = new File([data], fileName, {
-              type: data.type,
-            });
+          return axios
+            .get(file.fileURL, {
+              responseType: 'blob',
+              cancelToken: source.token,
+              timeout: 60000,
+            })
+            .then(({ data }) => {
+              const fileName = file.fileInfo.name;
+              const createdFile = new File([data], fileName, {
+                type: data.type,
+              });
 
-            dispatch({
-              type: 'FILE_DOWNLOADED',
-              blob: createdFile,
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
-            });
-          })
-          .catch(err => {
-            console.error('fetch file error', err);
+              dispatch({
+                type: 'FILE_DOWNLOADED',
+                blob: createdFile,
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
+            })
+            .catch(err => {
+              console.error('fetch file error', err);
 
-            dispatch({
-              type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
+              dispatch({
+                type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
             });
-          });
-      })
-    );
+        })
+      );
+    } catch (err) {
+      console.error('Unexpected error during file download', err);
+      dispatch({
+        type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+        originalIndex: -1,
+        fileTempId: null,
+      });
+    }
   };
 
   const handleAbortUpload = () => {
@@ -192,7 +201,7 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(true);
+      setShowModalConfirmButtonLoading(false);
       toggleModalWarning();
     }
 

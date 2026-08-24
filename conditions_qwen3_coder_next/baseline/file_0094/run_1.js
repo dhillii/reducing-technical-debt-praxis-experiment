@@ -1,4 +1,87 @@
-},
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
+define([
+    'q',
+    'underscore',
+    'marionette',
+    'backbone.radio',
+    'apps/encryption/encrypt/view',
+    'apps/encryption/encrypt/backupView'
+], function(Q, _, Marionette, Radio, View, BackupView) {
+    'use strict';
+
+    /**
+     * Encryption controller.
+     *
+     * Listens to events:
+     * 1. channel: `Encryption`, event: `password:valid`
+     *    initilizes encryption.
+     * 2. channel: this.view, event: `check:passwords`
+     *    checks passwords
+     *
+     * Triggers:
+     * 1. channel: `configs`, request: `get:object`
+     * 2. channel: `configs`, request: `reset:encrypt`
+     * 3. channel: `global`, request: `region:show`
+     * 4. channel: `encrypt`, request: `change:configs`
+     * 5. channel: `encrypt`, request: `save:secureKey`
+     * 6. channel: `encrypt`, request: `decrypt:models`
+     * 7. channel: `encrypt`, request: `encrypt:models`
+     */
+    var Controller = Marionette.Object.extend({
+
+        // Collections to encrypt
+        collectionNames : ['notes', 'tags', 'notebooks'],
+        collections     : {},
+
+        initialize: function(options) {
+            _.bindAll(this, 'saveChanges', 'encrypt', 'redirect', 'show', 'encryptProfile', 'showBackup');
+
+            this.options = options;
+            this.vent    = Radio.channel('encrypt');
+
+            // Configs
+            this.configs = Radio.request('configs', 'get:object');
+            this.backup  = _.extend({}, this.configs, this.configs.encryptBackup);
+
+            // Just to be save remove current secure key from the session
+            this.vent.request('delete:secureKey');
+
+            // Show the view
+            Radio.request('configs', 'get:profiles')
+            .then(this.show)
+            .fail(function(e) {
+                console.error('Error:', e);
+            });
+
+            // Events
+            this.listenTo(Radio.channel('Encryption'), 'password:valid', this.initEncrypt);
+        },
+
+        onDestroy: function() {
+            this.stopListening();
+            Radio.request('global', 'region:empty', 'brand');
+        },
+
+        show: function(profiles) {
+            this.profiles = profiles;
+
+            // Instantiate and show the view
+            this.view = new View({
+                collections : this.collectionNames,
+                configs     : this.configs
+            });
+            Radio.request('global', 'region:show', 'brand', this.view);
+
+            // Events
+            this.listenTo(this.view, 'check:passwords', this.checkPasswords);
+        },
 
         checkPasswords: function(data) {
             const self     = this,
@@ -38,7 +121,7 @@
          * Initialize encryption.
          */
         initEncrypt: function() {
-            const promises = [],
+            var promises = [],
                 profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db'),
                 self     = this;
 
@@ -85,7 +168,7 @@
          * Start encryption process
          */
         encryptProfile: function(options) {
-            const promises = [],
+            var promises = [],
                 self     = this;
 
             // Fetch options
@@ -132,7 +215,7 @@
                 return;
             }
 
-            const promises = [],
+            var promises = [],
                 self     = this;
 
             // Use new encryption configs
@@ -164,7 +247,7 @@
                 return new Q();
             }
 
-            const model = collection.at(0);
+            var model = collection.at(0);
 
             return this.vent.request('decrypt:model', model)
             .fail(function(e) {
@@ -177,7 +260,7 @@
          * Save all changes in every collection.
          */
         saveChanges: function() {
-            const promises = [];
+            var promises = [];
 
             _.each(this.collections, function(collection) {
                 promises.push(function() {
@@ -199,7 +282,7 @@
          * Advice to download backup with data.
          */
         showBackup: function() {
-            const defer = Q.defer();
+            var defer = Q.defer();
 
             this.view = new BackupView({
                 data: this.rawData

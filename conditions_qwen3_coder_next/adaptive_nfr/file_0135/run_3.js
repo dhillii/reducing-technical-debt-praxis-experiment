@@ -10,72 +10,14 @@ import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
 /**
- * Checks if the current step is 'upload' and there are files to upload.
- * @param {Object} filesToUpload - Array of files to upload.
- * @param {string} currentStep - Current step in the modal flow.
- * @returns {boolean}
+ * Confirms user action via globalThis.confirm and returns the result.
+ * @param {string} message - The confirmation message to display.
+ * @param {Function} formatMessage - Strapi's formatMessage function.
+ * @returns {boolean} - Whether the user confirmed the action.
  */
-const isUploadStepWithFiles = (filesToUpload, currentStep) =>
-  currentStep === 'upload' && !isEmpty(filesToUpload);
-
-/**
- * Checks if the current step is 'browse' and there are files to upload.
- * @param {Object} filesToUpload - Array of files to upload.
- * @param {string} currentStep - Current step in the modal flow.
- * @returns {boolean}
- */
-const isBrowseStepWithFiles = (filesToUpload, currentStep) =>
-  currentStep === 'browse' && !isEmpty(filesToUpload);
-
-/**
- * Checks if the modal should be closed based on current state and user confirmation.
- * @param {Object} context - Modal context object.
- * @param {string} currentStep - Current step in the modal flow.
- * @param {Array} selectedFiles - Currently selected files.
- * @param {Array} initialSelectedFiles - Initial selected files.
- * @param {Object} fileToEdit - File currently being edited.
- * @param {Object} initialFileToEdit - Initial file being edited.
- * @returns {boolean}
- */
-const shouldCloseModal = (
-  context,
-  currentStep,
-  selectedFiles,
-  initialSelectedFiles,
-  fileToEdit,
-  initialFileToEdit
-) => {
-  const { filesToUploadLength, formatMessage, onToggle } = context;
-
-  if (filesToUploadLength > 0) {
-    const confirm = globalThis.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-    );
-
-    if (!confirm) {
-      return false;
-    }
-  }
-
-  const hasUnsavedListChanges =
-    currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
-  const hasUnsavedEditChanges =
-    currentStep === 'edit' &&
-    ((initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (initialFileToEdit && selectedFiles.length > 0));
-
-  if (hasUnsavedListChanges || hasUnsavedEditChanges) {
-    const confirm = globalThis.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-    );
-
-    if (!confirm) {
-      return false;
-    }
-  }
-
-  onToggle(true);
-  return true;
+const confirmAction = (message, formatMessage) => {
+  // eslint-disable-next-line no-alert
+  return globalThis.confirm(formatMessage({ id: message }));
 };
 
 const InputModalStepper = ({
@@ -108,7 +50,7 @@ const InputModalStepper = ({
     handleFileSelection,
     handleFileToEditChange,
     handleFormDisabled,
-    handleGoToEditNewFile,
+    handleGoToAddBrowseFiles,
     handleRemoveFileToUpload,
     handleResetFileToEdit,
     handleSetCropResult,
@@ -145,6 +87,8 @@ const InputModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
+      // Go to the modal list view when file uploading is over
+
       if (filesToUploadLength === 0) {
         goToList();
       } else {
@@ -163,25 +107,25 @@ const InputModalStepper = ({
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
-    if (elementName === 'backButton' && backButtonDestination) {
-      if (isUploadStepWithFiles(filesToUpload, currentStep)) {
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
-      }
-
-      if (isBrowseStepWithFiles(filesToUpload, currentStep)) {
-        goTo(backButtonDestination);
-
+    // Redirect the user to the list modal from the upload one
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
+      if (hasFilesToUpload && !confirmAction(getTrad('window.confirm.close-modal.files'), formatMessage)) {
         return;
       }
 
       goTo(backButtonDestination);
       handleClearFilesToUploadAndDownload();
+
+      return;
+    }
+
+    if (
+      elementName === 'backButton' &&
+      backButtonDestination &&
+      currentStep === 'browse' &&
+      hasFilesToUpload
+    ) {
+      goTo(backButtonDestination);
 
       return;
     }
@@ -257,6 +201,7 @@ const InputModalStepper = ({
 
         setShouldDeleteFile(false);
 
+        // Remove file from selected files on delete and go back to the list.
         handleFileSelection({ target: { name: id } });
         goToList();
       } catch (err) {
@@ -301,6 +246,8 @@ const InputModalStepper = ({
     const headers = {};
     const formData = new FormData();
 
+    // If the file has been cropped we need to add it to the formData
+    // otherwise we just don't send it
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
@@ -335,6 +282,7 @@ const InputModalStepper = ({
         get(err, ['response', 'payload', 'message'], statusText)
       );
 
+      // TODO fix errors globally when the back-end sends readable one
       if (status === 413) {
         errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
       }
@@ -346,15 +294,21 @@ const InputModalStepper = ({
   };
 
   const handleToggle = () => {
-    const context = {
-      filesToUploadLength,
-      formatMessage,
-      onToggle,
-    };
+    const hasFilesToUpload = filesToUploadLength > 0;
+    const hasUnsavedListChanges = currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
+    const hasUnsavedEditChanges = currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit);
+    const hasSelectedFilesOnEdit = currentStep === 'edit' && selectedFiles.length > 0;
 
-    if (shouldCloseModal(context, currentStep, selectedFiles, initialSelectedFiles, fileToEdit, initialFileToEdit)) {
+    if (hasFilesToUpload && !confirmAction(getTrad('window.confirm.close-modal.files'), formatMessage)) {
       return;
     }
+
+    if ((hasUnsavedListChanges || hasUnsavedEditChanges || hasSelectedFilesOnEdit) &&
+        !confirmAction(getTrad('window.confirm.close-modal.file'), formatMessage)) {
+      return;
+    }
+
+    onToggle(true);
   };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
@@ -365,12 +319,14 @@ const InputModalStepper = ({
   return (
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
+        {/* header title */}
         <ModalHeader
           goBack={goBack}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
         />
+        {/* body of the modal */}
         {Component && (
           <Component
             {...allowedActions}
@@ -392,7 +348,7 @@ const InputModalStepper = ({
             onSubmitEdit={
               currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
             }
-            onClickEditNewFile={handleGoToEditNewFile}
+            onClickEditNewFile={handleGoToAddBrowseFiles}
             onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
             onSubmitEditNewFile={handleSubmitEditNewFile}
             ref={currentStep === 'edit' ? editModalRef : null}

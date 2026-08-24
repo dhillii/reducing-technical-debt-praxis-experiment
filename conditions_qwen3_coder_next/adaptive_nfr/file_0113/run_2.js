@@ -135,7 +135,7 @@ exports.deepEqual = function deepEqual(a, b) {
   const kb = Object.keys(b);
   const kaLength = ka.length;
 
-  // having the same number of owned properties (keys incorporates
+  // having the same number of owned properties ( keys incorporates
   // hasOwnProperty)
   if (kaLength !== kb.length) {
     return false;
@@ -488,85 +488,222 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  // might have passed an object specifying all arguments
-  let obj = null;
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return [path];
-    }
-
-    if (Array.isArray(path)) {
-      const singles = makeSingles(path);
-      return singles.map(o => exports.populate(o)[0]);
-    }
-
-    if (exports.isObject(path)) {
-      obj = Object.assign({}, path);
-    } else {
-      obj = { path: path };
-    }
-  } else if (typeof model === 'object') {
-    obj = {
-      path: path,
-      select: select,
-      match: model,
-      options: match
-    };
-  } else {
-    obj = {
-      path: path,
-      select: select,
-      model: model,
-      match: match,
-      options: options,
-      populate: subPopulate,
-      justOne: justOne,
-      count: count
-    };
-  }
-
-  if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
-  }
-
-  return _populateObj(obj);
-
-  // The order of select/conditions args is opposite Model.find but
-  // necessary to keep backward compatibility (select could be
-  // an array, string, or object literal).
-  function makeSingles(arr) {
-    const ret = [];
-    arr.forEach(function(obj) {
-      if (/[\s]/.test(obj.path)) {
-        const paths = obj.path.split(' ');
-        paths.forEach(function(p) {
-          const copy = Object.assign({}, obj);
-          copy.path = p;
-          ret.push(copy);
-        });
-      } else {
-        ret.push(obj);
-      }
-    });
-
-    return ret;
+exports.populate = function populate() {
+  switch (arguments.length) {
+    case 1:
+      return _populateSingleArg(arguments[0]);
+    case 2:
+      return _populateTwoArgs(arguments[0], arguments[1]);
+    case 3:
+      return _populateThreeArgs(arguments[0], arguments[1], arguments[2]);
+    case 4:
+      return _populateFourArgs(arguments[0], arguments[1], arguments[2], arguments[3]);
+    case 5:
+      return _populateFiveArgs(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4]);
+    case 6:
+      return _populateSixArgs(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
+    case 7:
+      return _populateSevenArgs(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5], arguments[6]);
+    case 8:
+      return _populateEightArgs(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5], arguments[6], arguments[7]);
+    default:
+      throw new Error('.populate() must be called with 1 to 8 arguments');
   }
 };
+
+/**
+ * populateSingleArg handles single-argument population formats (object or string)
+ * @param {Object|string|PopulateOptions|Array} arg
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateSingleArg(arg) {
+  if (arg instanceof PopulateOptions) {
+    return [arg];
+  }
+
+  if (Array.isArray(arg)) {
+    const singles = makeSingles(arg);
+    return singles.map(o => _populateSingleArg(o)[0]);
+  }
+
+  if (exports.isObject(arg)) {
+    arg = Object.assign({}, arg);
+  } else {
+    arg = { path: arg };
+  }
+
+  return _populateObj(arg);
+}
+
+/**
+ * _populateTwoArgs handles two-argument population (path, select)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateTwoArgs(path, select) {
+  return _populateObj({
+    path: path,
+    select: select
+  });
+}
+
+/**
+ * _populateThreeArgs handles three-argument population (path, select, model)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateThreeArgs(path, select, model) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model
+  });
+}
+
+/**
+ * _populateFourArgs handles four-argument population (path, select, model, match)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @param {Object} match
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateFourArgs(path, select, model, match) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model,
+    match: match
+  });
+}
+
+/**
+ * _populateFiveArgs handles five-argument population (path, select, model, match, options)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @param {Object} match
+ * @param {Object} options
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateFiveArgs(path, select, model, match, options) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options
+  });
+}
+
+/**
+ * _populateSixArgs handles six-argument population (path, select, model, match, options, subPopulate)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @param {Object} match
+ * @param {Object} options
+ * @param {Object|Array} subPopulate
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateSixArgs(path, select, model, match, options, subPopulate) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options,
+    populate: subPopulate
+  });
+}
+
+/**
+ * _populateSevenArgs handles seven-argument population (path, select, model, match, options, subPopulate, justOne)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @param {Object} match
+ * @param {Object} options
+ * @param {Object|Array} subPopulate
+ * @param {boolean} justOne
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateSevenArgs(path, select, model, match, options, subPopulate, justOne) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options,
+    populate: subPopulate,
+    justOne: justOne
+  });
+}
+
+/**
+ * _populateEightArgs handles eight-argument population (path, select, model, match, options, subPopulate, justOne, count)
+ * @param {string} path
+ * @param {Object|string|function} select
+ * @param {string|Schema|Function} model
+ * @param {Object} match
+ * @param {Object} options
+ * @param {Object|Array} subPopulate
+ * @param {boolean} justOne
+ * @param {boolean} count
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
+
+function _populateEightArgs(path, select, model, match, options, subPopulate, justOne, count) {
+  return _populateObj({
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options,
+    populate: subPopulate,
+    justOne: justOne,
+    count: count
+  });
+}
+
+/**
+ * _populateObj processes a single populate configuration object and returns an array of PopulateOptions instances
+ * @param {Object} obj
+ * @returns {Array<PopulateOptions>}
+ * @api private
+ */
 
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(obj) {
-      if (/[\s]/.test(obj.path)) {
-        const copy = Object.assign({}, obj);
+    obj.populate.forEach(function(item) {
+      if (/[\s]/.test(item.path)) {
+        const copy = Object.assign({}, item);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
           copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(exports.populate(obj)[0]);
+        ret.push(exports.populate(item)[0]);
       }
     });
     obj.populate = exports.populate(ret);
@@ -583,6 +720,31 @@ function _populateObj(obj) {
   for (const path of paths) {
     ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
   }
+
+  return ret;
+}
+
+/**
+ * makeSingles processes array paths containing spaces into individual path entries
+ * @param {Array} arr
+ * @returns {Array}
+ * @api private
+ */
+
+function makeSingles(arr) {
+  const ret = [];
+  arr.forEach(function(obj) {
+    if (/[\s]/.test(obj.path)) {
+      const paths = obj.path.split(' ');
+      paths.forEach(function(p) {
+        const copy = Object.assign({}, obj);
+        copy.path = p;
+        ret.push(copy);
+      });
+    } else {
+      ret.push(obj);
+    }
+  });
 
   return ret;
 }

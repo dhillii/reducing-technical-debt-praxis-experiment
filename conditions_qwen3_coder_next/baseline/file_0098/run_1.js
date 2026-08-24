@@ -49,7 +49,7 @@ define([
         },
 
         initialize: function() {
-            var key = Radio.request('configs', 'get:config', 'dropboxKey');
+            const key = Radio.request('configs', 'get:config', 'dropboxKey');
             this.configs.key = key || this.configs.key;
             this.configs.accessToken = Radio.request('configs', 'get:config', 'dropboxAccessToken');
 
@@ -99,7 +99,7 @@ define([
          * Check if Dropbox was authenticated.
          */
         checkAuth: function() {
-            var hash = this.parseHash();
+            const hash = this.parseHash();
 
             if (this.configs.accessToken && this.configs.accessToken.length) {
                 this.client.setAccessToken(this.configs.accessToken);
@@ -123,19 +123,19 @@ define([
          * @returns {Object}
          */
         parseHash: function() {
-            var hash = window.location.hash.replace('#', '').split('&');
-            var ret  = {};
+            const hash = window.location.hash.replace('#', '').split('&');
+            const ret  = {};
 
             if (!hash.length) {
                 return ret;
             }
 
             _.each(hash, function(str) {
-                var parts = str.replace(/\+/g, ' ').split('=');
+                const parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
-                    var key  = parts.shift();
-                    var val  = parts.length > 0 ? parts.join('=') : undefined;
+                    const key  = parts.shift();
+                    const val  = parts.length > 0 ? parts.join('=') : undefined;
                     val      = undefined ? null : decodeURIComponent(val.trim());
                     ret[key] = val;
                 }
@@ -145,8 +145,8 @@ define([
         },
 
         authenticate: function() {
-            var defer = Q.defer();
-            var authUrl = this.client.getAuthenticationUrl(document.location);
+            const defer = Q.defer();
+            const authUrl = this.client.getAuthenticationUrl(document.location);
 
             Radio.once('Confirm', 'cancel',  _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', function() {
@@ -197,7 +197,7 @@ define([
          * Check for changes.
          */
         checkChanges: function() {
-            var promises = [],
+            const promises = [],
                 self     = this;
 
             this.configs.statRemote = false;
@@ -254,7 +254,7 @@ define([
          * @return promise
          */
         syncAll: function(localData, remoteData, module) {
-            var promises,
+            const promises,
                 encryptKeys = localData.model.prototype.encryptKeys;
 
             localData = (localData.fullCollection || localData).toJSON();
@@ -276,9 +276,9 @@ define([
          * remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            var promises = [],
+            const promises = [],
                 newData  = _.filter(remoteData, function(rModel) {
-                    var model = _.findWhere(localData, {id: rModel.id});
+                    const model = _.findWhere(localData, {id: rModel.id});
                     return !model || model.updated < rModel.updated;
                 });
 
@@ -299,10 +299,10 @@ define([
          * which were updated locally.
          */
         checkLocalChanges: function(localData, remoteData, module, encryptKeys) {
-            var promises = [];
+            const promises = [];
 
             _.each(localData, function(lModel) {
-                var model = _.findWhere(remoteData, {id: lModel.id});
+                const model = _.findWhere(remoteData, {id: lModel.id});
                 if (model && model.updated >= lModel.updated) {
                     return;
                 }
@@ -334,7 +334,7 @@ define([
          * whether changes appear on Dropbox.
          */
         calcInterval: function() {
-            var range = this.configs.intervalMax - this.configs.intervalMin;
+            const range = this.configs.intervalMax - this.configs.intervalMin;
 
             if (this.configs.statRemote) {
                 this.configs.interval -= (range * 0.4);

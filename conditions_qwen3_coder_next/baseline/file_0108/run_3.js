@@ -321,9 +321,9 @@ function jsonStringify (object, spaces, depth) {
 
   depth = depth || 1;
   const space = spaces * depth;
-  let str = Array.isArray(object) ? '[' : '{';
+  const str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
   function repeat (s, n) {
     return new Array(n).join(s);

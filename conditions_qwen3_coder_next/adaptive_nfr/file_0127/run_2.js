@@ -25,94 +25,9 @@ const isPolymorphicAssoc = assoc => {
   return assoc.nature.toLowerCase().indexOf('morph') !== -1;
 };
 
-/**
- * Check if the association is a morph one-to-one relationship
- * @param {Object} association - association object
- * @returns {boolean}
- */
-const isOneMorphToOne = association => {
-  return association.nature === 'oneMorphToOne';
-};
-
-/**
- * Check if the association is a many morph relationship
- * @param {Object} association - association object
- * @returns {boolean}
- */
-const isManyMorph = association => {
-  return association.nature === 'manyMorphToMany' || association.nature === 'manyMorphToOne';
-};
-
-/**
- * Convert mongoose ref to strapi ref format
- * @param {Object} obj - object with ref property
- * @returns {Object}
- */
-const refToStrapiRef = obj => {
-  const ref = obj.ref;
-
-  let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
-
-  if (typeof plainData !== 'object') return ref;
-
-  return {
-    __contentType: obj.kind,
-    ...ref,
-  };
-};
-
-/**
- * Parse component reference to string ID
- * @param {Object} el - element object
- * @returns {string}
- */
-const parseComponentRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return el.ref.toString();
-  } else {
-    return el.ref;
-  }
-};
-
-/**
- * Parse dynamic zone reference to object with id
- * @param {Object} el - element object
- * @returns {Object}
- */
-const parseDynamicZoneRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return { id: el.ref.toString() };
-  } else {
-    return el.ref;
-  }
-};
-
-/**
- * Check if publication state filter should be applied
- * @param {Object} assocModel - association model definition
- * @param {string} publicationState - publication state value
- * @returns {boolean}
- */
-const shouldApplyPublicationStateFilter = (assocModel, publicationState) => {
-  return (
-    contentTypesUtils.hasDraftAndPublish(assocModel) &&
-    DP_PUB_STATES.includes(publicationState)
-  );
-};
-
-/**
- * Get match query for publication state
- * @param {Object} assocModel - association model definition
- * @param {string} publicationState - publication state value
- * @returns {Object|undefined}
- */
-const getMatchQueryForPublicationState = (assocModel, publicationState) => {
-  if (!shouldApplyPublicationStateFilter(assocModel, publicationState)) {
-    return undefined;
-  }
-
-  return populateQueries.publicationState[publicationState];
-};
+// Predicate functions for readability
+const isMorphToOne = nature => nature === 'oneMorphToOne';
+const isMorphToMany = nature => nature === 'manyMorphToMany' || nature === 'manyMorphToOne';
 
 module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
@@ -272,6 +187,35 @@ module.exports = async ({ models, target }, ctx) => {
 
     schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
+    const refToStrapiRef = obj => {
+      const ref = obj.ref;
+
+      let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
+
+      if (typeof plainData !== 'object') return ref;
+
+      return {
+        __contentType: obj.kind,
+        ...ref,
+      };
+    };
+
+    const parseComponentRef = el => {
+      if (el.ref instanceof mongoose.Types.ObjectId) {
+        return el.ref.toString();
+      } else {
+        return el.ref;
+      }
+    };
+
+    const parseDynamicZoneRef = el => {
+      if (el.ref instanceof mongoose.Types.ObjectId) {
+        return { id: el.ref.toString() };
+      } else {
+        return el.ref;
+      }
+    };
+
     const associations = definition.associations.filter(
       association => !isPolymorphicAssoc(association)
     );
@@ -279,8 +223,7 @@ module.exports = async ({ models, target }, ctx) => {
     schema.options.toObject = schema.options.toJSON = {
       virtuals: true,
       transform: function(doc, returned) {
-        // Remover $numberDecimal nested property.
-
+        // Remove $numberDecimal nested property.
         Object.keys(returned)
           .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
           .forEach(key => {
@@ -289,20 +232,18 @@ module.exports = async ({ models, target }, ctx) => {
           });
 
         morphAssociations.forEach(association => {
-          if (
-            Array.isArray(returned[association.alias]) &&
-            returned[association.alias].length > 0
-          ) {
-            // Reformat data by bypassing the many-to-many relationship.
-            if (isOneMorphToOne(association)) {
-              returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
-              return;
-            }
+          if (!Array.isArray(returned[association.alias]) || returned[association.alias].length === 0) {
+            return;
+          }
 
-            if (isManyMorph(association)) {
-              returned[association.alias] = returned[association.alias].map(refToStrapiRef);
-              return;
-            }
+          if (isMorphToOne(association.nature)) {
+            returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
+            return;
+          }
+
+          if (isMorphToMany(association.nature)) {
+            returned[association.alias] = returned[association.alias].map(refToStrapiRef);
+            return;
           }
         });
 
@@ -336,18 +277,20 @@ module.exports = async ({ models, target }, ctx) => {
         associations.forEach(association => {
           const relation = returned[association.alias];
 
-          if (relation) {
-            // Extract raw JSON data.
-            returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
+          if (!relation) {
+            return;
+          }
 
-            if (_.isArray(association.populate)) {
-              const { alias, populate } = association;
-              const pickPopulate = entry => _.pick(entry, populate);
+          // Extract raw JSON data.
+          returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
 
-              returned[alias] = _.isArray(returned[alias])
-                ? _.map(returned[alias], pickPopulate)
-                : pickPopulate(returned[alias]);
-            }
+          if (_.isArray(association.populate)) {
+            const { alias, populate } = association;
+            const pickPopulate = entry => _.pick(entry, populate);
+
+            returned[alias] = _.isArray(returned[alias])
+              ? _.map(returned[alias], pickPopulate)
+              : pickPopulate(returned[alias]);
           }
         });
       },
@@ -430,7 +373,12 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
     const getMatchQuery = assoc => {
       const assocModel = strapi.db.getModelByAssoc(assoc);
 
-      return getMatchQueryForPublicationState(assocModel, publicationState);
+      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
+      if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
+        return populateQueries.publicationState[publicationState];
+      }
+
+      return undefined;
     };
 
     if (_populateMorphRelations) {

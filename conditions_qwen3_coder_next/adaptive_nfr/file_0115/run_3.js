@@ -1,3 +1,9 @@
+/***************************
+ *
+ * Extra methods
+ *
+ **************************/
+
 var cst         = require('../../constants.js');
 var Common      = require('../Common.js');
 var UX          = require('./UX');
@@ -8,136 +14,6 @@ var fmt         = require('../tools/fmt.js');
 var dayjs      = require('dayjs');
 var pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js')
-
-/**
- * Check if system monitoring should be skipped
- * @returns {boolean}
- */
-function shouldSkipSysMonitoring() {
-  return process.env.TRAVIS ||
-         global.it === 'function' ||
-         cst.IS_WINDOWS === true;
-}
-
-/**
- * Check if pm2-sysmonit is installed
- * @param {string} filepath
- * @returns {boolean}
- */
-function isSysmonitInstalled(filepath) {
-  return !!filepath;
-}
-
-/**
- * Check if app_id matches any process in the list
- * @param {object} processItem
- * @param {string|number} app_id
- * @returns {boolean}
- */
-function matchesAppId(processItem, app_id) {
-  return app_id == processItem.pm_id;
-}
-
-/**
- * Check if report data is available and no error occurred
- * @param {Error} err
- * @param {object} report
- * @returns {boolean}
- */
-function hasValidReport(err, report) {
-  return report && !err;
-}
-
-/**
- * Check if pm_id is a valid number
- * @param {string|number} pm_id
- * @returns {boolean}
- */
-function isNumeric(pm_id) {
-  return !isNaN(pm_id);
-}
-
-/**
- * Check if separator parameter is a function
- * @param {*} separator
- * @returns {boolean}
- */
-function isFunction(separator) {
-  return typeof separator === 'function';
-}
-
-/**
- * Check if packet parameter is a function
- * @param {*} packet
- * @returns {boolean}
- */
-function isPacketFunction(packet) {
-  return typeof packet === 'function';
-}
-
-/**
- * Check if proc_id is an object and packet is a function
- * @param {*} proc_id
- * @param {*} packet
- * @returns {boolean}
- */
-function isReversedParams(proc_id, packet) {
-  return typeof proc_id === 'object' && typeof packet === 'function';
-}
-
-/**
- * Check if pm_id is a string (not numeric)
- * @param {string|number} pm_id
- * @returns {boolean}
- */
-function isStringId(pm_id) {
-  return isNaN(pm_id);
-}
-
-/**
- * Check if params is a function
- * @param {*} params
- * @returns {boolean}
- */
-function isParamsFunction(params) {
-  return typeof params === 'function';
-}
-
-/**
- * Check if commander.name is a string
- * @param {*} commander
- * @returns {boolean}
- */
-function hasStringName(commander) {
-  return typeof commander.name === 'string';
-}
-
-/**
- * Check if basic auth credentials are provided
- * @param {object} opts
- * @returns {boolean}
- */
-function hasBasicAuth(opts) {
-  return opts.basicAuthUsername && opts.basicAuthPassword;
-}
-
-/**
- * Check if monitor option is enabled
- * @param {object} opts
- * @returns {boolean}
- */
-function hasMonitorOption(opts) {
-  return !!opts.monitor;
-}
-
-/**
- * Check if callback is provided
- * @param {*} cb
- * @returns {boolean}
- */
-function hasCallback(cb) {
-  return !!cb;
-}
 
 module.exports = function(CLI) {
   /**
@@ -157,19 +33,15 @@ module.exports = function(CLI) {
    * Install pm2-sysmonit
    */
   CLI.prototype.launchSysMonitoring = function(cb) {
-    if (shouldSkipSysMonitoring() ||
-        (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true')) {
+    if (shouldSkipSysMonitoring.call(this)) {
       return cb ? cb(null) : null;
     }
 
     var filepath;
+
     try {
       filepath = path.dirname(require.resolve('pm2-sysmonit'));
     } catch(e) {
-      return cb ? cb(null) : null;
-    }
-
-    if (!isSysmonitInstalled(filepath)) {
       return cb ? cb(null) : null;
     }
 
@@ -179,12 +51,23 @@ module.exports = function(CLI) {
       started_as_module : true
     }, (err, res) => {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err));
         return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
       return cb ? cb(null) : this.speedList();
     });
   };
+
+  /**
+   * Check if system monitoring should be skipped
+   * @returns {boolean}
+   */
+  function shouldSkipSysMonitoring() {
+    return (this.pm2_configuration && this.pm2_configuration.sysmonit !== 'true') ||
+           process.env.TRAVIS ||
+           global.it === 'function' ||
+           cst.IS_WINDOWS === true;
+  }
 
   /**
    * Show application environment
@@ -197,16 +80,16 @@ module.exports = function(CLI) {
 
     this.Client.executeRemote('getMonitorData', {}, (err, list) => {
       list.forEach(l => {
-        if (!matchesAppId(l, app_id)) return;
-
-        printed++;
-        var env = Common.safeExtend({}, l.pm2_env);
-        Object.keys(env).forEach(key => {
-          console.log(`${key}: ${chalk.green(env[key])}`);
-        });
+        if (app_id == l.pm_id) {
+          printed++;
+          var env = Common.safeExtend({}, l.pm2_env);
+          Object.keys(env).forEach(key => {
+            console.log(`${key}: ${chalk.green(env[key])}`);
+          });
+        }
       });
 
-      if (printed == 0) {
+      if (printed === 0) {
         Common.err(`Modules with id ${app_id} not found`);
         return cb ? cb.apply(null, arguments) : this.exitCli(cst.ERROR_EXIT);
       }
@@ -221,6 +104,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.report = function() {
     var that = this;
+
     var Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
@@ -232,7 +116,7 @@ module.exports = function(CLI) {
       fmt.field('Date', new Date());
       fmt.sep();
 
-      if (hasValidReport(err, report)) {
+      if (report && !err) {
         fmt.title(chalk.bold.blue('Daemon'));
         fmt.field('pm2d version', report.pm2_version);
         fmt.field('node version', report.node_version);
@@ -288,7 +172,9 @@ module.exports = function(CLI) {
           console.log('```');
           console.log();
           console.log();
+
           console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
+
           console.log();
           console.log();
           that.exitCli(cst.SUCCESS_EXIT);
@@ -337,12 +223,12 @@ module.exports = function(CLI) {
     var dayjs = require('dayjs');
     var cmd;
 
-    if (type == 'cpu') {
+    if (type === 'cpu') {
       cmd = {
         ext: '.cpuprofile',
         action: 'profileCPU'
       };
-    } else if (type == 'mem') {
+    } else if (type === 'mem') {
       cmd = {
         ext: '.heapprofile',
         action: 'profileMEM'
@@ -374,14 +260,12 @@ module.exports = function(CLI) {
     lines.forEach(l => {
       if (l.startsWith('#')) {
         console.log(chalk.bold.green(l));
-      } else if (l.startsWith('```')) {
-        if (isInner) {
+      } else if (isInner || l.startsWith('```')) {
+        if (isInner && l.startsWith('```')) {
           isInner = false;
-        } else {
+        } else if (!isInner) {
           isInner = true;
         }
-        console.log(chalk.gray(l));
-      } else if (isInner) {
         console.log(chalk.gray(l));
       } else if (l.startsWith('`')) {
         console.log(chalk.gray(l));
@@ -451,7 +335,7 @@ module.exports = function(CLI) {
   CLI.prototype.sendLineToStdin = function(pm_id, line, separator, cb) {
     var that = this;
 
-    if (isFunction(separator)) {
+    if (!cb && typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
@@ -478,12 +362,12 @@ module.exports = function(CLI) {
     var that = this;
     var readline = require('readline');
 
-    if (!isNumeric(pm_id)) {
+    if (isNaN(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
       return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
     }
 
-    if (isFunction(separator)) {
+    if (typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
@@ -523,7 +407,7 @@ module.exports = function(CLI) {
   CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
     var that = this;
 
-    if (isReversedParams(proc_id, packet)) {
+    if (typeof proc_id === 'object' && typeof packet === 'function') {
       cb = packet;
       packet = proc_id;
     } else {
@@ -569,11 +453,10 @@ module.exports = function(CLI) {
    * @param  {Function}      cb          callback
    */
   CLI.prototype.trigger = function(pm_id, action_name, params, cb) {
-    if (isParamsFunction(params)) {
+    if (typeof(params) === 'function') {
       cb = params;
       params = null;
     }
-
     var cmd = {
       msg : action_name
     };
@@ -585,7 +468,7 @@ module.exports = function(CLI) {
     if (params) {
       cmd.opts = params;
     }
-    if (isStringId(pm_id)) {
+    if (isNaN(pm_id)) {
       cmd.name = pm_id;
     } else {
       cmd.id = pm_id;
@@ -674,7 +557,7 @@ module.exports = function(CLI) {
 
     this.start(filepath, (err, res) => {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err));
         return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
       return cb ? cb(null) : this.speedList();
@@ -700,35 +583,30 @@ module.exports = function(CLI) {
 
     var filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
-    if (hasStringName(commander)) {
+    if (typeof commander.name === 'string') {
       opts.name = commander.name;
     } else {
       opts.name = 'static-page-server-' + servePort;
     }
-
     if (!opts.env) {
       opts.env = {};
     }
-
     opts.env.PM2_SERVE_PORT = servePort;
     opts.env.PM2_SERVE_PATH = servePath;
     opts.env.PM2_SERVE_SPA = opts.spa;
-
-    if (hasBasicAuth(opts)) {
+    if (opts.basicAuthUsername && opts.basicAuthPassword) {
       opts.env.PM2_SERVE_BASIC_AUTH = 'true';
       opts.env.PM2_SERVE_BASIC_AUTH_USERNAME = opts.basicAuthUsername;
       opts.env.PM2_SERVE_BASIC_AUTH_PASSWORD = opts.basicAuthPassword;
     }
-
-    if (hasMonitorOption(opts)) {
+    if (opts.monitor) {
       opts.env.PM2_SERVE_MONITOR = opts.monitor;
     }
-
     opts.cwd = servePath;
 
     this.start(filepath, opts,  function (err, res) {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err));
         return cb ? cb(err) : that.speedList(cst.ERROR_EXIT);
       }
       Common.printOut(cst.PREFIX_MSG + 'Serving ' + servePath + ' on port ' + servePort);
@@ -794,7 +672,7 @@ module.exports = function(CLI) {
     var that = this;
     var templatePath;
 
-    if (mode == 'simple') {
+    if (mode === 'simple') {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL_SIMPLE);
     } else {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
@@ -822,9 +700,10 @@ module.exports = function(CLI) {
    */
   CLI.prototype.dashboard = function(cb) {
     var that = this;
+
     var Dashboard = require('./Dashboard');
 
-    if (hasCallback(cb)) {
+    if (cb) {
       return cb(new Error('Dashboard cant be called programmatically'));
     }
 
@@ -866,9 +745,10 @@ module.exports = function(CLI) {
 
   CLI.prototype.monit = function(cb) {
     var that = this;
+
     var Monit = require('./Monit.js');
 
-    if (hasCallback(cb)) {
+    if (cb) {
       return cb(new Error('Monit cant be called programmatically'));
     }
 

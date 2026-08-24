@@ -1,22 +1,3 @@
-const getDeviceLabel = (device: string): string => {
-    if (device === 'mobile-ios') {
-        return 'iOS';
-    }
-    if (device === 'mobile-android') {
-        return 'Android';
-    }
-    if (device === 'desktop') {
-        return 'Desktop';
-    }
-    if (device === 'bot') {
-        return 'Bot';
-    }
-    if (device === 'unknown') {
-        return 'Unknown';
-    }
-    return device;
-};
-
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -57,6 +38,25 @@ interface FilterFieldDefinition {
     // Filter out invalid items from API response
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
+
+// Helper function to transform device values into display labels
+// Maps raw device identifiers to user-friendly labels
+const transformDeviceValue = (value: string): {value: string; label: string} => {
+    switch (value) {
+        case 'mobile-ios':
+            return {value, label: 'iOS'};
+        case 'mobile-android':
+            return {value, label: 'Android'};
+        case 'desktop':
+            return {value, label: 'Desktop'};
+        case 'bot':
+            return {value, label: 'Bot'};
+        case 'unknown':
+            return {value, label: 'Unknown'};
+        default:
+            return {value, label: value};
+    }
+};
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
@@ -104,10 +104,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: transformDeviceValue
     }
 };
 

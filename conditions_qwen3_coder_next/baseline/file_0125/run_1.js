@@ -306,9 +306,29 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
   switch (operator) {
     case 'and':
-      return handleAndOperator(qb, value);
+      return qb.where(andQb => {
+        value.forEach(andClause => {
+          if (Array.isArray(andClause)) {
+            andClause.forEach(clause =>
+              andQb.where(subQb => buildWhereClause({ qb: subQb, ...clause }))
+            );
+          } else {
+            andQb.where(subQb => buildWhereClause({ qb: subQb, ...andClause }));
+          }
+        });
+      });
     case 'or':
-      return handleOrOperator(qb, value);
+      return qb.where(orQb => {
+        value.forEach(orClause => {
+          if (Array.isArray(orClause)) {
+            orClause.forEach(orClause =>
+              orQb.orWhere(subQb => buildWhereClause({ qb: subQb, ...orClause }))
+            );
+          } else {
+            orQb.orWhere(subQb => buildWhereClause({ qb: subQb, ...orClause }));
+          }
+        });
+      });
     case 'eq':
       return qb.where(field, value);
     case 'ne':
@@ -339,42 +359,6 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
     default:
       throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
-  }
-};
-
-const handleAndOperator = (qb, value) => {
-  return qb.where(andQb => {
-    value.forEach(andClause => {
-      handleAndClause(andQb, andClause);
-    });
-  });
-};
-
-const handleAndClause = (subQb, andClause) => {
-  if (Array.isArray(andClause)) {
-    andClause.forEach(clause =>
-      subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
-    );
-  } else {
-    buildWhereClause({ qb: subQb, ...andClause });
-  }
-};
-
-const handleOrOperator = (qb, value) => {
-  return qb.where(orQb => {
-    value.forEach(orClause => {
-      handleOrClause(orQb, orClause);
-    });
-  });
-};
-
-const handleOrClause = (subQb, orClause) => {
-  if (Array.isArray(orClause)) {
-    orClause.forEach(clause =>
-      subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
-    );
-  } else {
-    buildWhereClause({ qb: subQb, ...orClause });
   }
 };
 

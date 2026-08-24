@@ -1,16 +1,36 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
 var EventEmitter = require('events').EventEmitter;
 var Pending = require('./pending');
 var debug = require('debug')('mocha:runnable');
 var milliseconds = require('./ms');
 var utils = require('./utils');
 
+/**
+ * Save timer references to avoid Sinon interfering (see GH-237).
+ */
+
+/* eslint-disable no-unused-vars, no-native-reassign */
 var Date = global.Date;
 var setTimeout = global.setTimeout;
 var setInterval = global.setInterval;
 var clearTimeout = global.clearTimeout;
 var clearInterval = global.clearInterval;
+/* eslint-enable no-unused-vars, no-native-reassign */
+
+/**
+ * Object#toString().
+ */
 
 var toString = Object.prototype.toString;
+
+/**
+ * Expose `Runnable`.
+ */
 
 module.exports = Runnable;
 
@@ -20,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -37,19 +59,23 @@ function Runnable (title, fn) {
   this.pending = false;
 }
 
+/**
+ * Inherit from `EventEmitter.prototype`.
+ */
 utils.inherits(Runnable, EventEmitter);
 
 /**
  * Set & get timeout `ms`.
  *
+ * @api private
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
- * @api private
  */
 Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
+  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
@@ -67,9 +93,9 @@ Runnable.prototype.timeout = function (ms) {
 /**
  * Set or get slow `ms`.
  *
+ * @api private
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
- * @api private
  */
 Runnable.prototype.slow = function (ms) {
   if (!arguments.length || typeof ms === 'undefined') {
@@ -86,9 +112,9 @@ Runnable.prototype.slow = function (ms) {
 /**
  * Set and get whether timeout is `enabled`.
  *
+ * @api private
  * @param {boolean} enabled
  * @return {Runnable|boolean} enabled or Runnable instance.
- * @api private
  */
 Runnable.prototype.enableTimeouts = function (enabled) {
   if (!arguments.length) {
@@ -218,8 +244,8 @@ Runnable.prototype.resetTimeout = function () {
 /**
  * Set or get a list of whitelisted globals for this test run.
  *
- * @param {string[]} globals
  * @api private
+ * @param {string[]} globals
  */
 Runnable.prototype.globals = function (globals) {
   if (!arguments.length) {
@@ -241,10 +267,12 @@ Runnable.prototype.run = function (fn) {
   var finished;
   var emitted;
 
+  // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
+  // called multiple times
   function multiple (err) {
     if (emitted) {
       return;
@@ -253,6 +281,7 @@ Runnable.prototype.run = function (fn) {
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   }
 
+  // finished
   function done (err) {
     var ms = self.timeout();
     if (self.timedOut) {
@@ -272,118 +301,123 @@ Runnable.prototype.run = function (fn) {
     fn(err);
   }
 
+  // for .resetTimeout()
   this.callback = done;
 
-  if (this.async) {
-    this.resetTimeout();
-    registerAsyncSkip(self, done);
-    if (this.allowUncaught) {
-      return callFnAsync(this.fn, ctx, done);
+  // Determine execution mode and delegate accordingly
+  var execute = determineExecutionMode(self);
+  execute();
+
+  function determineExecutionMode (runnable) {
+    if (runnable.async) {
+      return executeAsyncMode;
     }
+
+    if (runnable.allowUncaught) {
+      return executeSyncUncaughtMode;
+    }
+
+    return executeSyncSafeMode;
+  }
+
+  /**
+   * Execute in async mode (explicit `done` callback).
+   * @callback
+   */
+  function executeAsyncMode () {
+    self.resetTimeout();
+
+    // allows skip() to be used in an explicit async context
+    self.skip = function asyncSkip () {
+      done(new Pending('async skip call'));
+      throw new Pending('async skip; aborting execution');
+    };
+
+    if (self.allowUncaught) {
+      return callFnAsync(self.fn);
+    }
+
     try {
-      callFnAsync(this.fn, ctx, done);
+      callFnAsync(self.fn);
     } catch (err) {
       emitted = true;
       done(utils.getError(err));
     }
-    return;
   }
 
-  if (this.allowUncaught) {
-    executeRunnableSyncOrPromise(self, ctx, done);
-    return;
+  /**
+   * Execute in sync mode with allowUncaught enabled.
+   * @callback
+   */
+  function executeSyncUncaughtMode () {
+    if (self.isPending()) {
+      done();
+    } else {
+      callFn(self.fn);
+    }
   }
 
-  try {
-    executeRunnableSyncOrPromise(self, ctx, done);
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
+  /**
+   * Execute in sync mode with safe error handling.
+   * @callback
+   */
+  function executeSyncSafeMode () {
+    try {
+      if (self.isPending()) {
+        done();
+      } else {
+        callFn(self.fn);
+      }
+    } catch (err) {
+      emitted = true;
+      done(utils.getError(err));
+    }
+  }
+
+  /**
+   * Invoke callback provided by user (sync).
+   * @param {Function} fn
+   */
+  function callFn (fn) {
+    var result = fn.call(ctx);
+    if (result && typeof result.then === 'function') {
+      self.resetTimeout();
+      result
+        .then(function () {
+          done();
+          return null;
+        },
+        function (reason) {
+          done(reason || new Error('Promise rejected with no or falsy reason'));
+        });
+    } else {
+      if (self.asyncOnly) {
+        return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+      }
+      done();
+    }
+  }
+
+  /**
+   * Invoke callback provided by user (async with `done` callback).
+   * @param {Function} fn
+   */
+  function callFnAsync (fn) {
+    var result = fn.call(ctx, function (err) {
+      if (err instanceof Error || toString.call(err) === '[object Error]') {
+        return done(err);
+      }
+      if (err) {
+        if (Object.prototype.toString.call(err) === '[object Object]') {
+          return done(new Error('done() invoked with non-Error: ' +
+            JSON.stringify(err)));
+        }
+        return done(new Error('done() invoked with non-Error: ' + err));
+      }
+      if (result && utils.isPromise(result)) {
+        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+      }
+      done();
+    });
   }
 };
-
-/**
- * Register async skip behavior
- *
- * @param {Runnable} runnable
- * @param {Function} done
- */
-function registerAsyncSkip (runnable, done) {
-  runnable.skip = function asyncSkip () {
-    done(new Pending('async skip call'));
-    throw new Pending('async skip; aborting execution');
-  };
-}
-
-/**
- * Execute runnable sync or promise-returning function
- *
- * @param {Runnable} runnable
- * @param {Object} ctx
- * @param {Function} done
- */
-function executeRunnableSyncOrPromise (runnable, ctx, done) {
-  var result = runnable.fn.call(ctx);
-
-  if (result && typeof result.then === 'function') {
-    runnable.resetTimeout();
-    result
-      .then(function () {
-        done();
-        return null;
-      },
-      function (reason) {
-        done(reason || new Error('Promise rejected with no or falsy reason'));
-      });
-  } else {
-    if (runnable.asyncOnly) {
-      return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-    }
-    done();
-  }
-}
-
-/**
- * Call async function with done callback handling
- *
- * @param {Function} fn
- * @param {Object} ctx
- * @param {Function} done
- */
-function callFnAsync (fn, ctx, done) {
-  var result = fn.call(ctx, function (err) {
-    if (isError(err)) {
-      return done(err);
-    }
-    if (err) {
-      return done(createNonErrorDoneError(err));
-    }
-    if (result && utils.isPromise(result)) {
-      return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-    }
-    done();
-  });
-}
-
-/**
- * Check if argument is an Error instance
- *
- * @param {*} err
- * @returns {boolean}
- */
-function isError (err) {
-  return err instanceof Error || toString.call(err) === '[object Error]';
-}
-
-/**
- * Create error for non-Error argument passed to done()
- *
- * @param {*} err
- * @returns {Error}
- */
-function createNonErrorDoneError (err) {
-  if (Object.prototype.toString.call(err) === '[object Object]') {
-    return new Error('done() invoked with non-Error: ' + JSON.stringify(err));
-  }
-  return new Error('done() invoked with non-Error: ' + err);
-}

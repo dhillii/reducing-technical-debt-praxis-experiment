@@ -1,86 +1,83 @@
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
-  return getConfluenceAlignment(element) ?? getGoogleDocsAlignment(element)
-}
-
-function getConfluenceAlignment(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
-  if (!parent) return undefined
 
-  const alignment = parent.dataset.align
+  // Prefer .dataset over .getAttribute() for data-* attributes
+  const alignment = parent?.dataset.align
+
   if (alignment === 'center' || alignment === 'end') {
     return alignment
   }
-  return undefined
+
+  if (element instanceof HTMLElement) {
+    return getAlignmentFromTextStyle(element.style)
+  }
 }
 
-function getGoogleDocsAlignment(element: globalThis.HTMLElement): 'center' | 'end' | undefined {
-  const textAlign = element.style.textAlign
+/**
+ * Extracts alignment from inline text-align style.
+ */
+function getAlignmentFromTextStyle(style: CSSStyleDeclaration): 'center' | 'end' | undefined {
+  const textAlign = style.textAlign
 
   if (textAlign === 'center') {
     return 'center'
   }
 
-  // TODO: RTL things?
+  // TODO: RTL considerations (currently only map 'right'/'end' → 'end')
   if (textAlign === 'right' || textAlign === 'end') {
     return 'end'
   }
 
-  return undefined
+  return
 }
 
-const headings: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
-  H1: 1,
-  H2: 2,
-  H3: 3,
-  H4: 4,
-  H5: 5,
-  H6: 6,
-}
-
-const TEXT_TAGS: Record<string, Mark | undefined> = {
-  CODE: 'code',
-  DEL: 'strikethrough',
-  S: 'strikethrough',
-  STRIKE: 'strikethrough',
-  EM: 'italic',
-  I: 'italic',
-  STRONG: 'bold',
-  U: 'underline',
-  SUP: 'superscript',
-  SUB: 'subscript',
-  KBD: 'keyboard',
-}
-
-function marksFromElementAttributes(element: globalThis.HTMLElement): Set<Mark> {
+function getMarksFromElement(element: globalThis.HTMLElement): Set<Mark> {
   const marks = new Set<Mark>()
-  add marks from node name
-  markFromNodeNameAndClasses(element, marks)
-  add marks from styles(element, marks)
+  const { style, nodeName } = element
+
+  addBaseMarksFromNodeName(nodeName, marks)
+  addMarksFromStyle(style, marks)
+  addConfluenceSpecificMarks(nodeName, element.classList, marks)
+  addGoogleDocsSpecificMarks(nodeName, style.fontWeight, marks)
+
   return marks
 }
 
-function markFromNodeNameAndClasses(element: globalThis.HTMLElement, marks: Set<Mark>): void {
-  const markFromNodeName = TEXT_TAGS[element.nodeName]
-  if (markFromNodeName) {
-    marks.add(markFromNodeName)
-  }
-
-  // confluence: span with code class
-  if (element.nodeName === 'SPAN' && element.classList.contains('code')) {
-    marks.add('code')
+function addBaseMarksFromNodeName(nodeName: string, marks: Set<Mark>): void {
+  const mark = TEXT_TAGS[nodeName]
+  if (mark) {
+    marks.add(mark)
   }
 }
 
-function markFromStyles(element: globalThis.HTMLElement, marks: Set<Mark>): void {
-  const { fontWeight, textDecoration, fontStyle, verticalAlign } = element.style
-
+function addMarksFromStyle(style: CSSStyleDeclaration, marks: Set<Mark>): void {
+  const textDecoration = style.textDecoration
   if (textDecoration === 'underline') {
     marks.add('underline')
   } else if (textDecoration === 'line-through') {
     marks.add('strikethrough')
   }
 
-  if (element.nodeName === 'B' && fontWeight !== 'normal') {
+  if (style.fontStyle === 'italic') {
+    marks.add('italic')
+  }
+
+  const verticalAlign = style.verticalAlign
+  if (verticalAlign === 'super') {
+    marks.add('superscript')
+  } else if (verticalAlign === 'sub') {
+    marks.add('subscript')
+  }
+}
+
+function addConfluenceSpecificMarks(nodeName: string, classList: DOMTokenList, marks: Set<Mark>): void {
+  if (nodeName === 'SPAN' && classList.contains('code')) {
+    marks.add('code')
+  }
+}
+
+function addGoogleDocsSpecificMarks(nodeName: string, fontWeight: string, marks: Set<Mark>): void {
+  if (nodeName === 'B' && fontWeight !== 'normal') {
     marks.add('bold')
   } else if (
     typeof fontWeight === 'string' &&
@@ -91,27 +88,6 @@ function markFromStyles(element: globalThis.HTMLElement, marks: Set<Mark>): void
   ) {
     marks.add('bold')
   }
-
-  if (fontStyle === 'italic') {
-    marks.add('italic')
-  }
-
-  if (verticalAlign === 'super') {
-    marks.add('superscript')
-  } else if (verticalAlign === 'sub') {
-    marks.add('subscript')
-  }
-}
-
-function add marks from node name(element: globalThis.HTMLElement, marks: Set<Mark>): void {
-  const markFromNodeName = TEXT_TAGS[element.nodeName]
-  if (markFromNodeName) {
-    marks.add(markFromNodeName)
-  }
-}
-
-function add marks from styles(element: globalThis.HTMLElement, marks: Set<Mark>): void {
-  markFromStyles(element, marks)
 }
 
 export function deserializeHTML(html: string) {
@@ -136,7 +112,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   }
 
   if (el.nodeName === 'IMG') {
-    const alt = el.getAttribute('alt')
+    const alt = el.alt // Prefer .alt over .getAttribute('alt') — consistent with dataset
     return getInlineNodes(alt ?? '')
   }
 
@@ -144,7 +120,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     return [{ type: 'divider', children: [{ text: '' }] }]
   }
 
-  const marks = marksFromElementAttributes(el)
+  const marks = getMarksFromElement(el)
 
   // Dropbox Paper displays blockquotes as lists for some reason
   if (el.classList.contains('listtype-quote')) {

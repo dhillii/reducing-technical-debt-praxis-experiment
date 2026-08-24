@@ -1,180 +1,74 @@
+/**
+ * indexed db adapter
+ * === 
+ * - originally authored by Vivian Li
+ *
+ */ 
+
 Lawnchair.adapter('indexed-db', (function(){
 
-  var STORE_VERSION = 3;
+  // update the STORE_VERSION when the schema used by this adapter changes
+  // (for example, if you change the STORE_NAME above)
+  // NB: Causes onupgradeneeded to be fired, which erases the old database!
+  const STORE_VERSION = 3;
 
-  /**
-   * Returns the appropriate indexedDB implementation for the current environment.
-   */
-  function getIndexedDB() {
+  // Returns the appropriate indexedDB implementation for the current browser
+  function getIDB() {
       return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
-  }
+  };
 
-  /**
-   * Returns the appropriate IDBTransaction implementation for the current environment.
-   */
-  function getIndexDBTransaction() {
+  // Returns the appropriate IDBTransaction implementation for the current browser
+  function getIDBTransaction() {
       return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
-  }
+  };
 
-  /**
-   * Returns the appropriate IDBKeyRange implementation for the current environment.
-   */
-  function getIndexDBKeyRange() {
+  // Returns the appropriate IDBKeyRange implementation for the current browser
+  function getIDBKeyRange() {
       return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
-  }
+  };
 
-  /**
-   * Determines the correct transaction mode for READ_WRITE operations.
-   */
-  var READ_WRITE = (getIndexDBTransaction() && 'READ_WRITE' in getIndexDBTransaction()) ? getIndexDBTransaction().READ_WRITE : 'readwrite';
-
-  /**
-   * Indicates whether the adapter is functional in the current environment.
-   */
-  function isAvailable() {
-      return !!getIndexedDB();
-  }
-
-  /**
-   * Executes a batch of operations against the object store using the provided callback per-item operation.
-   */
-  function performBatchOperation(adapter, operationFn, onComplete, onError) {
-      try {
-          var trans = adapter.db.transaction(adapter.record, READ_WRITE);
-          var store = trans.objectStore(adapter.record);
-          operationFn(store, onComplete);
-      } catch (e) {
-          onError(e);
-      }
-  }
-
-  /**
-   * Executes a single-key get operation and invokes the result handler.
-   */
-  function executeGetOperation(adapter, key, resultHandler) {
-      var trans = adapter.db.transaction(adapter.record);
-      var store = trans.objectStore(adapter.record);
-      var request = store.get(key);
-
-      request.onsuccess = function(event) {
-          event.target.onsuccess = null;
-          event.target.onerror = null;
-          resultHandler(event);
-      };
-
-      request.onerror = function(event) {
-          event.target.onsuccess = null;
-          event.target.onerror = null;
-          fail(event);
-      };
-  }
-
-  /**
-   * Executes a batch of individual get operations for an array of keys.
-   */
-  function executeBatchGetOperation(adapter, keys, resultHandler) {
-      var results = [];
-      var remaining = keys.length;
-
-      function onCompleteIndex(index, result) {
-          results[index] = result;
-          remaining--;
-
-          if (remaining === 0 && resultHandler) {
-              resultHandler(results);
-          }
-      }
-
-      for (var i = 0; i < keys.length; i++) {
-          executeGetOperation(adapter, keys[i], function(event) {
-              var value = event.target.result;
-              value && (value.key = keys[i]);
-              onCompleteIndex(i, value);
-          });
-      }
-  }
-
-  /**
-   * Executes an open cursor operation and invokes the callback with each result.
-   */
-  function executeCursorOperation(adapter, direction, processItem, completionCallback) {
-      var trans = adapter.db.transaction(adapter.record);
-      var store = trans.objectStore(adapter.record);
-      var request = store.openCursor();
-
-      request.onsuccess = function(event) {
-          var cursor = event.target.result;
-          if (cursor) {
-              processItem(cursor);
-              cursor['continue']();
-          } else {
-              completionCallback();
-          }
-      };
-
-      request.onerror = fail;
-  }
-
-  /**
-   * Attempts to delete an object store, swallow errors if store doesn’t exist.
-   */
-  function safeDeleteStore(db, storeName) {
-      try {
-          if (db.objectStoreNames.contains(storeName)) {
-              db.deleteObjectStore(storeName);
-          }
-      } catch (e) {
-          // silently ignore errors
-      }
-  }
-
-  /**
-   * Creates the object store if it doesn’t exist.
-   */
-  function createObjectStoreIfMissing(db, storeName) {
-      if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName, { autoIncrement: useAutoIncrement() });
-      }
-  }
-
-  /**
-   * Determines if auto-increment should be enabled based on feature detection.
-   */
-  function useAutoIncrement() {
-      return !!window.indexedDB;
-  }
-
-  /**
-   * Default error handler for database operations.
-   */
-  function fail(event) {
-      console.error('error in indexed-db adapter!', event);
-  }
+  // Determines the correct transaction mode for read/write operations
+  const READ_WRITE = (() => {
+      const idbTransaction = getIDBTransaction();
+      return (idbTransaction && 'READ_WRITE' in idbTransaction) ? idbTransaction.READ_WRITE : 'readwrite';
+  })();
 
   return {
     valid: function() {
-        return isAvailable();
+        return !!getIDB();
     },
 
     init: function(options, callback) {
-        var self = this;
+        const self = this;
 
-        var cb = self.fn(self.name, callback);
+        const cb = self.fn(self.name, callback);
         if (cb && typeof cb !== 'function') {
             throw 'callback not valid';
         }
 
         self.waiting = [];
-        self.idb = getIndexedDB();
-        var request = self.idb.open(self.name, STORE_VERSION);
+
+        const idb = getIDB();
+        const request = idb.open(self.name, STORE_VERSION);
 
         request.onerror = fail;
-        request.onupgradeneeded = function(event) {
+        request.onupgradeneeded = onupgradeneeded;
+        request.onsuccess = onsuccess;
+
+        function onupgradeneeded() {
             self.db = request.result;
-            safeDeleteStore(self.db, self.record);
-            createObjectStoreIfMissing(self.db, self.record);
-        };
-        request.onsuccess = function(event) {
+            self.transaction = request.transaction;
+
+            try {
+                self.db.deleteObjectStore(self.record);
+            } catch (e) { /* ignore */ }
+
+            self.db.createObjectStore(self.record, {
+                autoIncrement: useAutoIncrement()
+            });
+        }
+
+        function onsuccess(event) {
             self.db = event.target.result;
             self.store = true;
 
@@ -185,186 +79,278 @@ Lawnchair.adapter('indexed-db', (function(){
             if (cb) {
                 cb.call(self, self);
             }
-        };
-
-        return this;
+        }
     },
 
-    save: function(obj, callback) {
-        var self = this;
+    save:function(obj, callback) {
+        const self = this;
 
         if (!this.store) {
-            this.waiting.push(function() { this.save(obj, callback); });
+            this.waiting.push(function() {
+                this.save(obj, callback);
+            });
             return;
         }
 
-        var items = (this.isArray(obj) ? obj : [obj]).map(function(o) {
-            if (!o.key) { o.key = self.uuid(); }
-            return o;
-        });
+        const objs = this.prepareObjectsForSave(obj);
+        const win = this.createSaveSuccessHandler(callback, obj);
 
-        performBatchOperation(this, function(store, onTransactionComplete) {
-            items.forEach(function(item) {
-                store.put(item, item.key);
-            });
-            store.transaction.oncomplete = function() {
-                onTransactionComplete();
-            };
-            store.transaction.onabort = fail;
-        }, function() {
-            if (callback) {
-                self.lambda(callback).call(self, self.isArray(obj) ? items : items[0]);
-            }
-        }, fail);
+        const trans = this.db.transaction(this.record, READ_WRITE);
+        const store = trans.objectStore(this.record);
 
+        this.putObjectsInStore(store, objs);
+
+        store.transaction.oncomplete = win;
+        store.transaction.onabort = fail;
+        
         return this;
     },
-
-    batch: function(objs, callback) {
+    
+    batch: function (objs, callback) {
         return this.save(objs, callback);
     },
+    
 
-    get: function(key, callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.get(key, callback); });
+    get:function(key, callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.get(key, callback);
+            });
             return;
         }
-
-        var resultHandler = function(event) {
-            var result = event.target.result;
-            if (callback) {
-                if (result) { result.key = self.isArray(key) ? null : key; }
-                self.lambda(callback).call(self, result);
-            }
-        };
+        
+        const self = this;
+        const win = this.createGetSuccessHandler(callback, key);
 
         if (!this.isArray(key)) {
-            executeGetOperation(this, key, resultHandler);
+            const req = this.db.transaction(this.record).objectStore(this.record).get(key);
+
+            req.onsuccess = function(event) {
+                req.onsuccess = req.onerror = null;
+                win(event);
+            };
+            req.onerror = function(event) {
+                req.onsuccess = req.onerror = null;
+                fail(event);
+            };
         } else {
-            executeBatchGetOperation(this, key, resultHandler);
+            this.batchGet(key, callback);
         }
 
         return this;
     },
 
-    exists: function(key, callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.exists(key, callback); });
+    exists:function(key, callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.exists(key, callback);
+            });
             return;
         }
 
-        var keyRange = getIndexDBKeyRange().only(key);
-        var transaction = this.db.transaction(this.record);
-        var store = transaction.objectStore(this.record);
-        var request = store.openCursor(keyRange);
+        const self = this;
+        const onlyRange = getIDBKeyRange().only(key);
+        const req = this.db.transaction(self.record).objectStore(this.record).openCursor(onlyRange);
 
-        request.onsuccess = function(event) {
-            event.target.onsuccess = null;
-            event.target.onerror = null;
-            var result = event.target.result;
-            self.lambda(callback).call(self, !!result);
+        req.onsuccess = function(event) {
+            req.onsuccess = req.onerror = null;
+            const resultExists = event.target.result !== null;
+            self.lambda(callback).call(self, resultExists);
+        };
+        req.onerror = function(event) {
+            req.onsuccess = req.onerror = null;
+            fail(event);
         };
 
-        request.onerror = fail;
-
         return this;
     },
 
-    all: function(callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.all(callback); });
-            return;
-        }
-
-        var results = [];
-        executeCursorOperation(this, 'next', function(cursor) {
-            results.push(cursor.value);
-        }, function() {
-            if (callback) {
-                self.lambda(callback).call(self, results);
-            }
-        });
-
-        return this;
-    },
-
-    keys: function(callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.keys(callback); });
-            return;
-        }
-
-        var results = [];
-        executeCursorOperation(this, 'next', function(cursor) {
-            results.push(cursor.key);
-        }, function() {
-            if (callback) {
-                self.lambda(callback).call(self, results);
-            }
-        });
-
-        return this;
-    },
-
-    remove: function(keyOrArray, callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.remove(keyOrArray, callback); });
-            return;
-        }
-
-        var keys = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
-
-        performBatchOperation(this, function(store, onTransactionComplete) {
-            keys.forEach(function(keyLike) {
-                var key = (keyLike && keyLike.key) ? keyLike.key : keyLike;
-                store['delete'](key);
+    all:function(callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.all(callback);
             });
+            return;
+        }
+        
+        const cb = this.fn(this.name, callback) || undefined;
+        const self = this;
+        const objectStore = this.db.transaction(this.record).objectStore(this.record);
+        const results = [];
 
-            store.transaction.oncomplete = onTransactionComplete;
-            store.transaction.onabort = fail;
-        }, function() {
-            if (callback) {
-                self.lambda(callback).call(self);
+        objectStore.openCursor().onsuccess = function(event) {
+            const cursor = event.target.result;
+            if (cursor) {
+                results.push(cursor.value);
+                cursor['continue']();
+            } else {
+                if (cb) cb.call(self, results);
             }
-        }, fail);
+        };
+        return this;
+    },
+
+    keys:function(callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.keys(callback);
+            });
+            return;
+        }
+        
+        const cb = this.fn(this.name, callback) || undefined;
+        const self = this;
+        const objectStore = this.db.transaction(this.record).objectStore(this.record);
+        const results = [];
+
+        objectStore.openCursor().onsuccess = function(event) {
+            const cursor = event.target.result;
+            if (cursor) {
+                results.push(cursor.key);
+                cursor['continue']();
+            } else {
+                if (cb) cb.call(self, results);
+            }
+        };
+        return this;
+    },
+
+    remove:function(keyOrArray, callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.remove(keyOrArray, callback);
+            });
+            return;
+        }
+        
+        const self = this;
+        const toDelete = this.ensureArray(keyOrArray);
+        const win = this.createDeleteSuccessHandler(callback);
+
+        const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+
+        this.deleteKeysFromStore(os, toDelete);
+
+        os.transaction.oncomplete = win;
+        os.transaction.onabort = fail;
 
         return this;
     },
 
-    nuke: function(callback) {
-        var self = this;
-
-        if (!this.store) {
-            this.waiting.push(function() { this.nuke(callback); });
+    nuke:function(callback) {
+        if(!this.store) {
+            this.waiting.push(function() {
+                this.nuke(callback);
+            });
             return;
         }
-
+        
+        const self = this;
+        const win = callback ? function() { self.lambda(callback).call(self) } : function() {};
+        
         try {
-            var trans = this.db.transaction(this.record, READ_WRITE);
-            var store = trans.objectStore(this.record);
-            store.clear();
-
-            store.transaction.oncomplete = callback ? function() { self.lambda(callback).call(self); } : function(){};
-            store.transaction.onabort = fail;
+            const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+            os.clear();
+            os.transaction.oncomplete = win;
+            os.transaction.onabort = fail;
         } catch (e) {
             if (e.name === 'NotFoundError') {
-                if (callback) { self.lambda(callback).call(self); }
+                win();
             } else {
                 fail(e);
             }
         }
-
         return this;
     }
+    
   };
+
+  //
+  // Helper functions
+  //
+
+  function fail(e, i) {
+      console.error('error in indexed-db adapter!', e, i);
+  }
+
+  function useAutoIncrement() {
+      return !!window.indexedDB;
+  }
+
+  // Extracted: Prepares objects for saving, ensuring each has a key
+  function prepareObjectsForSave(obj) {
+      return (this.isArray(obj) ? obj : [obj]).map(function(o) {
+          if(!o.key) { o.key = this.uuid(); }
+          return o;
+      }, this);
+  }
+
+  // Extracted: Returns success handler for save operations
+  function createSaveSuccessHandler(callback, originalObj) {
+      return function(e) {
+          if (callback) {
+              this.lambda(callback).call(this, this.isArray(originalObj) ? this.savedObjs : this.savedObjs[0]);
+          }
+      };
+  }
+
+  // Extracted: Puts all provided objects into the object store
+  function putObjectsInStore(store, objs) {
+      for (let i = 0; i < objs.length; i++) {
+          const o = objs[i];
+          store.put(o, o.key);
+      }
+  }
+
+  // Extracted: Handles batch key fetch operations
+  function batchGet(keys, callback) {
+      const results = [];
+      let remaining = keys.length;
+
+      const handleResult = (i) => {
+          this.get(keys[i], (obj) => {
+              results[i] = obj;
+              remaining--;
+              if (remaining === 0 && callback) {
+                  this.lambda(callback).call(this, results);
+              }
+          });
+      };
+
+      for (let i = 0; i < keys.length; i++) {
+          handleResult(i);
+      }
+  }
+
+  // Extracted: Returns success handler for get operations, handles key assignment if present
+  function createGetSuccessHandler(callback, key) {
+      return function(event) {
+          const result = event.target.result;
+          if (callback) {
+              if (result) { result.key = key; }
+              this.lambda(callback).call(this, result);
+          }
+      };
+  }
+
+  // Extracted: Converts single key or object into an array
+  function ensureArray(keyOrArray) {
+      return this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
+  }
+
+  // Extracted: Returns success handler for delete operations
+  function createDeleteSuccessHandler(callback) {
+      return function() {
+          if (callback) { this.lambda(callback).call(this); }
+      };
+  }
+
+  // Extracted: Deletes keys from the object store
+  function deleteKeysFromStore(os, toDelete) {
+      for (let i = 0; i < toDelete.length; i++) {
+          const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
+          os['delete'](key);
+      }
+  }
+
 })());

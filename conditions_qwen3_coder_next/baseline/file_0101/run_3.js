@@ -59,9 +59,9 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    var self = this,
-        userId = options.userId,
-        overridePermission = options.overridePermission;
+    const self = this;
+    const userId = options.userId;
+    const overridePermission = options.overridePermission;
 
     // get the public key corresponding to the userId
     return self.getReceiverPublicKey(userId).then(function(localKey) {
@@ -144,7 +144,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
  * @param userId [String] the receiver's email address
  */
 Keychain.prototype.getReceiverPublicKey = function(userId) {
-    var self = this;
+    const self = this;
 
     // search local keyring for public key
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
@@ -206,7 +206,7 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
  * return [Object] The user's key pair {publicKey, privateKey}
  */
 Keychain.prototype.getUserKeyPair = function(userId) {
-    var self = this;
+    const self = this;
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
@@ -266,7 +266,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
  * @param [Object] The user's key pair {publicKey, privateKey}
  */
 Keychain.prototype.putUserKeyPair = function(keypair) {
-    var self = this;
+    const self = this;
 
     // validate input
     if (!keypair || !keypair.publicKey || !keypair.privateKey || !keypair.publicKey.userId || keypair.publicKey.userId !== keypair.privateKey.userId) {
@@ -311,8 +311,8 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 //
 
 Keychain.prototype.lookupPublicKey = function(id) {
-    var self = this,
-        cloudPubkey;
+    const self = this;
+    let cloudPubkey;
 
     if (!id) {
         return new Promise(function() {

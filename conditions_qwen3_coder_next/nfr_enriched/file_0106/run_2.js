@@ -4,29 +4,29 @@
  * Module dependencies.
  */
 
-const EventEmitter = require('events').EventEmitter;
-const Pending = require('./pending');
-const debug = require('debug')('mocha:runnable');
-const milliseconds = require('./ms');
-const utils = require('./utils');
+var EventEmitter = require('events').EventEmitter;
+var Pending = require('./pending');
+var debug = require('debug')('mocha:runnable');
+var milliseconds = require('./ms');
+var utils = require('./utils');
 
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
 
 /* eslint-disable no-unused-vars, no-native-reassign */
-const Date = global.Date;
-const setTimeout = global.setTimeout;
-const setInterval = global.setInterval;
-const clearTimeout = global.clearTimeout;
-const clearInterval = global.clearInterval;
+var Date = global.Date;
+var setTimeout = global.setTimeout;
+var setInterval = global.setInterval;
+var clearTimeout = global.clearTimeout;
+var clearInterval = global.clearInterval;
 /* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
  * Object#toString().
  */
 
-const toString = Object.prototype.toString;
+var toString = Object.prototype.toString;
 
 /**
  * Expose `Runnable`.
@@ -40,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -73,28 +75,19 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
-  this._applyTimeoutConfig(ms);
-  debug('timeout %d', ms);
-  this._timeout = ms;
-  if (this.timer) {
-    this.resetTimeout();
-  }
-  return this;
-};
-
-/**
- * Apply timeout configuration logic.
- *
- * @api private
- * @param {number|string} ms
- */
-Runnable.prototype._applyTimeoutConfig = function (ms) {
+  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
   if (typeof ms === 'string') {
     ms = milliseconds(ms);
   }
+  debug('timeout %d', ms);
+  this._timeout = ms;
+  if (this.timer) {
+    this.resetTimeout();
+  }
+  return this;
 };
 
 /**
@@ -111,7 +104,7 @@ Runnable.prototype.slow = function (ms) {
   if (typeof ms === 'string') {
     ms = milliseconds(ms);
   }
-  debug('slow %d', ms);
+  debug('timeout %d', ms);
   this._slow = ms;
   return this;
 };
@@ -211,17 +204,7 @@ Runnable.prototype.clearTimeout = function () {
  * @return {string}
  */
 Runnable.prototype.inspect = function () {
-  return JSON.stringify(this, this._getInspectReplacer(), 2);
-};
-
-/**
- * Get replacer function for inspect serialization.
- *
- * @api private
- * @return {Function}
- */
-Runnable.prototype._getInspectReplacer = function () {
-  return function (key, val) {
+  return JSON.stringify(this, function (key, val) {
     if (key[0] === '_') {
       return;
     }
@@ -232,7 +215,7 @@ Runnable.prototype._getInspectReplacer = function () {
       return '#<Context>';
     }
     return val;
-  };
+  }, 2);
 };
 
 /**
@@ -241,8 +224,8 @@ Runnable.prototype._getInspectReplacer = function () {
  * @api private
  */
 Runnable.prototype.resetTimeout = function () {
-  const self = this;
-  const ms = this.timeout() || 1e9;
+  var self = this;
+  var ms = this.timeout() || 1e9;
 
   if (!this._enableTimeouts) {
     return;
@@ -278,18 +261,18 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
-  const self = this;
-  const start = new Date();
-  const ctx = this.ctx;
-  let finished = false;
-  let emitted = false;
+  var self = this;
+  var start = new Date();
+  var ctx = this.ctx;
+  var finished;
+  var emitted;
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  // Handle multiple error emissions
+  // Handle multiple calls to done()
   function multiple (err) {
     if (emitted) {
       return;
@@ -298,9 +281,9 @@ Runnable.prototype.run = function (fn) {
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   }
 
-  // Final callback handler
+  // Finalize test execution
   function done (err) {
-    const ms = self.timeout();
+    var ms = self.timeout();
     if (self.timedOut) {
       return;
     }
@@ -321,19 +304,21 @@ Runnable.prototype.run = function (fn) {
   // for .resetTimeout()
   this.callback = done;
 
-  // Explicit async with `done` argument
+  // explicit async with `done` argument
   if (this.async) {
     this.resetTimeout();
 
     // allows skip() to be used in an explicit async context
     this.skip = function asyncSkip () {
       done(new Pending('async skip call'));
+      // halt execution.  the Runnable will be marked pending
+      // by the previous call, and the uncaught handler will ignore
+      // the failure.
       throw new Pending('async skip; aborting execution');
     };
 
     if (this.allowUncaught) {
-      callFnAsync(this.fn);
-      return;
+      return callFnAsync(this.fn);
     }
     try {
       callFnAsync(this.fn);
@@ -365,18 +350,15 @@ Runnable.prototype.run = function (fn) {
     done(utils.getError(err));
   }
 
-  /**
-   * Execute synchronous or promise-returning function.
-   *
-   * @param {Function} fn
-   */
   function callFn (fn) {
-    const result = fn.call(ctx);
+    var result = fn.call(ctx);
     if (result && typeof result.then === 'function') {
       self.resetTimeout();
       result
         .then(function () {
           done();
+          // Return null so libraries like bluebird do not warn about
+          // subsequently constructed Promises.
           return null;
         },
         function (reason) {
@@ -391,13 +373,8 @@ Runnable.prototype.run = function (fn) {
     }
   }
 
-  /**
-   * Execute async function with done callback.
-   *
-   * @param {Function} fn
-   */
   function callFnAsync (fn) {
-    const result = fn.call(ctx, function (err) {
+    var result = fn.call(ctx, function (err) {
       if (err instanceof Error || toString.call(err) === '[object Error]') {
         return done(err);
       }

@@ -185,13 +185,13 @@ Runner.prototype.checkGlobals = function (test) {
   if (this.ignoreLeaks) {
     return;
   }
-  const ok = this._globals;
+  let ok = this._globals;
 
   const globals = this.globalProps();
   let leaks;
 
   if (test) {
-    ok.push(...(test._allowedGlobals || []));
+    ok = ok.concat(test._allowedGlobals || []);
   }
 
   if (this.prevGlobalsLength === globals.length) {
@@ -709,7 +709,7 @@ Runner.prototype.uncaught = function (err) {
   const runnable = this.currentRunnable;
 
   if (!runnable) {
-    runnable = new Runnable('Uncaught error outside test suite');
+    const runnable = new Runnable('Uncaught error outside test suite');
     runnable.parent = this.suite;
 
     if (this.started) {

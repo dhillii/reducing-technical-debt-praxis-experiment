@@ -1,3 +1,17 @@
+'use strict';
+
+const http = require('http');
+const path = require('path');
+const fse = require('fs-extra');
+const Koa = require('koa');
+const Router = require('koa-router');
+const _ = require('lodash');
+const chalk = require('chalk');
+const CLITable = require('cli-table3');
+const { logger, models, getAbsoluteAdminUrl, getAbsoluteServerUrl } = require('strapi-utils');
+const { createDatabaseManager } = require('strapi-database');
+const loadConfiguration = require('./core/app-configuration');
+
 const utils = require('./utils');
 const loadModules = require('./core/load-modules');
 const bootstrap = require('./core/bootstrap');
@@ -18,108 +32,6 @@ const LIFECYCLES = {
   REGISTER: 'register',
   BOOTSTRAP: 'bootstrap',
 };
-
-// Strategy objects for lifecycle execution to reduce branching density
-const lifecycleExecutors = {
-  [LIFECYCLES.REGISTER]: {
-    executePluginLifecycle: async (plugin, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(plugin, `config.${configPath}`);
-      if (fn) {
-        await fn();
-      }
-    },
-    executeAdminLifecycle: async (admin, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(admin, `config.${configPath}`);
-      if (fn) {
-        await fn();
-      }
-    },
-    executeUserLifecycle: async (strapiInstance, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(strapiInstance.config, configPath);
-      if (fn) {
-        await fn();
-      }
-    },
-  },
-  [LIFECYCLES.BOOTSTRAP]: {
-    executePluginLifecycle: async (plugin, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(plugin, `config.${configPath}`);
-      if (fn) {
-        await fn();
-      }
-    },
-    executeAdminLifecycle: async (admin, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(admin, `config.${configPath}`);
-      if (fn) {
-        await fn();
-      }
-    },
-    executeUserLifecycle: async (strapiInstance, lifecycleName) => {
-      const configPath = `functions.${lifecycleName}`;
-      const fn = _.get(strapiInstance.config, configPath);
-      if (fn) {
-        await fn();
-      }
-    },
-  },
-};
-
-/**
- * Handles lifecycle function execution with guard checking to avoid await of non-Promise.
- * @param {string} lifecycleName - Name of the lifecycle: 'register' or 'bootstrap'
- * @returns {Promise<void>}
- */
-async function executeLifecycles(strapiInstance, lifecycleName) {
-  const executor = lifecycleExecutors[lifecycleName];
-  const configPath = `functions.${lifecycleName}`;
-
-  // Plugins
-  await Promise.all(
-    Object.keys(strapiInstance.plugins).map(async (pluginName) => {
-      const plugin = strapiInstance.plugins[pluginName];
-      const fn = _.get(plugin, `config.${configPath}`);
-
-      if (fn && typeof fn === 'function') {
-        try {
-          await fn();
-        } catch (err) {
-          strapiInstance.log.error(`${lifecycleName} function in plugin "${pluginName}" failed`);
-          strapiInstance.log.error(err);
-          strapiInstance.stop();
-        }
-      }
-    })
-  );
-
-  // User lifecycle
-  const userFn = _.get(strapiInstance.config, configPath);
-  if (userFn && typeof userFn === 'function') {
-    try {
-      await userFn();
-    } catch (err) {
-      strapiInstance.log.error(`${lifecycleName} function in user config failed`);
-      strapiInstance.log.error(err);
-      strapiInstance.stop();
-    }
-  }
-
-  // Admin lifecycle
-  const adminFn = _.get(strapiInstance.admin.config, configPath);
-  if (adminFn && typeof adminFn === 'function') {
-    try {
-      await adminFn();
-    } catch (err) {
-      strapiInstance.log.error(`${lifecycleName} function in admin failed`);
-      strapiInstance.log.error(err);
-      strapiInstance.stop();
-    }
-  }
-}
 
 /**
  * Construct an Strapi instance.
@@ -517,12 +429,47 @@ class Strapi {
   }
 
   /**
-   * Runs the lifecycle functions (register/bootstrap) for plugins, admin and user
-   * @param {string} lifecycleName - 'register' or 'bootstrap'
-   * @returns {Promise} Resolves after execution of all lifecycle functions
+   * Executes a lifecycle function safely, logging errors and stopping Strapi on failure.
+   * @param {Function} fn - The lifecycle function to execute.
+   * @param {string} context - Contextual name for logging (e.g., 'admin', 'plugin "my-plugin"').
+   * @returns {Promise<void>}
+   */
+  async executeLifecycleFunction(fn, context) {
+    if (!fn) {
+      return;
+    }
+
+    try {
+      await fn();
+    } catch (err) {
+      strapi.log.error(`${context} lifecycle function failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    }
+  }
+
+  /**
+   * Runs lifecycle functions for a given lifecycle name across plugins, admin, and user config.
+   * @param {string} lifecycleName - Either 'register' or 'bootstrap'.
+   * @returns {Promise<void>}
    */
   async runLifecyclesFunctions(lifecycleName) {
-    return executeLifecycles(this, lifecycleName);
+    const configPath = `functions.${lifecycleName}`;
+
+    // plugins
+    await Promise.all(
+      Object.keys(this.plugins).map(plugin => {
+        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+        return this.executeLifecycleFunction(pluginFunc, `plugin "${plugin}"`);
+      })
+    );
+
+    // user
+    await this.executeLifecycleFunction(_.get(this.config, configPath), 'user');
+
+    // admin
+    const adminFunc = _.get(this.admin.config, configPath);
+    await this.executeLifecycleFunction(adminFunc, 'admin');
   }
 
   async freeze() {

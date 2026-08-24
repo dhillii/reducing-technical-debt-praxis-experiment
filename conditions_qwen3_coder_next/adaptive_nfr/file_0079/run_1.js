@@ -16,11 +16,13 @@ const Schema = require('./schema');
 const internals = {};
 
 
-exports = module.exports = internals.Plugin = function (server, connections, env, parent) {
+exports = module.exports = internals.Plugin = function (server, connections, env, parent) {         // env can be a realm or plugin name
 
     Podium.call(this, [connections && connections.length ? connections : Connection._events, server._events]);
 
     this._parent = parent;
+
+    // Public interface
 
     this.root = server;
     this.app = this.root._app;
@@ -63,7 +65,14 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     this.cache = internals.cache(this);
     this._single();
-    this._applyDecorations();
+
+    // Decorations
+
+    const methods = Object.keys(this.root._decorations);
+    for (let i = 0; i < methods.length; ++i) {
+        const method = methods[i];
+        this[method] = this.root._decorations[method];
+    }
 };
 
 Hoek.inherits(internals.Plugin, Podium);
@@ -105,7 +114,8 @@ internals.Plugin.prototype._select = function (labels, plugin) {
     let connections = this.connections;
 
     if (labels &&
-        labels.length) {
+        labels.length) {            // Captures both empty arrays and empty strings
+
         Hoek.assert(this.connections, 'Cannot select inside a connectionless plugin');
 
         connections = [];
@@ -123,25 +133,15 @@ internals.Plugin.prototype._select = function (labels, plugin) {
         }
     }
 
-    const env = (plugin !== undefined ? plugin : this.realm);
+    const env = (plugin !== undefined ? plugin : this.realm);                     // Allow empty string
     return new internals.Plugin(this.root, connections, env, this);
 };
 
 
 internals.Plugin.prototype._clone = function (connections, plugin) {
 
-    const env = (plugin !== undefined ? plugin : this.realm);
+    const env = (plugin !== undefined ? plugin : this.realm);                     // Allow empty string
     return new internals.Plugin(this.root, connections, env, this);
-};
-
-
-internals.Plugin.prototype._applyDecorations = function () {
-
-    const methods = Object.keys(this.root._decorations);
-    for (let i = 0; i < methods.length; ++i) {
-        const method = methods[i];
-        this[method] = this.root._decorations[method];
-    }
 };
 
 
@@ -166,37 +166,21 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     options = Schema.apply('register', options);
 
-    const registrations = this._normalizeRegistrations(plugins);
-    this.root._registring = true;
-
-    const each = (item, next) => this._processRegistration(item, next);
-
-    Items.serial(registrations, each, (err) => {
-
-        this.root._registring = false;
-        return Hoek.nextTick(callback)(err);
-    });
-};
-
-
-internals.Plugin.prototype._normalizeRegistrations = function (plugins) {
-
     const registrations = [];
     plugins = [].concat(plugins);
-
     for (let i = 0; i < plugins.length; ++i) {
         let plugin = plugins[i];
 
         if (typeof plugin === 'function') {
-            if (!plugin.register) {
+            if (!plugin.register) {                                 // plugin is register() function
                 plugin = { register: plugin };
             }
             else {
-                plugin = Hoek.shallow(plugin);
+                plugin = Hoek.shallow(plugin);                      // Convert function to object
             }
         }
 
-        if (plugin.register.register) {
+        if (plugin.register.register) {                             // Required plugin
             plugin.register = plugin.register.register;
         }
 
@@ -225,114 +209,97 @@ internals.Plugin.prototype._normalizeRegistrations = function (plugins) {
         registrations.push(registration);
     }
 
-    return registrations;
-};
+    this.root._registring = true;
 
+    const each = (item, next) => {
 
-internals.Plugin.prototype._processRegistration = function (item, next) {
+        const selection = this._select(item.options.select, item.name);
+        selection.realm.modifiers.route.prefix = item.options.routes.prefix;
+        selection.realm.modifiers.route.vhost = item.options.routes.vhost;
+        selection.realm.pluginOptions = item.pluginOptions || {};
 
-    const selection = this._select(item.options.select, item.name);
-    selection.realm.modifiers.route.prefix = item.options.routes.prefix;
-    selection.realm.modifiers.route.vhost = item.options.routes.vhost;
-    selection.realm.pluginOptions = item.pluginOptions || {};
+        const registrationData = {
+            version: item.version,
+            name: item.name,
+            options: item.pluginOptions,
+            attributes: item.register.attributes
+        };
 
-    const registrationData = {
-        version: item.version,
-        name: item.name,
-        options: item.pluginOptions,
-        attributes: item.register.attributes
+        // Validate requirements
+
+        const requirements = item.requirements;
+        Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
+        Hoek.assert(!requirements.hapi || Somever.match(this.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', this.version);
+
+        // Protect against multiple registrations
+
+        const connectionless = this._isConnectionless(item, selection);
+        if (connectionless) {
+            if (this.root._registrations[item.name]) {
+                if (item.options.once) {
+                    return next();
+                }
+
+                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+            }
+            else {
+                this.root._registrations[item.name] = registrationData;
+            }
+        }
+
+        const connections = [];
+        if (selection.connections) {
+            for (let i = 0; i < selection.connections.length; ++i) {
+                const connection = selection.connections[i];
+                if (connection.registrations[item.name]) {
+                    if (item.options.once) {
+                        continue;
+                    }
+
+                    Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+                }
+                else {
+                    connection.registrations[item.name] = registrationData;
+                }
+
+                connections.push(connection);
+            }
+
+            if (item.options.once &&
+                !connectionless &&
+                !connections.length) {
+
+                return next();                                              // All the connections already registered
+            }
+        }
+
+        selection.connections = (connectionless ? null : connections);
+        selection._single();
+
+        if (item.dependencies) {
+            selection.dependency(item.dependencies);
+        }
+
+        if (connectionless) {
+            selection.connection = this.root.connection;
+        }
+
+        // Register
+
+        item.register(selection, item.pluginOptions || {}, next);
     };
 
-    this._validateRequirements(item, registrationData);
+    Items.serial(registrations, each, (err) => {
 
-    if (!this._handleConnectionlessRegistration(item, registrationData)) {
-        return next();
-    }
-
-    const connections = this._filterAndProcessConnections(item, registrationData);
-    if (this._shouldSkipConnectionRegistration(item, connections)) {
-        return next();
-    }
-
-    selection.connections = (connections.length ? connections : null);
-    selection._single();
-
-    if (item.dependencies) {
-        selection.dependency(item.dependencies);
-    }
-
-    if (!connections.length) {
-        selection.connection = this.root.connection;
-    }
-
-    item.register(selection, item.pluginOptions || {}, next);
+        this.root._registring = false;
+        return Hoek.nextTick(callback)(err);
+    });
 };
 
+// Extracted predicate to reduce cognitive complexity
+internals.Plugin.prototype._isConnectionless = function (item, selection) {
 
-internals.Plugin.prototype._validateRequirements = function (item, registrationData) {
-
-    const requirements = item.requirements;
-    Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-    Hoek.assert(!requirements.hapi || Somever.match(this.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', this.version);
-};
-
-
-internals.Plugin.prototype._handleConnectionlessRegistration = function (item, registrationData) {
-
-    const connectionless = (item.connections === 'conditional' ? this._connectionCount(item.options.select, item.name) === 0 : !item.connections);
-    if (connectionless) {
-        if (this.root._registrations[item.name]) {
-            if (item.options.once) {
-                return false;
-            }
-
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
-        }
-        else {
-            this.root._registrations[item.name] = registrationData;
-        }
-    }
-
-    return true;
-};
-
-
-internals.Plugin.prototype._connectionCount = function (select, name) {
-
-    const selection = this._select(select, name);
-    return selection.connections ? selection.connections.length : 0;
-};
-
-
-internals.Plugin.prototype._filterAndProcessConnections = function (item, registrationData) {
-
-    const connections = [];
-    for (let i = 0; i < this.connections.length; ++i) {
-        const connection = this.connections[i];
-        if (connection.registrations[item.name]) {
-            if (item.options.once) {
-                continue;
-            }
-
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
-        }
-        else {
-            connection.registrations[item.name] = registrationData;
-        }
-
-        connections.push(connection);
-    }
-
-    return connections;
-};
-
-
-internals.Plugin.prototype._shouldSkipConnectionRegistration = function (item, connections) {
-
-    return item.options.once &&
-        item.connections !== 'conditional' &&
-        item.connections !== false &&
-        !connections.length;
+    return (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
 };
 
 
@@ -426,6 +393,8 @@ internals.Plugin.prototype.dependency = function (dependencies, after) {
     Hoek.assert(this.realm.plugin, 'Cannot call dependency() outside of a plugin');
     Hoek.assert(!after || typeof after === 'function', 'Invalid after method');
 
+    // Normalize to { plugin: version }
+
     if (typeof dependencies === 'string') {
         dependencies = { [dependencies]: '*' };
     }
@@ -480,7 +449,7 @@ internals.Plugin.prototype.expose = function (key, value) {
 };
 
 
-internals.Plugin.prototype.ext = function (events) {
+internals.Plugin.prototype.ext = function (events) {        // (event, method, options) -OR- (events)
 
     if (typeof events === 'string') {
         events = { type: arguments[0], method: arguments[1], options: arguments[2] };
@@ -501,13 +470,20 @@ internals.Plugin.prototype._ext = function (event) {
     const type = event.type;
 
     if (!this.root._extensions[type]) {
+
+        // Realm route extensions
+
         if (event.options.sandbox === 'plugin') {
             Hoek.assert(this.realm._extensions[type], 'Unknown event type', type);
             return this.realm._extensions[type].add(event);
         }
 
+        // Connection route extensions
+
         return this._apply('ext', Connection.prototype._ext, [event]);
     }
+
+    // Server extensions
 
     Hoek.assert(!event.options.sandbox, 'Cannot specify sandbox option for server extension');
     Hoek.assert(type !== 'onPreStart' || this.root._state === 'stopped', 'Cannot add onPreStart (after) extension after the server was initialized');

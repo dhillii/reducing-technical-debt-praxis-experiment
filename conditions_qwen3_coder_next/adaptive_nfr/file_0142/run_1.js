@@ -111,25 +111,26 @@ module.exports = function(yargs, argv, convertOptions) {
 		configFileLoaded = true;
 	}
 
-	return processConfiguredOptions(configFileLoaded ? (options.length === 1 ? options[0] : options) : {});
+	if(!configFileLoaded) {
+		return processConfiguredOptions({});
+	} else if(options.length === 1) {
+		return processConfiguredOptions(options[0]);
+	} else {
+		return processConfiguredOptions(options);
+	}
 
-	/**
-	 * Processes the configured options (single object or array of objects)
-	 * @param {Object|Array} options - The configuration object(s) to process
-	 * @returns {Object|Array} The processed configuration object(s)
-	 */
 	function processConfiguredOptions(options) {
 		if(options === null || typeof options !== "object") {
 			console.error("Config did not export an object or a function returning an object.");
 			process.exit(-1); // eslint-disable-line
 		}
 
-		// Process Promise
+		// process Promise
 		if(typeof options.then === "function") {
 			return options.then(processConfiguredOptions);
 		}
 
-		// Process ES6 default export
+		// process ES6 default
 		if(typeof options === "object" && typeof options.default === "object") {
 			return processConfiguredOptions(options.default);
 		}
@@ -158,11 +159,10 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		if(argv["watch-poll"]) {
 			options.watchOptions = options.watchOptions || {};
-			if(typeof argv["watch-poll"] !== "boolean") {
+			if(typeof argv["watch-poll"] !== "boolean")
 				options.watchOptions.poll = +argv["watch-poll"];
-			} else {
+			else
 				options.watchOptions.poll = true;
-			}
 		}
 
 		if(argv["watch-stdin"]) {
@@ -174,63 +174,40 @@ module.exports = function(yargs, argv, convertOptions) {
 		return options;
 	}
 
-	/**
-	 * Processes individual configuration options
-	 * @param {Object} options - The configuration object to process
-	 */
 	function processOptions(options) {
 		var noOutputFilenameDefined = !options.output || !options.output.filename;
 
-		/**
-		 * Executes callback for each value in an array or single value if defined
-		 * @param {string} name - The argument name
-		 * @param {Function} fn - The callback function to execute for each value
-		 * @param {Function} [init] - Optional initialization function
-		 * @param {Function} [finalize] - Optional finalization function
-		 */
 		function ifArg(name, fn, init, finalize) {
-			if(!Array.isArray(argv[name]) && (typeof argv[name] === "undefined" || argv[name] === null)) {
-				return;
-			}
-
-			if(init) {
-				init();
-			}
-
 			if(Array.isArray(argv[name])) {
+				if(init) {
+					init();
+				}
 				argv[name].forEach(fn);
-			} else {
+				if(finalize) {
+					finalize();
+				}
+			} else if(typeof argv[name] !== "undefined" && argv[name] !== null) {
+				if(init) {
+					init();
+				}
 				fn(argv[name], -1);
-			}
-
-			if(finalize) {
-				finalize();
+				if(finalize) {
+					finalize();
+				}
 			}
 		}
 
-		/**
-		 * Handles argument pairs of the form "name=value"
-		 * @param {string} name - The argument name
-		 * @param {Function} fn - Callback with (name, value, idx) parameters
-		 * @param {Function} [init] - Optional initialization function
-		 * @param {Function} [finalize] - Optional finalization function
-		 */
 		function ifArgPair(name, fn, init, finalize) {
 			ifArg(name, function(content, idx) {
 				var i = content.indexOf("=");
 				if(i < 0) {
-					fn(null, content, idx);
+					return fn(null, content, idx);
 				} else {
-					fn(content.substr(0, i), content.substr(i + 1), idx);
+					return fn(content.substr(0, i), content.substr(i + 1), idx);
 				}
 			}, init, finalize);
 		}
 
-		/**
-		 * Executes callback when argument is truthy (boolean flag)
-		 * @param {string} name - The argument name
-		 * @param {Function} fn - The callback function
-		 */
 		function ifBooleanArg(name, fn) {
 			ifArg(name, function(bool) {
 				if(bool) {
@@ -239,26 +216,15 @@ module.exports = function(yargs, argv, convertOptions) {
 			});
 		}
 
-		/**
-		 * Maps argument value to boolean on configuration object
-		 * @param {string} name - The argument name
-		 * @param {string} [optionName] - The target option name
-		 */
 		function mapArgToBoolean(name, optionName) {
 			ifArg(name, function(bool) {
-				if(bool === true) {
+				if(bool === true)
 					options[optionName || name] = true;
-				} else if(bool === false) {
+				else if(bool === false)
 					options[optionName || name] = false;
-				}
 			});
 		}
 
-		/**
-		 * Loads a plugin by name and instantiates it
-		 * @param {string} name - The plugin name
-		 * @returns {Object} The instantiated plugin
-		 */
 		function loadPlugin(name) {
 			var loadUtils = require("loader-utils");
 			var args;
@@ -296,29 +262,18 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 		}
 
-		/**
-		 * Ensures a property exists and is an object
-		 * @param {Object} parent - The parent object
-		 * @param {string} name - The property name
-		 */
 		function ensureObject(parent, name) {
 			if(typeof parent[name] !== "object" || parent[name] === null) {
 				parent[name] = {};
 			}
 		}
 
-		/**
-		 * Ensures a property exists and is an array
-		 * @param {Object} parent - The parent object
-		 * @param {string} name - The property name
-		 */
 		function ensureArray(parent, name) {
 			if(!Array.isArray(parent[name])) {
 				parent[name] = [];
 			}
 		}
 
-		// Process entry argument
 		ifArgPair("entry", function(name, entry) {
 			if(typeof options.entry[name] !== "undefined" && options.entry[name] !== null) {
 				options.entry[name] = [].concat(options.entry[name]).concat(entry);
@@ -329,11 +284,6 @@ module.exports = function(yargs, argv, convertOptions) {
 			ensureObject(options, "entry");
 		});
 
-		/**
-		 * Binds loaders to the configuration
-		 * @param {string} arg - The argument name (e.g., "module-bind")
-		 * @param {string} collection - The loader collection (e.g., "loaders")
-		 */
 		function bindLoaders(arg, collection) {
 			ifArgPair(arg, function(name, binding) {
 				if(name === null) {
@@ -450,11 +400,6 @@ module.exports = function(yargs, argv, convertOptions) {
 			options.devtool = value;
 		});
 
-		/**
-		 * Processes resolve aliases
-		 * @param {string} arg - The argument name
-		 * @param {string} key - The configuration key (resolve or resolveLoader)
-		 */
 		function processResolveAlias(arg, key) {
 			ifArgPair(arg, function(name, value) {
 				if(!name) {
@@ -561,12 +506,7 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 			ensureObject(options, "entry");
 
-			/**
-			 * Adds entry to the configuration
-			 * @param {string} name - The entry name
-			 * @param {string} entry - The entry value
-			 */
-			function addTo(name, entry) {
+			var addTo = function addTo(name, entry) {
 				if(options.entry[name]) {
 					if(!Array.isArray(options.entry[name])) {
 						options.entry[name] = [options.entry[name]];
@@ -575,7 +515,7 @@ module.exports = function(yargs, argv, convertOptions) {
 				} else {
 					options.entry[name] = entry;
 				}
-			}
+			};
 			argv._.forEach(function(content) {
 				var i = content.indexOf("=");
 				var j = content.indexOf("?");

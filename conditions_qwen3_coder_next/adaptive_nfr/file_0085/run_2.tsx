@@ -1,70 +1,88 @@
+// @ts-expect-error
+import dumbPasswords from 'dumb-passwords'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useSlotId } from '@react-aria/utils'
+
+import { ActionButton, ToggleButton } from '@keystar/ui/button'
+import { Checkbox } from '@keystar/ui/checkbox'
+import { FieldLabel, FieldMessage } from '@keystar/ui/field'
+import { Icon } from '@keystar/ui/icon'
+import { eyeIcon } from '@keystar/ui/icon/icons/eyeIcon'
+import { asteriskIcon } from '@keystar/ui/icon/icons/asteriskIcon'
+import { Flex, VStack } from '@keystar/ui/layout'
+import { containerQueries, css } from '@keystar/ui/style'
+import { TextField } from '@keystar/ui/text-field'
+import { Text, VisuallyHidden } from '@keystar/ui/typography'
+
+import type {
+  CellComponent,
+  FieldController,
+  FieldControllerConfig,
+  FieldProps,
+} from '../../../../types'
+
 function validate(
-  value,
-  validation,
-  isRequired,
-  fieldLabel
-) {
-  if (isInitialAndNotModified(value)) return undefined
-  if (isInitialAndRequiredButNotSet(value, isRequired)) return `${fieldLabel} is required`
-  if (hasMismatchInEditingMode(value)) return `The passwords do not match`
-  return validateEditingValue(value, validation, fieldLabel)
+  value: Value,
+  validation: Validation,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (value.kind === 'initial' && (value.isSet === null || value.isSet === true)) {
+    return undefined
+  }
+  if (isInitialFieldAndRequired(value, isRequired, fieldLabel)) {
+    return `${fieldLabel} is required`
+  }
+  if (isEditingPasswordsMismatch(value)) {
+    return `The passwords do not match`
+  }
+  if (value.kind === 'editing') {
+    return validateEditingPassword(value.value, validation, fieldLabel)
+  }
+  return undefined
 }
 
-function isInitialAndNotModified(value) {
-  return value.kind === 'initial' && (value.isSet === null || value.isSet === true)
+/**
+ * Checks if the field is in initial state with required constraint and no value.
+ */
+function isInitialFieldAndRequired(value: Value, isRequired: boolean, fieldLabel: string): boolean {
+  return value.kind === 'initial' && isRequired && value.isSet !== true
 }
 
-function isInitialAndRequiredButNotSet(value, isRequired) {
-  return value.kind === 'initial' && isRequired
-}
-
-function hasMismatchInEditingMode(value) {
+/**
+ * Validates that both passwords match in editing state.
+ */
+function isEditingPasswordsMismatch(value: Value): boolean {
   return value.kind === 'editing' && value.confirm !== value.value
 }
 
-function validateEditingValue(value, validation, fieldLabel) {
-  if (value.kind !== 'editing') return undefined
-  
-  const val = value.value
-  const lengthErrors = validateLength(val, validation.length, fieldLabel)
-  if (lengthErrors) return lengthErrors
-  
-  const matchErrors = validateMatch(val, validation.match, fieldLabel)
-  if (matchErrors) return matchErrors
-  
-  const rejectionErrors = validateCommonRejection(val, validation.rejectCommon, fieldLabel)
-  if (rejectionErrors) return rejectionErrors
-  
-  return undefined
-}
-
-function validateLength(val, length, fieldLabel) {
-  if (val.length < length.min) {
-    return length.min === 1 
-      ? `${fieldLabel} must not be empty` 
-      : `${fieldLabel} must be at least ${length.min} characters long`
+/**
+ * Validates password constraints for editing state values.
+ */
+function validateEditingPassword(
+  val: string,
+  validation: Validation,
+  fieldLabel: string
+): string | undefined {
+  if (val.length < validation.length.min) {
+    if (validation.length.min === 1) {
+      return `${fieldLabel} must not be empty`
+    }
+    return `${fieldLabel} must be at least ${validation.length.min} characters long`
   }
-  if (length.max !== null && val.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
+  if (validation.length.max !== null && val.length > validation.length.max) {
+    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
   }
-  return undefined
-}
-
-function validateMatch(val, match, fieldLabel) {
-  if (match && !match.regex.test(val)) {
-    return match.explanation
+  if (validation.match && !validation.match.regex.test(val)) {
+    return validation.match.explanation
   }
-  return undefined
-}
-
-function validateCommonRejection(val, rejectCommon, fieldLabel) {
-  if (rejectCommon && dumbPasswords.check(val)) {
+  if (validation.rejectCommon && dumbPasswords.check(val)) {
     return `${fieldLabel} is too common and is not allowed`
   }
   return undefined
 }
 
-function readonlyCheckboxProps(isSet) {
+function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   const isIndeterminate = isSet == null
   const isSelected = isSet == null ? undefined : isSet
   return {
@@ -72,16 +90,16 @@ function readonlyCheckboxProps(isSet) {
     isIndeterminate,
     isReadOnly: true,
     isSelected,
-    prominence: 'low',
+    prominence: 'low' as const,
   }
 }
 
-export function Field(props) {
+export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value } = props
 
   const [secureTextEntry, setSecureTextEntry] = useState(true)
   const [touched, setTouched] = useState({ value: false, confirm: false })
-  const triggerRef = useRef(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const isReadOnly = onChange == null
   const validationMessage =
@@ -99,13 +117,14 @@ export function Field(props) {
       triggerRef.current?.focus()
     }, 0)
   }
-  const onEscape = (e) => {
+  const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {
       cancelEditing()
     }
   }
 
+  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })
@@ -161,6 +180,7 @@ export function Field(props) {
             autoFocus
             aria-label={`new ${field.label}`}
             aria-describedby={[descriptionId, messageId].filter(Boolean).join(' ')}
+            // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, value: true })}
             onChange={text => onChange({ ...value, value: text })}
@@ -172,7 +192,8 @@ export function Field(props) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
+            // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
             onChange={text => onChange({ ...value, confirm: text })}
@@ -209,7 +230,7 @@ export function Field(props) {
   )
 }
 
-export const Cell = ({ value }) => {
+export const Cell: CellComponent<typeof controller> = ({ value }) => {
   return value !== null ? (
     <div aria-label="is set" style={{ display: 'flex' }}>
       <Icon src={asteriskIcon} size="small" />
@@ -260,8 +281,14 @@ type Value =
       confirm: string
     }
 
-export function controller(config) {
-  const validation = {
+export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
+  Value,
+  boolean | null,
+  { isSet?: boolean | null | undefined }
+> & {
+  validation: Validation
+} {
+  const validation: Validation = {
     ...config.fieldMeta.validation,
     match:
       config.fieldMeta.validation.match === null

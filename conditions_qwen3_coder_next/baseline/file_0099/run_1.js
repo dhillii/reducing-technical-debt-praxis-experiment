@@ -57,8 +57,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     }
 
     function reportBug() {
-        var dump = '';
-        var appender = {
+        let dump = '';
+        const appender = {
             log: function(level, date, component, log) {
                 // add a tag for the log level
                 if (level === axe.DEBUG) {
@@ -100,7 +100,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     }
 
     function fillFields(re, replyAll, forward) {
-        var replyTo, from, sentDate, body;
+        let replyTo, from, sentDate, body;
 
         if (!re) {
             return;
@@ -128,7 +128,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         }
         if (replyAll) {
             re.to.concat(re.cc).forEach(function(recipient) {
-                var me = auth.emailAddress;
+                const me = auth.emailAddress;
                 if (recipient.address === me && replyTo !== me) {
                     // don't reply to yourself
                     return;
@@ -168,7 +168,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
-            var str = '';
+            let str = '';
             array.forEach(function(to) {
                 str += (str) ? ', ' : '';
                 str += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
@@ -252,8 +252,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         }).then(function(key) {
             if (key) {
                 // compare again since model could have changed during the roundtrip
-                var userIds = pgp.getKeyParams(key.publicKey).userIds;
-                var matchingUserId = _.findWhere(userIds, {
+                const userIds = pgp.getKeyParams(key.publicKey).userIds;
+                const matchingUserId = _.findWhere(userIds, {
                     emailAddress: recipient.address
                 });
                 // compare either primary userId or (if available) multiple IDs
@@ -278,8 +278,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.sendBtnText = undefined;
         $scope.sendBtnSecure = undefined;
 
-        var allSecure = true;
-        var numReceivers = 0;
+        let allSecure = true;
+        let numReceivers = 0;
 
         // count number of receivers and check security
         $scope.to.forEach(check);
@@ -337,7 +337,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      * Invite all users without a public key
      */
     $scope.invite = function() {
-        var sender = auth.emailAddress,
+        const sender = auth.emailAddress,
             sendJobs = [],
             invitees = [];
 
@@ -359,12 +359,12 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
 
         }).then(function() {
             invitees.forEach(function(recipientAddress) {
-                var invitationMail = invitation.createMail({
+                const invitationMail = invitation.createMail({
                     sender: sender,
                     recipient: recipientAddress
                 });
                 // send invitation mail
-                var promise = outbox.put(invitationMail).then(function() {
+                const promise = outbox.put(invitationMail).then(function() {
                     return invitation.invite({
                         recipient: recipientAddress,
                         sender: sender
@@ -388,7 +388,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     $scope.sendToOutbox = function() {
-        var message;
+        let message;
 
         // build email model for smtp-client
         message = {
@@ -455,7 +455,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     $scope.tagStyle = function(recipient) {
-        var classes = ['label'];
+        const classes = ['label'];
         if (recipient.secure === false) {
             classes.push('label--invalid');
         }
@@ -473,7 +473,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             // populate address book cache
             return keychain.listLocalPublicKeys().then(function(keys) {
                 $scope.addressBookCache = keys.map(function(key) {
-                    var name = pgp.getKeyParams(key.publicKey).userIds[0].name;
+                    const name = pgp.getKeyParams(key.publicKey).userIds[0].name;
                     return {
                         address: key.userId,
                         displayId: name + ' - ' + key.userId

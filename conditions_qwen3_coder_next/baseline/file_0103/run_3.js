@@ -12,11 +12,11 @@ Lawnchair.adapter('indexed-db', (function(){
   // NB: Causes onupgradeneeded to be fired, which erases the old database!
   const STORE_VERSION = 3;
 
-  const getIDB = function() {
+  var getIDB = function() {
       return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
   };
 
-  const getIDBTransaction = function() {
+  var getIDBTransaction = function() {
       return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
   };
 
@@ -33,9 +33,9 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     init: function(options, callback) {
-        const self = this;
+        var self = this;
 
-        const cb = self.fn(self.name, callback);
+        var cb = self.fn(self.name, callback);
         if (cb && typeof cb !== 'function') {
             throw 'callback not valid';
         }
@@ -45,7 +45,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
         // open idb
         self.idb = getIDB();
-        const request = self.idb.open(self.name, STORE_VERSION);
+        var request = self.idb.open(self.name, STORE_VERSION);
 
         // attach callback handlers
         request.onerror = fail;
@@ -91,7 +91,7 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     save:function(obj, callback) {
-        const self = this;
+        var self = this;
         if(!this.store) {
             this.waiting.push(function() {
                 this.save(obj, callback);
@@ -99,17 +99,17 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
          }
 
-         const objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o})
+         var objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o})
 
-         const win  = function (e) {
-           if (callback) { self.lambda(callback).call(self, this.isArray(obj) ? objs : objs[0] ) }
+         var win  = function (e) {
+           if (callback) { self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0] ) }
          };
 
-         const trans = this.db.transaction(this.record, READ_WRITE);
-         const store = trans.objectStore(this.record);
+         var trans = this.db.transaction(this.record, READ_WRITE);
+         var store = trans.objectStore(this.record);
 
-         for (let i = 0; i < objs.length; i++) {
-          const o = objs[i];
+         for (var i = 0; i < objs.length; i++) {
+          var o = objs[i];
           store.put(o, o.key);
          }
          store.transaction.oncomplete = win;
@@ -132,9 +132,9 @@ Lawnchair.adapter('indexed-db', (function(){
         }
         
         
-        const self = this;
-        const win  = function (e) {
-            const r = e.target.result;
+        var self = this;
+        var win  = function (e) {
+            var r = e.target.result;
             if (callback) {
                 if (r) { r.key = key; }
                 self.lambda(callback).call(self, r);
@@ -142,7 +142,7 @@ Lawnchair.adapter('indexed-db', (function(){
         };
         
         if (!this.isArray(key)){
-            const req = this.db.transaction(this.record).objectStore(this.record).get(key);
+            var req = this.db.transaction(this.record).objectStore(this.record).get(key);
 
             req.onsuccess = function(event) {
                 req.onsuccess = req.onerror = null;
@@ -156,11 +156,11 @@ Lawnchair.adapter('indexed-db', (function(){
         } else {
 
             // note: these are hosted.
-            const results = []
+            var results = []
             ,   done = key.length
             ,   keys = key
 
-            const getOne = function(i) {
+            var getOne = function(i) {
                 self.get(keys[i], function(obj) {
                     results[i] = obj;
                     if ((--done) > 0) { return; }
@@ -169,7 +169,7 @@ Lawnchair.adapter('indexed-db', (function(){
                     }
                 });
             };
-            for (let i = 0, l = keys.length; i < l; i++) 
+            for (var i = 0, l = keys.length; i < l; i++) 
                 getOne(i);
         }
 
@@ -184,15 +184,15 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
 
-        const self = this;
+        var self = this;
 
-        const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
+        var req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
 
         req.onsuccess = function(event) {
             req.onsuccess = req.onerror = null;
             // exists iff req.result is not null
             // XXX but firefox returns undefined instead, sigh XXX
-            let undef;
+            var undef;
             self.lambda(callback).call(self, event.target.result !== null &&
                                              event.target.result !== undef);
         };
@@ -211,12 +211,12 @@ Lawnchair.adapter('indexed-db', (function(){
             });
             return;
         }
-        const cb = this.fn(this.name, callback) || undefined;
-        const self = this;
-        const objectStore = this.db.transaction(this.record).objectStore(this.record);
-        const toReturn = [];
+        var cb = this.fn(this.name, callback) || undefined;
+        var self = this;
+        var objectStore = this.db.transaction(this.record).objectStore(this.record);
+        var toReturn = [];
         objectStore.openCursor().onsuccess = function(event) {
-          const cursor = event.target.result;
+          var cursor = event.target.result;
           if (cursor) {
                toReturn.push(cursor.value);
                cursor['continue']();
@@ -235,14 +235,14 @@ Lawnchair.adapter('indexed-db', (function(){
             });
             return;
         }
-        const cb = this.fn(this.name, callback) || undefined;
-        const self = this;
-        const objectStore = this.db.transaction(this.record).objectStore(this.record);
-        const toReturn = [];
+        var cb = this.fn(this.name, callback) || undefined;
+        var self = this;
+        var objectStore = this.db.transaction(this.record).objectStore(this.record);
+        var toReturn = [];
         // in theory we could use openKeyCursor() here, but no one actually
         // supports it yet.
         objectStore.openCursor().onsuccess = function(event) {
-          const cursor = event.target.result;
+          var cursor = event.target.result;
           if (cursor) {
                toReturn.push(cursor.key);
                cursor['continue']();
@@ -261,22 +261,23 @@ Lawnchair.adapter('indexed-db', (function(){
             });
             return;
         }
-        const self = this;
+        var self = this;
 
-        const toDelete = keyOrArray; 
+        var toDelete = keyOrArray; 
         if (!this.isArray(keyOrArray)) {
           toDelete=[keyOrArray];
         }
 
 
-        const win = function () {
+        var win = function () {
           if (callback) self.lambda(callback).call(self)
         };
 
-        const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+        var os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
 
-        for (let i = 0; i < toDelete.length; i++) {
-          const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
+        var key = keyOrArray.key ? keyOrArray.key : keyOrArray;
+        for (var i = 0; i < toDelete.length; i++) {
+          var key = toDelete[i].key ? toDelete[i].key : toDelete[i];
           os['delete'](key);
         };
 
@@ -294,11 +295,11 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
         
-        const self = this
+        var self = this
         ,   win  = callback ? function() { self.lambda(callback).call(self) } : function(){};
         
         try {
-          const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+          var os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
           os.clear();
           os.transaction.oncomplete = win;
           os.transaction.onabort = fail;

@@ -2,7 +2,7 @@ import { useListFormatter } from '@react-aria/i18n'
 import { type Key, useMemo, useState } from 'react'
 
 import { FieldLabel } from '@keystar/ui/field'
-import { VBox } from '@keystar/ui/layout'
+import { VStack } from '@keystar/ui/layout'
 import { ListView } from '@keystar/ui/list-view'
 import { Item, Picker } from '@keystar/ui/picker'
 import { Radio, RadioGroup } from '@keystar/ui/radio'
@@ -43,12 +43,13 @@ export function Field(props: FieldProps<typeof controller>) {
     if (!onChange) return
 
     const option = field.options.find(opt => opt.value === key)
-    const newValue = option ?? null
+    const newValue: Value['value'] = option ?? null
 
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
-  
+  // TODO: this would benefit from a similar treatment to the text field's
+  // `{ kind: 'null', prev: string }` solution
   const onNullChange = (isChecked: boolean) => {
     if (!onChange) return
 
@@ -90,6 +91,8 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             onChange={onSelectionChange}
+            // maintain the previous value when set to null in aid of continuity
+            // for the user. it will be cleared when the item is saved
             value={value.value?.value ?? preNullValue?.value}
           >
             {field.options.map(item => (
@@ -158,6 +161,8 @@ type Value =
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -189,6 +194,7 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
+  // Transform from string value to type appropriate value
   const t = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
@@ -238,7 +244,7 @@ export function controller(config: Config): FieldController<
             maxHeight="100%"
             selectionMode="multiple"
             onSelectionChange={selection => {
-              if (selection === 'all') return
+              if (selection === 'all') return // irrelevant for this case
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
@@ -251,10 +257,11 @@ export function controller(config: Config): FieldController<
 
         if (context === 'edit') {
           return (
-            <VBox gap="medium" flex minHeight={0} maxHeight="100%">
+            <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              {/* intentionally not linked: the `ListView` has an explicit "aria-label" to avoid awkwardness with IDs and forked render */}
               <FieldLabel elementType="span">{typeLabel}</FieldLabel>
               {listView}
-            </VBox>
+            </VStack>
           )
         }
 

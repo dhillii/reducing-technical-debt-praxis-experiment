@@ -68,73 +68,26 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
-  // --- Predicate Helpers ---
-  const hasFilesToUpload = () => !isEmpty(filesToUpload);
-
-  const isBackButtonExitFromUploadWithFiles = () =>
-    currentStep === 'upload' && backButtonDestination && hasFilesToUpload();
-
-  const isBackButtonExitFromBrowseWithFiles = () =>
-    currentStep === 'browse' && backButtonDestination && hasFilesToUpload();
-
-  const hasUnsavedChangesInList = () =>
-    currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
-
-  const hasUnsavedChangesInEdit = () =>
-    currentStep === 'edit' &&
-    (initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit) || selectedFiles.length > 0);
-
-  const shouldConfirmModalClose = () =>
-    hasFilesToUpload() ||
-    hasUnsavedChangesInList() ||
-    hasUnsavedChangesInEdit();
-
-  // --- Navigation Helpers ---
-  const confirmModalCloseIfNeeded = (messageId) => {
-    if (globalThis.confirm(formatMessage({ id: getTrad(messageId) }))) {
-      return true;
-    }
-    return false;
-  };
-
-  const goBack = (elementName = null) => {
-    if (elementName === 'backButton' && backButtonDestination) {
-      if (isBackButtonExitFromUploadWithFiles()) {
-        if (!confirmModalCloseIfNeeded('window.confirm.close-modal.files')) {
-          return;
-        }
-        goTo(backButtonDestination);
-        handleClearFilesToUploadAndDownload();
-        return;
-      }
-
-      if (isBackButtonExitFromBrowseWithFiles()) {
-        goTo(backButtonDestination);
-        return;
-      }
+  // eslint-disable-next-line jsdoc/require-description
+  const confirmCloseModal = (messageId, filesToCheck) => {
+    if (!isEmpty(filesToCheck)) {
+      // eslint-disable-next-line no-alert
+      return window.confirm(formatMessage({ id: messageId }));
     }
 
-    goTo(prev);
+    return true;
   };
 
-  const handleToggle = () => {
-    if (shouldConfirmModalClose()) {
-      if (!confirmModalCloseIfNeeded('window.confirm.close-modal.files')) {
-        return;
-      }
-    }
-
-    onToggle(true);
-  };
-
-  // --- Event Handlers ---
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
+
     editModalRef.current.click();
   };
 
   useEffect(() => {
     if (currentStep === 'upload') {
+      // Go to the modal list view when file uploading is over
+
       if (filesToUploadLength === 0) {
         goToList();
       } else {
@@ -146,14 +99,57 @@ const InputModalStepper = ({
 
   const addFilesToUploadList = ({ target: { value } }) => {
     addFilesToUpload({ target: { value } });
+
     goNext();
+  };
+
+  /**
+   * Handles navigation logic based on the button element name
+   * @param {string|null} elementName - Name of the button triggering the action
+   */
+  const goBack = (elementName = null) => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+
+    // Condition 1: Back button from upload step
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
+      const confirmed = confirmCloseModal(
+        getTrad('window.confirm.close-modal.files'),
+        hasFilesToUpload ? filesToUpload : []
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      goTo(backButtonDestination);
+      handleClearFilesToUploadAndDownload();
+
+      return;
+    }
+
+    // Condition 2: Back button from browse step
+    if (
+      elementName === 'backButton' &&
+      backButtonDestination &&
+      currentStep === 'browse' &&
+      hasFilesToUpload
+    ) {
+      goTo(backButtonDestination);
+
+      return;
+    }
+
+    // Default fallback
+    goTo(prev);
   };
 
   const goNext = () => {
     if (next === null) {
       onToggle();
+
       return;
     }
+
     goTo(next);
   };
 
@@ -171,6 +167,7 @@ const InputModalStepper = ({
 
     if (currentStep === 'edit-new') {
       handleResetFileToEdit();
+
       goNext();
     }
   };
@@ -185,36 +182,10 @@ const InputModalStepper = ({
     toggleModalWarning();
   };
 
-  const handleCloseModalWarning = async () => {
-    if (!shouldDeleteFile) {
-      return;
-    }
+  const handleGoToAddBrowseFiles = () => {
+    handleCleanFilesError();
 
-    const { id } = fileToEdit;
-
-    try {
-      const requestURL = getRequestUrl(`files/${id}`);
-      await request(requestURL, { method: 'DELETE' });
-      setShouldDeleteFile(false);
-      handleFileSelection({ target: { name: id } });
-      goToList();
-    } catch (err) {
-      console.error(err);
-      const status = get(err, 'response.status', get(err, 'status', null));
-      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-      const errorMessage = get(
-        err,
-        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-        get(err, ['response', 'payload', 'message'], statusText)
-      );
-      strapi.notification.toggle({
-        type: 'warning',
-        message: errorMessage,
-      });
-      if (status) {
-        handleSetFileToEditError(errorMessage);
-      }
-    }
+    goBack();
   };
 
   const handleSubmitEditNewFile = e => {
@@ -229,6 +200,48 @@ const InputModalStepper = ({
     goNext();
   };
 
+  /**
+   * Handles file deletion confirmation logic.
+   * If `shouldDeleteFile` is true, removes the file and navigates back to list.
+   */
+  const handleCloseModalWarning = async () => {
+    if (!shouldDeleteFile) {
+      return;
+    }
+
+    const { id } = fileToEdit;
+
+    try {
+      const requestURL = getRequestUrl(`files/${id}`);
+
+      await request(requestURL, { method: 'DELETE' });
+
+      setShouldDeleteFile(false);
+
+      // Remove file from selected files on delete and go back to the list.
+      handleFileSelection({ target: { name: id } });
+      goToList();
+    } catch (err) {
+      console.error(err);
+
+      const status = get(err, 'response.status', get(err, 'status', null));
+      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+      const errorMessage = get(
+        err,
+        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+        get(err, ['response', 'payload', 'message'], statusText)
+      );
+      strapi.notification.toggle({
+        type: 'warning',
+        message: errorMessage,
+      });
+
+      if (status) {
+        handleSetFileToEditError(errorMessage);
+      }
+    }
+  };
+
   const handleSubmitEditExistingFile = async (
     e,
     shouldDuplicateMedia = false,
@@ -236,6 +249,7 @@ const InputModalStepper = ({
     isSubmittingAfterCrop = false
   ) => {
     e.preventDefault();
+
     submitEditExistingFile();
 
     if (isSubmittingAfterCrop) {
@@ -247,6 +261,9 @@ const InputModalStepper = ({
 
     const headers = {};
     const formData = new FormData();
+
+    // If the file has been cropped we need to add it to the formData
+    // otherwise we just don't send it
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
@@ -254,6 +271,7 @@ const InputModalStepper = ({
     if (didCropFile) {
       formData.append('files', file);
     }
+
     formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
@@ -280,6 +298,7 @@ const InputModalStepper = ({
         get(err, ['response', 'payload', 'message'], statusText)
       );
 
+      // TODO fix errors globally when the back-end sends readable one
       if (status === 413) {
         errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
       }
@@ -290,19 +309,55 @@ const InputModalStepper = ({
     }
   };
 
+  /**
+   * Toggles modal visibility with confirmation if unsaved changes exist.
+   */
+  const handleToggle = () => {
+    const shouldConfirmUpload = confirmCloseModal(
+      getTrad('window.confirm.close-modal.files'),
+      filesToUpload
+    );
+
+    if (!shouldConfirmUpload) {
+      return;
+    }
+
+    const hasUnsavedListChanges =
+      currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
+    const hasUnsavedEditChanges =
+      currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit);
+    const hasSelectedEditFiles = currentStep === 'edit' && selectedFiles.length > 0;
+
+    if (hasUnsavedListChanges || hasUnsavedEditChanges || hasSelectedEditFiles) {
+      const shouldConfirmEdit = confirmCloseModal(
+        getTrad('window.confirm.close-modal.file'),
+        []
+      );
+
+      if (!shouldConfirmEdit) {
+        return;
+      }
+    }
+
+    onToggle(true);
+  };
+
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
   const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
-  const areButtonsDisabledOnEditExistingFile = currentStep === 'edit' && fileToEdit.isUploading === true;
+  const areButtonsDisabledOnEditExistingFile =
+    currentStep === 'edit' && fileToEdit.isUploading === true;
 
   return (
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
+        {/* header title */}
         <ModalHeader
           goBack={goBack}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
         />
+        {/* body of the modal */}
         {Component && (
           <Component
             {...allowedActions}
@@ -325,6 +380,7 @@ const InputModalStepper = ({
               currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
             }
             onClickEditNewFile={handleGoToAddBrowseFiles}
+            onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
             onSubmitEditNewFile={handleSubmitEditNewFile}
             ref={currentStep === 'edit' ? editModalRef : null}
             toggleDisableForm={handleFormDisabled}

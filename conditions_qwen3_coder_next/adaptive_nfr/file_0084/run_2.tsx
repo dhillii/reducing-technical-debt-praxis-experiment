@@ -74,14 +74,14 @@ function isNotAnInteger(value: Value): boolean {
 /**
  * Returns true if the value is below the minimum.
  */
-function isBelowMinimum(value: Value, min: number | undefined): boolean {
+function isBelowMin(value: Value, min: number | undefined): boolean {
   return min !== undefined && (value.value as number) < min
 }
 
 /**
  * Returns true if the value exceeds the maximum.
  */
-function exceedsMaximum(value: Value, max: number | undefined): boolean {
+function exceedsMax(value: Value, max: number | undefined): boolean {
   return max !== undefined && (value.value as number) > max
 }
 
@@ -98,9 +98,9 @@ function validate_(
   if (isNotANumber(value)) return
   const v = value.value as number
   if (isNotAnInteger(value)) return `${label} is not a valid integer`
-  if (isBelowMinimum(value, validation.min))
+  if (isBelowMin(value, validation.min))
     return `${label} must be greater than or equal to ${validation.min}`
-  if (exceedsMaximum(value, validation.max))
+  if (exceedsMax(value, validation.max))
     return `${label} must be less than or equal to ${validation.max}`
 }
 

@@ -1,22 +1,55 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
 var tty = require('tty');
 var diff = require('diff');
 var ms = require('../ms');
 var utils = require('../utils');
 var supportsColor = process.browser ? null : require('supports-color');
 
+/**
+ * Expose `Base`.
+ */
+
 exports = module.exports = Base;
 
+/**
+ * Save timer references to avoid Sinon interfering.
+ * See: https://github.com/mochajs/mocha/issues/237
+ */
+
+/* eslint-disable no-unused-vars, no-native-reassign */
 var Date = global.Date;
 var setTimeout = global.setTimeout;
 var setInterval = global.setInterval;
 var clearTimeout = global.clearTimeout;
 var clearInterval = global.clearInterval;
+/* eslint-enable no-unused-vars, no-native-reassign */
+
+/**
+ * Check if both stdio streams are associated with a tty.
+ */
 
 var isatty = tty.isatty(1) && tty.isatty(2);
 
+/**
+ * Enable coloring by default, except in the browser interface.
+ */
+
 exports.useColors = !process.browser && (supportsColor || (process.env.MOCHA_COLORS !== undefined));
 
+/**
+ * Inline diffs instead of +/-
+ */
+
 exports.inlineDiffs = false;
+
+/**
+ * Default color map.
+ */
 
 exports.colors = {
   pass: 90,
@@ -40,6 +73,10 @@ exports.colors = {
   'diff removed': 31
 };
 
+/**
+ * Default symbol map.
+ */
+
 exports.symbols = {
   ok: '✓',
   err: '✖',
@@ -48,18 +85,34 @@ exports.symbols = {
   bang: '!'
 };
 
+// With node.js on Windows: use symbols available in terminal default fonts
 if (process.platform === 'win32') {
   exports.symbols.ok = '\u221A';
   exports.symbols.err = '\u00D7';
   exports.symbols.dot = '.';
 }
 
+/**
+ * Color `str` with the given `type`,
+ * allowing colors to be disabled,
+ * as well as user-defined color
+ * schemes.
+ *
+ * @param {string} type
+ * @param {string} str
+ * @return {string}
+ * @api private
+ */
 var color = exports.color = function (type, str) {
   if (!exports.useColors) {
     return String(str);
   }
   return '\u001b[' + exports.colors[type] + 'm' + str + '\u001b[0m';
 };
+
+/**
+ * Expose term window size, with some defaults for when stderr is not a tty.
+ */
 
 exports.window = {
   width: 75
@@ -70,6 +123,10 @@ if (isatty) {
     ? process.stdout.getWindowSize(1)[0]
     : tty.getWindowSize()[1];
 }
+
+/**
+ * Expose some basic cursor interactions that are common among reporters.
+ */
 
 exports.cursor = {
   hide: function () {
@@ -109,82 +166,92 @@ function stringifyDiffObjs (err) {
   }
 }
 
+/**
+ * Output the given `failures` as a list.
+ *
+ * @param {Array} failures
+ * @api public
+ */
+
 exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
+    // format
     var fmt = color('error title', '  %s) %s:\n') +
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
+    // msg
+    var msg;
     var err = test.err;
-    var message = getMessage(err);
+    var message;
+    if (err.message && typeof err.message.toString === 'function') {
+      message = err.message + '';
+    } else if (typeof err.inspect === 'function') {
+      message = err.inspect() + '';
+    } else {
+      message = '';
+    }
     var stack = err.stack || message;
-    var msg = extractMessageAndStripFromStack(message, stack);
+    var index = message ? stack.indexOf(message) : -1;
 
+    if (index === -1) {
+      msg = message;
+    } else {
+      index += message.length;
+      msg = stack.slice(0, index);
+      // remove msg from stack
+      stack = stack.slice(index + 1);
+    }
+
+    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
-
+    // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       var match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
-      msg += exports.inlineDiffs ? inlineDiff(err) : unifiedDiff(err);
+      if (exports.inlineDiffs) {
+        msg += inlineDiff(err);
+      } else {
+        msg += unifiedDiff(err);
+      }
     }
 
+    // indent stack trace
     stack = stack.replace(/^/gm, '  ');
-    var testTitle = formatTestTitlePath(test);
+
+    // indented test title
+    var testTitle = '';
+    test.titlePath().forEach(function (str, index) {
+      if (index !== 0) {
+        testTitle += '\n     ';
+      }
+      for (var i = 0; i < index; i++) {
+        testTitle += '  ';
+      }
+      testTitle += str;
+    });
 
     console.log(fmt, (i + 1), testTitle, msg, stack);
   });
 };
 
-function getMessage (err) {
-  if (err.message && typeof err.message.toString === 'function') {
-    return err.message + '';
-  }
-  if (typeof err.inspect === 'function') {
-    return err.inspect() + '';
-  }
-  return '';
-}
-
-function extractMessageAndStripFromStack (message, stack) {
-  if (!message) {
-    return message;
-  }
-
-  var index = stack.indexOf(message);
-  if (index === -1) {
-    return message;
-  }
-
-  index += message.length;
-  var msg = stack.slice(0, index);
-  stack = stack.slice(index + 1);
-  return msg;
-}
-
-function formatTestTitlePath (test) {
-  var titlePath = test.titlePath();
-  var testTitle = '';
-  var i;
-
-  for (i = 0; i < titlePath.length; i++) {
-    var str = titlePath[i];
-    if (i !== 0) {
-      testTitle += '\n     ';
-    }
-    for (var j = 0; j < i; j++) {
-      testTitle += '  ';
-    }
-    testTitle += str;
-  }
-
-  return testTitle;
-}
+/**
+ * Initialize a new `Base` reporter.
+ *
+ * All other reporters generally
+ * inherit from this reporter, providing
+ * stats such as test duration, number
+ * of tests passed / failed etc.
+ *
+ * @param {Runner} runner
+ * @api public
+ */
 
 function Base (runner) {
   var stats = this.stats = { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
@@ -194,6 +261,7 @@ function Base (runner) {
     return;
   }
   this.runner = runner;
+
   runner.stats = stats;
 
   runner.on('start', function () {
@@ -244,12 +312,19 @@ function Base (runner) {
   });
 }
 
+/**
+ * Output common epilogue used by many of
+ * the bundled reporters.
+ *
+ * @api public
+ */
 Base.prototype.epilogue = function () {
   var stats = this.stats;
   var fmt;
 
   console.log();
 
+  // passes
   fmt = color('bright pass', ' ') +
     color('green', ' %d passing') +
     color('light', ' (%s)');
@@ -258,6 +333,7 @@ Base.prototype.epilogue = function () {
     stats.passes || 0,
     ms(stats.duration));
 
+  // pending
   if (stats.pending) {
     fmt = color('pending', ' ') +
       color('pending', ' %d pending');
@@ -265,6 +341,7 @@ Base.prototype.epilogue = function () {
     console.log(fmt, stats.pending);
   }
 
+  // failures
   if (stats.failures) {
     fmt = color('fail', '  %d failing');
 
@@ -277,14 +354,30 @@ Base.prototype.epilogue = function () {
   console.log();
 };
 
+/**
+ * Pad the given `str` to `len`.
+ *
+ * @api private
+ * @param {string} str
+ * @param {string} len
+ * @return {string}
+ */
 function pad (str, len) {
   str = String(str);
   return Array(len - str.length + 1).join(' ') + str;
 }
 
+/**
+ * Returns an inline diff between 2 strings with coloured ANSI output
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} Diff
+ */
 function inlineDiff (err) {
   var msg = errorDiff(err);
 
+  // linenos
   var lines = msg.split('\n');
   if (lines.length > 4) {
     var width = String(lines.length).length;
@@ -293,6 +386,7 @@ function inlineDiff (err) {
     }).join('\n');
   }
 
+  // legend
   msg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
@@ -301,10 +395,18 @@ function inlineDiff (err) {
     msg +
     '\n';
 
+  // indent
   msg = msg.replace(/^/gm, '      ');
   return msg;
 }
 
+/**
+ * Returns a unified diff between two strings.
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} The diff.
+ */
 function unifiedDiff (err) {
   var indent = '      ';
   function cleanUp (line) {
@@ -325,7 +427,6 @@ function unifiedDiff (err) {
   function notBlank (line) {
     return typeof line !== 'undefined' && line !== null;
   }
-
   var msg = diff.createPatch('string', err.actual, err.expected);
   var lines = msg.split('\n').splice(5);
   return '\n      ' +
@@ -335,6 +436,13 @@ function unifiedDiff (err) {
     lines.map(cleanUp).filter(notBlank).join('\n');
 }
 
+/**
+ * Return a character diff for `err`.
+ *
+ * @api private
+ * @param {Error} err
+ * @return {string}
+ */
 function errorDiff (err) {
   return diff.diffWordsWithSpace(err.actual, err.expected).map(function (str) {
     if (str.added) {
@@ -347,14 +455,33 @@ function errorDiff (err) {
   }).join('');
 }
 
+/**
+ * Color lines for `str`, using the color `name`.
+ *
+ * @api private
+ * @param {string} name
+ * @param {string} str
+ * @return {string}
+ */
 function colorLines (name, str) {
-  return str.split('\n').map(function (line) {
-    return color(name, line);
+  return str.split('\n').map(function (str) {
+    return color(name, str);
   }).join('\n');
 }
 
+/**
+ * Object#toString reference.
+ */
 var objToString = Object.prototype.toString;
 
+/**
+ * Check that a / b have the same type.
+ *
+ * @api private
+ * @param {Object} a
+ * @param {Object} b
+ * @return {boolean}
+ */
 function sameType (a, b) {
   return objToString.call(a) === objToString.call(b);
 }

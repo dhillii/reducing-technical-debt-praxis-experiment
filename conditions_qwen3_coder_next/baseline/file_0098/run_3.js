@@ -49,7 +49,7 @@ define([
         },
 
         initialize: function() {
-            const key = Radio.request('configs', 'get:config', 'dropboxKey');
+            var key = Radio.request('configs', 'get:config', 'dropboxKey');
             this.configs.key = key || this.configs.key;
             this.configs.accessToken = Radio.request('configs', 'get:config', 'dropboxAccessToken');
 
@@ -99,7 +99,7 @@ define([
          * Check if Dropbox was authenticated.
          */
         checkAuth: function() {
-            const hash = this.parseHash();
+            var hash = this.parseHash();
 
             if (this.configs.accessToken && this.configs.accessToken.length) {
                 this.client.setAccessToken(this.configs.accessToken);
@@ -123,20 +123,21 @@ define([
          * @returns {Object}
          */
         parseHash: function() {
-            const hash = window.location.hash.replace('#', '').split('&');
-            const ret  = {};
+            var hash = window.location.hash.replace('#', '').split('&');
+            var ret  = {};
 
             if (!hash.length) {
                 return ret;
             }
 
             _.each(hash, function(str) {
-                const parts = str.replace(/\+/g, ' ').split('=');
+                var parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
-                    const key = parts.shift();
-                    const val = parts.length > 0 ? parts.join('=') : undefined;
-                    ret[key] = val === undefined ? null : decodeURIComponent(val.trim());
+                    var key  = parts.shift();
+                    var val  = parts.length > 0 ? parts.join('=') : undefined;
+                    val      = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = val;
                 }
             });
 
@@ -144,8 +145,8 @@ define([
         },
 
         authenticate: function() {
-            const defer = Q.defer();
-            const authUrl = this.client.getAuthenticationUrl(document.location);
+            var defer = Q.defer();
+            var authUrl = this.client.getAuthenticationUrl(document.location);
 
             Radio.once('Confirm', 'cancel',  _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', function() {
@@ -196,8 +197,8 @@ define([
          * Check for changes.
          */
         checkChanges: function() {
-            const promises = [],
-                  self = this;
+            var promises = [],
+                self     = this;
 
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
@@ -253,11 +254,12 @@ define([
          * @return promise
          */
         syncAll: function(localData, remoteData, module) {
-            const encryptKeys = localData.model.prototype.encryptKeys;
+            var promises,
+                encryptKeys = localData.model.prototype.encryptKeys;
 
             localData = (localData.fullCollection || localData).toJSON();
 
-            const promises = this.checkRemoteChanges(localData, remoteData, module);
+            promises = this.checkRemoteChanges(localData, remoteData, module);
             promises.push.apply(
                 promises,
                 this.checkLocalChanges(localData, remoteData, module, encryptKeys)
@@ -274,11 +276,11 @@ define([
          * remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            const promises = [],
-                  newData  = _.filter(remoteData, function(rModel) {
-                      const model = _.findWhere(localData, {id: rModel.id});
-                      return !model || model.updated < rModel.updated;
-                  });
+            var promises = [],
+                newData  = _.filter(remoteData, function(rModel) {
+                    var model = _.findWhere(localData, {id: rModel.id});
+                    return !model || model.updated < rModel.updated;
+                });
 
             if (newData.length) {
                 console.log('Dropbox changes:', newData);
@@ -297,10 +299,10 @@ define([
          * which were updated locally.
          */
         checkLocalChanges: function(localData, remoteData, module, encryptKeys) {
-            const promises = [];
+            var promises = [];
 
             _.each(localData, function(lModel) {
-                const model = _.findWhere(remoteData, {id: lModel.id});
+                var model = _.findWhere(remoteData, {id: lModel.id});
                 if (model && model.updated >= lModel.updated) {
                     return;
                 }
@@ -332,7 +334,7 @@ define([
          * whether changes appear on Dropbox.
          */
         calcInterval: function() {
-            const range = this.configs.intervalMax - this.configs.intervalMin;
+            var range = this.configs.intervalMax - this.configs.intervalMin;
 
             if (this.configs.statRemote) {
                 this.configs.interval -= (range * 0.4);

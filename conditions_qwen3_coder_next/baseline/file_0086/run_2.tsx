@@ -159,13 +159,8 @@ export function Field(props: FieldProps<typeof controller>) {
                 setDialogOpen(false)
                 setCounter(counter + 1)
 
-                const newItem = {
-                  id,
-                  label,
-                  data: builtItemData,
-                  built: true,
-                }
-
+                const newItem = { id, label, data: builtItemData, built: true } as const
+                
                 if (value.kind === 'many') {
                   onChange({
                     ...value,
@@ -186,6 +181,8 @@ export function Field(props: FieldProps<typeof controller>) {
   )
 }
 
+// NOTE: fix for `TagGroup` perf issue, should typically be okay to just
+// inline the render function
 function renderItem(item: { id: string; href: string; label: string }) {
   if (item.href === '') return <Item>{item.label}</Item>
   return <Item href={item.href}>{item.label}</Item>
@@ -217,51 +214,6 @@ export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
   )
 }
 
-function createDisconnectConnectCreateOutput(state, config) {
-  const newAllIds = new Set(state.value.map(x => x.id))
-  const initialIds = new Set(state.initialValue.map(x => x.id))
-  const disconnect = state.initialValue
-    .filter(x => !newAllIds.has(x.id))
-    .map(x => ({ id: x.id }))
-  const connect = state.value
-    .filter(x => !x.built && !initialIds.has(x.id))
-    .map(x => ({ id: x.id }))
-  const create = state.value.filter(x => x.built).map(x => x.data)
-  const output = {
-    ...(disconnect.length ? { disconnect } : {}),
-    ...(connect.length ? { connect } : {}),
-    ...(create.length ? { create } : {}),
-  }
-
-  if (Object.keys(output).length) {
-    return {
-      [config.fieldKey]: output,
-    }
-  }
-  return null
-}
-
-function serializeOneState(state, config) {
-  if (state.initialValue && !state.value) return { [config.fieldKey]: { disconnect: true } }
-  if (state.value?.built) {
-    return {
-      [config.fieldKey]: {
-        create: state.value.data,
-      },
-    }
-  }
-  if (state.value && state.value.id !== state.initialValue?.id) {
-    return {
-      [config.fieldKey]: {
-        connect: {
-          id: state.value.id,
-        },
-      },
-    }
-  }
-  return null
-}
-
 export function controller(
   config: FieldControllerConfig<
     {
@@ -290,6 +242,18 @@ export function controller(
   const { listKey, fieldKey: fieldKey, label, description } = config
   const { displayMode, hideCreate, many, refFieldKey, refLabelField, refListKey, refSearchFields } =
     config.fieldMeta
+
+  function createDisconnectOperation(disconnect: any[]) {
+    return disconnect.length ? { disconnect } : {}
+  }
+
+  function createConnectOperation(connect: any[]) {
+    return connect.length ? { connect } : {}
+  }
+
+  function createCreateOperation(create: any[]) {
+    return create.length ? { create } : {}
+  }
 
   return {
     refFieldKey,
@@ -371,11 +335,41 @@ export function controller(
     },
     serialize: state => {
       if (state.kind === 'many') {
-        const result = createDisconnectConnectCreateOutput(state, config)
-        if (result) return result
+        const newAllIds = new Set(state.value.map(x => x.id))
+        const initialIds = new Set(state.initialValue.map(x => x.id))
+        const disconnect = state.initialValue
+          .filter(x => !newAllIds.has(x.id))
+          .map(x => ({ id: x.id }))
+        const connect = state.value
+          .filter(x => !x.built && !initialIds.has(x.id))
+          .map(x => ({ id: x.id }))
+        const create = state.value.filter(x => x.built).map(x => x.data)
+        
+        const output = {
+          ...createDisconnectOperation(disconnect),
+          ...createConnectOperation(connect),
+          ...createCreateOperation(create),
+        }
+
+        return Object.keys(output).length ? { [config.fieldKey]: output } : {}
       } else if (state.kind === 'one') {
-        const result = serializeOneState(state, config)
-        if (result) return result
+        if (state.initialValue && !state.value) return { [config.fieldKey]: { disconnect: true } }
+        if (state.value?.built) {
+          return {
+            [config.fieldKey]: {
+              create: state.value.data,
+            },
+          }
+        }
+        if (state.value && state.value.id !== state.initialValue?.id) {
+          return {
+            [config.fieldKey]: {
+              connect: {
+                id: state.value.id,
+              },
+            },
+          }
+        }
       }
       return {}
     },
@@ -383,6 +377,7 @@ export function controller(
       Filter(props) {
         const foreignList = useList(refListKey)
         if (props.type === 'empty' || props.type === 'not_empty') return null
+        // TODO: show labels rather than ids
         if (props.type === 'is' || props.type === 'not_is') {
           return (
             <ComboboxSingle
@@ -470,7 +465,7 @@ export function controller(
         if (type === 'some') return { [config.fieldKey]: { some: { id: { in: value } } } }
         if (type === 'not_some')
           return { [config.fieldKey]: { not: { some: { id: { in: value } } } } }
-        return { [config.fieldKey]: { [type]: value } }
+        return { [config.fieldKey]: { [type]: value } } // uh
       },
       parseGraphQL: () => [],
       types: {

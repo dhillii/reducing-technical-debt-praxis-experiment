@@ -182,7 +182,7 @@ class QueryInterface {
 
         if (
           type instanceof DataTypes.ENUM ||
-          (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM)
+          (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM) //ARRAY sub type is ENUM
         ) {
           sql = this.QueryGenerator.pgListEnums(tableName, attribute.field || keys[i], options);
           promises.push(this.sequelize.query(
@@ -203,7 +203,7 @@ class QueryInterface {
 
           if (
             type instanceof DataTypes.ENUM ||
-            (type instanceof DataTypes.ARRAY && enumType instanceof DataTypes.ENUM)
+            (type instanceof DataTypes.ARRAY && enumType instanceof DataTypes.ENUM) //ARRAY sub type is ENUM
           ) {
             // If the enum type doesn't exist then create it
             if (!results[enumIdx]) {
@@ -289,7 +289,7 @@ class QueryInterface {
    * @return {Promise}
    */
   dropTable(tableName, options) {
-    // if we're forcing we should be cascading unless explicitly stated otherwise
+    // if we're forcing we should be cascading unless explicitly said otherwise
     options = _.clone(options) || {};
     options.cascade = options.cascade || options.force || false;
 
@@ -336,8 +336,9 @@ class QueryInterface {
     const skip = options.skip || [];
 
     const dropAllTables = tableNames => Promise.each(tableNames, tableName => {
+      // if tableName is not in the Array of tables names then dont drop it
       if (skip.indexOf(tableName.tableName || tableName) === -1) {
-        return this.dropTable(tableName, _.assign({}, options, { cascade: true }));
+        return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
       }
     });
 
@@ -493,6 +494,9 @@ class QueryInterface {
       sql,
       _.assign({}, options, { type: QueryTypes.DESCRIBE })
     ).then(data => {
+      // If no data is returned from the query, then the table name may be wrong.
+      // Query generators that use information_schema for retrieving table info will just return an empty result set,
+      // it will not throw an error like built-ins do (e.g. DESCRIBE on MySql).
       if (_.isEmpty(data)) {
         return Promise.reject('No description found for "' + tableName + '" table. Check the table name and schema; remember, they _are_ case sensitive.');
       } else {
@@ -534,10 +538,13 @@ class QueryInterface {
     options = options || {};
     switch (this.sequelize.options.dialect) {
       case 'sqlite':
+        // sqlite needs some special treatment as it cannot drop a column
         return SQLiteQueryInterface.removeColumn.call(this, tableName, attributeName, options);
       case 'mssql':
+        // mssql needs special treatment as it cannot drop a column with a default or foreign key constraint
         return MSSSQLQueryInterface.removeColumn.call(this, tableName, attributeName, options);
       case 'mysql':
+        // mysql needs special treatment as it cannot drop a column with a foreign key constraint
         return MySQLQueryInterface.removeColumn.call(this, tableName, attributeName, options);
       default:
         return this.sequelize.query(this.QueryGenerator.removeColumnQuery(tableName, attributeName), options);
@@ -567,6 +574,7 @@ class QueryInterface {
     attributes[attributeName].type = this.sequelize.normalizeDataType(attributes[attributeName].type);
 
     if (this.sequelize.options.dialect === 'sqlite') {
+      // sqlite needs some special treatment as it cannot change a column
       return SQLiteQueryInterface.changeColumn.call(this, tableName, attributes, options);
     } else {
       const query = this.QueryGenerator.attributesToSQL(attributes);
@@ -604,11 +612,13 @@ class QueryInterface {
         defaultValue: data.defaultValue
       };
 
+      // fix: a not-null column cannot have null as default value
       if (data.defaultValue === null && !data.allowNull) {
         delete _options[attrNameAfter].defaultValue;
       }
 
       if (this.sequelize.options.dialect === 'sqlite') {
+        // sqlite needs some special treatment as it cannot rename a column
         return SQLiteQueryInterface.renameColumn.call(this, tableName, attrNameBefore, attrNameAfter, options);
       } else {
         const sql = this.QueryGenerator.renameColumnQuery(
@@ -636,13 +646,16 @@ class QueryInterface {
    * @return {Promise}
    */
   addIndex(tableName, attributes, options, rawTablename) {
+    // Support for passing tableName, attributes, options or tableName, options (with a fields param which is the attributes)
     if (!Array.isArray(attributes)) {
       rawTablename = options;
       options = attributes;
       attributes = options.fields;
     }
+    // testhint argsConform.end
 
     if (!rawTablename) {
+      // Map for backwards compat
       rawTablename = tableName;
     }
 
@@ -717,9 +730,12 @@ class QueryInterface {
     const catalogName = this.sequelize.config.database;
     switch (this.sequelize.options.dialect) {
       case 'sqlite':
+        // sqlite needs some special treatment.
         return SQLiteQueryInterface.getForeignKeyReferencesForTable.call(this, tableName, queryOptions);
       case 'postgres':
       {
+        // postgres needs some special treatment as those field names returned are all lowercase
+        // in order to keep same result with other dialects.
         const query = this.QueryGenerator.getForeignKeyReferencesQuery(tableName, catalogName);
         return this.sequelize.query(query, queryOptions)
           .then(result => result.map(Utils.camelizeObjectKeys));
@@ -831,6 +847,7 @@ class QueryInterface {
     }
 
     if (!rawTablename) {
+      // Map for backwards compat
       rawTablename = tableName;
     }
 
@@ -863,6 +880,7 @@ class QueryInterface {
 
     switch (this.sequelize.options.dialect) {
       case 'mysql':
+        //Mysql does not support DROP CONSTRAINT. Instead DROP PRIMARY, FOREIGN KEY, INDEX should be used
         return MySQLQueryInterface.removeConstraint.call(this, tableName, constraintName, options);
       case 'sqlite':
         return SQLiteQueryInterface.removeConstraint.call(this, tableName, constraintName, options);
@@ -910,12 +928,14 @@ class QueryInterface {
       wheres.push(where);
     }
 
+    // Lets combine uniquekeys and indexes into one
     indexes = _.map(model.options.uniqueKeys, value => {
       return value.fields;
     });
 
     _.each(model.options.indexes, value => {
       if (value.unique) {
+        // fields in the index may both the strings or objects with an attribute property - lets sanitize that
         indexFields = _.map(value.fields, field => {
           if (_.isPlainObject(field)) {
             return field.attribute;
@@ -953,6 +973,8 @@ class QueryInterface {
             result[model.primaryKeyField]
           ];
 
+        // MySQL returns 1 for inserted, 2 for updated
+        // http://dev.mysql.com/doc/refman/5.0/en/insert-on-duplicate.html.
         case 'mysql':
           return [result === 1, undefined];
 
@@ -1024,6 +1046,7 @@ class QueryInterface {
 
     options = _.clone(options) || {};
 
+    // Check for a restrict field
     if (!!instance.constructor && !!instance.constructor.associations) {
       const keys = Object.keys(instance.constructor.associations);
       const length = keys.length;
@@ -1041,6 +1064,7 @@ class QueryInterface {
 
     return Promise.each(cascades, cascade => {
       return instance[cascade](options).then(instances => {
+        // Check for hasOne relationship with non-existing associate ("has zero")
         if (!instances) {
           return Promise.resolve();
         }
@@ -1326,6 +1350,7 @@ class QueryInterface {
       throw new Error('Unable to set autocommit for a transaction without transaction object!');
     }
     if (transaction.parent) {
+      // Not possible to set a separate isolation level for savepoints
       return Promise.resolve();
     }
 
@@ -1348,6 +1373,7 @@ class QueryInterface {
     }
 
     if (transaction.parent || !value) {
+      // Not possible to set a separate isolation level for savepoints
       return Promise.resolve();
     }
 
@@ -1397,6 +1423,7 @@ class QueryInterface {
       throw new Error('Unable to commit a transaction without transaction object!');
     }
     if (transaction.parent) {
+      // Savepoints cannot be committed
       return Promise.resolve();
     }
 

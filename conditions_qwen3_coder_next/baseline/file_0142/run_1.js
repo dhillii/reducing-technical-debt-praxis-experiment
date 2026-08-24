@@ -36,7 +36,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		return a.concat(i);
 	}, []);
 
-	let i;
+	var i;
 	if(argv.config) {
 		var getConfigExtension = function getConfigExtension(configPath) {
 			for(i = extensions.length - 1; i >= 0; i--) {
@@ -80,7 +80,7 @@ module.exports = function(yargs, argv, convertOptions) {
 				} else if(!Array.isArray(moduleDescriptor)) {
 					moduleDescriptor.register(require(moduleDescriptor.module));
 				} else {
-					for(let i = 0; i < moduleDescriptor.length; i++) {
+					for(var i = 0; i < moduleDescriptor.length; i++) {
 						try {
 							registerCompiler(moduleDescriptor[i]);
 							break;

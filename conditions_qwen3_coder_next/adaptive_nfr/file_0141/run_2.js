@@ -94,9 +94,6 @@ class Strapi {
     }
   }
 
-  /**
-   * Logs project statistics and server information to console.
-   */
   logStats() {
     const columns = Math.min(process.stderr.columns, 80) - 2;
     console.log();
@@ -125,9 +122,6 @@ class Strapi {
     console.log();
   }
 
-  /**
-   * Logs the first startup message including admin panel URL.
-   */
   logFirstStartupMessage() {
     this.logStats();
 
@@ -146,9 +140,6 @@ class Strapi {
     console.log();
   }
 
-  /**
-   * Logs the recurring startup message after initial setup.
-   */
   logStartupMessage() {
     this.logStats();
 
@@ -169,6 +160,7 @@ class Strapi {
 
   initServer() {
     this.server = http.createServer(this.handleRequest.bind(this));
+    // handle port in use cleanly
     this.server.on('error', err => {
       if (err.code === 'EADDRINUSE') {
         return this.stopWithError(`The port ${err.port} is already used by another application.`);
@@ -177,6 +169,7 @@ class Strapi {
       this.log.error(err);
     });
 
+    // Close current connections to fully destroy the server
     const connections = {};
 
     this.server.on('connection', conn => {
@@ -205,6 +198,7 @@ class Strapi {
 
       this.app.use(this.router.routes()).use(this.router.allowedMethods());
 
+      // Launch server.
       this.listen(cb);
     } catch (err) {
       this.stopWithError(err);
@@ -240,17 +234,21 @@ class Strapi {
   }
 
   /**
-   * Starts the HTTP server and handles post-listen initialization.
+   * Add behaviors to the server
    */
   async listen(cb) {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
+      // Is the project initialised?
       const isInitialised = await utils.isInitialised(this);
 
-      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
+      // Should the startup message be displayed?
+      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
+        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+        : false;
 
-      if (!hideStartupMessage) {
+      if (hideStartupMessage === false) {
         if (!isInitialised) {
           this.logFirstStartupMessage();
         } else {
@@ -258,8 +256,10 @@ class Strapi {
         }
       }
 
+      // Get database clients
       const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
 
+      // Emit started event.
       await this.telemetry.send('didStartServer', {
         database: databaseClients,
         plugins: this.config.installedPlugins,
@@ -270,12 +270,11 @@ class Strapi {
         cb();
       }
 
-      const shouldAutoOpen = (
-        this.config.environment === 'development' &&
-        this.config.get('server.admin.autoOpen', true) !== false
-      ) || !isInitialised;
-
-      if (shouldAutoOpen) {
+      if (
+        (this.config.environment === 'development' &&
+          this.config.get('server.admin.autoOpen', true) !== false) ||
+        !isInitialised
+      ) {
         await utils.openBrowser.call(this);
       }
     };
@@ -304,6 +303,7 @@ class Strapi {
   }
 
   stop(exitCode = 1) {
+    // Destroy server and available connections.
     if (_.has(this, 'server.destroy')) {
       this.server.destroy();
     }
@@ -312,12 +312,10 @@ class Strapi {
       process.send('stop');
     }
 
+    // Kill process
     process.exit(exitCode);
   }
 
-  /**
-   * Main loading method that initializes Strapi and its services.
-   */
   async load() {
     this.app.use(async (ctx, next) => {
       if (ctx.request.url === '/_health' && ['HEAD', 'GET'].includes(ctx.request.method)) {
@@ -339,12 +337,14 @@ class Strapi {
 
     await bootstrap(this);
 
+    // init webhook runner
     this.webhookRunner = createWebhookRunner({
       eventHub: this.eventHub,
       logger: this.log,
       configuration: this.config.get('server.webhooks', {}),
     });
 
+    // Init core store
     this.models['core_store'] = coreStoreModel(this.config);
     this.models['strapi_webhooks'] = webhookModel(this.config);
 
@@ -372,6 +372,7 @@ class Strapi {
 
     this.telemetry = createTelemetry(this);
 
+    // Initialize hooks and middlewares.
     await initializeMiddlewares.call(this);
     await initializeHooks.call(this);
 
@@ -382,17 +383,11 @@ class Strapi {
     return this;
   }
 
-  /**
-   * Starts registered webhooks by fetching from store.
-   */
   async startWebhooks() {
     const webhooks = await this.webhookStore.findWebhooks();
     webhooks.forEach(webhook => this.webhookRunner.add(webhook));
   }
 
-  /**
-   * Returns a reload controller for hot-reload functionality.
-   */
   reload() {
     const state = {
       shouldReload: 0,
@@ -400,6 +395,7 @@ class Strapi {
 
     const reload = function() {
       if (state.shouldReload > 0) {
+        // Reset the reloading state
         state.shouldReload -= 1;
         reload.isReloading = false;
         return;
@@ -415,12 +411,15 @@ class Strapi {
       configurable: true,
       enumerable: true,
       set: value => {
+        // Special state when the reloader is disabled temporarly (see GraphQL plugin example).
         if (state.isWatching === false && value === true) {
           state.shouldReload += 1;
         }
         state.isWatching = value;
       },
-      get: () => state.isWatching,
+      get: () => {
+        return state.isWatching;
+      },
     });
 
     reload.isReloading = false;
@@ -430,41 +429,49 @@ class Strapi {
   }
 
   /**
-   * Executes lifecycle functions (register/bootstrap) for plugins, admin, and user-defined code.
+   * Executes lifecycle functions for a given stage (register/bootstrap)
+   * @param {string} lifecycleName - Name of lifecycle stage
+   * @returns {Promise<void>}
    */
   async runLifecyclesFunctions(lifecycleName) {
-    const execLifecycleFn = async (func, contextName) => {
-      if (!func) {
-        return;
-      }
+    const execPluginLifecycle = async plugin => {
+      const configPath = `functions.${lifecycleName}`;
+      const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
 
-      try {
-        await func();
-      } catch (err) {
-        strapi.log.error(`${lifecycleName} function in ${contextName} failed`);
-        strapi.log.error(err);
-        strapi.stop();
+      if (pluginFunc) {
+        await pluginFunc().catch(err => {
+          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
       }
     };
 
-    const configPath = `functions.${lifecycleName}`;
+    const execUserLifecycle = async () => {
+      const configPath = `functions.${lifecycleName}`;
+      const userFunc = _.get(this.config, configPath);
+      if (userFunc) {
+        await userFunc();
+      }
+    };
 
-    // plugins
-    const tasks = Object.keys(this.plugins).map(plugin => {
-      const fn = _.get(this.plugins[plugin], configPath);
-      return execLifecycleFn(fn, `plugin "${plugin}"`);
-    });
+    const execAdminLifecycle = async () => {
+      const configPath = `functions.${lifecycleName}`;
+      const adminFunc = _.get(this.admin.config, configPath);
+      if (adminFunc) {
+        await adminFunc().catch(err => {
+          strapi.log.error(`${lifecycleName} function in admin failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
+      }
+    };
 
-    // user
-    await execLifecycleFn(_.get(this.config, configPath), 'user config');
-
-    // admin
-    await execLifecycleFn(_.get(this.admin.config, configPath), 'admin');
+    await Promise.all(Object.keys(this.plugins).map(execPluginLifecycle));
+    await execUserLifecycle();
+    return execAdminLifecycle();
   }
 
-  /**
-   * Freezes core configuration and module objects to prevent mutation.
-   */
   async freeze() {
     Object.freeze(this.config);
     Object.freeze(this.dir);
@@ -473,15 +480,12 @@ class Strapi {
     Object.freeze(this.api);
   }
 
-  /**
-   * Gets a model by key and optional plugin name.
-   */
   getModel(modelKey, plugin) {
     return this.db.getModel(modelKey, plugin);
   }
 
   /**
-   * Binds queries with a specific model.
+   * Binds queries with a specific model
    * @param {string} entity - entity name
    * @param {string} plugin - plugin name or null
    */

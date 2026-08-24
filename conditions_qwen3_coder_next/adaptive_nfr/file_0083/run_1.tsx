@@ -77,20 +77,6 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = useEventCallback(async () => {
-    try {
-      await deleteItem()
-      toastQueue.neutral(`${list.singular} deleted.`, { timeout: 5000 })
-      router.push(list.isSingleton ? '/' : `/${list.path}`)
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-    }
-  })
-
   return (
     <Fragment>
       <DialogTrigger>
@@ -100,10 +86,27 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={async () => {
+            try {
+              await deleteItem()
+            } catch (err: any) {
+              toastQueue.critical('Unable to delete item', {
+                actionLabel: 'Details',
+                onAction: () => setErrorDialogValue(err),
+                shouldCloseOnAction: true,
+              })
+              return
+            }
+
+            toastQueue.neutral(`${list.singular} deleted.`, {
+              timeout: 5000,
+            })
+            router.push(list.isSingleton ? '/' : `/${list.path}`)
+          }}
         >
           <Text>
-            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
+            Are you sure you want to delete <strong>{itemLabel}</strong>? This action cannot be
+            undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -231,6 +234,11 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -315,20 +323,34 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [list.fields, data?.item])
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    const actionModes = Object.fromEntries(
-      Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
+    return computeMetaOverrides(
+      data?.keystone?.adminMeta?.list,
+      list.fields,
+      list.actions
     )
-    const fieldModes = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
-    )
-    const fieldPositions = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
-    )
-    const isRequireds = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
-    )
+  }, [data?.keystone?.adminMeta, list.fields])
 
-    for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
+  function computeMetaOverrides(
+    keystoneAdminMeta: any,
+    fields: Record<string, any>,
+    actions: any[]
+  ) {
+    const actionModes: Record<string, string> = {}
+    const fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> =
+      {}
+    const fieldPositions: Record<string, 'form' | 'sidebar'> = {}
+    const isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>> = {}
+
+    for (const [k, v] of Object.entries(list.actions)) {
+      actionModes[k] = v.itemView.actionMode
+    }
+    for (const [k, v] of Object.entries(list.fields)) {
+      fieldModes[k] = v.itemView.fieldMode
+      fieldPositions[k] = v.itemView.fieldPosition
+      isRequireds[k] = v.itemView.isRequired
+    }
+
+    for (const field of keystoneAdminMeta?.list?.fields ?? []) {
       if (
         !field?.itemView ||
         !field.key ||
@@ -341,7 +363,7 @@ function ItemPage({ listKey }: ItemPageProps) {
       fieldPositions[field.key] = field.itemView.fieldPosition
       isRequireds[field.key] = field.itemView.isRequired
     }
-    for (const action of data?.keystone?.adminMeta?.list?.actions ?? []) {
+    for (const action of keystoneAdminMeta?.list?.actions ?? []) {
       if (!action?.itemView?.actionMode || !action.key) continue
       actionModes[action.key] = action.itemView.actionMode
     }
@@ -362,12 +384,13 @@ function ItemPage({ listKey }: ItemPageProps) {
       fieldPositions,
       isRequireds,
     }
-  }, [data?.keystone?.adminMeta, list.fields])
+  }
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    const { navigation } = action.itemView
-
-    if (navigation === 'follow' && resultId === itemId) {
+    const navigation = action.itemView.navigation
+    if (navigation === 'refetch') {
+      refetch()
+    } else if (navigation === 'follow' && resultId === itemId) {
       refetch()
     } else if (navigation === 'follow' && resultId) {
       router.push(`/${list.path}/${resultId}`)
@@ -378,15 +401,12 @@ function ItemPage({ listKey }: ItemPageProps) {
 
   function renderNotFoundContent() {
     if (list.isSingleton) {
-      if (itemId === '1') {
-        return (
-          <ItemNotFound>
-            <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-            {!list.hideCreate && <CreateButtonLink list={list} />}
-          </ItemNotFound>
-        )
-      }
-      return (
+      return itemId === '1' ? (
+        <ItemNotFound>
+          <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
+          {!list.hideCreate && <CreateButtonLink list={list} />}
+        </ItemNotFound>
+      ) : (
         <ItemNotFound>
           <Text>
             An item with ID <strong>“{itemId}”</strong> does not exist.
@@ -397,7 +417,8 @@ function ItemPage({ listKey }: ItemPageProps) {
     return (
       <ItemNotFound>
         <Text>
-          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to it.
+          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to
+          it.
         </Text>
       </ItemNotFound>
     )

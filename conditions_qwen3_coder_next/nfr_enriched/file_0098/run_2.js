@@ -33,7 +33,7 @@ define([
      * 1. `start` on `sync` channel
      *     starts synchronizing.
      */
-    const Sync = Marionette.Object.extend({
+    var Sync = Marionette.Object.extend({
 
         configs  : {
             // Dropbox app key
@@ -69,14 +69,14 @@ define([
 
             // Authorize the app
             this.checkAuth()
-            .then((authenticated) => {
+            .then(authenticated => {
                 if (authenticated) {
                     return this.onReady();
                 }
 
                 console.error('Dropbox authentication failed.');
             })
-            .catch((err) => {
+            .catch(err => {
                 console.log('Dropbox error', err);
             });
         },
@@ -129,7 +129,7 @@ define([
                 return ret;
             }
 
-            hash.forEach((str) => {
+            _.each(hash, (str) => {
                 const parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
@@ -172,13 +172,12 @@ define([
             })
             .then(() => {
                 Radio.request('uri', 'navigate', '/');
-                this.configs.accessToken = accessToken;
                 return true;
             });
         },
 
         /**
-         * Start synchronizing all data after Dropbox client is ready.
+         * Initialize Dropbox adapter after authentication success.
          */
         onReady: function() {
             const profile = Radio.request('uri', 'profile') || 'notes-db';
@@ -190,36 +189,38 @@ define([
         },
 
         /**
-         * Check for changes.
+         * Check for changes in remote and local data.
          */
         checkChanges: function() {
-            const modules = ['notes', 'notebooks', 'tags'];
-            const promises = modules.map((module) => () => this.syncModule(module));
+            this.configs.statRemote = false;
+            Radio.trigger('sync', 'start', 'dropbox');
 
-            return Q.all(promises.map((fn) => fn()))
+            const promises = ['notes', 'notebooks', 'tags'].map(this.buildSyncPromise.bind(this));
+
+            return _.reduce(promises, Q.when, Q())
             .then(() => {
                 Radio.trigger('sync', 'stop', 'dropbox');
                 this.startWatch();
             })
-            .catch((err) => {
+            .fail(err => {
                 this.handleSyncError(err);
+                Radio.trigger('sync', 'stop', 'dropbox');
+                Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
             });
         },
 
         /**
-         * Synchronize a single module.
+         * Build synchronization promise for a specific module.
          *
          * @param {String} module
-         * @returns {Promise}
+         * @returns {Function} — promise factory
          */
-        syncModule: function(module) {
-            return Q.all([
+        buildSyncPromise: function(module) {
+            return () => Q.all([
                 Radio.request(module, 'fetch', {encrypt: true}),
                 adapter.getAll(module)
             ])
-            .spread((localData, remoteData) => {
-                return this.syncAll(localData, remoteData, module);
-            });
+            .spread((localData, remoteData) => this.syncAll(localData, remoteData, module));
         },
 
         /**
@@ -232,14 +233,12 @@ define([
          */
         syncAll: function(localData, remoteData, module) {
             const encryptKeys = localData.model.prototype.encryptKeys;
-
             localData = (localData.fullCollection || localData).toJSON();
 
-            const remotePromises = this.checkRemoteChanges(localData, remoteData, module);
-            const localPromises  = this.checkLocalChanges(localData, remoteData, module, encryptKeys);
+            const promises = this.checkRemoteChanges(localData, remoteData, module);
+            promises.push(...this.checkLocalChanges(localData, remoteData, module, encryptKeys));
 
-            return Q.all(remotePromises.concat(localPromises).map((fn) => fn()))
-            .then(() => Radio.request(module, 'fetch', {encrypt: true}));
+            return _.reduce(promises, Q.when, Q());
         },
 
         /**
@@ -247,7 +246,7 @@ define([
          * remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            const newData = remoteData.filter((rModel) => {
+            const newData = remoteData.filter(rModel => {
                 const model = _.findWhere(localData, {id: rModel.id});
                 return !model || model.updated < rModel.updated;
             });
@@ -267,57 +266,24 @@ define([
          * which were updated locally.
          */
         checkLocalChanges: function(localData, remoteData, module, encryptKeys) {
-            const promises = [];
-
-            localData.forEach((lModel) => {
+            return localData.filter(lModel => {
                 const model = _.findWhere(remoteData, {id: lModel.id});
-                if (model && model.updated >= lModel.updated) {
-                    return;
-                }
-
+                return !model || model.updated < lModel.updated;
+            }).map(lModel => {
                 console.log('Dropbox local changes:', lModel);
-                promises.push(() => adapter.save(module, lModel, encryptKeys));
+                return () => adapter.save(module, lModel, encryptKeys);
             });
-
-            return promises;
         },
 
         /**
-         * Handle sync errors.
-         *
-         * @param {Object} err
+         * Start watching for changes after a sync interval.
          */
-        handleSyncError: function(err) {
-            if (!err) {
-                Radio.trigger('sync', 'stop', 'dropbox');
-                Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
-                console.error('Error', arguments[0], arguments);
-                return;
-            }
-
-            switch (err.status) {
-                case 401:
-                    this.checkAuth();
-                    break;
-
-                case 0:
-                    this.configs.interval = this.configs.intervalMax;
-                    this.startWatch();
-                    break;
-            }
-
-            Radio.trigger('sync', 'stop', 'dropbox');
-            Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
-            console.error('Error', arguments[0], arguments);
-        },
-
         startWatch: function() {
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
 
             this.calcInterval();
-            console.log('interval is', this.configs.interval);
 
             this.timeout = setTimeout(() => {
                 this.checkChanges();
@@ -325,21 +291,40 @@ define([
         },
 
         /**
-         * Increase or descrease watch interval depending on
+         * Increase or decrease watch interval depending on
          * whether changes appear on Dropbox.
          */
         calcInterval: function() {
             const range = this.configs.intervalMax - this.configs.intervalMin;
 
             if (this.configs.statRemote) {
-                this.configs.interval -= (range * 0.4);
+                this.configs.interval -= range * 0.4;
             }
             else {
-                this.configs.interval += (range * 0.2);
+                this.configs.interval += range * 0.2;
             }
 
-            this.configs.interval = Math.max(this.configs.intervalMin, this.configs.interval);
-            this.configs.interval = Math.min(this.configs.intervalMax, this.configs.interval);
+            this.configs.interval = Math.max(this.configs.intervalMin, Math.min(this.configs.intervalMax, this.configs.interval));
+        },
+
+        /**
+         * Handle sync error conditions.
+         *
+         * @param {Error} err
+         */
+        handleSyncError: function(err) {
+            if (!err) {
+                return;
+            }
+
+            switch (err.status) {
+                case 401:
+                    this.checkAuth();
+                    break;
+                case 0:
+                    this.configs.interval = this.configs.intervalMax;
+                    break;
+            }
         },
 
         /**

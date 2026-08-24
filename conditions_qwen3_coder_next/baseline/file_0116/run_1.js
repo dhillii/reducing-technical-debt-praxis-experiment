@@ -168,7 +168,7 @@ Common.prepareAppConf = function(opts, app) {
   // Set current env by first adding the process environment and then extending/replacing it
   // with env specified on command-line or JSON file.
 
-  let env = {};
+  var env = {};
 
   /**
    * Do not copy internal pm2 environment variables if acting on process
@@ -188,8 +188,8 @@ Common.prepareAppConf = function(opts, app) {
       return envObj
     }
 
-    const new_env = {};
-    const allowedKeys = app.filter_env.reduce((acc, current) =>
+    var new_env = {};
+    var allowedKeys = app.filter_env.reduce((acc, current) =>
                                             acc.filter( item => !item.includes(current)), Object.keys(envObj))
     allowedKeys.forEach( key => new_env[key] = envObj[key]);
     return new_env
@@ -215,10 +215,10 @@ Common.prepareAppConf = function(opts, app) {
   /**
    * Scary
    */
-  const formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
+  var formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
 
   ['log', 'out', 'error', 'pid'].forEach(function(f){
-    const af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
+    var af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
     if (af) af = resolveHome(af);
 
     if ((f == 'log' && typeof af == 'boolean' && af) || (f != 'log' && !af)) {
@@ -226,7 +226,7 @@ Common.prepareAppConf = function(opts, app) {
     } else if ((f != 'log' || (f == 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
       ps = [cwd, af];
 
-      const dir = path.dirname(path.resolve(cwd, af));
+      var dir = path.dirname(path.resolve(cwd, af));
       if (!fs.existsSync(dir)) {
         Common.printError(cst.PREFIX_MSG_WARNING + 'Folder does not exist: ' + dir);
         Common.printOut(cst.PREFIX_MSG + 'Creating folder: ' + dir);
@@ -294,17 +294,17 @@ Common.getConfigFileCandidates = function (name) {
  * @return {Object} config object
  */
 Common.parseConfig = function(confObj, filename) {
-  const yamljs = require('js-yaml');
-  const vm     = require('vm');
+  var yamljs = require('js-yaml');
+  var vm     = require('vm');
 
-  const isConfigFile = Common.isConfigFile(filename);
+  var isConfigFile = Common.isConfigFile(filename);
 
   if (!filename ||
       filename == 'pipe' ||
       filename == 'none' ||
       isConfigFile == 'json') {
-    const code = '(' + confObj + ')';
-    const sandbox = {};
+    var code = '(' + confObj + ')';
+    var sandbox = {};
 
     return vm.runInThisContext(code, sandbox, {
       filename: path.resolve(filename),
@@ -316,7 +316,7 @@ Common.parseConfig = function(confObj, filename) {
     return yamljs.load(confObj.toString());
   }
   else if (isConfigFile == 'js' || isConfigFile == 'mjs') {
-    const confPath = require.resolve(path.resolve(filename));
+    var confPath = require.resolve(path.resolve(filename));
     delete require.cache[confPath];
     return require(confPath);
   }
@@ -377,29 +377,29 @@ var resolveNodeInterpreter = function(app) {
     return false;
   }
 
-  const nvm_path = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
+  var nvm_path = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
   if (!nvm_path) {
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
-    const msg = cst.IS_WINDOWS
+    var msg = cst.IS_WINDOWS
       ? 'https://github.com/coreybutler/nvm-windows/releases/'
       : '$ curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash';
     Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
   }
   else {
-    const node_version  = app.exec_interpreter.split('@')[1];
-    const path_to_node  = cst.IS_WINDOWS
+    var node_version  = app.exec_interpreter.split('@')[1];
+    var path_to_node  = cst.IS_WINDOWS
       ? '/v' + node_version + '/node.exe'
       : semver.satisfies(node_version, '>= 0.12.0')
           ? '/versions/node/v' + node_version + '/bin/node'
           : '/v' + node_version + '/bin/node';
-    const nvm_node_path  = path.join(nvm_path, path_to_node);
+    var nvm_node_path  = path.join(nvm_path, path_to_node);
     try {
       fs.accessSync(nvm_node_path);
     } catch(e) {
       Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', node_version);
-      const nvm_bin = path.join(nvm_path, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
-      const nvm_cmd = cst.IS_WINDOWS
+      var nvm_bin = path.join(nvm_path, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
+      var nvm_cmd = cst.IS_WINDOWS
         ? nvm_bin + ' install ' + node_version
         : '. ' + nvm_bin + ' ; nvm install ' + node_version;
 
@@ -430,9 +430,9 @@ var resolveNodeInterpreter = function(app) {
  * Resolve interpreter
  */
 Common.sink.resolveInterpreter = function(app) {
-  const noInterpreter = !app.exec_interpreter;
-  const extName = path.extname(app.pm_exec_path);
-  const betterInterpreter = extItps[extName];
+  var noInterpreter = !app.exec_interpreter;
+  var extName = path.extname(app.pm_exec_path);
+  var betterInterpreter = extItps[extName];
 
   // Bun support
   if (noInterpreter && (extName == '.js' || extName == '.ts') && cst.IS_BUN === true) {
@@ -562,10 +562,10 @@ Common.safeExtend = function(origin, add){
   if (!add || typeof add != 'object') return origin;
 
   //Ignore PM2's set environment variables from the nested env
-  const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
+  var keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
 
-  const keys = Object.keys(add);
-  let i = keys.length;
+  var keys = Object.keys(add);
+  var i = keys.length;
   while (i--) {
   	//Only copy stuff into the env that we don't have already.
   	if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
@@ -588,14 +588,14 @@ Common.safeExtend = function(origin, add){
  * @returns {Object} The app.env variables object.
  */
 Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
-  const app = fclone(app_env);
+  var app = fclone(app_env);
 
-  const new_conf = {
+  var new_conf = {
     env : {}
   }
 
   // Stringify possible object
-  for (const key in app.env) {
+  for (var key in app.env) {
     if (typeof app.env[key] == 'object') {
       app.env[key] = JSON.stringify(app.env[key]);
     }
@@ -625,7 +625,7 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
 
   delete new_conf.exec_mode
 
-  const res = {
+  var res = {
     current_conf: {}
   }
 
@@ -653,9 +653,9 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
  * @return app
  */
 Common.resolveAppAttributes = function(opts, conf) {
-  const conf_copy = fclone(conf);
+  var conf_copy = fclone(conf);
 
-  const app = Common.prepareAppConf(opts, conf_copy);
+  var app = Common.prepareAppConf(opts, conf_copy);
   if (app instanceof Error) {
     throw new Error(app.message);
   }
@@ -676,10 +676,10 @@ Common.verifyConfs = function(appConfs) {
   // Make sure it is an Array.
   appConfs = [].concat(appConfs);
 
-  const verifiedConf = [];
+  var verifiedConf = [];
 
-  for (let i = 0; i < appConfs.length; i++) {
-    const app = appConfs[i];
+  for (var i = 0; i < appConfs.length; i++) {
+    var app = appConfs[i];
 
     if (app.exec_mode)
       app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
@@ -714,7 +714,7 @@ Common.verifyConfs = function(appConfs) {
      * Then automatically start the script with bash -c and set a name eq to command
      */
     if (app.script && app.script.indexOf(' ') > -1 && cst.IS_WINDOWS === false) {
-      const _script = app.script;
+      var _script = app.script;
 
       if (which('bash')) {
         app.script = 'bash';
@@ -760,8 +760,8 @@ Common.verifyConfs = function(appConfs) {
       }
 
       // 3/ Resolve user info via /etc/password
-      const passwd = require('./tools/passwd.js')
-      let users
+      var passwd = require('./tools/passwd.js')
+      var users
       try {
         users = passwd.getUsers()
       } catch(e) {
@@ -769,7 +769,7 @@ Common.verifyConfs = function(appConfs) {
         return new Error(e);
       }
 
-      const user_info = users[app.uid || app.user]
+      var user_info = users[app.uid || app.user]
       if (!user_info) {
         Common.printError(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
         return new Error(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
@@ -780,14 +780,14 @@ Common.verifyConfs = function(appConfs) {
 
       // 4/ Resolve group id if gid is specified
       if (app.gid) {
-        let groups
+        var groups
         try {
           groups = passwd.getGroups()
         } catch(e) {
           Common.printError(e);
           return new Error(e);
         }
-        const group_info = groups[app.gid]
+        var group_info = groups[app.gid]
         if (!group_info) {
           Common.printError(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
           return new Error(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
@@ -831,7 +831,7 @@ Common.verifyConfs = function(appConfs) {
       app.merge_logs = true;
     }
 
-    let ret;
+    var ret;
 
     if (app.cron_restart) {
       if ((ret = Common.sink.determineCron(app)) instanceof Error)
@@ -841,7 +841,7 @@ Common.verifyConfs = function(appConfs) {
     /**
      * Now validation configuration
      */
-    const ret = Config.validateJSON(app);
+    var ret = Config.validateJSON(app);
     if (ret.errors && ret.errors.length > 0){
       ret.errors.forEach(function(err) { warn(err) });
       return new Error(ret.errors);
@@ -860,7 +860,7 @@ Common.verifyConfs = function(appConfs) {
  * @returns {String}
  */
 Common.getCurrentUsername = function(){
-  let current_user = '';
+  var current_user = '';
 
   if (os.userInfo) {
     try {
@@ -885,7 +885,7 @@ Common.getCurrentUsername = function(){
 Common.renderApplicationName = function(conf){
   if (!conf.name && conf.script){
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
-    const lastDot = conf.name.lastIndexOf('.');
+    var lastDot = conf.name.lastIndexOf('.');
     if (lastDot > 0){
       conf.name = conf.name.slice(0, lastDot);
     }

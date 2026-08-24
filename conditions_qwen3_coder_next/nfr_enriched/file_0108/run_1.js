@@ -1,3 +1,11 @@
+'use strict';
+
+/* eslint-env browser */
+
+/**
+ * Module dependencies.
+ */
+
 var basename = require('path').basename;
 var debug = require('debug')('mocha:watch');
 var exists = require('fs').existsSync;
@@ -10,16 +18,43 @@ var watchFile = require('fs').watchFile;
 var lstatSync = require('fs').lstatSync;
 var he = require('he');
 
+/**
+ * Ignored directories.
+ */
+var IGNORED_DIRS = ['node_modules', '.git'];
+
 exports.inherits = require('util').inherits;
 
+/**
+ * Escape special characters in the given string of html.
+ *
+ * @api private
+ * @param  {string} html
+ * @return {string}
+ */
 exports.escape = function (html) {
   return he.encode(String(html), { useNamedReferences: false });
 };
 
+/**
+ * Test if the given obj is type of string.
+ *
+ * @api private
+ * @param {Object} obj
+ * @return {boolean}
+ */
 exports.isString = function (obj) {
   return typeof obj === 'string';
 };
 
+/**
+ * Watch the given `files` for changes
+ * and invoke `fn(file)` on modification.
+ *
+ * @api private
+ * @param {Array} files
+ * @param {Function} fn
+ */
 exports.watch = function (files, fn) {
   var options = { interval: 100 };
   files.forEach(function (file) {
@@ -32,12 +67,26 @@ exports.watch = function (files, fn) {
   });
 };
 
-var ignore = ['node_modules', '.git'];
-
-function isNotIgnored (item) {
-  return !~ignore.indexOf(item);
+/**
+ * Check if a path should be ignored.
+ *
+ * @api private
+ * @param {string} path
+ * @return {boolean}
+ */
+function isIgnored (path) {
+  return !IGNORED_DIRS.includes(path);
 }
 
+/**
+ * Lookup files in the given `dir`.
+ *
+ * @api private
+ * @param {string} dir
+ * @param {string[]} [ext=['.js']]
+ * @param {Array} [ret=[]]
+ * @return {Array}
+ */
 exports.files = function (dir, ext, ret) {
   ret = ret || [];
   ext = ext || ['js'];
@@ -45,14 +94,12 @@ exports.files = function (dir, ext, ret) {
   var re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
-    .filter(isNotIgnored)
+    .filter(isIgnored)
     .forEach(function (item) {
       var fullPath = join(dir, item);
-      var stats = lstatSync(fullPath);
-
-      if (stats.isDirectory()) {
+      if (lstatSync(fullPath).isDirectory()) {
         exports.files(fullPath, ext, ret);
-      } else if (re.test(fullPath)) {
+      } else if (fullPath.match(re)) {
         ret.push(fullPath);
       }
     });
@@ -60,6 +107,13 @@ exports.files = function (dir, ext, ret) {
   return ret;
 };
 
+/**
+ * Compute a slug from the given `str`.
+ *
+ * @api private
+ * @param {string} str
+ * @return {string}
+ */
 exports.slug = function (str) {
   return str
     .toLowerCase()
@@ -67,6 +121,12 @@ exports.slug = function (str) {
     .replace(/[^-\w]/g, '');
 };
 
+/**
+ * Strip the function definition from `str`, and re-indent for pre whitespace.
+ *
+ * @param {string} str
+ * @return {string}
+ */
 exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
@@ -75,25 +135,40 @@ exports.clean = function (str) {
 
   var spaces = str.match(/^\n?( *)/)[1].length;
   var tabs = str.match(/^\n?(\t*)/)[1].length;
-  var indentPattern = '^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}';
+  var re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
-  var re = new RegExp(indentPattern, 'gm');
   str = str.replace(re, '');
 
   return str.trim();
 };
 
+/**
+ * Parse the given `qs`.
+ *
+ * @api private
+ * @param {string} qs
+ * @return {Object}
+ */
 exports.parseQuery = function (qs) {
   return qs.replace('?', '').split('&').reduce(function (obj, pair) {
     var i = pair.indexOf('=');
     var key = pair.slice(0, i);
     var val = pair.slice(++i);
 
+    // Due to how the URLSearchParams API treats spaces
     obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
+
     return obj;
   }, {});
 };
 
+/**
+ * Highlight the given string of `js`.
+ *
+ * @api private
+ * @param {string} js
+ * @return {string}
+ */
 function highlight (js) {
   return js
     .replace(/</g, '&lt;')
@@ -106,13 +181,33 @@ function highlight (js) {
     .replace(/\b(function|new|throw|return|var|if|else)\b/gm, '<span class="keyword">$1</span>');
 }
 
+/**
+ * Highlight the contents of tag `name`.
+ *
+ * @api private
+ * @param {string} name
+ */
 exports.highlightTags = function (name) {
-  var codes = document.getElementById('mocha').getElementsByTagName(name);
-  for (var i = 0, len = codes.length; i < len; ++i) {
-    codes[i].innerHTML = highlight(codes[i].innerHTML);
+  var code = document.getElementById('mocha').getElementsByTagName(name);
+  for (var i = 0, len = code.length; i < len; ++i) {
+    code[i].innerHTML = highlight(code[i].innerHTML);
   }
 };
 
+/**
+ * If a value could have properties, and has none, this function is called,
+ * which returns a string representation of the empty value.
+ *
+ * Functions w/ no properties return `'[Function]'`
+ * Arrays w/ length === 0 return `'[]'`
+ * Objects w/ no properties return `'{}'`
+ * All else: return result of `value.toString()`
+ *
+ * @api private
+ * @param {*} value The value to inspect.
+ * @param {string} typeHint The type of the value
+ * @returns {string}
+ */
 function emptyRepresentation (value, typeHint) {
   switch (typeHint) {
     case 'function':
@@ -126,7 +221,28 @@ function emptyRepresentation (value, typeHint) {
   }
 }
 
-function detectType (value) {
+/**
+ * Takes some variable and asks `Object.prototype.toString()` what it thinks it
+ * is.
+ *
+ * @api private
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/toString
+ * @param {*} value The value to test.
+ * @returns {string} Computed type
+ * @example
+ * type({}) // 'object'
+ * type([]) // 'array'
+ * type(1) // 'number'
+ * type(false) // 'boolean'
+ * type(Infinity) // 'number'
+ * type(null) // 'null'
+ * type(new Date()) // 'date'
+ * type(/foo/) // 'regexp'
+ * type('type') // 'string'
+ * type(global) // 'global'
+ * type(new String('foo') // 'object'
+ */
+var type = exports.type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -137,77 +253,36 @@ function detectType (value) {
   return Object.prototype.toString.call(value)
     .replace(/^\[.+\s(.+?)]$/, '$1')
     .toLowerCase();
-}
+};
 
-var type = exports.type = detectType;
-
-function jsonStringifyValue (val) {
-  switch (detectType(val)) {
-    case 'null':
-    case 'undefined':
-      return '[' + val + ']';
-    case 'array':
-    case 'object':
-      return jsonStringify(val);
-    case 'boolean':
-    case 'regexp':
-    case 'symbol':
-    case 'number':
-      return val === 0 && (1 / val) === -Infinity ? '-0' : val.toString();
-    case 'date':
-      var sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-      return '[Date: ' + sDate + ']';
-    case 'buffer':
-      var json = val.toJSON();
-      json = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(json, 2, 1) + ']';
-    default:
-      return (val === '[Function]' || val === '[Circular]')
-        ? val
-        : JSON.stringify(val);
-  }
-}
-
-function jsonStringify (object, spaces, depth) {
-  if (typeof spaces === 'undefined') {
-    return jsonStringifyValue(object);
-  }
-
-  depth = depth || 1;
-  var space = spaces * depth;
-  var str = Array.isArray(object) ? '[' : '{';
-  var end = Array.isArray(object) ? ']' : '}';
-  var length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
-
-  function repeat (s, n) {
-    return new Array(n).join(s);
-  }
-
-  for (var i in object) {
-    if (!Object.prototype.hasOwnProperty.call(object, i)) {
-      continue;
-    }
-    --length;
-    str += '\n ' + repeat(' ', space) +
-      (Array.isArray(object) ? '' : '"' + i + '": ') +
-      jsonStringifyValue(object[i]) +
-      (length ? ',' : '');
-  }
-
-  return str +
-    (str.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
-}
-
+/**
+ * Stringify `value`. Different behavior depending on type of value:
+ *
+ * - If `value` is undefined or null, return `'[undefined]'` or `'[null]'`, respectively.
+ * - If `value` is not an object, function or array, return result of `value.toString()` wrapped in double-quotes.
+ * - If `value` is an *empty* object, function, or array, return result of function
+ *   {@link emptyRepresentation}.
+ * - If `value` has properties, call {@link exports.canonicalize} on it, then return result of
+ *   JSON.stringify().
+ *
+ * @api private
+ * @see exports.type
+ * @param {*} value
+ * @return {string}
+ */
 exports.stringify = function (value) {
-  var typeHint = detectType(value);
+  var typeHint = type(value);
 
   if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
       var json = Buffer.prototype.toJSON.call(value);
+      // Based on the toJSON result
       return jsonStringify(json.data && json.type ? json.data : json, 2)
         .replace(/,(\n|$)/g, '$1');
     }
 
+    // IE7/IE8 has a bizarre String constructor; needs to be coerced
+    // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
       value = value.split('').reduce(function (acc, char, idx) {
         acc[idx] = char;
@@ -228,21 +303,119 @@ exports.stringify = function (value) {
   return emptyRepresentation(value, typeHint);
 };
 
-exports.canonicalize = function canonicalize (value, stack, typeHint) {
-  typeHint = typeHint || detectType(value);
-  stack = stack || [];
-
-  if (stack.indexOf(value) !== -1) {
-    return '[Circular]';
+/**
+ * like JSON.stringify but more sense.
+ *
+ * @api private
+ * @param {Object}  object
+ * @param {number=} spaces
+ * @param {number=} depth
+ * @returns {*}
+ */
+function jsonStringify (object, spaces, depth) {
+  if (typeof spaces === 'undefined') {
+    // primitive types
+    return _stringify(object);
   }
 
+  depth = depth || 1;
+  var space = spaces * depth;
+  var str = Array.isArray(object) ? '[' : '{';
+  var end = Array.isArray(object) ? ']' : '}';
+  var length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  // `.repeat()` polyfill
+  function repeat (s, n) {
+    return new Array(n).join(s);
+  }
+
+  function _stringify (val) {
+    switch (type(val)) {
+      case 'null':
+      case 'undefined':
+        val = '[' + val + ']';
+        break;
+      case 'array':
+      case 'object':
+        val = jsonStringify(val, spaces, depth + 1);
+        break;
+      case 'boolean':
+      case 'regexp':
+      case 'symbol':
+      case 'number':
+        val = val === 0 && (1 / val) === -Infinity // `-0`
+          ? '-0'
+          : val.toString();
+        break;
+      case 'date':
+        var sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        val = '[Date: ' + sDate + ']';
+        break;
+      case 'buffer':
+        var json = val.toJSON();
+        // Based on the toJSON result
+        json = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(json, 2, depth + 1) + ']';
+        break;
+      default:
+        val = (val === '[Function]' || val === '[Circular]')
+          ? val
+          : JSON.stringify(val); // string
+    }
+    return val;
+  }
+
+  for (var i in object) {
+    if (!Object.prototype.hasOwnProperty.call(object, i)) {
+      continue; // not my business
+    }
+    --length;
+    str += '\n ' + repeat(' ', space) +
+      (Array.isArray(object) ? '' : '"' + i + '": ') + // key
+      _stringify(object[i]) + // value
+      (length ? ',' : ''); // comma
+  }
+
+  return str +
+    // [], {}
+    (str.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
+}
+
+/**
+ * Return a new Thing that has the keys in sorted order. Recursive.
+ *
+ * If the Thing...
+ * - has already been seen, return string `'[Circular]'`
+ * - is `undefined`, return string `'[undefined]'`
+ * - is `null`, return value `null`
+ * - is some other primitive, return the value
+ * - is not a primitive or an `Array`, `Object`, or `Function`, return the value of the Thing's `toString()` method
+ * - is a non-empty `Array`, `Object`, or `Function`, return the result of calling this function again.
+ * - is an empty `Array`, `Object`, or `Function`, return the result of calling `emptyRepresentation()`
+ *
+ * @api private
+ * @see {@link exports.stringify}
+ * @param {*} value Thing to inspect.  May or may not have properties.
+ * @param {Array} [stack=[]] Stack of seen values
+ * @param {string} [typeHint] Type hint
+ * @return {(Object|Array|Function|string|undefined)}
+ */
+exports.canonicalize = function canonicalize (value, stack, typeHint) {
+  var canonicalizedObj;
+  /* eslint-disable no-unused-vars */
+  var prop;
+  /* eslint-enable no-unused-vars */
+  typeHint = typeHint || type(value);
   function withStack (value, fn) {
     stack.push(value);
     fn();
     stack.pop();
   }
 
-  var canonicalizedObj;
+  stack = stack || [];
+
+  if (stack.indexOf(value) !== -1) {
+    return '[Circular]';
+  }
 
   switch (typeHint) {
     case 'undefined':
@@ -258,14 +431,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       });
       break;
     case 'function':
-      for (var prop in value) {
+      /* eslint-disable guard-for-in */
+      for (prop in value) {
         canonicalizedObj = {};
         break;
       }
+      /* eslint-enable guard-for-in */
       if (!canonicalizedObj) {
         canonicalizedObj = emptyRepresentation(value, typeHint);
+        break;
       }
-      break;
+    /* falls through */
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
       withStack(value, function () {
@@ -288,6 +464,15 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
   return canonicalizedObj;
 };
 
+/**
+ * Lookup file names at the given `path`.
+ *
+ * @api public
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
+ */
 exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   var files = [];
 
@@ -306,10 +491,11 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   try {
     var stat = statSync(path);
     if (stat.isFile()) {
-      return [path];
+      return path;
     }
   } catch (err) {
-    return [];
+    // ignore error
+    return;
   }
 
   readdirSync(path).forEach(function (file) {
@@ -323,39 +509,60 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
         return;
       }
     } catch (err) {
+      // ignore error
       return;
     }
-
-    if (!stat.isFile()) {
-      return;
-    }
-
     var re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (re.test(file) && basename(file)[0] !== '.') {
-      files.push(file);
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
     }
+    files.push(file);
   });
 
   return files;
 };
 
+/**
+ * Generate an undefined error with a message warning the user.
+ *
+ * @return {Error}
+ */
+
 exports.undefinedError = function () {
   return new Error('Caught undefined error, did you throw without specifying what?');
 };
+
+/**
+ * Generate an undefined error if `err` is not defined.
+ *
+ * @param {Error} err
+ * @return {Error}
+ */
 
 exports.getError = function (err) {
   return err || exports.undefinedError();
 };
 
+/**
+ * @summary
+ * This Filter based on `mocha-clean` module.(see: `github.com/rstacruz/mocha-clean`)
+ * @description
+ * When invoking this function you get a filter function that get the Error.stack as an input,
+ * and return a prettify output.
+ * (i.e: strip Mocha and internal node functions from stack trace).
+ * @returns {Function}
+ */
 exports.stackTraceFilter = function () {
-  var isNode = typeof document === 'undefined';
+  // TODO: Replace with `process.browser`
+  var is = typeof document === 'undefined' ? { node: true } : { browser: true };
   var slash = path.sep;
   var cwd;
-
-  if (isNode) {
+  if (is.node) {
     cwd = process.cwd() + slash;
   } else {
-    cwd = (typeof location === 'undefined' ? window.location : location).href.replace(/\/[^/]*$/, '/');
+    cwd = (typeof location === 'undefined'
+      ? window.location
+      : location).href.replace(/\/[^/]*$/, '/');
     slash = '/';
   }
 
@@ -378,27 +585,40 @@ exports.stackTraceFilter = function () {
   return function (stack) {
     stack = stack.split('\n');
 
-    return stack.reduce(function (list, line) {
+    stack = stack.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
 
-      if (isNode && isNodeInternal(line)) {
+      if (is.node && isNodeInternal(line)) {
         return list;
       }
 
+      // Clean up cwd(absolute)
       if (/\(?.+:\d+:\d+\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
 
       list.push(line);
       return list;
-    }, []).join('\n');
+    }, []);
+
+    return stack.join('\n');
   };
 };
 
+/**
+ * Crude, but effective.
+ * @api
+ * @param {*} value
+ * @returns {boolean} Whether or not `value` is a Promise
+ */
 exports.isPromise = function isPromise (value) {
   return typeof value === 'object' && typeof value.then === 'function';
 };
 
+/**
+ * It's a noop.
+ * @api
+ */
 exports.noop = function () {};

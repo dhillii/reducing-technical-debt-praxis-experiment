@@ -203,7 +203,7 @@ define([
          * @return promise
          */
         encryptModel: function(model) {
-            const data = _.pick(model.attributes, model.encryptKeys);
+            var data = _.pick(model.attributes, model.encryptKeys);
 
             return this.encrypt(data)
             .then(function(encrypted) {
@@ -238,8 +238,8 @@ define([
                 return new Q();
             }
 
-            const promises = [];
-            const self     = this;
+            var promises = [],
+                self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
@@ -273,8 +273,8 @@ define([
                 return new Q();
             }
 
-            const promises = [];
-            const self = this;
+            var promises = [],
+                self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
@@ -317,8 +317,8 @@ define([
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = [];
-            const self     = this;
+            var promises = [],
+                self     = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
@@ -365,15 +365,14 @@ define([
                 return null;
             }
 
-            const keys  = window.sessionStorage.getItem(this._getSessionKey());
+            const keys = window.sessionStorage.getItem(this._getSessionKey());
             try {
-                keys = JSON.parse(keys);
-                this.keys = keys || this.keys;
+                this.keys = JSON.parse(keys) || this.keys;
             } catch (e) {
-                keys = null;
+                // Ignore parse errors
             }
 
-            return keys;
+            return this.keys;
         },
 
         /**
@@ -382,7 +381,7 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
+            var profile = Radio.request('uri', 'profile') || 'default';
             profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
             return 'secureKey.' + profile;
         }

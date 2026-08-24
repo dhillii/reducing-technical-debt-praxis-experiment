@@ -80,178 +80,6 @@ function ignored (path) {
 }
 
 /**
- * File lookup parameters object.
- * @typedef {Object} FileLookupOptions
- * @property {string} path - Base path to start searching from.
- * @property {string[]} extensions - File extensions to look for.
- * @property {boolean} recursive - Whether or not to recurse into subdirectories.
- */
-
-/**
- * @callback FileLookupCallback
- * @param {string|string[]} result - Single file path or array of paths.
- */
-
-/**
- * Lookup files in the given directory using provided options.
- *
- * @api private
- * @param {FileLookupOptions} opts
- * @return {string[]|string}
- */
-function lookupFilesInternal(opts) {
-  var files = [];
-
-  if (!exists(opts.path)) {
-    if (exists(opts.path + '.js')) {
-      opts.path += '.js';
-    } else {
-      files = glob.sync(opts.path);
-      if (!files.length) {
-        throw new Error("cannot resolve path (or pattern) '" + opts.path + "'");
-      }
-      return files;
-    }
-  }
-
-  try {
-    var stat = statSync(opts.path);
-    if (stat.isFile()) {
-      return opts.path;
-    }
-  } catch (err) {
-    // ignore error
-    return;
-  }
-
-  readdirSync(opts.path).forEach(function (file) {
-    file = join(opts.path, file);
-    try {
-      var stat = statSync(file);
-      if (stat.isDirectory()) {
-        if (opts.recursive) {
-          files = files.concat(lookupFilesInternal({
-            path: file,
-            extensions: opts.extensions,
-            recursive: opts.recursive
-          }));
-        }
-        return;
-      }
-    } catch (err) {
-      // ignore error
-      return;
-    }
-    var re = new RegExp('\\.(?:' + opts.extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
-      return;
-    }
-    files.push(file);
-  });
-
-  return files;
-}
-
-/**
- * Lookup file names at the given `path`.
- *
- * @api public
- * @param {string} path Base path to start searching from.
- * @param {string[]} extensions File extensions to look for.
- * @param {boolean} recursive Whether or not to recurse into subdirectories.
- * @return {string[]} An array of paths.
- */
-exports.lookupFiles = function lookupFiles(path, extensions, recursive) {
-  // Backward-compatible wrapper
-  var opts = {
-    path: path,
-    extensions: extensions || ['js'],
-    recursive: recursive !== false
-  };
-  return lookupFilesInternal(opts);
-};
-
-/**
- * Lookup files utility builder.
- *
- * @returns {Object} Builder instance
- */
-exports.lookupFilesBuilder = function () {
-  var path, extensions = ['js'], recursive = true;
-
-  return {
-    /**
-     * Set base path.
-     * @param {string} p
-     * @returns {Object} this
-     */
-    path: function (p) {
-      path = p;
-      return this;
-    },
-    /**
-     * Set extensions.
-     * @param {string[]} exts
-     * @returns {Object} this
-     */
-    extensions: function (exts) {
-      extensions = exts;
-      return this;
-    },
-    /**
-     * Set recursive flag.
-     * @param {boolean} r
-     * @returns {Object} this
-     */
-    recursive: function (r) {
-      recursive = r;
-      return this;
-    },
-    /**
-     * Execute lookup.
-     * @returns {string[]|string}
-     */
-    execute: function () {
-      return lookupFilesInternal({
-        path: path,
-        extensions: extensions,
-        recursive: recursive
-      });
-    }
-  };
-};
-
-/**
- * Lookup files in the given `dir`.
- *
- * @api private
- * @param {Object} params
- * @param {string} params.dir
- * @param {string[]} [params.ext=['.js']]
- * @param {Array} [params.ret=[]]
- * @return {Array}
- */
-function filesHelper(params) {
-  params.ret = params.ret || [];
-  params.ext = params.ext || ['js'];
-
-  var re = new RegExp('\\.(' + params.ext.join('|') + ')$');
-
-  readdirSync(params.dir)
-    .filter(ignored)
-    .forEach(function (item) {
-      item = join(params.dir, item);
-      if (lstatSync(item).isDirectory()) {
-        filesHelper({ dir: item, ext: params.ext, ret: params.ret });
-      } else if (item.match(re)) {
-        params.ret.push(item);
-      }
-    });
-
-  return params.ret;
-}
-
-/**
  * Lookup files in the given `dir`.
  *
  * @api private
@@ -261,13 +89,23 @@ function filesHelper(params) {
  * @return {Array}
  */
 exports.files = function (dir, ext, ret) {
-  // Backward-compatible wrapper
-  var params = {
-    dir: dir,
-    ext: ext,
-    ret: ret
-  };
-  return filesHelper(params);
+  ret = ret || [];
+  ext = ext || ['js'];
+
+  var re = new RegExp('\\.(' + ext.join('|') + ')$');
+
+  readdirSync(dir)
+    .filter(ignored)
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
+      }
+    });
+
+  return ret;
 };
 
 /**
@@ -625,6 +463,64 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
   }
 
   return canonicalizedObj;
+};
+
+/**
+ * Lookup file names at the given `path`.
+ *
+ * @api public
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
+ */
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  var files = [];
+
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      path += '.js';
+    } else {
+      files = glob.sync(path);
+      if (!files.length) {
+        throw new Error("cannot resolve path (or pattern) '" + path + "'");
+      }
+      return files;
+    }
+  }
+
+  try {
+    var stat = statSync(path);
+    if (stat.isFile()) {
+      return path;
+    }
+  } catch (err) {
+    // ignore error
+    return;
+  }
+
+  readdirSync(path).forEach(function (file) {
+    file = join(path, file);
+    try {
+      var stat = statSync(file);
+      if (stat.isDirectory()) {
+        if (recursive) {
+          files = files.concat(lookupFiles(file, extensions, recursive));
+        }
+        return;
+      }
+    } catch (err) {
+      // ignore error
+      return;
+    }
+    var re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
+    }
+    files.push(file);
+  });
+
+  return files;
 };
 
 /**

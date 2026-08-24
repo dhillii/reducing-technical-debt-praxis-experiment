@@ -237,7 +237,6 @@ module.exports = async ({ models, target }, ctx) => {
             switch (association.nature) {
               case 'oneMorphToOne':
                 returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
-
                 break;
 
               case 'manyMorphToMany':

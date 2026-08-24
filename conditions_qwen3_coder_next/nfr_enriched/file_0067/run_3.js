@@ -1,12 +1,3 @@
-/**
- * @fileoverview This rule sets a specific indentation style and width for your code
- *
- * @author Teddy Katz
- * @author Vitaly Puzrin
- * @author Gyandeep Singh
- * @deprecated in ESLint v8.53.0
- */
-
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -495,17 +486,77 @@ module.exports = {
 	},
 
 	create(context) {
+		const DEFAULT_VARIABLE_INDENT = 1;
+		const DEFAULT_PARAMETER_INDENT = 1;
+		const DEFAULT_FUNCTION_BODY_INDENT = 1;
+
+		let indentType = "space";
+		let indentSize = 4;
+		const options = {
+			SwitchCase: 0,
+			VariableDeclarator: {
+				var: DEFAULT_VARIABLE_INDENT,
+				let: DEFAULT_VARIABLE_INDENT,
+				const: DEFAULT_VARIABLE_INDENT,
+			},
+			outerIIFEBody: 1,
+			FunctionDeclaration: {
+				parameters: DEFAULT_PARAMETER_INDENT,
+				body: DEFAULT_FUNCTION_BODY_INDENT,
+			},
+			FunctionExpression: {
+				parameters: DEFAULT_PARAMETER_INDENT,
+				body: DEFAULT_FUNCTION_BODY_INDENT,
+			},
+			StaticBlock: {
+				body: DEFAULT_FUNCTION_BODY_INDENT,
+			},
+			CallExpression: {
+				arguments: DEFAULT_PARAMETER_INDENT,
+			},
+			MemberExpression: 1,
+			ArrayExpression: 1,
+			ObjectExpression: 1,
+			ImportDeclaration: 1,
+			flatTernaryExpressions: false,
+			ignoredNodes: [],
+			ignoreComments: false,
+		};
+
+		if (context.options.length) {
+			if (context.options[0] === "tab") {
+				indentSize = 1;
+				indentType = "tab";
+			} else {
+				indentSize = context.options[0];
+				indentType = "space";
+			}
+
+			if (context.options[1]) {
+				Object.assign(options, context.options[1]);
+
+				if (
+					typeof options.VariableDeclarator === "number" ||
+					options.VariableDeclarator === "first"
+				) {
+					options.VariableDeclarator = {
+						var: options.VariableDeclarator,
+						let: options.VariableDeclarator,
+						const: options.VariableDeclarator,
+					};
+				}
+			}
+		}
+
 		const sourceCode = context.sourceCode;
 		const tokenInfo = new TokenInfo(sourceCode);
 		const offsets = new OffsetStorage(
 			tokenInfo,
-			typeof context.options[0] === "number" ? context.options[0] : 4,
-			context.options[0] === "tab" ? "\t" : " ",
+			indentSize,
+			indentType === "space" ? " " : "\t",
 			sourceCode.text.length,
 		);
 		const parameterParens = new WeakSet();
-		const ignoredNodes = new Set();
-		const ignoredNodeFirstTokens = new Set();
 
 		/**
 		 * Creates an error message for a line, given the expected/actual indentation.
@@ -519,19 +570,19 @@ module.exports = {
 			actualSpaces,
 			actualTabs,
 		) {
-			const expectedStatement = `${expectedAmount} ${context.options[0] === "tab" ? "tab" : "space"}${expectedAmount === 1 ? "" : "s"}`;
+			const expectedStatement = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`;
 			const foundSpacesWord = `space${actualSpaces === 1 ? "" : "s"}`;
 			const foundTabsWord = `tab${actualTabs === 1 ? "" : "s"}`;
 			let foundStatement;
 
 			if (actualSpaces > 0) {
 				foundStatement =
-					context.options[0] === "tab"
+					indentType === "space"
 						? actualSpaces
 						: `${actualSpaces} ${foundSpacesWord}`;
 			} else if (actualTabs > 0) {
 				foundStatement =
-					context.options[0] === "tab"
+					indentType === "tab"
 						? actualTabs
 						: `${actualTabs} ${foundTabsWord}`;
 			} else {
@@ -574,7 +625,9 @@ module.exports = {
 						token.range[0] - token.loc.start.column,
 						token.range[0],
 					];
-					return fixer.replaceTextRange(range, neededIndent);
+					const newText = neededIndent;
+
+					return fixer.replaceTextRange(range, newText);
 				},
 			});
 		}
@@ -673,7 +726,6 @@ module.exports = {
 			if (offset === "first" && elements.length && !elements[0]) {
 				return;
 			}
-
 			elements.forEach((element, index) => {
 				if (!element) {
 					return;
@@ -813,12 +865,12 @@ module.exports = {
 				node.arguments,
 				openingParen,
 				closingParen,
-				1,
+				options.CallExpression.arguments,
 			);
 		}
 
 		/**
-		 * Checks the indentation of parenthesized values
+		 * Check indentation for parenthesized values
 		 * @param {Token[]} tokens A list of tokens
 		 * @returns {void}
 		 */
@@ -891,8 +943,28 @@ module.exports = {
 		}
 
 		/**
-		 * Check whether there are any blank (whitespace-only) lines between
-		 * two tokens on separate lines.
+		 * Check whether the given token is on the first line of a statement.
+		 * @param {Token} token The token to check.
+		 * @param {ASTNode} leafNode The expression node that the token belongs directly.
+		 * @returns {boolean} `true` if the token is on the first line of a statement.
+		 */
+		function isOnFirstLineOfStatement(token, leafNode) {
+			let node = leafNode;
+
+			while (
+				node.parent &&
+				!node.parent.type.endsWith("Statement") &&
+				!node.parent.type.endsWith("Declaration")
+			) {
+				node = node.parent;
+			}
+			node = node.parent;
+
+			return !node || node.loc.start.line === token.loc.start.line;
+		}
+
+		/**
+		 * Check whether there are any blank (whitespace-only) lines between two tokens on separate lines.
 		 * @param {Token} firstToken The first token.
 		 * @param {Token} secondToken The second token.
 		 * @returns {boolean} `true` if there exists a blank line between them
@@ -908,11 +980,7 @@ module.exports = {
 				return false;
 			}
 
-			for (
-				let line = firstTokenLine + 1;
-				line < secondTokenLine;
-				++line
-			) {
+			for (let line = firstTokenLine + 1; line < secondTokenLine; ++line) {
 				if (!tokenInfo.firstTokensByLineNumber.has(line)) {
 					return true;
 				}
@@ -921,35 +989,8 @@ module.exports = {
 			return false;
 		}
 
-		/**
-		 * Adds a node to the set of ignored nodes
-		 * @param {ASTNode} node The node to ignore
-		 * @returns {void}
-		 */
-		function addToIgnoredNodes(node) {
-			ignoredNodes.add(node);
-			ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
-		}
+		const ignoredNodeFirstTokens = new Set();
 
-		/**
-		 * Checks the indentation for a list of JSX attributes
-		 * @param {ASTNode} node The node with attributes
-		 * @param {Token} openingToken The opening token of the element
-		 * @param {Token} closingToken The closing token of the element
-		 * @returns {void}
-		 */
-		function addJSXAttributesIndent(node, openingToken, closingToken) {
-			const attributes = node.attributes || node.children || [];
-
-			addElementListIndent(
-				attributes,
-				openingToken,
-				closingToken,
-				1,
-			);
-		}
-
-		const listenerCallQueue = [];
 		const baseOffsetListeners = {
 			"ArrayExpression, ArrayPattern"(node) {
 				const openingBracket = sourceCode.getFirstToken(node);
@@ -962,7 +1003,7 @@ module.exports = {
 					node.elements,
 					openingBracket,
 					closingBracket,
-					1,
+					options.ArrayExpression,
 				);
 			},
 
@@ -979,7 +1020,7 @@ module.exports = {
 					node.properties,
 					openingCurly,
 					closingCurly,
-					1,
+					options.ObjectExpression,
 				);
 			},
 
@@ -1001,7 +1042,7 @@ module.exports = {
 						node.params,
 						openingParen,
 						closingParen,
-						1,
+						options.FunctionExpression.parameters,
 					);
 				}
 
@@ -1039,23 +1080,22 @@ module.exports = {
 			},
 
 			"BlockStatement, ClassBody"(node) {
-				let blockIndentLevel = 1;
+				let blockIndentLevel;
 
-				if (
-					node.parent &&
-					isOuterIIFE(node.parent)
-				) {
-					blockIndentLevel = 1;
+				if (node.parent && isOuterIIFE(node.parent)) {
+					blockIndentLevel = options.outerIIFEBody;
 				} else if (
 					node.parent &&
 					(node.parent.type === "FunctionExpression" ||
 						node.parent.type === "ArrowFunctionExpression")
 				) {
-					blockIndentLevel = 1;
+					blockIndentLevel = options.FunctionExpression.body;
 				} else if (
 					node.parent &&
 					node.parent.type === "FunctionDeclaration"
 				) {
+					blockIndentLevel = options.FunctionDeclaration.body;
+				} else {
 					blockIndentLevel = 1;
 				}
 
@@ -1093,50 +1133,63 @@ module.exports = {
 
 			ConditionalExpression(node) {
 				const firstToken = sourceCode.getFirstToken(node);
-				const questionMarkToken = sourceCode.getFirstTokenBetween(
-					node.test,
-					node.consequent,
-					token =>
-						token.type === "Punctuator" && token.value === "?",
-				);
-				const colonToken = sourceCode.getFirstTokenBetween(
-					node.consequent,
-					node.alternate,
-					token =>
-						token.type === "Punctuator" && token.value === ":",
-				);
-
-				const firstConsequentToken =
-					sourceCode.getTokenAfter(questionMarkToken);
-				const lastConsequentToken =
-					sourceCode.getTokenBefore(colonToken);
-				const firstAlternateToken =
-					sourceCode.getTokenAfter(colonToken);
-
-				offsets.setDesiredOffset(questionMarkToken, firstToken, 1);
-				offsets.setDesiredOffset(colonToken, firstToken, 1);
-
-				offsets.setDesiredOffset(
-					firstConsequentToken,
-					firstToken,
-					firstConsequentToken.type === "Punctuator" ? 2 : 1,
-				);
 
 				if (
-					lastConsequentToken.loc.end.line ===
-					firstAlternateToken.loc.start.line
+					!options.flatTernaryExpressions ||
+					!astUtils.isTokenOnSameLine(node.test, node.consequent) ||
+					isOnFirstLineOfStatement(firstToken, node)
 				) {
+					const questionMarkToken = sourceCode.getFirstTokenBetween(
+						node.test,
+						node.consequent,
+						token =>
+							token.type === "Punctuator" && token.value === "?",
+					);
+					const colonToken = sourceCode.getFirstTokenBetween(
+						node.consequent,
+						node.alternate,
+						token =>
+							token.type === "Punctuator" && token.value === ":",
+					);
+
+					const firstConsequentToken =
+						sourceCode.getTokenAfter(questionMarkToken);
+					const lastConsequentToken =
+						sourceCode.getTokenBefore(colonToken);
+					const firstAlternateToken =
+						sourceCode.getTokenAfter(colonToken);
+
+					offsets.setDesiredOffset(questionMarkToken, firstToken, 1);
+					offsets.setDesiredOffset(colonToken, firstToken, 1);
+
 					offsets.setDesiredOffset(
-						firstAlternateToken,
 						firstConsequentToken,
-						0,
-					);
-				} else {
-					offsets.setDesiredOffset(
-						firstAlternateToken,
 						firstToken,
-						firstAlternateToken.type === "Punctuator" ? 2 : 1,
+						firstConsequentToken.type === "Punctuator" &&
+							options.offsetTernaryExpressions
+							? 2
+							: 1,
 					);
+
+					if (
+						lastConsequentToken.loc.end.line ===
+						firstAlternateToken.loc.start.line
+					) {
+						offsets.setDesiredOffset(
+							firstAlternateToken,
+							firstConsequentToken,
+							0,
+						);
+					} else {
+						offsets.setDesiredOffset(
+							firstAlternateToken,
+							firstToken,
+							firstAlternateToken.type === "Punctuator" &&
+								options.offsetTernaryExpressions
+								? 2
+								: 1,
+						);
+					}
 				}
 			},
 
@@ -1206,7 +1259,7 @@ module.exports = {
 					node.params,
 					openingParen,
 					closingParen,
-					1,
+					options[node.type].parameters,
 				);
 			},
 
@@ -1282,7 +1335,7 @@ module.exports = {
 						),
 						openingCurly,
 						closingCurly,
-						1,
+						options.ImportDeclaration,
 					);
 				}
 
@@ -1330,7 +1383,7 @@ module.exports = {
 					[node.source],
 					openingParen,
 					closingParen,
-					1,
+					options.CallExpression.arguments,
 				);
 			},
 
@@ -1380,17 +1433,17 @@ module.exports = {
 						? lastObjectToken
 						: firstObjectToken;
 
-				if (typeof 1 === "number") {
+				if (typeof options.MemberExpression === "number") {
 					offsets.setDesiredOffset(
 						firstNonObjectToken,
 						offsetBase,
-						1,
+						options.MemberExpression,
 					);
 
 					offsets.setDesiredOffset(
 						secondNonObjectToken,
 						node.computed ? firstNonObjectToken : offsetBase,
-						1,
+						options.MemberExpression,
 					);
 				} else {
 					offsets.ignoreToken(firstNonObjectToken);
@@ -1505,7 +1558,7 @@ module.exports = {
 					node.body,
 					openingCurly,
 					closingCurly,
-					1,
+					options.StaticBlock.body,
 				);
 			},
 
@@ -1519,7 +1572,7 @@ module.exports = {
 				offsets.setDesiredOffsets(
 					[openingCurly.range[1], closingCurly.range[0]],
 					openingCurly,
-					0,
+					options.SwitchCase,
 				);
 
 				if (node.cases.length) {
@@ -1575,18 +1628,28 @@ module.exports = {
 			},
 
 			VariableDeclaration(node) {
-				const variableIndent = 1;
+				let variableIndent = Object.hasOwn(
+					options.VariableDeclarator,
+					node.kind,
+				)
+					? options.VariableDeclarator[node.kind]
+					: DEFAULT_VARIABLE_INDENT;
+
 				const firstToken = sourceCode.getFirstToken(node),
 					lastToken = sourceCode.getLastToken(node);
 
-				if (node.declarations.length > 1) {
-					addElementListIndent(
-						node.declarations,
-						firstToken,
-						lastToken,
-						"first",
-					);
-					return;
+				if (options.VariableDeclarator[node.kind] === "first") {
+					if (node.declarations.length > 1) {
+						addElementListIndent(
+							node.declarations,
+							firstToken,
+							lastToken,
+							"first",
+						);
+						return;
+					}
+
+					variableIndent = DEFAULT_VARIABLE_INDENT;
 				}
 
 				if (
@@ -1679,7 +1742,12 @@ module.exports = {
 					node.name.range,
 					sourceCode.getFirstToken(node),
 				);
-				addJSXAttributesIndent(node, firstToken, closingToken);
+				addElementListIndent(
+					node.attributes,
+					firstToken,
+					closingToken,
+					1,
+				);
 			},
 
 			JSXClosingElement(node) {
@@ -1758,6 +1826,8 @@ module.exports = {
 			},
 		};
 
+		const listenerCallQueue = [];
+
 		const offsetListeners = {};
 
 		for (const [selector, listener] of Object.entries(
@@ -1767,12 +1837,25 @@ module.exports = {
 				listenerCallQueue.push({ listener, node });
 		}
 
-		const ignoredNodeListeners = {};
-		if (context.options[1] && context.options[1].ignoredNodes) {
-			context.options[1].ignoredNodes.forEach(ignoredSelector => {
-				ignoredNodeListeners[ignoredSelector] = addToIgnoredNodes;
-			});
+		const ignoredNodes = new Set();
+
+		/**
+		 * Ignores a node
+		 * @param {ASTNode} node The node to ignore
+		 * @returns {void}
+		 */
+		function addToIgnoredNodes(node) {
+			ignoredNodes.add(node);
+			ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
 		}
+
+		const ignoredNodeListeners = options.ignoredNodes.reduce(
+			(listeners, ignoredSelector) =>
+				Object.assign(listeners, {
+					[ignoredSelector]: addToIgnoredNodes,
+				}),
+			{},
+		);
 
 		return Object.assign(offsetListeners, ignoredNodeListeners, {
 			"*:exit"(node) {
@@ -1781,7 +1864,7 @@ module.exports = {
 				}
 			},
 			"Program:exit"() {
-				if (context.options[1] && context.options[1].ignoreComments) {
+				if (options.ignoreComments) {
 					sourceCode
 						.getAllComments()
 						.forEach(comment => offsets.ignoreToken(comment));

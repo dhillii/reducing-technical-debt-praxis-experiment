@@ -109,43 +109,24 @@ export function getDocumentFeaturesForChildField(
     inlineMarks,
     softBreaks: options.formatting?.softBreaks === 'inherit',
     componentBlocks: options.componentBlocks === 'inherit',
-    documentFeatures: getBlockDocumentFeatures(options, editorDocumentFeatures),
+    documentFeatures: getBlockDocumentFeatures(editorDocumentFeatures, options),
   }
 }
 
 function getBlockDocumentFeatures(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
+  editorDocumentFeatures: DocumentFeatures,
+  options: ChildField['options']
 ): DocumentFeaturesForNormalization {
+  const inherited = (value: any) => (value === 'inherit' ? editorDocumentFeatures : value)
+
   return {
     layouts: [],
     dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
     formatting: {
-      alignment:
-        options.formatting?.alignment === 'inherit'
-          ? editorDocumentFeatures.formatting.alignment
-          : {
-              center: false,
-              end: false,
-            },
-      blockTypes:
-        options.formatting?.blockTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.blockTypes
-          : {
-              blockquote: false,
-              code: false,
-            },
-      headingLevels:
-        options.formatting?.headingLevels === 'inherit'
-          ? editorDocumentFeatures.formatting.headingLevels
-          : options.formatting?.headingLevels || [],
-      listTypes:
-        options.formatting?.listTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.listTypes
-          : {
-              ordered: false,
-              unordered: false,
-            },
+      alignment: inherited(options.formatting?.alignment),
+      blockTypes: inherited(options.formatting?.blockTypes),
+      headingLevels: inherited(options.formatting?.headingLevels) || [],
+      listTypes: inherited(options.formatting?.listTypes),
     },
     links: options.links === 'inherit',
     relationships: options.relationships === 'inherit',
@@ -160,8 +141,8 @@ function getSchemaAtPropPathInner(
   if (path.length === 0) return schema
   if (schema.kind === 'child' || schema.kind === 'form' || schema.kind === 'relationship') return
 
-  const key = path.shift()
   if (schema.kind === 'conditional') {
+    const key = path.shift()
     if (key === 'discriminant')
       return getSchemaAtPropPathInner(path, (value as any).discriminant, schema.discriminant)
     if (key === 'value') {
@@ -172,11 +153,13 @@ function getSchemaAtPropPathInner(
   }
 
   if (schema.kind === 'object') {
-    return getSchemaAtPropPathInner(path, (value as any)[key!], schema.fields[key!])
+    const key = path.shift()!
+    return getSchemaAtPropPathInner(path, (value as any)[key], schema.fields[key])
   }
 
   if (schema.kind === 'array') {
-    return getSchemaAtPropPathInner(path, (value as any)[key!], schema.element)
+    const index = path.shift()!
+    return getSchemaAtPropPathInner(path, (value as any)[index], schema.element)
   }
 
   assertNever(schema)
@@ -194,48 +177,55 @@ export function getSchemaAtPropPath(
 }
 
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
-  if (isNonValuedSchemaKind(schema.kind)) return true
+  if (schema.kind === 'child') return true
+  if (schema.kind === 'relationship') return true
   if (schema.kind === 'form') return schema.validate(value)
-  if (!isObjectWithNotNull(value)) return false
+  if (!isNonNullObject(value)) return false
+
   switch (schema.kind) {
-    case 'conditional': {
-      return validateConditionalProp(value, schema)
-    }
-    case 'object': {
-      return validateObjectProp(value, schema)
-    }
-    case 'array': {
-      return validateArrayProp(value, schema)
-    }
+    case 'conditional':
+      return validateConditionalProp(schema, value)
+    case 'object':
+      return validateObjectProp(schema, value)
+    case 'array':
+      return validateArrayProp(schema, value)
   }
 }
 
-function isNonValuedSchemaKind(kind: string): kind is 'child' | 'relationship' {
-  return kind === 'child' || kind === 'relationship'
-}
-
-function isObjectWithNotNull(value: unknown): value is Record<string, unknown> {
+function isNonNullObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function validateConditionalProp(value: Record<string, unknown>, schema: ComponentSchema & { kind: 'conditional' }): boolean {
+function validateConditionalProp(
+  schema: ComponentSchema & { kind: 'conditional' },
+  value: unknown
+): boolean {
+  if (!isNonNullObject(value)) return false
   if (!('discriminant' in value) || !('value' in value)) return false
   if (!schema.discriminant.validate(value.discriminant)) return false
-  return clientSideValidateProp(
-    schema.values[value.discriminant as string],
-    value.value
-  )
+
+  const childSchema = schema.values[value.discriminant as string]
+  return clientSideValidateProp(childSchema, value.value)
 }
 
-function validateObjectProp(value: Record<string, unknown>, schema: ComponentSchema & { kind: 'object' }): boolean {
+function validateObjectProp(
+  schema: ComponentSchema & { kind: 'object' },
+  value: unknown
+): boolean {
+  if (!isNonNullObject(value)) return false
+
   for (const [key, childProp] of Object.entries(schema.fields)) {
     if (!clientSideValidateProp(childProp, (value as any)[key])) return false
   }
   return true
 }
 
-function validateArrayProp(value: unknown, schema: ComponentSchema & { kind: 'array' }): boolean {
+function validateArrayProp(
+  schema: ComponentSchema & { kind: 'array' },
+  value: unknown
+): boolean {
   if (!Array.isArray(value)) return false
+
   for (const innerVal of value) {
     if (!clientSideValidateProp(schema.element, innerVal)) return false
   }
@@ -263,17 +253,17 @@ export function getAncestorSchemas(
     } else if (currentProp.kind === 'object') {
       currentValue = (currentValue as any)[key]
       currentProp = currentProp.fields[key]
-    } else if (isLeafSchemaKind(currentProp.kind)) {
+    } else if (
+      currentProp.kind === 'child' ||
+      currentProp.kind === 'form' ||
+      currentProp.kind === 'relationship'
+    ) {
       throw new Error(`unexpected prop "${key}"`)
     } else {
       assertNever(currentProp)
     }
   }
   return ancestors
-}
-
-function isLeafSchemaKind(kind: string): kind is 'child' | 'form' | 'relationship' {
-  return kind === 'child' || kind === 'form' || kind === 'relationship'
 }
 
 export type ReadonlyPropPath = readonly (string | number)[]
@@ -293,7 +283,7 @@ export function traverseProps(
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath = []
 ) {
-  if (isLeafSchemaKind(schema.kind)) {
+  if (schema.kind === 'form' || schema.kind === 'relationship' || schema.kind === 'child') {
     visitor(schema, value, path)
     return
   }
@@ -308,8 +298,7 @@ export function traverseProps(
     for (const [idx, val] of (value as unknown[]).entries()) {
       traverseProps(schema.element, val, visitor, path.concat(idx))
     }
-    visitor(schema, value, path)
-    return
+    return visitor(schema, value, path)
   }
   if (schema.kind === 'conditional') {
     const discriminant: string | boolean = (value as any).discriminant
@@ -365,7 +354,7 @@ export function replaceValueAtPropPath(
     return newVal
   }
 
-  assert(!isLeafSchemaKind(schema.kind))
+  assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')
   assertNever(schema)
 }
 

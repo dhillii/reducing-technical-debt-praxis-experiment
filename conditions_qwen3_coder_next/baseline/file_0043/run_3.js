@@ -1,12 +1,3 @@
-};
-    }
-
-    async getAutomatedEmailSentEvents(filter, options = {}) {
-        options = {
-            ...options,
-            withRelated: ['member', 'automatedEmail'],
-
-Complete source code (refactored):
 const errors = require('@tryghost/errors');
 const nql = require('@tryghost/nql');
 const mingo = require('mingo');
@@ -522,7 +513,7 @@ module.exports = class EventRepository {
     /**
      * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
      */
-    async getAggregatedClickEvents(filter, options = {}) {
+    async getAggregatedClickEvents(options = {}, filter) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
@@ -895,7 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(filter, options = {}) {
+    async getAutomatedEmailSentEvents(options, filter) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

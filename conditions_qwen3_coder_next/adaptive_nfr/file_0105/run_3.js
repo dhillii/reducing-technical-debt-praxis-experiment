@@ -103,12 +103,25 @@ if (process.platform === 'win32') {
  * @return {string}
  * @api private
  */
-var color = exports.color = function (type, str) {
-  if (!exports.useColors) {
-    return String(str);
+var color = exports.color = (function () {
+  /**
+   * Apply ANSI color code to string if color support is enabled.
+   * @param {number} code ANSI color code
+   * @param {string} str Input string
+   * @returns {string} Colorized string or original string if colors disabled
+   */
+  function applyColor(code, str) {
+    return '\u001b[' + code + 'm' + str + '\u001b[0m';
   }
-  return '\u001b[' + exports.colors[type] + 'm' + str + '\u001b[0m';
-};
+
+  return function (type, str) {
+    if (!exports.useColors) {
+      return String(str);
+    }
+    var code = exports.colors[type];
+    return applyColor(code, str);
+  };
+}());
 
 /**
  * Expose term window size, with some defaults for when stderr is not a tty.
@@ -280,6 +293,7 @@ function Base (runner) {
 
   runner.on('pass', function (test) {
     stats.passes = stats.passes || 0;
+    stats.passes++;
 
     if (test.duration > test.slow()) {
       test.speed = 'slow';
@@ -288,8 +302,6 @@ function Base (runner) {
     } else {
       test.speed = 'fast';
     }
-
-    stats.passes++;
   });
 
   runner.on('fail', function (test, err) {

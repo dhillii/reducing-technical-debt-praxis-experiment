@@ -1,6 +1,6 @@
 /**
  * @fileoverview Tests for FileReport class
- * @author Nicholas C. Zakx
+ * @author Nicholas C. Zakas
  */
 "use strict";
 

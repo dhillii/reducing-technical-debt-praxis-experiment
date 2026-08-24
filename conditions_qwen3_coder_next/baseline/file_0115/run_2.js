@@ -666,7 +666,7 @@ module.exports = function(CLI) {
     const sample = fs.readFileSync(templatePath);
     const dt     = sample.toString();
     const f_name = 'ecosystem.config.js';
-    const pwd = process.env.PWD || process.cwd();
+		const pwd = process.env.PWD || process.cwd();
 
     try {
       fs.writeFileSync(path.join(pwd, f_name), dt);

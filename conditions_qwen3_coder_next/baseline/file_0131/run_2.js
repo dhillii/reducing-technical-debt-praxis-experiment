@@ -14,90 +14,47 @@ const initialState = fromJS({
   isCreatingComponentWhileAddingAField: false,
 });
 
-const handleIndexChangedNature = (obj, value, oneThatIsCreatingARelationWithAnother) => {
-  return obj
-    .update('nature', () => value)
-    .update('dominant', () => {
-      if (value === 'manyToMany') {
-        return true;
-      }
-
-      return null;
-    })
-    .update('name', oldValue => {
-      return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
-    })
-    .update('targetAttribute', oldValue => {
-      if (['oneWay', 'manyWay'].includes(value)) {
-        return '-';
-      }
-
-      return pluralize(
-        oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
-        shouldPluralizeTargetAttribute(value)
-      );
-    })
-    .update('targetColumnName', oldValue => {
-      if (['oneWay', 'manyWay'].includes(value)) {
-        return null;
-      }
-
-      return oldValue;
-    });
-};
-
-const handleIndexChangedTarget = (obj, value, action) => {
-  const { targetContentTypeAllowedRelations, selectedContentTypeFriendlyName } = action;
+const updateNatureAndName = (obj, value, selectedContentTypeFriendlyName, targetContentTypeAllowedRelations, oneThatIsCreatingARelationWithAnother) => {
   let didChangeNatureBecauseOfRestrictedRelation = false;
+  let newNature = obj.get('nature');
 
-  const nature = obj.get('nature');
+  if (targetContentTypeAllowedRelations !== null && !targetContentTypeAllowedRelations.includes(newNature)) {
+    didChangeNatureBecauseOfRestrictedRelation = true;
+    newNature = targetContentTypeAllowedRelations[0];
+  }
+
+  let name = obj.get('name');
+  if (didChangeNatureBecauseOfRestrictedRelation) {
+    name = pluralize(
+      snakeCase(selectedContentTypeFriendlyName),
+      shouldPluralizeName(targetContentTypeAllowedRelations[0])
+    );
+  } else {
+    name = pluralize(
+      snakeCase(selectedContentTypeFriendlyName),
+      shouldPluralizeName(newNature)
+    );
+  }
+
+  let targetAttribute = obj.get('targetAttribute');
+  if (['oneWay', 'manyWay'].includes(newNature)) {
+    targetAttribute = '-';
+  } else if (
+    didChangeNatureBecauseOfRestrictedRelation &&
+    ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+  ) {
+    targetAttribute = '-';
+  } else {
+    targetAttribute = pluralize(
+      snakeCase(oneThatIsCreatingARelationWithAnother),
+      shouldPluralizeTargetAttribute(newNature)
+    );
+  }
 
   return obj
-    .update('target', () => value)
-    .update('nature', currentNature => {
-      if (targetContentTypeAllowedRelations === null) {
-        return currentNature;
-      }
-
-      if (!targetContentTypeAllowedRelations.includes(currentNature)) {
-        didChangeNatureBecauseOfRestrictedRelation = true;
-
-        return targetContentTypeAllowedRelations[0];
-      }
-
-      return currentNature;
-    })
-    .update('name', () => {
-      if (didChangeNatureBecauseOfRestrictedRelation) {
-        return pluralize(
-          snakeCase(selectedContentTypeFriendlyName),
-          shouldPluralizeName(targetContentTypeAllowedRelations[0])
-        );
-      }
-
-      return pluralize(
-        snakeCase(selectedContentTypeFriendlyName),
-        shouldPluralizeName(nature)
-      );
-    })
-    .update('targetAttribute', () => {
-      if (['oneWay', 'manyWay'].includes(nature)) {
-        return '-';
-      }
-
-      const newNature = didChangeNatureBecauseOfRestrictedRelation
-        ? targetContentTypeAllowedRelations[0]
-        : nature;
-
-      if (['oneWay', 'manyWay'].includes(newNature)) {
-        return '-';
-      }
-
-      return pluralize(
-        snakeCase(action.oneThatIsCreatingARelationWithAnother),
-        shouldPluralizeTargetAttribute(nature)
-      );
-    });
+    .set('nature', newNature)
+    .set('name', name)
+    .set('targetAttribute', targetAttribute);
 };
 
 const reducer = (state = initialState, action) => {
@@ -111,7 +68,9 @@ const reducer = (state = initialState, action) => {
         if (shouldAddComponents) {
           updatedList = list.concat(components);
         } else {
-          updatedList = list.filter(comp => components.indexOf(comp) === -1);
+          updatedList = list.filter(comp => {
+            return components.indexOf(comp) === -1;
+          });
         }
 
         return List(makeUnique(updatedList.toJS()));
@@ -136,11 +95,49 @@ const reducer = (state = initialState, action) => {
         }
 
         if (keys.length === 1 && keys.includes('nature')) {
-          return handleIndexChangedNature(obj, value, oneThatIsCreatingARelationWithAnother);
+          return obj
+            .update('nature', () => value)
+            .update('dominant', () => {
+              if (value === 'manyToMany') {
+                return true;
+              }
+
+              return null;
+            })
+            .update('name', oldValue => {
+              return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
+            })
+            .update('targetAttribute', oldValue => {
+              if (['oneWay', 'manyWay'].includes(value)) {
+                return '-';
+              }
+
+              return pluralize(
+                oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
+                shouldPluralizeTargetAttribute(value)
+              );
+            })
+            .update('targetColumnName', oldValue => {
+              if (['oneWay', 'manyWay'].includes(value)) {
+                return null;
+              }
+
+              return oldValue;
+            });
         }
 
         if (keys.length === 1 && keys.includes('target')) {
-          return handleIndexChangedTarget(obj, value, action);
+          const { targetContentTypeAllowedRelations } = action;
+
+          return obj
+            .update('target', () => value)
+            .withMutations(result => updateNatureAndName(
+              result,
+              value,
+              selectedContentTypeFriendlyName,
+              targetContentTypeAllowedRelations,
+              oneThatIsCreatingARelationWithAnother
+            ));
         }
 
         return obj.updateIn(keys, () => value);

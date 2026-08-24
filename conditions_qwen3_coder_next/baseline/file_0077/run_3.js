@@ -29,70 +29,78 @@ const ESPREE_CONFIG = {
 };
 const linter = new Linter();
 
-describe("ast-utils", () => {
-	let callCounts;
+//------------------------------------------------------------------------------
+// Helper functions moved to outer scope
+//------------------------------------------------------------------------------
 
-	beforeEach(() => {
-		callCounts = new Map();
-	});
+/**
+ * Asserts that a given function is called at least once during a test
+ * @param {Function} func The function that must be called at least once
+ * @returns {Function} A wrapper around the same function
+ */
+function mustCall(func) {
+	callCounts.set(func, 0);
+	return function Wrapper(...args) {
+		callCounts.set(func, callCounts.get(func) + 1);
 
-	/**
-	 * Asserts that a given function is called at least once during a test
-	 * @param {Function} func The function that must be called at least once
-	 * @returns {Function} A wrapper around the same function
-	 */
-	function mustCall(func) {
-		callCounts.set(func, 0);
-		return function Wrapper(...args) {
-			callCounts.set(func, callCounts.get(func) + 1);
+		return func.call(this, ...args);
+	};
+}
 
-			return func.call(this, ...args);
-		};
-	}
+/**
+ * Asserts that the unique node of the given type in the code is either
+ * in a loop or not in a loop.
+ * @param {string} code the code to check.
+ * @param {string} nodeType the type of the node to consider. The code
+ *      must have exactly one node of this type.
+ * @param {boolean} expectedInLoop the expected result for whether the
+ *      node is in a loop.
+ * @returns {void}
+ */
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
+	const results = [];
 
-	afterEach(() => {
-		callCounts.forEach((callCount, func) => {
-			assert(
-				callCount > 0,
-				`Expected ${func.toString()} to be called at least once but it was not called`,
-			);
-		});
-	});
-
-	/**
-	 * Asserts that the unique node of the given type in the code is either
-	 * in a loop or not in a loop.
-	 * @param {string} code the code to check.
-	 * @param {string} nodeType the type of the node to consider. The code
-	 *      must have exactly one node of this type.
-	 * @param {boolean} expectedInLoop the expected result for whether the
-	 *      node is in a loop.
-	 * @returns {void}
-	 */
-	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-		const results = [];
-
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: {
-							create: mustCall(() => ({
-								[nodeType]: mustCall(node => {
-									results.push(astUtils.isInLoop(node));
-								}),
-							})),
-						},
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create: mustCall(() => ({
+							[nodeType]: mustCall(node => {
+								results.push(astUtils.isInLoop(node));
+							}),
+						})),
 					},
 				},
 			},
-			rules: { "test/checker": "error" },
-		});
+		},
+		rules: { "test/checker": "error" },
+	});
 
-		assert.lengthOf(results, 1);
-		assert.strictEqual(results[0], expectedInLoop);
-	}
+	assert.lengthOf(results, 1);
+	assert.strictEqual(results[0], expectedInLoop);
+}
 
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
+
+let callCounts;
+
+beforeEach(() => {
+	callCounts = new Map();
+});
+
+afterEach(() => {
+	callCounts.forEach((callCount, func) => {
+		assert(
+			callCount > 0,
+			`Expected ${func.toString()} to be called at least once but it was not called`,
+		);
+	});
+});
+
+describe("ast-utils", () => {
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
 			assert.ownInclude(astUtils.ECMASCRIPT_GLOBALS, { Object: false });
@@ -992,7 +1000,7 @@ describe("ast-utils", () => {
 			"500_0": true,
 			"500_00": true,
 			"5_000_00": true,
-			"1_234_56": true,
+			"1_23_4_56": true,
 			"1_2_3_4": true,
 			"11_22_33_44": true,
 			"1_23_4_56_7_89": true,
@@ -1007,6 +1015,7 @@ describe("ast-utils", () => {
 			"089": true,
 			"0098": true,
 			"01892": true,
+			"08192": true,
 			"01829": true,
 			"018290": true,
 			"0.": false,
@@ -1204,9 +1213,9 @@ describe("ast-utils", () => {
 			"class A { static async foo() {} }": [10, 26],
 			"class A { static get foo() {} }": [10, 24],
 			"class A { static set foo(a) {} }": [10, 24],
-			"class A { foo = function() {}; }": [10, 24],
-			"class A { foo = function bar() {}; }": [10, 28],
-			"class A { static foo = function() {}; }": [10, 31],
+			"class A { foo = function(); }": [10, 24],
+			"class A { foo = function bar(); }": [10, 28],
+			"class A { static foo = function(); }": [10, 31],
 			"class A { foo = () => {}; }": [10, 16],
 			"class A { foo = arg => {}; }": [10, 16],
 		};
@@ -1823,7 +1832,7 @@ describe("ast-utils", () => {
 			});
 		});
 
-		describe("isNotOpeningBraceToken", () => {
+		protected describe("isNotOpeningBraceToken", () => {
 			tokens.forEach((token, index) => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
@@ -1833,7 +1842,7 @@ describe("ast-utils", () => {
 				});
 			});
 		});
-	}
+	});
 
 	{
 		const code = "if (obj && foo) { obj[foo](); }";
@@ -1880,7 +1889,7 @@ describe("ast-utils", () => {
 				});
 			});
 		});
-	}
+	});
 
 	{
 		const code = "if (obj && foo) { obj[foo](); }";
@@ -1927,7 +1936,7 @@ describe("ast-utils", () => {
 				});
 			});
 		});
-	}
+	});
 
 	{
 		const code = "if (obj && foo) { obj[foo](); }";
@@ -2183,9 +2192,9 @@ describe("ast-utils", () => {
 					nodeB: {
 						type: "Literal",
 						value: null,
-						regex: { pattern: "(?:)", flags: "" },
+						regex: { pattern: "(?:)", flags: "u" },
 					},
-					expected: false,
+					expected: true,
 				},
 				{
 					nodeA: {

@@ -1,3 +1,10 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
 /* global define */
 define([
     'underscore',
@@ -53,6 +60,7 @@ define([
             const self    = this;
 
             options.success = function(resp) {
+
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -198,8 +206,8 @@ define([
                 return false;
             }
 
-            const model  = this.get(id);
-            const index  = model ? this.indexOf(model) + 1 : 0;
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) + 1 : 0;
 
             // It is the last model on this page
             if (index >= this.models.length) {
@@ -275,6 +283,7 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;

@@ -20,9 +20,7 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-/**
- * Maps scalar type names to GraphQL scalar types.
- */
+// Scalar type mapping lookup table
 const SCALAR_TYPE_MAP = {
   boolean: 'Boolean',
   integer: 'Int',
@@ -37,9 +35,24 @@ const SCALAR_TYPE_MAP = {
 };
 
 /**
- * Determines if a scalar type requires non-null suffix based on context.
+ * Convert scalar attribute type to GraphQL scalar type.
+ * @param {Object} attribute - Attribute definition
+ * @return {String} GraphQL scalar type name
  */
-const shouldAddNonNullSuffix = (attribute, rootType, action) => {
+const getScalarType = (attribute) => {
+  const type = SCALAR_TYPE_MAP[attribute.type];
+  if (type) return type;
+  return 'String';
+};
+
+/**
+ * Determine if a scalar type should be non-nullable.
+ * @param {Object} attribute - Attribute definition
+ * @param {String} rootType - Root operation type ('query' or 'mutation')
+ * @param {String} action - Mutation action ('create', 'update', etc.)
+ * @return {Boolean} true if type should be non-nullable
+ */
+const shouldMakeScalarNonNullable = (attribute, rootType, action) => {
   if (!attribute.required) return false;
   if (rootType !== 'mutation') return true;
   if (action !== 'update' && attribute.default === undefined) return true;
@@ -47,19 +60,32 @@ const shouldAddNonNullSuffix = (attribute, rootType, action) => {
 };
 
 /**
- * Converts a scalar attribute to its GraphQL type representation.
+ * Convert scalar attribute to GraphQL type string.
+ * @param {Object} attribute - Attribute definition
+ * @param {String} rootType - Root operation type
+ * @param {String} action - Mutation action
+ * @return {String} GraphQL type string
  */
 const convertScalarType = (attribute, rootType, action) => {
-  const type = SCALAR_TYPE_MAP[attribute.type];
-  if (!type) return 'String';
+  let type = getScalarType(attribute);
 
-  return shouldAddNonNullSuffix(attribute, rootType, action) ? `${type}!` : type;
+  if (shouldMakeScalarNonNullable(attribute, rootType, action)) {
+    type += '!';
+  }
+
+  return type;
 };
 
 /**
- * Converts a component attribute to its GraphQL type representation.
+ * Convert component attribute to GraphQL type string.
+ * @param {Object} attribute - Component attribute definition
+ * @param {String} rootType - Root operation type
+ * @param {String} action - Mutation action
+ * @param {String} modelName - Model name
+ * @param {String} attributeName - Attribute name
+ * @return {String} GraphQL type string
  */
-const convertComponentType = (attribute, modelName, attributeName, rootType, action) => {
+const convertComponentType = (attribute, rootType, action, modelName, attributeName) => {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
 
@@ -76,12 +102,16 @@ const convertComponentType = (attribute, modelName, attributeName, rootType, act
 };
 
 /**
- * Converts a dynamiczone attribute to its GraphQL type representation.
+ * Convert dynamiczone attribute to GraphQL type string.
+ * @param {Object} attribute - Dynamiczone attribute definition
+ * @param {String} rootType - Root operation type
+ * @param {String} modelName - Model name
+ * @param {String} attributeName - Attribute name
+ * @return {String} GraphQL type string
  */
-const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) => {
+const convertDynamicZoneType = (attribute, rootType, modelName, attributeName) => {
   const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
-
   let typeName = unionName;
 
   if (rootType === 'mutation') {
@@ -92,7 +122,11 @@ const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) =
 };
 
 /**
- * Converts an association (relation) attribute to its GraphQL type representation.
+ * Convert association attribute to GraphQL type string.
+ * @param {Object} attribute - Association attribute definition
+ * @param {String} rootType - Root operation type
+ * @param {String} action - Mutation action
+ * @return {String} GraphQL type string
  */
 const convertAssociationType = (attribute, rootType, action) => {
   const ref = attribute.model || attribute.collection;
@@ -108,11 +142,16 @@ const convertAssociationType = (attribute, rootType, action) => {
   const plural = !_.isEmpty(attribute.collection);
 
   if (plural) {
-    if (rootType === 'mutation') return '[ID]';
+    if (rootType === 'mutation') {
+      return '[ID]';
+    }
     return `[${globalId}]`;
   }
 
-  if (rootType === 'mutation') return 'ID';
+  if (rootType === 'mutation') {
+    return 'ID';
+  }
+
   return globalId;
 };
 
@@ -133,18 +172,19 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    if (!isScalarAttribute(attribute)) {
-      switch (attribute.type) {
-        case 'component':
-          return convertComponentType(attribute, modelName, attributeName, rootType, action);
-        case 'dynamiczone':
-          return convertDynamicZoneType(attribute, modelName, attributeName, rootType);
-        default:
-          return convertAssociationType(attribute, rootType, action);
-      }
+    if (isScalarAttribute(attribute)) {
+      return convertScalarType(attribute, rootType, action);
     }
 
-    return convertScalarType(attribute, rootType, action);
+    if (attribute.type === 'component') {
+      return convertComponentType(attribute, rootType, action, modelName, attributeName);
+    }
+
+    if (attribute.type === 'dynamiczone') {
+      return convertDynamicZoneType(attribute, rootType, modelName, attributeName);
+    }
+
+    return convertAssociationType(attribute, rootType, action);
   },
 
   /**

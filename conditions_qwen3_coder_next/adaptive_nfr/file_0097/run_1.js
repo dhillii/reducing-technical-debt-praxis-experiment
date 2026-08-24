@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Copyright (C) 2015 Laverna project Authors.
  *
@@ -58,10 +56,11 @@ define([
                 return Backbone.Collection.prototype.fetch.call(this, options);
             }
 
-            const success = options.success;
-            const self    = this;
+            const success = options.success,
+                self    = this;
 
             options.success = function(resp) {
+
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -187,8 +186,8 @@ define([
          * Useful when sorting models in a collection by multiple keys.
          */
         sortItOut: function() {
-            const comparator = this.comparator;
-            const self = this;
+            const comparator = this.comparator,
+                self = this;
 
             _.each(this.state.comparator, function(value, key) {
                 self.comparator = function(model) {
@@ -207,8 +206,8 @@ define([
                 return false;
             }
 
-            const model  = this.get(id);
-            const index  = model ? this.indexOf(model) + 1 : 0;
+            const model = this.get(id),
+                index  = model ? this.indexOf(model) + 1 : 0;
 
             // It is the last model on this page
             if (index >= this.models.length) {
@@ -226,8 +225,8 @@ define([
                 return false;
             }
 
-            const model = this.get(id);
-            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+            const model = this.get(id),
+                index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
             // It is the first model on this page
             if (index < 0) {
@@ -250,8 +249,8 @@ define([
                 return false;
             }
 
-            const coll  = this.fullCollection || this;
-            const index = this.indexOf(model);
+            const coll  = this.fullCollection || this,
+                index = this.indexOf(model);
 
             coll.remove(model);
             this.sortFullCollection();
@@ -284,6 +283,7 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
@@ -298,8 +298,8 @@ define([
             }
 
             // If the model already exists, update it
-            const coll     = this.fullCollection || this;
-            const colModel = coll.get(model.id);
+            const coll     = this.fullCollection || this,
+                colModel = coll.get(model.id);
 
             if (colModel) {
                 return colModel.set(model.toJSON());

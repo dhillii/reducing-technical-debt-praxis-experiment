@@ -159,22 +159,28 @@ export function Field(props: FieldProps<typeof controller>) {
                 setDialogOpen(false)
                 setCounter(counter + 1)
 
-                const newItem = {
-                  id,
-                  label,
-                  data: builtItemData,
-                  built: true,
-                }
-
                 if (value.kind === 'many') {
                   onChange({
                     ...value,
-                    value: [...value.value, newItem],
+                    value: [
+                      ...value.value,
+                      {
+                        id,
+                        label,
+                        data: builtItemData,
+                        built: true,
+                      },
+                    ],
                   })
                 } else if (value.kind === 'one') {
                   onChange({
                     ...value,
-                    value: newItem,
+                    value: {
+                      id,
+                      label,
+                      data: builtItemData,
+                      built: true,
+                    },
                   })
                 }
               }}
@@ -215,18 +221,6 @@ export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
       {overflow ? `, and ${overflow} more` : null}
     </Text>
   )
-}
-
-function createDisconnectPayload(disconnect: any[]) {
-  return disconnect.length ? { disconnect } : {}
-}
-
-function createConnectPayload(connect: any[]) {
-  return connect.length ? { connect } : {}
-}
-
-function createCreatePayload(create: any[]) {
-  return create.length ? { create } : {}
 }
 
 export function controller(
@@ -347,12 +341,11 @@ export function controller(
           .filter(x => !x.built && !initialIds.has(x.id))
           .map(x => ({ id: x.id }))
         const create = state.value.filter(x => x.built).map(x => x.data)
+        const output: Record<string, any> = {}
 
-        const output = {
-          ...createDisconnectPayload(disconnect),
-          ...createConnectPayload(connect),
-          ...createCreatePayload(create),
-        }
+        if (disconnect.length) output.disconnect = disconnect
+        if (connect.length) output.connect = connect
+        if (create.length) output.create = create
 
         if (Object.keys(output).length) {
           return {

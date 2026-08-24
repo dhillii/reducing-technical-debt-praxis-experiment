@@ -4,7 +4,7 @@ const Utils = require('./utils');
 const _ = require('lodash');
 const DataTypes = require('./data-types');
 const SQLiteQueryInterface = require('./dialects/sqlite/query-interface');
-const MSSSQLQueryInterface = require('./dialects/mssql/query-interface');
+const MSSQLQueryInterface = require('./dialects/mssql/query-interface');
 const MySQLQueryInterface = require('./dialects/mysql/query-interface');
 const Transaction = require('./transaction');
 const Promise = require('./promise');
@@ -365,12 +365,10 @@ class QueryInterface {
               normalizedTableName = tableName.schema + '.' + tableName.tableName;
             }
 
-            if (foreignKeys[normalizedTableName]) {
-              foreignKeys[normalizedTableName].forEach(foreignKey => {
-                const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-                promises.push(this.sequelize.query(sql, options));
-              });
-            }
+            foreignKeys[normalizedTableName].forEach(foreignKey => {
+              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+              promises.push(this.sequelize.query(sql, options));
+            });
           });
 
           return Promise.all(promises).then(() => dropAllTables(tableNames));
@@ -544,7 +542,7 @@ class QueryInterface {
         return SQLiteQueryInterface.removeColumn.call(this, tableName, attributeName, options);
       case 'mssql':
         // mssql needs special treatment as it cannot drop a column with a default or foreign key constraint
-        return MSSSQLQueryInterface.removeColumn.call(this, tableName, attributeName, options);
+        return MSSQLQueryInterface.removeColumn.call(this, tableName, attributeName, options);
       case 'mysql':
         // mysql needs special treatment as it cannot drop a column with a foreign key constraint
         return MySQLQueryInterface.removeColumn.call(this, tableName, attributeName, options);

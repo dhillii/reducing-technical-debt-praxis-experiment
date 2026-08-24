@@ -1,3 +1,9 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
 var EventEmitter = require('events').EventEmitter;
 var Pending = require('./pending');
 var utils = require('./utils');
@@ -12,6 +18,7 @@ var undefinedError = utils.undefinedError;
 /**
  * Non-enumerable globals.
  */
+
 var globals = [
   'setTimeout',
   'clearTimeout',
@@ -23,10 +30,28 @@ var globals = [
   'clearImmediate'
 ];
 
+/**
+ * Expose `Runner`.
+ */
+
 module.exports = Runner;
 
 /**
  * Initialize a `Runner` for the given `suite`.
+ *
+ * Events:
+ *
+ *   - `start`  execution started
+ *   - `end`  execution complete
+ *   - `suite`  (suite) test suite execution started
+ *   - `suite end`  (suite) all tests (and sub-suites) have finished
+ *   - `test`  (test) test execution started
+ *   - `test end`  (test) test completed
+ *   - `hook`  (hook) hook execution started
+ *   - `hook end`  (hook) hook complete
+ *   - `pass`  (test) test passed
+ *   - `fail`  (test, err) test failed
+ *   - `pending`  (test) test pending
  *
  * @api public
  * @param {Suite} suite Root suite
@@ -67,8 +92,12 @@ Runner.immediately = global.setImmediate || process.nextTick;
 inherits(Runner, EventEmitter);
 
 /**
- * Wrapper for grep logic.
+ * Run tests with full titles matching `re`. Updates runner.total
+ * with number of tests matched.
  *
+ * @param {RegExp} re
+ * @param {Boolean} invert
+ * @return {Runner} for chaining
  * @api public
  * @param {RegExp} re
  * @param {boolean} invert
@@ -87,8 +116,10 @@ Runner.prototype.grep = function (re, invert) {
  * given suite.
  *
  * @param {Suite} suite
- * @return {number}
+ * @return {Number}
  * @api public
+ * @param {Suite} suite
+ * @return {number}
  */
 Runner.prototype.grepTotal = function (suite) {
   var self = this;
@@ -131,8 +162,10 @@ Runner.prototype.globalProps = function () {
  * Allow the given `arr` of globals.
  *
  * @param {Array} arr
- * @return {Runner} Runner instance.
+ * @return {Runner} for chaining
  * @api public
+ * @param {Array} arr
+ * @return {Runner} Runner instance.
  */
 Runner.prototype.globals = function (arr) {
   if (!arguments.length) {
@@ -245,6 +278,7 @@ Runner.prototype.failHook = function (hook, err) {
  * @param {string} name
  * @param {Function} fn
  */
+
 Runner.prototype.hook = function (name, fn) {
   var suite = this.suite;
   var hooks = suite['_' + name];
@@ -477,7 +511,14 @@ Runner.prototype.runTests = function (suite, fn) {
       match = !match;
     }
     if (!match) {
-      // Run immediately only if we have defined a grep.
+      // Run immediately only if we have defined a grep. When we
+      // define a grep — It can cause maximum callstack error if
+      // the grep is doing a large recursive loop by neglecting
+      // all tests. The run immediately function also comes with
+      // a performance cost. So we don't want to run immediately
+      // if we run the whole test suite, because running the whole
+      // test suite don't do any immediate recursive loops. Thus,
+      // allowing a JS runtime to breathe.
       if (self._grep !== self._defaultGrep) {
         Runner.immediately(next);
       } else {
@@ -607,6 +648,7 @@ Runner.prototype.runSuite = function (suite, fn) {
 
     // Avoid grep neglecting large number of tests causing a
     // huge recursive loop and thus a maximum call stack error.
+    // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
       Runner.immediately(function () {
         self.runSuite(curr, next);
@@ -719,6 +761,10 @@ Runner.prototype.uncaught = function (err) {
 /**
  * Cleans up the references to all the deferred functions
  * (before/after/beforeEach/afterEach) and tests of a Suite.
+ * These must be deleted otherwise a memory leak can happen,
+ * as those functions may reference variables from closures,
+ * thus those variables can never be garbage collected as long
+ * as the deferred functions exist.
  *
  * @param {Suite} suite
  */
@@ -755,8 +801,10 @@ function cleanSuiteReferences (suite) {
  * on completion.
  *
  * @param {Function} fn
- * @return {Runner} Runner instance.
+ * @return {Runner} for chaining
  * @api public
+ * @param {Function} fn
+ * @return {Runner} Runner instance.
  */
 Runner.prototype.run = function (fn) {
   var self = this;
@@ -839,6 +887,7 @@ function filterOnly (suite) {
     suite.tests = [];
     suite._onlySuites.forEach(function (onlySuite) {
       // If there are other `only` tests/suites nested in the current `only` suite, then filter that `only` suite.
+      // Otherwise, all of the tests on this `only` suite should be run, so don't filter it.
       if (hasOnly(onlySuite)) {
         filterOnly(onlySuite);
       }

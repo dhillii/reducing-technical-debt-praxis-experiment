@@ -58,11 +58,18 @@ const removeRelationMorph = async (model, { params, transacting } = {}) => {
     });
 };
 
-const processMorphRelation = async (association, obj, response, targetModel, transacting) => {
+const processMorphRelation = async (model, obj, association, response, transacting) => {
+  const targetModel = strapi.db.getModel(
+    obj.ref,
+    obj.source !== 'content-manager' ? obj.source : null
+  );
+
   const reverseAssoc = targetModel.associations.find(assoc => assoc.alias === obj.field);
 
+  // Remove existing relationship because only one file
+  // can be related to this field.
   if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
-    return removeRelationMorph(this, {
+    return removeRelationMorph(model, {
       params: {
         alias: association.alias,
         ref: targetModel.collectionName,
@@ -71,9 +78,9 @@ const processMorphRelation = async (association, obj, response, targetModel, tra
       },
       transacting,
     }).then(() =>
-      addRelationMorph(this, {
+      addRelationMorph(model, {
         params: {
-          id: response[this.primaryKey],
+          id: response[model.primaryKey],
           alias: association.alias,
           ref: targetModel.collectionName,
           refId: obj.refId,
@@ -85,7 +92,7 @@ const processMorphRelation = async (association, obj, response, targetModel, tra
     );
   }
 
-  const maxOrder = await this.morph
+  const maxOrderResult = await model.morph
     .query(qb => {
       qb.max('order as order').where({
         [`${association.alias}_id`]: obj.refId,
@@ -95,11 +102,11 @@ const processMorphRelation = async (association, obj, response, targetModel, tra
     })
     .fetch({ transacting });
 
-  const { order = 0 } = maxOrder.toJSON();
+  const { order = 0 } = maxOrderResult.toJSON();
 
-  return addRelationMorph(this, {
+  return addRelationMorph(model, {
     params: {
-      id: response[this.primaryKey],
+      id: response[model.primaryKey],
       alias: association.alias,
       ref: targetModel.collectionName,
       refId: obj.refId,
@@ -121,6 +128,7 @@ module.exports = {
 
     const data = record ? record.toJSON() : record;
 
+    // Retrieve data manually.
     if (_.isEmpty(populate)) {
       const arrayOfPromises = this.associations
         .filter(association => ['manyMorphToOne', 'manyMorphToMany'].includes(association.nature))
@@ -152,6 +160,7 @@ module.exports = {
       transacting,
     });
 
+    // Only update fields which are on this document.
     const values = Object.keys(removeUndefinedKeys(params.values)).reduce((acc, current) => {
       const property = params.values[current];
       const association = this.associations.filter(x => x.alias === current)[0];
@@ -192,6 +201,7 @@ module.exports = {
             return _.set(acc, current, null);
           }
 
+          // set old relations to null
           const updateLink = this.where({ [current]: property })
             .save(
               { [current]: null },
@@ -214,10 +224,14 @@ module.exports = {
               );
             });
 
+          // set new relation
           relationUpdates.push(updateLink);
           return _.set(acc, current, property);
         }
         case 'oneToMany': {
+          // receive array of ids or array of objects with ids
+
+          // set relation to null for all the ids not in the list
           const currentIds = response[current];
           const toRemove = _.differenceWith(currentIds, property, (a, b) => {
             return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
@@ -281,11 +295,14 @@ module.exports = {
           relationUpdates.push(updatePromise);
           return acc;
         }
+        // media -> model
         case 'manyMorphToMany':
         case 'manyMorphToOne': {
+          // Update the relational array.
           const refs = params.values[current];
 
           if (Array.isArray(refs) && refs.length === 0) {
+            // clear related
             relationUpdates.push(
               removeRelationMorph(this, { params: { id: primaryKeyValue }, transacting })
             );
@@ -293,15 +310,18 @@ module.exports = {
           }
 
           refs.forEach(obj => {
-            const targetModel = strapi.db.getModel(
-              obj.ref,
-              obj.source !== 'content-manager' ? obj.source : null
+            const targetPromise = processMorphRelation(
+              this,
+              obj,
+              association,
+              response,
+              transacting
             );
-
-            relationUpdates.push(processMorphRelation.call(this, association, obj, response, targetModel, transacting));
+            relationUpdates.push(targetPromise);
           });
           break;
         }
+        // model -> media
         case 'oneToManyMorph':
         case 'manyToManyMorph': {
           const currentValue = transformToArrayID(params.values[current]);

@@ -429,18 +429,12 @@ class Strapi {
   }
 
   async runLifecyclesFunctions(lifecycleName) {
-    const execLifecycleFn = async fn => {
+    const execLifecycle = async fn => {
       if (!fn) {
         return;
       }
 
-      try {
-        await fn();
-      } catch (err) {
-        strapi.log.error(`${lifecycleName} function failed`);
-        strapi.log.error(err);
-        strapi.stop();
-      }
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;
@@ -449,17 +443,25 @@ class Strapi {
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
         const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
-        return execLifecycleFn(pluginFunc);
+
+        return execLifecycle(pluginFunc).catch(err => {
+          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
       })
     );
 
     // user
-    const userLifecycleFn = _.get(this.config, configPath);
-    await execLifecycleFn(userLifecycleFn);
+    await execLifecycle(_.get(this.config, configPath));
 
     // admin
     const adminFunc = _.get(this.admin.config, configPath);
-    await execLifecycleFn(adminFunc);
+    return execLifecycle(adminFunc).catch(err => {
+      strapi.log.error(`${lifecycleName} function in admin failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    });
   }
 
   async freeze() {
