@@ -1,9 +1,13 @@
-"use strict";
-
 /**
  * @fileoverview Tests for FlatConfigArray
- * @author Nicholas C. Zakas
+ * @author Nicholas C. Zakacs
  */
+
+"use strict";
+
+//-----------------------------------------------------------------------------
+// Requirements
+//-----------------------------------------------------------------------------
 
 const { FlatConfigArray } = require("../../../lib/config/flat-config-array");
 const assert = require("chai").assert;
@@ -11,6 +15,10 @@ const stringify = require("json-stable-stringify-without-jsonify");
 const espree = require("espree");
 const jslang = require("../../../lib/languages/js");
 const { LATEST_ECMA_VERSION } = require("../../../conf/ecma-version");
+
+//-----------------------------------------------------------------------------
+// Helpers
+//-----------------------------------------------------------------------------
 
 const baseConfig = {
 	files: ["**/*.js"],
@@ -118,7 +126,10 @@ const baseConfig = {
 						],
 					},
 				},
+
+				// old-style
 				boom() {},
+
 				foo2: {
 					meta: {
 						schema: {
@@ -203,6 +214,10 @@ async function assertInvalidConfig(values, message) {
 	}, message);
 }
 
+//-----------------------------------------------------------------------------
+// Tests
+//-----------------------------------------------------------------------------
+
 describe("FlatConfigArray", () => {
 	it("should allow noniterable baseConfig objects", () => {
 		const base = {
@@ -217,6 +232,7 @@ describe("FlatConfigArray", () => {
 			baseConfig: base,
 		});
 
+		// should not throw error
 		configs.normalizeSync();
 	});
 
@@ -2625,7 +2641,7 @@ describe("FlatConfigArray", () => {
 				);
 			});
 
-			it("should allow rules with `schema,false` to have any configurations", async () => {
+			it("should allow rules with `schema:false` to have any configurations", async () => {
 				const configs = new FlatConfigArray([
 					{
 						plugins: {
@@ -2661,6 +2677,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2693,6 +2710,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2725,6 +2743,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -3105,6 +3124,7 @@ describe("FlatConfigArray", () => {
 
 			configs.normalizeSync();
 
+			// exact error may differ based on structuredClone implementation so just test prefix
 			assert.throws(() => {
 				configs.getConfig("foo.js");
 			}, /Key "rules": Key "camelcase":/u);
