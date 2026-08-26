@@ -465,7 +465,13 @@ class OffsetStorage {
 					token,
 					(offsetInfo.from
 						? this.getDesiredIndent(offsetInfo.from)
-						: "") + this._indentType.repeat(offset),
+						: "") +
+						(offsetInfo.from &&
+						offsetInfo.from.loc.start.line === token.loc.start.line &&
+						!/^\s*?\n/u.test(token.value) &&
+						!offsetInfo.force
+							? ""
+							: this._indentType.repeat(offset)),
 				);
 			}
 		}
@@ -1211,89 +1217,36 @@ module.exports = {
 
 		const ignoredNodeFirstTokens = new Set();
 
-		// Helper function to process node groups
-		function processListNodes(
-			node,
-			getStartToken,
-			getEndToken,
-			optionsKey,
-		) {
-			const startToken = getStartToken(node);
-			const endToken = getEndToken(node);
-
-			const elements =
-				node.elements || node.properties || node.params || node.specifiers;
-
-			addElementListIndent(
-				elements || [node],
-				startToken,
-				endToken,
-				options[optionsKey],
-			);
-		}
-
-		// Helper function for block-related nodes
-		function processBlockNode(node, bodyOption) {
-			let blockIndentLevel;
-
-			if (node.parent && isOuterIIFE(node.parent)) {
-				blockIndentLevel = options.outerIIFEBody;
-			} else if (
-				node.parent &&
-				(node.parent.type === "FunctionExpression" ||
-					node.parent.type === "ArrowFunctionExpression")
-			) {
-				blockIndentLevel = options.FunctionExpression.body;
-			} else if (node.parent && node.parent.type === "FunctionDeclaration") {
-				blockIndentLevel = options.FunctionDeclaration.body;
-			} else {
-				blockIndentLevel = 1;
-			}
-
-			const startToken = sourceCode.getFirstToken(node);
-			const endToken = sourceCode.getLastToken(node);
-
-			// For blocks that aren't lone statements, ensure that the opening curly brace is aligned with the parent.
-			if (!astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type)) {
-				offsets.setDesiredOffset(
-					startToken,
-					sourceCode.getFirstToken(node.parent),
-					0,
-				);
-			}
-
-			addElementListIndent(
-				node.body,
-				startToken,
-				endToken,
-				blockIndentLevel,
-			);
-		}
-
 		const baseOffsetListeners = {
 			"ArrayExpression, ArrayPattern"(node) {
-				processListNodes(
-					node,
-					n => sourceCode.getFirstToken(n),
-					n => {
-						const noEmpty = [...n.elements].reverse().find(_ => _);
-						return sourceCode.getTokenAfter(noEmpty || sourceCode.getFirstToken(n), astUtils.isClosingBracketToken);
-					},
-					"ArrayExpression",
+				const openingBracket = sourceCode.getFirstToken(node);
+				const closingBracket = sourceCode.getTokenAfter(
+					[...node.elements].reverse().find(_ => _) || openingBracket,
+					astUtils.isClosingBracketToken,
+				);
+
+				addElementListIndent(
+					node.elements,
+					openingBracket,
+					closingBracket,
+					options.ArrayExpression,
 				);
 			},
 
 			"ObjectExpression, ObjectPattern"(node) {
-				processListNodes(
-					node,
-					n => sourceCode.getFirstToken(n),
-					n => {
-						return sourceCode.getTokenAfter(
-							n.properties.length ? n.properties.at(-1) : sourceCode.getFirstToken(n),
-							astUtils.isClosingBraceToken,
-						);
-					},
-					"ObjectExpression",
+				const openingCurly = sourceCode.getFirstToken(node);
+				const closingCurly = sourceCode.getTokenAfter(
+					node.properties.length
+						? node.properties.at(-1)
+						: openingCurly,
+					astUtils.isClosingBraceToken,
+				);
+
+				addElementListIndent(
+					node.properties,
+					openingCurly,
+					closingCurly,
+					options.ObjectExpression,
 				);
 			},
 
@@ -1345,6 +1298,12 @@ module.exports = {
 					token => token.value === node.operator,
 				);
 
+				/*
+				 * For backwards compatibility, don't check BinaryExpression indents, e.g.
+				 * var foo = bar &&
+				 *                   baz;
+				 */
+
 				const tokenAfterOperator = sourceCode.getTokenAfter(operator);
 
 				offsets.ignoreToken(operator);
@@ -1353,7 +1312,43 @@ module.exports = {
 			},
 
 			"BlockStatement, ClassBody"(node) {
-				processBlockNode(node);
+				let blockIndentLevel;
+
+				if (node.parent && isOuterIIFE(node.parent)) {
+					blockIndentLevel = options.outerIIFEBody;
+				} else if (
+					node.parent &&
+					(node.parent.type === "FunctionExpression" ||
+						node.parent.type === "ArrowFunctionExpression")
+				) {
+					blockIndentLevel = options.FunctionExpression.body;
+				} else if (
+					node.parent &&
+					node.parent.type === "FunctionDeclaration"
+				) {
+					blockIndentLevel = options.FunctionDeclaration.body;
+				} else {
+					blockIndentLevel = 1;
+				}
+
+				/*
+				 * For blocks that aren't lone statements, ensure that the opening curly brace
+				 * is aligned with the parent.
+				 */
+				if (!astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type)) {
+					offsets.setDesiredOffset(
+						sourceCode.getFirstToken(node),
+						sourceCode.getFirstToken(node.parent),
+						0,
+					);
+				}
+
+				addElementListIndent(
+					node.body,
+					sourceCode.getFirstToken(node),
+					sourceCode.getLastToken(node),
+					blockIndentLevel,
+				);
 			},
 
 			CallExpression: addFunctionCallIndent,
@@ -1417,7 +1412,16 @@ module.exports = {
 							: 1,
 					);
 
-					// The alternate and the consequent should usually have the same indentation.
+					/*
+					 * The alternate and the consequent should usually have the same indentation.
+					 * If they share part of a line, align the alternate against the first token of the consequent.
+					 * This allows the alternate to be indented correctly in cases like this:
+					 * foo ? (
+					 *   bar
+					 * ) : ( // this '(' is aligned with the '(' above, so it's considered to be aligned with `foo`
+					 *   baz // as a result, `baz` is offset by 1 rather than 2
+					 * )
+					 */
 					if (
 						lastConsequentToken.loc.end.line ===
 						firstAlternateToken.loc.start.line
@@ -1428,6 +1432,15 @@ module.exports = {
 							0,
 						);
 					} else {
+						/**
+						 * If the alternate and consequent do not share part of a line, offset the alternate from the first
+						 * token of the conditional expression. For example:
+						 * foo ? bar
+						 *   : baz
+						 *
+						 * If `baz` were aligned with `bar` rather than being offset by 1 from `foo`, `baz` would end up
+						 * having no expected indentation.
+						 */
 						offsets.setDesiredOffset(
 							firstAlternateToken,
 							firstToken,
@@ -1687,7 +1700,15 @@ module.exports = {
 					);
 				}
 
-				// Match against the object
+				/*
+				 * If the object ends on the same line that the property starts, match against the last token
+				 * of the object, to ensure that the MemberExpression is not indented.
+				 *
+				 * Otherwise, match against the first token of the object, e.g.
+				 * foo
+				 *   .bar
+				 *   .baz // <-- offset by 1 from `foo`
+				 */
 				const offsetBase =
 					lastObjectToken.loc.end.line ===
 					firstPropertyToken.loc.start.line
@@ -1695,14 +1716,17 @@ module.exports = {
 						: firstObjectToken;
 
 				if (typeof options.MemberExpression === "number") {
-					// Match the dot or opening bracket against the object.
+					// Match the dot (for non-computed properties) or the opening bracket (for computed properties) against the object.
 					offsets.setDesiredOffset(
 						firstNonObjectToken,
 						offsetBase,
 						options.MemberExpression,
 					);
 
-					// Match the first token of the property against the object or opening bracket
+					/*
+					 * For computed MemberExpressions, match the first token of the property against the opening bracket.
+					 * Otherwise, match the first token of the property against the object.
+					 */
 					offsets.setDesiredOffset(
 						secondNonObjectToken,
 						node.computed ? firstNonObjectToken : offsetBase,
@@ -1759,7 +1783,7 @@ module.exports = {
 				const maybeSemicolonToken = sourceCode.getLastToken(node);
 				let keyLastToken;
 
-				// Indent key
+				// Indent key.
 				if (node.computed) {
 					const bracketTokenL = sourceCode.getTokenBefore(
 						node.key,
@@ -1924,7 +1948,25 @@ module.exports = {
 					node.declarations.at(-1).loc.start.line >
 					node.loc.start.line
 				) {
-					// VariableDeclarator indentation is different from other forms
+					/*
+					 * VariableDeclarator indentation is a bit different from other forms of indentation, in that the
+					 * indentation of an opening bracket sometimes won't match that of a closing bracket. For example,
+					 * the following indentations are correct:
+					 *
+					 * var foo = {
+					 *   ok: true
+					 * };
+					 *
+					 * var foo = {
+					 *     ok: true,
+					 *   },
+					 *   bar = 1;
+					 *
+					 * Account for when exiting the AST (after indentations have already been set for the nodes in
+					 * the declaration) by manually increasing the indentation level of the tokens in this declarator
+					 * on the same line as the start of the declaration, provided that there are declarators that
+					 * follow this one.
+					 */
 					offsets.setDesiredOffsets(
 						node.range,
 						firstToken,
@@ -2098,17 +2140,36 @@ module.exports = {
 
 		const listenerCallQueue = [];
 
-		// Helper function to add listeners
-		function addOffsetListeners(listenersMap, baseListeners) {
-			for (const [selector, listener] of Object.entries(baseListeners)) {
-				listenersMap[selector] = node =>
-					listenerCallQueue.push({ listener, node });
-			}
-		}
-
+		/*
+		 * To ignore the indentation of a node:
+		 * 1. Don't call the node's listener when entering it (if it has a listener)
+		 * 2. Do not set any offsets against the first token of the node.
+		 * 3. Call `ignoreNode` on the node sometime after exiting it and before validating offsets.
+		 */
 		const offsetListeners = {};
 
-		addOffsetListeners(offsetListeners, baseOffsetListeners);
+		for (const [selector, listener] of Object.entries(
+			baseOffsetListeners,
+		)) {
+			/*
+			 * Offset listener calls are deferred until traversal is finished, and are called as
+			 * part of the final `Program:exit` listener. This is necessary because a node might
+			 * be matched by multiple selectors.
+			 *
+			 * Example: Suppose there is an offset listener for `Identifier`, and the user has
+			 * specified in configuration that `MemberExpression > Identifier` should be ignored.
+			 * Due to selector specificity rules, the `Identifier` listener will get called first. However,
+			 * if a given Identifier node is supposed to be ignored, then the `Identifier` offset listener
+			 * should not have been called at all. Without doing extra selector matching, we don't know
+			 * whether the Identifier matches the `MemberExpression > Identifier` selector until the
+			 * `MemberExpression > Identifier` listener is called.
+			 *
+			 * To avoid this, the `Identifier` listener isn't called until traversal finishes and all
+			 * ignored nodes are known.
+			 */
+			offsetListeners[selector] = node =>
+				listenerCallQueue.push({ listener, node });
+		}
 
 		// For each ignored node selector, set up a listener to collect it into the `ignoredNodes` set.
 		const ignoredNodes = new Set();
@@ -2168,7 +2229,10 @@ module.exports = {
 
 				addParensIndent(sourceCode.ast.tokens);
 
-				// Create a Map from (tokenOrComment) => (precedingToken).
+				/*
+				 * Create a Map from (tokenOrComment) => (precedingToken).
+				 * This is necessary because sourceCode.getTokenBefore does not handle a comment as an argument correctly.
+				 */
 				const precedingTokens = new WeakMap();
 
 				for (let i = 0; i < sourceCode.ast.comments.length; i++) {
@@ -2215,7 +2279,13 @@ module.exports = {
 							tokenAfter &&
 							!hasBlankLinesBetween(firstTokenOfLine, tokenAfter);
 
-						// If a comment precedes a line that begins with a semicolon token, align to that token
+						/*
+						 * If a comment precedes a line that begins with a semicolon token, align to that token, i.e.
+						 *
+						 * let foo
+						 * // comment
+						 * ;(async () => {})()
+						 */
 						if (
 							tokenAfter &&
 							astUtils.isSemicolonToken(tokenAfter) &&
