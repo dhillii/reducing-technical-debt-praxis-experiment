@@ -140,10 +140,10 @@ HUGGINGFACE_TEMPERATURE = 0.0
 HUGGINGFACE_MAX_TOKENS = 65536
 HUGGINGFACE_MODELS: Dict[str, Any] = {
     "qwen3_coder_next": {
-        "model_id": "Qwen/Qwen3-Coder-Next:novita",
+        "model_id": "Qwen/Qwen3-Coder-Next:featherless-ai",
     },
     "qwen3_coder_480b": {
-        "model_id": "Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+        "model_id": "Qwen/Qwen3-Coder-480B-A35B-Instruct:featherless-ai",
     },
 }
 

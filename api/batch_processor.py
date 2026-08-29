@@ -754,34 +754,62 @@ class HuggingFaceBatchProvider:
         tmp.close()
         return Path(tmp.name)
 
-    def _call_one(self, custom_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Call the HF router for one request; return a Together-style raw result row."""
-        try:
-            completion = self.client.chat.completions.create(**body)
-            choice = completion.choices[0]
-            usage = completion.usage
-            return {
-                "custom_id": custom_id,
-                "response": {
-                    "status_code": 200,
-                    "body": {
-                        "choices": [{
-                            "finish_reason": choice.finish_reason,
-                            "message": {"content": choice.message.content or ""},
-                        }],
-                        "usage": {
-                            "prompt_tokens": usage.prompt_tokens if usage else 0,
-                            "completion_tokens": usage.completion_tokens if usage else 0,
+    def _call_one(self, custom_id: str, body: Dict[str, Any], max_retries: int = 4) -> Dict[str, Any]:
+        """Call the HF router for one request, retrying transient gateway errors."""
+        last_error: Optional[Exception] = None
+        for attempt in range(max_retries):
+            try:
+                completion = self.client.chat.completions.create(**body)
+                choice = completion.choices[0]
+                usage = completion.usage
+                return {
+                    "custom_id": custom_id,
+                    "response": {
+                        "status_code": 200,
+                        "body": {
+                            "choices": [{
+                                "finish_reason": choice.finish_reason,
+                                "message": {"content": choice.message.content or ""},
+                            }],
+                            "usage": {
+                                "prompt_tokens": usage.prompt_tokens if usage else 0,
+                                "completion_tokens": usage.completion_tokens if usage else 0,
+                            },
                         },
                     },
-                },
-            }
-        except Exception as e:
-            return {
-                "custom_id": custom_id,
-                "response": {"status_code": 0, "body": {}},
-                "error": str(e),
-            }
+                }
+            except Exception as e:
+                last_error = e
+                if attempt == max_retries - 1 or not self._is_retryable_error(e):
+                    break
+                sleep_s = 2.0 * (2 ** attempt)
+                logger.warning(
+                    f"Retryable HF error for {custom_id} (attempt {attempt + 1}/{max_retries}): "
+                    f"{e}; retrying in {sleep_s:.0f}s"
+                )
+                time.sleep(sleep_s)
+
+        return {
+            "custom_id": custom_id,
+            "response": {"status_code": 0, "body": {}},
+            "error": str(last_error),
+        }
+
+    @staticmethod
+    def _is_retryable_error(e: Exception) -> bool:
+        """True for transient gateway/rate-limit errors worth retrying (e.g. 502/503/504)."""
+        status_code = getattr(e, "status_code", None)
+        if status_code in (429, 500, 502, 503, 504):
+            return True
+        message = str(e)
+        return any(
+            token in message
+            for token in (
+                "502", "503", "504",
+                "Gateway Time-out", "Bad Gateway", "Service Unavailable",
+                "Timeout", "timed out", "Connection",
+            )
+        )
 
     def submit_batch(
         self,
