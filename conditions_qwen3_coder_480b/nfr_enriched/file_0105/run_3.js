@@ -1,0 +1,587 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
+const tty = require('tty');
+const diff = require('diff');
+const ms = require('../ms');
+const utils = require('../utils');
+const supportsColor = process.browser ? null : require('supports-color');
+
+/**
+ * Expose `Base`.
+ */
+
+exports = module.exports = Base;
+
+/**
+ * Save timer references to avoid Sinon interfering.
+ * See: https://github.com/mochajs/mocha/issues/237
+ */
+
+/* eslint-disable no-unused-vars, no-native-reassign */
+const Date = global.Date;
+const setTimeout = global.setTimeout;
+const setInterval = global.setInterval;
+const clearTimeout = global.clearTimeout;
+const clearInterval = global.clearInterval;
+/* eslint-enable no-unused-vars, no-native-reassign */
+
+/**
+ * Check if both stdio streams are associated with a tty.
+ */
+
+const isatty = tty.isatty(1) && tty.isatty(2);
+
+/**
+ * Enable coloring by default, except in the browser interface.
+ */
+
+exports.useColors = !process.browser && (supportsColor || (process.env.MOCHA_COLORS !== undefined));
+
+/**
+ * Inline diffs instead of +/-
+ */
+
+exports.inlineDiffs = false;
+
+/**
+ * Default color map.
+ */
+
+exports.colors = {
+  pass: 90,
+  fail: 31,
+  'bright pass': 92,
+  'bright fail': 91,
+  'bright yellow': 93,
+  pending: 36,
+  suite: 0,
+  'error title': 0,
+  'error message': 31,
+  'error stack': 90,
+  checkmark: 32,
+  fast: 90,
+  medium: 33,
+  slow: 31,
+  green: 32,
+  light: 90,
+  'diff gutter': 90,
+  'diff added': 32,
+  'diff removed': 31
+};
+
+/**
+ * Default symbol map.
+ */
+
+exports.symbols = {
+  ok: '✓',
+  err: '✖',
+  dot: '․',
+  comma: ',',
+  bang: '!'
+};
+
+// With node.js on Windows: use symbols available in terminal default fonts
+if (process.platform === 'win32') {
+  exports.symbols.ok = '\u221A';
+  exports.symbols.err = '\u00D7';
+  exports.symbols.dot = '.';
+}
+
+/**
+ * Color `str` with the given `type`,
+ * allowing colors to be disabled,
+ * as well as user-defined color
+ * schemes.
+ *
+ * @param {string} type
+ * @param {string} str
+ * @return {string}
+ * @api private
+ */
+const color = exports.color = function (type, str) {
+  if (!exports.useColors) {
+    return String(str);
+  }
+  return '\u001b[' + exports.colors[type] + 'm' + str + '\u001b[0m';
+};
+
+/**
+ * Expose term window size, with some defaults for when stderr is not a tty.
+ */
+
+exports.window = {
+  width: 75
+};
+
+if (isatty) {
+  exports.window.width = process.stdout.getWindowSize
+    ? process.stdout.getWindowSize(1)[0]
+    : tty.getWindowSize()[1];
+}
+
+/**
+ * Expose some basic cursor interactions that are common among reporters.
+ */
+
+exports.cursor = {
+  hide: function () {
+    isatty && process.stdout.write('\u001b[?25l');
+  },
+
+  show: function () {
+    isatty && process.stdout.write('\u001b[?25h');
+  },
+
+  deleteLine: function () {
+    isatty && process.stdout.write('\u001b[2K');
+  },
+
+  beginningOfLine: function () {
+    isatty && process.stdout.write('\u001b[0G');
+  },
+
+  CR: function () {
+    if (isatty) {
+      exports.cursor.deleteLine();
+      exports.cursor.beginningOfLine();
+    } else {
+      process.stdout.write('\r');
+    }
+  }
+};
+
+/**
+ * Determine if a diff should be shown for an error.
+ * 
+ * @param {Error} err - The error object to check
+ * @return {boolean} True if diff should be shown
+ */
+function showDiff (err) {
+  return err && err.showDiff !== false && sameType(err.actual, err.expected) && err.expected !== undefined;
+}
+
+/**
+ * Convert error objects to string representations for diff display.
+ * 
+ * @param {Error} err - The error object with actual/expected properties
+ */
+function stringifyDiffObjs (err) {
+  if (!utils.isString(err.actual) || !utils.isString(err.expected)) {
+    err.actual = utils.stringify(err.actual);
+    err.expected = utils.stringify(err.expected);
+  }
+}
+
+/**
+ * Format a single failure for display.
+ * 
+ * @param {Object} test - The test object containing error information
+ * @param {number} index - The index of the test in the failures list
+ */
+function formatFailure(test, index) {
+  // format
+  let fmt = color('error title', '  %s) %s:\n') +
+    color('error message', '     %s') +
+    color('error stack', '\n%s\n');
+
+  // msg
+  let msg;
+  const err = test.err;
+  let message;
+  if (err.message && typeof err.message.toString === 'function') {
+    message = err.message + '';
+  } else if (typeof err.inspect === 'function') {
+    message = err.inspect() + '';
+  } else {
+    message = '';
+  }
+  let stack = err.stack || message;
+  const stackIndex = message ? stack.indexOf(message) : -1;
+
+  if (stackIndex === -1) {
+    msg = message;
+  } else {
+    const endIndex = stackIndex + message.length;
+    msg = stack.slice(0, endIndex);
+    // remove msg from stack
+    stack = stack.slice(endIndex + 1);
+  }
+
+  // uncaught
+  if (err.uncaught) {
+    msg = 'Uncaught ' + msg;
+  }
+  // explicitly show diff
+  if (!exports.hideDiff && showDiff(err)) {
+    stringifyDiffObjs(err);
+    fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+    const match = message.match(/^([^:]+): expected/);
+    msg = '\n      ' + color('error message', match ? match[1] : msg);
+
+    if (exports.inlineDiffs) {
+      msg += inlineDiff(err);
+    } else {
+      msg += unifiedDiff(err);
+    }
+  }
+
+  // indent stack trace
+  stack = stack.replace(/^/gm, '  ');
+
+  // indented test title
+  let testTitle = '';
+  test.titlePath().forEach(function (str, idx) {
+    if (idx !== 0) {
+      testTitle += '\n     ';
+    }
+    for (let i = 0; i < idx; i++) {
+      testTitle += '  ';
+    }
+    testTitle += str;
+  });
+
+  console.log(fmt, (index + 1), testTitle, msg, stack);
+}
+
+/**
+ * Output the given `failures` as a list.
+ *
+ * @param {Array} failures
+ * @api public
+ */
+
+exports.list = function (failures) {
+  console.log();
+  failures.forEach(formatFailure);
+};
+
+/**
+ * Track statistics for test runs.
+ * 
+ * @return {Object} Stats object with counters
+ */
+function createStats() {
+  return { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
+}
+
+/**
+ * Handle suite start event.
+ * 
+ * @param {Object} stats - The statistics object
+ * @param {Object} suite - The suite being started
+ */
+function handleSuiteStart(stats, suite) {
+  stats.suites = stats.suites || 0;
+  suite.root || stats.suites++;
+}
+
+/**
+ * Handle test completion event.
+ * 
+ * @param {Object} stats - The statistics object
+ */
+function handleTestEnd(stats) {
+  stats.tests = stats.tests || 0;
+  stats.tests++;
+}
+
+/**
+ * Categorize test speed based on duration.
+ * 
+ * @param {Object} test - The completed test
+ */
+function categorizeTestSpeed(test) {
+  if (test.duration > test.slow()) {
+    test.speed = 'slow';
+  } else if (test.duration > test.slow() / 2) {
+    test.speed = 'medium';
+  } else {
+    test.speed = 'fast';
+  }
+}
+
+/**
+ * Handle passing test event.
+ * 
+ * @param {Object} stats - The statistics object
+ * @param {Object} test - The passing test
+ */
+function handlePass(stats, test) {
+  stats.passes = stats.passes || 0;
+  categorizeTestSpeed(test);
+  stats.passes++;
+}
+
+/**
+ * Handle failing test event.
+ * 
+ * @param {Object} stats - The statistics object
+ * @param {Object} failures - The failures array
+ * @param {Object} test - The failing test
+ * @param {Error} err - The error that caused the failure
+ */
+function handleFail(stats, failures, test, err) {
+  stats.failures = stats.failures || 0;
+  stats.failures++;
+  if (showDiff(err)) {
+    stringifyDiffObjs(err);
+  }
+  test.err = err;
+  failures.push(test);
+}
+
+/**
+ * Handle run end event.
+ * 
+ * @param {Object} stats - The statistics object
+ */
+function handleRunEnd(stats) {
+  stats.end = new Date();
+  stats.duration = new Date() - stats.start;
+}
+
+/**
+ * Initialize a new `Base` reporter.
+ *
+ * All other reporters generally
+ * inherit from this reporter, providing
+ * stats such as test duration, number
+ * of tests passed / failed etc.
+ *
+ * @param {Runner} runner
+ * @api public
+ */
+
+function Base (runner) {
+  const stats = this.stats = createStats();
+  const failures = this.failures = [];
+
+  if (!runner) {
+    return;
+  }
+  this.runner = runner;
+
+  runner.stats = stats;
+
+  runner.on('start', function () {
+    stats.start = new Date();
+  });
+
+  runner.on('suite', function (suite) {
+    handleSuiteStart(stats, suite);
+  });
+
+  runner.on('test end', function () {
+    handleTestEnd(stats);
+  });
+
+  runner.on('pass', function (test) {
+    handlePass(stats, test);
+  });
+
+  runner.on('fail', function (test, err) {
+    handleFail(stats, failures, test, err);
+  });
+
+  runner.on('end', function () {
+    handleRunEnd(stats);
+  });
+
+  runner.on('pending', function () {
+    stats.pending++;
+  });
+}
+
+/**
+ * Output common epilogue used by many of
+ * the bundled reporters.
+ *
+ * @api public
+ */
+Base.prototype.epilogue = function () {
+  const stats = this.stats;
+  let fmt;
+
+  console.log();
+
+  // passes
+  fmt = color('bright pass', ' ') +
+    color('green', ' %d passing') +
+    color('light', ' (%s)');
+
+  console.log(fmt,
+    stats.passes || 0,
+    ms(stats.duration));
+
+  // pending
+  if (stats.pending) {
+    fmt = color('pending', ' ') +
+      color('pending', ' %d pending');
+
+    console.log(fmt, stats.pending);
+  }
+
+  // failures
+  if (stats.failures) {
+    fmt = color('fail', '  %d failing');
+
+    console.log(fmt, stats.failures);
+
+    Base.list(this.failures);
+    console.log();
+  }
+
+  console.log();
+};
+
+/**
+ * Pad the given `str` to `len`.
+ *
+ * @api private
+ * @param {string} str
+ * @param {string} len
+ * @return {string}
+ */
+function pad (str, len) {
+  str = String(str);
+  return Array(len - str.length + 1).join(' ') + str;
+}
+
+/**
+ * Returns an inline diff between 2 strings with coloured ANSI output
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} Diff
+ */
+function inlineDiff (err) {
+  let msg = errorDiff(err);
+
+  // linenos
+  const lines = msg.split('\n');
+  if (lines.length > 4) {
+    const width = String(lines.length).length;
+    msg = lines.map(function (str, i) {
+      return pad(++i, width) + ' |' + ' ' + str;
+    }).join('\n');
+  }
+
+  // legend
+  msg = '\n' +
+    color('diff removed', 'actual') +
+    ' ' +
+    color('diff added', 'expected') +
+    '\n\n' +
+    msg +
+    '\n';
+
+  // indent
+  msg = msg.replace(/^/gm, '      ');
+  return msg;
+}
+
+/**
+ * Clean up a line for unified diff display.
+ * 
+ * @param {string} indent - The indentation string
+ * @param {string} line - The line to clean
+ * @return {string|null} Cleaned line or null if blank
+ */
+function cleanUpLine(indent, line) {
+  if (line[0] === '+') {
+    return indent + colorLines('diff added', line);
+  }
+  if (line[0] === '-') {
+    return indent + colorLines('diff removed', line);
+  }
+  if (line.match(/@@/)) {
+    return '--';
+  }
+  if (line.match(/\\ No newline/)) {
+    return null;
+  }
+  return indent + line;
+}
+
+/**
+ * Filter out blank lines from diff output.
+ * 
+ * @param {string} line - The line to check
+ * @return {boolean} True if line is not blank
+ */
+function notBlankLine(line) {
+  return typeof line !== 'undefined' && line !== null;
+}
+
+/**
+ * Returns a unified diff between two strings.
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} The diff.
+ */
+function unifiedDiff (err) {
+  const indent = '      ';
+  const msg = diff.createPatch('string', err.actual, err.expected);
+  const lines = msg.split('\n').splice(5);
+  return '\n      ' +
+    colorLines('diff added', '+ expected') + ' ' +
+    colorLines('diff removed', '- actual') +
+    '\n\n' +
+    lines.map(cleanUpLine.bind(null, indent)).filter(notBlankLine).join('\n');
+}
+
+/**
+ * Return a character diff for `err`.
+ *
+ * @api private
+ * @param {Error} err
+ * @return {string}
+ */
+function errorDiff (err) {
+  return diff.diffWordsWithSpace(err.actual, err.expected).map(function (str) {
+    if (str.added) {
+      return colorLines('diff added', str.value);
+    }
+    if (str.removed) {
+      return colorLines('diff removed', str.value);
+    }
+    return str.value;
+  }).join('');
+}
+
+/**
+ * Color lines for `str`, using the color `name`.
+ *
+ * @api private
+ * @param {string} name
+ * @param {string} str
+ * @return {string}
+ */
+function colorLines (name, str) {
+  return str.split('\n').map(function (line) {
+    return color(name, line);
+  }).join('\n');
+}
+
+/**
+ * Object#toString reference.
+ */
+const objToString = Object.prototype.toString;
+
+/**
+ * Check that a / b have the same type.
+ *
+ * @api private
+ * @param {Object} a
+ * @param {Object} b
+ * @return {boolean}
+ */
+function sameType (a, b) {
+  return objToString.call(a) === objToString.call(b);
+}
