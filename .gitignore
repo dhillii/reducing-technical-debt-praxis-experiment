@@ -79,6 +79,6 @@ ehthumbs.db
 # Node (if any)
 node_modules/
 package-lock.json
-
+.jsonl
 # Lock files (optional - uncomment if you want to track them)
 # Pipfile.lock
