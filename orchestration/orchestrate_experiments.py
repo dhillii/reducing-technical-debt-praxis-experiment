@@ -1001,6 +1001,7 @@ def _create_batch_run_orchestrator(
     prompts_file: Optional[Path],
     source_dir: Optional[Path],
     manifest_file: Optional[Path],
+    stream: bool = False,
 ) -> BatchRunOrchestrator:
     """Create a legacy or fully isolated batch orchestrator."""
     custom_paths = [dataset_csv, prompts_file, source_dir, manifest_file]
@@ -1019,6 +1020,7 @@ def _create_batch_run_orchestrator(
         prompts_file=prompts_file,
         source_code_dir=source_dir,
         extraction_manifest_file=manifest_file,
+        stream=stream,
     )
 
 @cli.command("batch-submit")
@@ -1038,13 +1040,14 @@ def _create_batch_run_orchestrator(
 )
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together", "huggingface"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b | qwen3_coder_next | qwen3_coder_480b")
-def batch_submit(status: str, batch_size: int, provider: str, model: str, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
+@click.option("--stream/--no-stream", default=False, help="For provider=huggingface: use streaming chat completions instead of blocking calls")
+def batch_submit(status: str, batch_size: int, provider: str, model: str, stream: bool, namespace: Optional[str], dataset_csv: Optional[Path], prompts_file: Optional[Path], source_dir: Optional[Path], manifest_file: Optional[Path]) -> None:
     """Submit all pending refactoring runs to the batch API."""
     setup_logging()
     logger.info(f"Submitting {status} runs as a single batch (provider={provider}, model={model})")
 
     try:
-        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file)
+        orchestrator = _create_batch_run_orchestrator(provider, model, namespace, dataset_csv, prompts_file, source_dir, manifest_file, stream=stream)
         batch_ids = orchestrator.submit_batches(
             status_filter=status,
             batch_size=batch_size,

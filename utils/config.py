@@ -137,7 +137,7 @@ TOGETHER_MODELS: Dict[str, Any] = {
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
 HUGGINGFACE_TEMPERATURE = 0.0
-HUGGINGFACE_MAX_TOKENS = 65536
+HUGGINGFACE_MAX_TOKENS =  65536  #or 262144
 HUGGINGFACE_MODELS: Dict[str, Any] = {
     "qwen3_coder_next": {
         "model_id": "Qwen/Qwen3-Coder-Next:novita",

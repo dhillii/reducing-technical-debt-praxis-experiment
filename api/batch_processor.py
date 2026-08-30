@@ -700,7 +700,7 @@ class HuggingFaceBatchProvider:
         even though the work already happened inside submit_batch.
     """
 
-    def __init__(self, model_key: str, batch_dir: Optional[Path] = None):
+    def __init__(self, model_key: str, batch_dir: Optional[Path] = None, stream: bool = False):
         if not HF_TOKEN:
             raise ValueError("HF_TOKEN not set")
         if model_key not in HUGGINGFACE_MODELS:
@@ -722,6 +722,9 @@ class HuggingFaceBatchProvider:
         self.batch_dir = batch_dir or (PROJECT_ROOT / "batches")
         self.batch_dir.mkdir(parents=True, exist_ok=True)
         self._pending_file_extensions: Dict[str, str] = {}
+        # Streaming keeps the connection open with incremental chunks, which can dodge
+        # gateway idle/total-time limits that a long blocking non-stream call would hit.
+        self.stream = stream
 
     def build_batch_requests(
         self,
@@ -759,21 +762,29 @@ class HuggingFaceBatchProvider:
         last_error: Optional[Exception] = None
         for attempt in range(max_retries):
             try:
-                completion = self.client.chat.completions.create(**body)
-                choice = completion.choices[0]
-                usage = completion.usage
+                if self.stream:
+                    finish_reason, content, prompt_tokens, completion_tokens = self._call_one_streaming(body)
+                else:
+                    completion = self.client.chat.completions.create(**body)
+                    choice = completion.choices[0]
+                    usage = completion.usage
+                    finish_reason = choice.finish_reason
+                    content = choice.message.content or ""
+                    prompt_tokens = usage.prompt_tokens if usage else 0
+                    completion_tokens = usage.completion_tokens if usage else 0
+
                 return {
                     "custom_id": custom_id,
                     "response": {
                         "status_code": 200,
                         "body": {
                             "choices": [{
-                                "finish_reason": choice.finish_reason,
-                                "message": {"content": choice.message.content or ""},
+                                "finish_reason": finish_reason,
+                                "message": {"content": content},
                             }],
                             "usage": {
-                                "prompt_tokens": usage.prompt_tokens if usage else 0,
-                                "completion_tokens": usage.completion_tokens if usage else 0,
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": completion_tokens,
                             },
                         },
                     },
@@ -794,6 +805,26 @@ class HuggingFaceBatchProvider:
             "response": {"status_code": 0, "body": {}},
             "error": str(last_error),
         }
+
+    def _call_one_streaming(self, body: Dict[str, Any]):
+        """Consume a streamed chat completion, returning (finish_reason, content, prompt_tokens, completion_tokens)."""
+        stream_body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        content_parts: List[str] = []
+        finish_reason: Optional[str] = None
+        prompt_tokens = 0
+        completion_tokens = 0
+        for chunk in self.client.chat.completions.create(**stream_body):
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    content_parts.append(delta.content)
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+            # Only the final chunk carries usage, since stream_options.include_usage is set.
+            if chunk.usage:
+                prompt_tokens = chunk.usage.prompt_tokens
+                completion_tokens = chunk.usage.completion_tokens
+        return finish_reason, "".join(content_parts), prompt_tokens, completion_tokens
 
     @staticmethod
     def _is_retryable_error(e: Exception) -> bool:
@@ -825,8 +856,9 @@ class HuggingFaceBatchProvider:
                     requests_list.append(json.loads(line))
 
         batch_id = f"hf-{uuid.uuid4().hex[:12]}"
+        mode = "streaming" if self.stream else "non-streaming"
         logger.info(
-            f"Running {len(requests_list)} Hugging Face request(s) concurrently "
+            f"Running {len(requests_list)} Hugging Face request(s) concurrently ({mode}) "
             f"for batch '{batch_name}' ({batch_id})"
         )
 
@@ -1049,7 +1081,7 @@ class BatchOrchestrator:
             for index in range(0, total_runs, batch_size)
         ]
         logger.info(
-            f"Building {len(chunks)} Together AI batches for {total_runs} runs "
+            f"Building {len(chunks)} batches for {total_runs} runs "
             f"(up to {batch_size} requests each)"
         )
 

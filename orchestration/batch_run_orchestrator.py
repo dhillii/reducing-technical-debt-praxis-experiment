@@ -118,6 +118,7 @@ class BatchRunOrchestrator:
         prompts_file: Optional[Path] = None,
         source_code_dir: Optional[Path] = None,
         extraction_manifest_file: Optional[Path] = None,
+        stream: bool = False,
     ):
         """
         Initialize batch orchestrator.
@@ -131,6 +132,8 @@ class BatchRunOrchestrator:
             prompts_file: Per-record prompt CSV for this experiment.
             source_code_dir: Directory containing extracted source files.
             extraction_manifest_file: Mapping from dataset paths to source files.
+            stream: For provider="huggingface", use streaming chat completions
+                    instead of blocking calls (see HuggingFaceBatchProvider).
         """
         self.provider = provider
         self.model_key = model_key
@@ -213,7 +216,7 @@ class BatchRunOrchestrator:
                 self.experiment_dir / "data" / f"huggingface_dataset_{model_key}.csv"
                 if self.namespace else DATA_DIR / f"huggingface_dataset_{model_key}.csv"
             )
-            batch_provider = HuggingFaceBatchProvider(model_key=model_key, batch_dir=self.batch_dir)
+            batch_provider = HuggingFaceBatchProvider(model_key=model_key, batch_dir=self.batch_dir, stream=stream)
         else:
             raise ValueError(f"Unknown provider {provider!r}. Use 'anthropic', 'together', or 'huggingface'.")
 
