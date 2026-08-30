@@ -1,13 +1,13 @@
 {
   "experiment_metadata": {
     "start_time": "2026-08-24T03:17:58.049142Z",
-    "last_updated": "2026-08-30T03:15:10.916993Z",
+    "last_updated": "2026-08-30T03:29:31.420096Z",
     "status": "RUNNING",
     "total_runs": 1314,
-    "completed": 1237,
+    "completed": 1251,
     "failed": 0,
     "in_progress": 0,
-    "pending": 77
+    "pending": 63
   },
   "runs": {
     "1": {
@@ -3334,7 +3334,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:10:14.260386Z",
@@ -3366,6 +3366,13 @@
         },
         {
           "timestamp": "2026-08-30T03:14:59.542107Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (254 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.272352Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (254 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
@@ -3494,10 +3501,10 @@
       "file_name": "post.js",
       "condition": "nfr_enriched",
       "run_number": 1,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:23.719903Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -3576,7 +3583,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:10:14.980883Z",
@@ -3611,6 +3618,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (972 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.563891Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (923 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -3676,7 +3690,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:10:15.426796Z",
@@ -3708,6 +3722,13 @@
         },
         {
           "timestamp": "2026-08-30T03:14:59.631855Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (858 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.469798Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (858 chars) is far shorter than the source file (16658 chars); likely a partial/snippet response.",
@@ -8782,7 +8803,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:10:40.069596Z",
@@ -8818,6 +8839,13 @@
           "error_type": "PartialOutput",
           "message": "Response (3096 chars) is far shorter than the source file (34888 chars); likely a partial/snippet response.",
           "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.660513Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (2139 chars) is far shorter than the source file (34888 chars); likely a partial/snippet response.",
+          "is_retriable": true
         }
       ]
     },
@@ -8828,10 +8856,10 @@
       "file_name": "stripe-api.js",
       "condition": "nfr_enriched",
       "run_number": 3,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:25.243744Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -14364,7 +14392,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:11:04.200105Z",
@@ -14396,6 +14424,13 @@
         },
         {
           "timestamp": "2026-08-30T03:14:59.911546Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (284 chars) is far shorter than the source file (13427 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.370741Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (284 chars) is far shorter than the source file (13427 chars); likely a partial/snippet response.",
@@ -15566,7 +15601,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 3,
+      "retry_count": 4,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:11.750056Z",
@@ -15587,6 +15622,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3867 chars) is far shorter than the source file (128737 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.982506Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (88 chars) is far shorter than the source file (128737 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -15626,10 +15668,10 @@
       "file_name": "source-code.js",
       "condition": "adaptive_nfr",
       "run_number": 1,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:31.419649Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -15928,7 +15970,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 5,
+      "retry_count": 6,
       "errors": [
         {
           "timestamp": "2026-08-24T04:11:08.715374Z",
@@ -15963,6 +16005,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (8429 chars) is far shorter than the source file (43590 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.766145Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1843 chars) is far shorter than the source file (43590 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -16074,10 +16123,10 @@
       "file_name": "no-extra-parens.js",
       "condition": "adaptive_nfr",
       "run_number": 2,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:24.421349Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -16326,7 +16375,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:09.507444Z",
@@ -16351,6 +16400,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:00.757822Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (4606 chars) is far shorter than the source file (48552 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.204561Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (4606 chars) is far shorter than the source file (48552 chars); likely a partial/snippet response.",
@@ -16945,7 +17001,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:12.326089Z",
@@ -16970,6 +17026,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:00.948301Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (227 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:22.874262Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (227 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
@@ -17002,7 +17065,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:12.427292Z",
@@ -17030,6 +17093,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (227 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.093636Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (203 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -17059,7 +17129,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:12.527069Z",
@@ -17087,6 +17157,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (5644 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.313228Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (406 chars) is far shorter than the source file (73914 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -17141,10 +17218,10 @@
       "file_name": "indent.js",
       "condition": "baseline",
       "run_number": 2,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:29.074087Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -17198,10 +17275,10 @@
       "file_name": "indent.js",
       "condition": "baseline",
       "run_number": 3,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:29.378597Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -17431,10 +17508,10 @@
       "file_name": "ast-utils.js",
       "condition": "baseline",
       "run_number": 1,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:29.995907Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -17814,7 +17891,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:15.806458Z",
@@ -17842,6 +17919,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (883 chars) is far shorter than the source file (60681 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.418755Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (227 chars) is far shorter than the source file (60681 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -17871,7 +17955,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:15.904643Z",
@@ -17899,6 +17983,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (21479 chars) is far shorter than the source file (60681 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.565072Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (227 chars) is far shorter than the source file (60681 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -19836,7 +19927,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:29.180499Z",
@@ -19861,6 +19952,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:01.847689Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.830492Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
@@ -19893,7 +19991,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:29.735662Z",
@@ -19918,6 +20016,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:01.939566Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:23.939412Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
@@ -19950,7 +20055,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:29.453852Z",
@@ -19975,6 +20080,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:02.032343Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.049108Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
@@ -20091,7 +20203,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:30.304885Z",
@@ -20119,6 +20231,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (224 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.261364Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -20148,7 +20267,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:30.207555Z",
@@ -20173,6 +20292,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:02.217365Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.156015Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
@@ -20205,7 +20331,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:30.403279Z",
@@ -20233,6 +20359,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (229 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.542709Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (224 chars) is far shorter than the source file (71055 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -20480,10 +20613,10 @@
       "file_name": "eslint.js",
       "condition": "adaptive_nfr",
       "run_number": 1,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:27.227167Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -20626,7 +20759,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:31.546878Z",
@@ -20651,6 +20784,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:03.175631Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (250 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.658159Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (250 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
@@ -20711,7 +20851,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:31.757285Z",
@@ -20736,6 +20876,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:03.270821Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (250 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.771899Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (250 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
@@ -20868,7 +21015,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.049947Z",
@@ -20896,6 +21043,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (208 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.878377Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (100 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -20925,7 +21079,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.146608Z",
@@ -20950,6 +21104,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:03.910485Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (248 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:24.982525Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (248 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
@@ -20982,7 +21143,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.240467Z",
@@ -21007,6 +21168,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:04.009956Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (199 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.084555Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (199 chars) is far shorter than the source file (33718 chars); likely a partial/snippet response.",
@@ -21057,10 +21225,10 @@
       "file_name": "request.js",
       "condition": "baseline",
       "run_number": 2,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:26.009372Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -21132,7 +21300,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.535999Z",
@@ -21157,6 +21325,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:04.111645Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (932 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.344125Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (932 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
@@ -21189,7 +21364,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.631624Z",
@@ -21217,6 +21392,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1195 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.450994Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1350 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -21246,7 +21428,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:32.732246Z",
@@ -21275,6 +21457,13 @@
           "error_type": "PartialOutput",
           "message": "Response (1195 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
           "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.553550Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1340 chars) is far shorter than the source file (18069 chars); likely a partial/snippet response.",
+          "is_retriable": true
         }
       ]
     },
@@ -21285,10 +21474,10 @@
       "file_name": "request.js",
       "condition": "nfr_enriched",
       "run_number": 3,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:26.389343Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -21696,7 +21885,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:35.466850Z",
@@ -21721,6 +21910,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:05.655695Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1709 chars) is far shorter than the source file (16006 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.656527Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1709 chars) is far shorter than the source file (16006 chars); likely a partial/snippet response.",
@@ -21781,7 +21977,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:35.564820Z",
@@ -21806,6 +22002,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:05.930035Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1709 chars) is far shorter than the source file (16006 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.756391Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1709 chars) is far shorter than the source file (16006 chars); likely a partial/snippet response.",
@@ -24778,7 +24981,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:20:52.264630Z",
@@ -24807,6 +25010,13 @@
           "error_type": "PartialOutput",
           "message": "Response (740 chars) is far shorter than the source file (7345 chars); likely a partial/snippet response.",
           "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:25.857931Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (740 chars) is far shorter than the source file (7345 chars); likely a partial/snippet response.",
+          "is_retriable": true
         }
       ]
     },
@@ -24817,10 +25027,10 @@
       "file_name": "html.ts",
       "condition": "baseline",
       "run_number": 2,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:26.240853Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -26883,7 +27093,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:04.610871Z",
@@ -26908,6 +27118,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:06.122808Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (423 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.113196Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (423 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
@@ -26940,7 +27157,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:04.715821Z",
@@ -26965,6 +27182,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:06.219800Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (423 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.506108Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (423 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
@@ -27109,7 +27333,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:05.499695Z",
@@ -27137,6 +27361,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (566 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.618273Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (541 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -27202,7 +27433,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:05.596945Z",
@@ -27230,6 +27461,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (563 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.725067Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (566 chars) is far shorter than the source file (23799 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -29275,7 +29513,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:21.052724Z",
@@ -29303,6 +29541,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.041897Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1937 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -29332,7 +29577,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:20.015041Z",
@@ -29360,6 +29605,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.937644Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1538 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -29389,7 +29641,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:20.952629Z",
@@ -29417,6 +29669,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1989 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:26.828316Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1309 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -29446,7 +29705,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:20.851605Z",
@@ -29471,6 +29730,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.147384Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.755153Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
@@ -29503,7 +29769,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:20.751563Z",
@@ -29528,6 +29794,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.053906Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.648068Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1933 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
@@ -29560,7 +29833,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:20.650446Z",
@@ -29588,6 +29861,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (2288 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.860801Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1881 chars) is far shorter than the source file (170720 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -30251,7 +30531,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:23.682982Z",
@@ -30279,6 +30559,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (216 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.327565Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (245 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -30308,7 +30595,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:23.975941Z",
@@ -30333,6 +30620,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.346895Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (245 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.431703Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (245 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
@@ -30365,7 +30659,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.269869Z",
@@ -30390,6 +30684,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.443584Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (245 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.538515Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (245 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
@@ -30422,7 +30723,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.592636Z",
@@ -30450,6 +30751,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (628 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:27.963917Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (600 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -30479,7 +30787,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.398819Z",
@@ -30507,6 +30815,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (669 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.265699Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (657 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -30536,7 +30851,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.497946Z",
@@ -30561,6 +30876,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.634265Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (600 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.069675Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (600 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
@@ -30593,7 +30915,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.885406Z",
@@ -30618,6 +30940,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:07.915652Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (221 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.168509Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (221 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
@@ -30650,7 +30979,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.787916Z",
@@ -30678,6 +31007,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (255 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.368524Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (218 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -30707,7 +31043,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:24.690087Z",
@@ -30735,6 +31071,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (320 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.477856Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (221 chars) is far shorter than the source file (50565 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -31016,7 +31359,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.128930Z",
@@ -31041,6 +31384,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.196797Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.678615Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -31073,7 +31423,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.228945Z",
@@ -31101,6 +31451,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3990 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.880633Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3745 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -31130,7 +31487,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.328116Z",
@@ -31155,6 +31512,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.295832Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.776718Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -31230,7 +31594,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.541536Z",
@@ -31255,6 +31619,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.395823Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:28.579335Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -31287,7 +31658,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.642013Z",
@@ -31312,6 +31683,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.595477Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:29.474778Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -31344,7 +31722,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:27.946053Z",
@@ -31369,6 +31747,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.800723Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:29.763974Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -31429,7 +31814,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:28.251025Z",
@@ -31454,6 +31839,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.900429Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:29.661733Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (3675 chars) is far shorter than the source file (47851 chars); likely a partial/snippet response.",
@@ -32649,7 +33041,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:36.313015Z",
@@ -32677,6 +33069,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (6932 chars) is far shorter than the source file (89575 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:30.293183Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (6933 chars) is far shorter than the source file (89575 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -33085,7 +33484,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:38.619530Z",
@@ -33110,6 +33509,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:08.700224Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (171 chars) is far shorter than the source file (30541 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:29.182227Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (171 chars) is far shorter than the source file (30541 chars); likely a partial/snippet response.",
@@ -33142,7 +33548,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:38.817041Z",
@@ -33167,6 +33573,13 @@
         },
         {
           "timestamp": "2026-08-30T03:15:09.000886Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (171 chars) is far shorter than the source file (30541 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:29.568802Z",
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (171 chars) is far shorter than the source file (30541 chars); likely a partial/snippet response.",
@@ -33627,7 +34040,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:21:41.495037Z",
@@ -33656,6 +34069,13 @@
           "error_type": "PartialOutput",
           "message": "Response (2246 chars) is far shorter than the source file (31470 chars); likely a partial/snippet response.",
           "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:30.491989Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (2276 chars) is far shorter than the source file (31470 chars); likely a partial/snippet response.",
+          "is_retriable": true
         }
       ]
     },
@@ -33666,10 +34086,10 @@
       "file_name": "query-generator.js",
       "condition": "baseline",
       "run_number": 2,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:30.638503Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -33723,10 +34143,10 @@
       "file_name": "query-generator.js",
       "condition": "baseline",
       "run_number": 3,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:30.788064Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -38510,7 +38930,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:22:12.095876Z",
@@ -38538,6 +38958,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (482 chars) is far shorter than the source file (34783 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:30.094303Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (462 chars) is far shorter than the source file (34783 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
@@ -38567,7 +38994,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:22:12.469926Z",
@@ -38596,6 +39023,13 @@
           "error_type": "PartialOutput",
           "message": "Response (482 chars) is far shorter than the source file (34783 chars); likely a partial/snippet response.",
           "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:30.191364Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (519 chars) is far shorter than the source file (34783 chars); likely a partial/snippet response.",
+          "is_retriable": true
         }
       ]
     },
@@ -38606,10 +39040,10 @@
       "file_name": "Compilation.js",
       "condition": "baseline",
       "run_number": 3,
-      "status": "PENDING",
-      "current_stage": "CODE_GENERATION",
+      "status": "COMPLETED",
+      "current_stage": "CSV_UPDATE",
       "started_at": null,
-      "completed_at": null,
+      "completed_at": "2026-08-30T03:29:30.964279Z",
       "failed_at": null,
       "duration_seconds": null,
       "llm_tokens_used": null,
@@ -38972,7 +39406,7 @@
       "post_metrics": null,
       "cc_delta": null,
       "failure_stage": "CODE_GENERATION",
-      "retry_count": 4,
+      "retry_count": 5,
       "errors": [
         {
           "timestamp": "2026-08-24T05:22:13.577359Z",
@@ -39000,6 +39434,13 @@
           "stage": "CODE_GENERATION",
           "error_type": "PartialOutput",
           "message": "Response (1179 chars) is far shorter than the source file (25991 chars); likely a partial/snippet response.",
+          "is_retriable": true
+        },
+        {
+          "timestamp": "2026-08-30T03:29:30.395949Z",
+          "stage": "CODE_GENERATION",
+          "error_type": "PartialOutput",
+          "message": "Response (1271 chars) is far shorter than the source file (25991 chars); likely a partial/snippet response.",
           "is_retriable": true
         }
       ]
